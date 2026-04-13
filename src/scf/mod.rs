@@ -14,7 +14,7 @@ use crate::{
     error::{PwdftError, Result},
     fft::{fft_grid_size, FFT3D},
     kpoints::KPoint,
-    potential::{hartree, local::LocalPotential, xc},
+    potential::{hartree, local::LocalPotential, nonlocal::NonlocalPotential, xc},
     pseudopotential::PseudopotentialData,
 };
 
@@ -152,7 +152,12 @@ pub fn run_scf(
         let mut all_kpoint_wavefns = Vec::new();
 
         for kp in kpoints {
-            let h = build_hamiltonian_with_potential(basis, &kp.k, &v_eff_basis, &g_to_fft, n_grid);
+            let mut h = build_hamiltonian_with_potential(basis, &kp.k, &v_eff_basis);
+
+            // Add non-local pseudopotential (k-dependent)
+            let vnl = NonlocalPotential::new(crystal, basis, &kp.k, pseudopotentials);
+            vnl.add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
+
             let result = dense::diagonalize_lowest(&h, params.n_bands);
             eigenvalues_all.push(result.eigenvalues);
             all_kpoint_wavefns.push(result.eigenvectors);
@@ -237,13 +242,12 @@ pub fn run_scf(
     })
 }
 
-/// Build the Hamiltonian with effective potential at k-point k.
+/// Build the local Hamiltonian (kinetic + local potential) at k-point k.
+/// Non-local potential is added separately via NonlocalPotential::add_to_hamiltonian.
 fn build_hamiltonian_with_potential(
     basis: &BasisSet,
     k: &Vector3<f64>,
     v_eff_basis: &[Complex64],
-    _g_to_fft: &[usize],
-    _n_fft: usize,
 ) -> nalgebra::DMatrix<Complex64> {
     let n = basis.len();
     let mut h = nalgebra::DMatrix::zeros(n, n);

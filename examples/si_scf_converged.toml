@@ -1,0 +1,30 @@
+# Converged SCF for Si — higher cutoff and denser k-grid
+[system]
+lattice = [
+    [0.0, 2.7155, 2.7155],
+    [2.7155, 0.0, 2.7155],
+    [2.7155, 2.7155, 0.0],
+]
+ecut = 200.0
+n_bands = 8
+
+[[system.atoms]]
+symbol = "Si"
+position = [0.0, 0.0, 0.0]
+
+[[system.atoms]]
+symbol = "Si"
+position = [0.25, 0.25, 0.25]
+
+[kpoints]
+type = "monkhorst_pack"
+grid = [4, 4, 4]
+
+[scf]
+max_iter = 60
+conv_threshold = 1e-6
+mixing_beta = 0.3
+smearing_sigma = 0.05
+
+[scf.pseudopotentials]
+Si = "../pseudopotentials/Si.UPF"
