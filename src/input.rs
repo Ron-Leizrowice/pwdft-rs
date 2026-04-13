@@ -12,7 +12,35 @@ use crate::{
 pub struct InputFile {
     pub system: SystemConfig,
     pub kpoints: KPointsConfig,
+    /// SCF parameters (optional).
+    #[serde(default)]
+    pub scf: Option<ScfConfig>,
 }
+
+/// SCF calculation parameters.
+#[derive(Debug, Deserialize)]
+pub struct ScfConfig {
+    /// Maximum SCF iterations.
+    #[serde(default = "default_max_iter")]
+    pub max_iter: usize,
+    /// Convergence threshold for density change.
+    #[serde(default = "default_conv_thr")]
+    pub conv_threshold: f64,
+    /// Mixing parameter beta.
+    #[serde(default = "default_mixing_beta")]
+    pub mixing_beta: f64,
+    /// Smearing width in eV.
+    #[serde(default = "default_smearing")]
+    pub smearing_sigma: f64,
+    /// Paths to pseudopotential files, keyed by element symbol.
+    #[serde(default)]
+    pub pseudopotentials: std::collections::HashMap<String, String>,
+}
+
+fn default_max_iter() -> usize { 100 }
+fn default_conv_thr() -> f64 { 1e-6 }
+fn default_mixing_beta() -> f64 { 0.3 }
+fn default_smearing() -> f64 { 0.1 }
 
 #[derive(Debug, Deserialize)]
 pub struct SystemConfig {

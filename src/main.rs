@@ -8,6 +8,7 @@ use pwdft_rs::{
     basis::BasisSet,
     input::{InputFile, KPointsConfig},
     kpoints,
+    scf,
 };
 
 #[derive(Parser)]
@@ -36,12 +37,13 @@ fn main() -> pwdft_rs::error::Result<()> {
     );
 
     let basis = BasisSet::new(&crystal.lattice, config.system.ecut);
-    info!("Basis set: {} plane waves at ecut = {} eV", basis.len(), config.system.ecut);
+    info!(
+        "Basis set: {} plane waves at ecut = {} eV",
+        basis.len(),
+        config.system.ecut
+    );
 
-    let n_bands = config.system.n_bands.unwrap_or_else(|| {
-        // Default: enough bands to cover interesting physics
-        (basis.len()).min(20)
-    });
+    let n_bands = config.system.n_bands.unwrap_or_else(|| basis.len().min(20));
 
     match &config.kpoints {
         KPointsConfig::BandPath { npoints, .. } => {
@@ -49,12 +51,10 @@ fn main() -> pwdft_rs::error::Result<()> {
             let (kpts, distances) =
                 kpoints::high_symmetry_path(&path_points, *npoints, &crystal.lattice);
 
-            info!(
-                "Band structure: {} k-points, {} bands",
-                kpts.len(),
-                n_bands
-            );
+            info!("Band structure: {} k-points, {} bands", kpts.len(), n_bands);
 
+            // If SCF config is present, run SCF first, then compute bands with converged potential
+            // For now, compute free-electron bands
             let bs =
                 bandstructure::compute_band_structure(&basis, &kpts, &distances, n_bands, None);
 
@@ -74,12 +74,55 @@ fn main() -> pwdft_rs::error::Result<()> {
             let kpts = kpoints::monkhorst_pack(grid[0], grid[1], grid[2], &crystal.lattice);
             info!(
                 "Monkhorst-Pack grid: {}×{}×{} = {} k-points",
-                grid[0],
-                grid[1],
-                grid[2],
-                kpts.len()
+                grid[0], grid[1], grid[2], kpts.len()
             );
-            eprintln!("SCF calculation not yet implemented. Use band_path kpoints for free-electron band structure.");
+
+            // Load pseudopotentials
+            let scf_config = config.scf.as_ref().expect(
+                "SCF calculation requires [scf] section with pseudopotential paths in input file",
+            );
+
+            let input_dir = cli.input.parent().unwrap_or(std::path::Path::new("."));
+            let mut pp_data = Vec::new();
+            for atom_input in &config.system.atoms {
+                let sym = &atom_input.symbol;
+                if pp_data.iter().any(|pp: &pwdft_rs::pseudopotential::PseudopotentialData| pp.element == *sym) {
+                    continue;
+                }
+                let pp_path = scf_config
+                    .pseudopotentials
+                    .get(sym)
+                    .unwrap_or_else(|| panic!("no pseudopotential path for element {sym}"));
+                let pp_path = input_dir.join(pp_path);
+                info!("Loading pseudopotential for {sym}: {}", pp_path.display());
+                let pp = pwdft_rs::pseudopotential::load(&pp_path)?;
+                pp_data.push(pp);
+            }
+            let pp_refs: Vec<&pwdft_rs::pseudopotential::PseudopotentialData> =
+                pp_data.iter().collect();
+
+            let params = scf::ScfParams {
+                n_bands,
+                max_iter: scf_config.max_iter,
+                conv_threshold: scf_config.conv_threshold,
+                mixing_beta: scf_config.mixing_beta,
+                smearing_sigma: scf_config.smearing_sigma,
+            };
+
+            let result = scf::run_scf(&crystal, &basis, &kpts, &pp_refs, &params)?;
+
+            eprintln!("SCF converged in {} iterations", result.n_iterations);
+            eprintln!("Total energy: {:.6} eV", result.total_energy);
+            eprintln!("Fermi energy: {:.6} eV", result.fermi_energy);
+            for (ik, evs) in result.eigenvalues.iter().enumerate() {
+                if ik < 3 || ik == result.eigenvalues.len() - 1 {
+                    eprintln!(
+                        "  k-point {}: bands = {:?}",
+                        ik,
+                        evs.iter().map(|e| format!("{e:.4}")).collect::<Vec<_>>()
+                    );
+                }
+            }
         }
     }
 
