@@ -24,7 +24,9 @@ pub struct PseudopotentialData {
     /// Includes the -Z_val e²/r Coulomb tail.
     pub v_local: Vec<f64>,
     /// Non-local projectors: beta[proj_index] = (angular_momentum, radial_values).
-    /// Radial values in eV^{1/2} · Å^{-1/2} (such that <β|ψ> has units of eV^{1/2}).
+    /// Radial values store χ(r) = r·β(r) in Å^{-1/2} (no energy dimension).
+    /// Energy enters through D_ij. The KB matrix element is:
+    /// V_NL = (1/Ω) Σ F_i D_ij F_j × angular, where F = 4π ∫ χ(r) j_l(qr) r dr.
     pub beta_projectors: Vec<BetaProjector>,
     /// D_ij coupling matrix for non-local projectors (eV).
     /// Stored as a flat n_proj × n_proj matrix in row-major order.

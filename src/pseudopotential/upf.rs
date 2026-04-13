@@ -60,21 +60,14 @@ pub fn parse(content: &str) -> Result<PseudopotentialData> {
             .ok_or_else(|| PwdftError::Parse(format!("missing angular_momentum in {tag}")))?;
 
         let beta_r_ry = extract_data_block(content, &tag, mesh_size)?;
-        // UPF convention: stored values are r · β(r) in Ry^{1/2} · Bohr^{-1/2}
-        // Convert: divide by r to get β(r), convert units
-        // β(r) [eV^{1/2} · Å^{-1/2}] = β_upf(r) / r [Ry^{1/2} · Bohr^{-1/2}]
-        //                                 × sqrt(Ry_to_eV) × 1/sqrt(Bohr_to_Å)
-        // But simpler: we'll keep r·β(r) and handle in the Bessel transform.
-        // Actually, for the Kleinman-Bylander form, the standard convention is:
-        //   <β_i|ψ> = ∫ β_i(r) ψ(r) r² dr  (with β stored as function of r)
-        // UPF stores χ(r) = r · β(r), so the integral becomes ∫ χ(r) ψ(r) r dr.
+        // UPF stores χ(r) = r · β(r) in Bohr^{-1/2} (no energy dimension).
+        // β(r) is a wavefunction-like quantity in Bohr^{-3/2}, so χ = r·β is in Bohr^{-1/2}.
+        // Energy enters only through D_ij (in Ry, converted to eV).
         //
-        // For now, store the raw r·β values converted to our units.
-        // r·β has units of Ry^{1/2}·Bohr^{1/2}
-        // After conversion: values are in eV^{1/2}·Å^{1/2}
+        // Convert Bohr^{-1/2} → Å^{-1/2}: divide by √(BOHR_TO_ANG).
         let values: Vec<f64> = beta_r_ry
             .iter()
-            .map(|&v| v * RY_TO_EV.sqrt() * BOHR_TO_ANG.sqrt())
+            .map(|&v| v / BOHR_TO_ANG.sqrt())
             .collect();
 
         beta_projectors.push(BetaProjector { l, values });
