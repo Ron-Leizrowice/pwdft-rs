@@ -4,9 +4,21 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-approx = "0.5.1"
-nalgebra = "0.34.1"
-num-complex = "0.4.6"
-rayon = "1.11.0"
-serde = "1.0.228"
-serde_yaml = "0.9.34"
+approx = ">=0.5"
+nalgebra = { version = ">=0.34", features = ["serde-serialize"] }
+nalgebra-lapack = { version = ">=0.27", default-features = false, features = ["lapack-accelerate"] }
+lapack = { version = ">=0.20", default-features = false }
+num-complex = ">=0.4"
+rustfft = ">=6.2"
+rayon = ">=1.11"
+serde = { version = ">=1", features = ["derive"] }
+toml = ">=0.8"
+quick-xml = ">=0.37"
+thiserror = ">=2"
+clap = { version = ">=4", features = ["derive"] }
+log = ">=0.4"
+env_logger = ">=0.11"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
