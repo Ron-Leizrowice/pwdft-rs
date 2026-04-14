@@ -23,15 +23,22 @@ pub struct ScfConfig {
     /// Maximum SCF iterations.
     #[serde(default = "default_max_iter")]
     pub max_iter: usize,
-    /// Convergence threshold for density change.
+    /// Convergence threshold for density change (e/ų RMS).
     #[serde(default = "default_conv_thr")]
     pub conv_threshold: f64,
-    /// Mixing parameter beta.
+    /// Density mixing parameter (0 < β ≤ 1). Lower = more conservative.
     #[serde(default = "default_mixing_beta")]
     pub mixing_beta: f64,
-    /// Smearing width in eV.
+    /// Number of density history vectors for Anderson/Pulay mixing.
+    #[serde(default = "default_mixing_ndim")]
+    pub mixing_ndim: usize,
+    /// Fermi-Dirac smearing width in eV.
     #[serde(default = "default_smearing")]
     pub smearing_sigma: f64,
+    /// Charge density cutoff as a multiple of ecutwfc.
+    /// QE default for NC PPs is 4. Higher = more accurate V_xc but slower.
+    #[serde(default = "default_ecutrho_ratio")]
+    pub ecutrho_ratio: u32,
     /// Paths to pseudopotential files, keyed by element symbol.
     #[serde(default)]
     pub pseudopotentials: std::collections::HashMap<String, String>,
@@ -40,7 +47,9 @@ pub struct ScfConfig {
 fn default_max_iter() -> usize { 100 }
 fn default_conv_thr() -> f64 { 1e-6 }
 fn default_mixing_beta() -> f64 { 0.3 }
-fn default_smearing() -> f64 { 0.1 }
+fn default_mixing_ndim() -> usize { 8 }
+fn default_smearing() -> f64 { 0.05 }
+fn default_ecutrho_ratio() -> u32 { 4 }
 
 #[derive(Debug, Deserialize)]
 pub struct SystemConfig {

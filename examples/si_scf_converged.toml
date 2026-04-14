@@ -24,7 +24,9 @@ grid = [4, 4, 4]
 max_iter = 60
 conv_threshold = 1e-6
 mixing_beta = 0.3
+mixing_ndim = 8
 smearing_sigma = 0.05
+ecutrho_ratio = 4
 
 [scf.pseudopotentials]
 Si = "../pseudopotentials/Si.UPF"

@@ -106,7 +106,9 @@ fn main() -> pwdft_rs::error::Result<()> {
                 max_iter: scf_config.max_iter,
                 conv_threshold: scf_config.conv_threshold,
                 mixing_beta: scf_config.mixing_beta,
+                mixing_ndim: scf_config.mixing_ndim,
                 smearing_sigma: scf_config.smearing_sigma,
+                ecutrho_ratio: scf_config.ecutrho_ratio,
             };
 
             let result = scf::run_scf(&crystal, &basis, &kpts, &pp_refs, &params)?;

@@ -24,7 +24,11 @@ pub struct ScfParams {
     pub max_iter: usize,
     pub conv_threshold: f64,
     pub mixing_beta: f64,
+    pub mixing_ndim: usize,
     pub smearing_sigma: f64,
+    /// Charge density cutoff as multiple of wavefunction cutoff.
+    /// Controls FFT grid density. QE default is 4 for NC PPs.
+    pub ecutrho_ratio: u32,
 }
 
 impl Default for ScfParams {
@@ -34,7 +38,9 @@ impl Default for ScfParams {
             max_iter: 100,
             conv_threshold: 1e-6,
             mixing_beta: 0.3,
+            mixing_ndim: 8,
             smearing_sigma: 0.01,
+            ecutrho_ratio: 4,
         }
     }
 }
@@ -57,16 +63,24 @@ struct FftGrid {
 }
 
 impl FftGrid {
-    fn new(basis: &BasisSet, lattice: &crate::crystal::Lattice) -> Self {
+    /// Create an FFT grid sized for the charge density.
+    ///
+    /// `ecutrho_ratio`: multiplier for the wavefunction cutoff (default 4, matching
+    /// QE's ecutrho = 4*ecutwfc for NC PPs). The grid must accommodate G-vectors
+    /// up to sqrt(ecutrho_ratio) × G_max in each direction. Higher ratio = more
+    /// accurate V_xc (nonlinear function of ρ) but larger grid.
+    fn new(basis: &BasisSet, lattice: &crate::crystal::Lattice, ecutrho_ratio: u32) -> Self {
         let miller = basis.miller_indices();
         let n_max: Vec<i32> = (0..3)
             .map(|dim| miller.iter().map(|m| m[dim].abs()).max().unwrap_or(0))
             .collect();
-        // Dense grid: 2× wavefunction cutoff to accommodate ρ = |ψ|² and V(G-G')
+        // Grid must accommodate G-vectors up to sqrt(ratio) × G_max.
+        // For ratio=4 (QE default), this is 2× G_max in each direction.
+        let scale = (ecutrho_ratio as f64).sqrt().ceil() as i32;
         let dims = [
-            fft_grid_size(2 * n_max[0]),
-            fft_grid_size(2 * n_max[1]),
-            fft_grid_size(2 * n_max[2]),
+            fft_grid_size(scale * n_max[0]),
+            fft_grid_size(scale * n_max[1]),
+            fft_grid_size(scale * n_max[2]),
         ];
         let fft = FFT3D::new(dims[0], dims[1], dims[2]);
         let recip = lattice.reciprocal();
@@ -134,10 +148,10 @@ pub fn run_scf(
 
     info!("SCF: {n_electrons} electrons, {omega:.3} ų cell volume");
 
-    let grid = FftGrid::new(basis, &crystal.lattice);
+    let grid = FftGrid::new(basis, &crystal.lattice, params.ecutrho_ratio);
     let n_grid = grid.total_size();
     let [nx, ny, nz] = grid.dims;
-    info!("FFT grid: {nx}×{ny}×{nz} = {n_grid} points (dense, 2× wavefunction cutoff)");
+    info!("FFT grid: {nx}×{ny}×{nz} = {n_grid} points (ecutrho_ratio={})", params.ecutrho_ratio);
 
     let g_to_fft = grid.basis_to_fft(basis);
 
@@ -150,7 +164,7 @@ pub fn run_scf(
     let mut rho_g = vec![Complex64::new(0.0, 0.0); n_grid];
     density_r_to_g(&grid.fft, &rho_r, &mut rho_g);
 
-    let mut mixer = mixing::AndersonMixer::new(params.mixing_beta, 4, n_grid);
+    let mut mixer = mixing::AndersonMixer::new(params.mixing_beta, params.mixing_ndim, n_grid);
     let mut eigenvalues_all = Vec::new();
     let mut fermi_energy;
 
