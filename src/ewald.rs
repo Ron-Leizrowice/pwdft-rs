@@ -25,16 +25,7 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
     let charges: Vec<f64> = crystal
         .atoms
         .iter()
-        .map(|a| {
-            pseudopotentials
-                .iter()
-                .find(|pp| {
-                    crate::atoms::Element::from_symbol(&pp.element)
-                        .map_or(false, |e| e.atomic_number() == a.z)
-                })
-                .map(|pp| pp.z_valence)
-                .unwrap_or(a.z as f64)
-        })
+        .map(|a| crate::pseudopotential::find_for_atom(a.z, pseudopotentials).z_valence)
         .collect();
 
     let positions: Vec<Vector3<f64>> = crystal

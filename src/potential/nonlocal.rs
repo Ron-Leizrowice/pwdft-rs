@@ -68,13 +68,7 @@ impl NonlocalPotential {
         let mut proj_l_all = Vec::new();
 
         for &z in &atom_types {
-            let pp = pseudopotentials
-                .iter()
-                .find(|pp| {
-                    crate::atoms::Element::from_symbol(&pp.element)
-                        .map_or(false, |e| e.atomic_number() == z)
-                })
-                .unwrap();
+            let pp = crate::pseudopotential::find_for_atom(z, pseudopotentials);
 
             let mut type_ff = Vec::new();
             let mut type_l = Vec::new();
@@ -112,6 +106,9 @@ impl NonlocalPotential {
     ///
     /// V_NL(G,G') = (1/Ω) Σ_atom S(G-G') × Σ_{i,j} F_i(|k+G|) D_{ij} F_j(|k+G'|)
     ///              × (2l+1)/(4π) P_l(cos θ)
+    ///
+    /// Optimized: structure factors factored as exp(-iG·τ) × exp(iG'·τ),
+    /// q-vectors and norms precomputed, projector sums lifted out of atom loop.
     pub fn add_to_hamiltonian(
         &self,
         h: &mut nalgebra::DMatrix<Complex64>,
@@ -123,6 +120,11 @@ impl NonlocalPotential {
         let omega = crystal.lattice.volume().abs();
         let inv_omega = 1.0 / omega;
 
+        // Precompute q-vectors and norms (once, not per pair)
+        let g_vecs = basis.g_vectors();
+        let q_vecs: Vec<Vector3<f64>> = g_vecs.iter().map(|g| k + g).collect();
+        let q_norms: Vec<f64> = q_vecs.iter().map(|q| q.norm()).collect();
+
         // Identify unique atom types
         let mut atom_types: Vec<u32> = crystal.atoms.iter().map(|a| a.z).collect();
         atom_types.sort();
@@ -133,53 +135,67 @@ impl NonlocalPotential {
             let dij = &self.dij[itype];
             let proj_l = &self.proj_l[itype];
 
-            // For each atom of this type
-            for atom in crystal.atoms.iter().filter(|a| a.z == z) {
-                let tau = atom.cart_position(&crystal.lattice);
+            // Precompute per-atom structure factor phases: exp(-iG·τ) for each G
+            let atoms_of_type: Vec<_> = crystal.atoms.iter().filter(|a| a.z == z).collect();
+            let atom_phases: Vec<Vec<Complex64>> = atoms_of_type
+                .iter()
+                .map(|atom| {
+                    let tau = atom.cart_position(&crystal.lattice);
+                    g_vecs
+                        .iter()
+                        .map(|g| {
+                            let phase = -g.dot(&tau);
+                            Complex64::new(phase.cos(), phase.sin())
+                        })
+                        .collect()
+                })
+                .collect();
 
-                for ig in 0..n_pw {
-                    for jg in 0..n_pw {
-                        let g_i = basis.g_vectors()[ig];
-                        let g_j = basis.g_vectors()[jg];
+            for ig in 0..n_pw {
+                let q_i = &q_vecs[ig];
+                let q_i_norm = q_norms[ig];
 
-                        // Structure factor: exp(-i(G_i - G_j) · τ)
-                        let g_diff = g_i - g_j;
-                        let phase = -g_diff.dot(&tau);
-                        let sf = Complex64::new(phase.cos(), phase.sin());
+                for jg in 0..n_pw {
+                    let q_j = &q_vecs[jg];
+                    let q_j_norm = q_norms[jg];
 
-                        let q_i = k + g_i;
-                        let q_j = k + g_j;
-                        let q_i_norm = q_i.norm();
-                        let q_j_norm = q_j.norm();
-
-                        let mut vnl = 0.0;
-                        for i in 0..n_proj {
-                            for j in 0..n_proj {
-                                if proj_l[i] != proj_l[j] {
-                                    continue;
-                                }
-                                let l = proj_l[i];
-
-                                let fi = self.form_factors[itype][i][ig];
-                                let fj = self.form_factors[itype][j][jg];
-                                let d = dij[i * n_proj + j];
-
-                                // Angular: (2l+1)/(4π) P_l(cos θ)
-                                // No (-1)^l sign: (-i)^l × (i)^l = 1
-                                let cos_theta = if q_i_norm > 1e-12 && q_j_norm > 1e-12 {
-                                    q_i.dot(&q_j) / (q_i_norm * q_j_norm)
-                                } else {
-                                    1.0
-                                };
-                                let angular =
-                                    (2 * l + 1) as f64 / (4.0 * PI) * legendre_p(l, cos_theta);
-
-                                vnl += fi * d * fj * angular;
+                    // Projector sum (same for all atoms of this type)
+                    let mut vnl = 0.0;
+                    for i in 0..n_proj {
+                        for j in 0..n_proj {
+                            if proj_l[i] != proj_l[j] {
+                                continue;
                             }
-                        }
+                            let l = proj_l[i];
 
-                        h[(ig, jg)] += sf * (vnl * inv_omega);
+                            let fi = self.form_factors[itype][i][ig];
+                            let fj = self.form_factors[itype][j][jg];
+                            let d = dij[i * n_proj + j];
+
+                            let cos_theta = if q_i_norm > 1e-12 && q_j_norm > 1e-12 {
+                                q_i.dot(q_j) / (q_i_norm * q_j_norm)
+                            } else {
+                                1.0
+                            };
+                            let angular =
+                                (2 * l + 1) as f64 / (4.0 * PI) * legendre_p(l, cos_theta);
+
+                            vnl += fi * d * fj * angular;
+                        }
                     }
+
+                    if vnl.abs() < 1e-20 {
+                        continue;
+                    }
+
+                    // Sum structure factors over atoms: Σ_atom exp(-iG_i·τ) × exp(iG_j·τ)
+                    let mut sf_sum = Complex64::new(0.0, 0.0);
+                    for phases in &atom_phases {
+                        // S(G_i - G_j) = exp(-iG_i·τ) × conj(exp(-iG_j·τ))
+                        sf_sum += phases[ig] * phases[jg].conj();
+                    }
+
+                    h[(ig, jg)] += sf_sum * (vnl * inv_omega);
                 }
             }
         }

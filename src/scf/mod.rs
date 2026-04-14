@@ -153,16 +153,7 @@ pub fn run_scf(
     let n_electrons: f64 = crystal
         .atoms
         .iter()
-        .map(|a| {
-            pseudopotentials
-                .iter()
-                .find(|pp| {
-                    crate::atoms::Element::from_symbol(&pp.element)
-                        .map_or(false, |e| e.atomic_number() == a.z)
-                })
-                .unwrap()
-                .z_valence
-        })
+        .map(|a| crate::pseudopotential::find_for_atom(a.z, pseudopotentials).z_valence)
         .sum();
 
     info!("SCF: {n_electrons} electrons, {omega:.3} ų cell volume");
@@ -179,17 +170,22 @@ pub fn run_scf(
 
     // Try to initialize GPU if compiled with gpu feature
     #[cfg(feature = "gpu")]
-    let gpu = {
-        let g = crate::gpu::GpuAccelerator::try_new();
-        if g.is_some() {
-            info!("GPU acceleration enabled for grid operations");
-        }
-        g
-    };
+    let mut gpu = crate::gpu::GpuAccelerator::try_new();
     #[cfg(feature = "gpu")]
+    if gpu.is_some() {
+        info!("GPU acceleration enabled for grid operations");
+    }
+    // Precompute |G|² for each FFT grid point (used by Hartree, both CPU and GPU)
     let g_squared: Vec<f64> = (0..n_grid)
+        .into_par_iter()
         .map(|idx| grid.g_vector_at(idx).norm_squared())
         .collect();
+
+    // Prepare persistent GPU buffers if GPU is available
+    #[cfg(feature = "gpu")]
+    if let Some(ref mut g) = gpu {
+        g.prepare_buffers(n_grid, &g_squared);
+    }
 
     // Initial density: superposition of atomic densities (SAD)
     let init_config = initial_density::InitialDensityConfig::non_magnetic(crystal.atoms.len());
@@ -205,74 +201,42 @@ pub fn run_scf(
     let mut fermi_energy;
 
     for iter in 0..params.max_iter {
-        // 1. Hartree potential on FULL FFT grid
-        // 2. XC potential in real space → FFT to G-space
-        // 3. V_eff on the FULL FFT grid: V_local + V_H + V_xc
-        //
-        // GPU path: Hartree and V_eff assembly run on GPU (f32).
-        // XC is computed on GPU in real space, then FFT'd on CPU.
-        // CPU path: rayon-parallelized.
+        // Steps 1-3: Hartree, XC, V_eff assembly.
+        // GPU path uses f32 for Hartree, XC, and V_eff; CPU path uses f64 + rayon.
+        // XC FFT normalization is shared between both paths.
 
+        // 1. Hartree potential
         #[cfg(feature = "gpu")]
-        let (v_h_fft, vxc_g, v_eff_fft) = if let Some(ref gpu) = gpu {
+        let v_h_fft = if let Some(ref gpu) = gpu {
             let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
-            let v_h = gpu.hartree_potential(&rho_g, &g_squared, fourpi_e2);
-
-            let (_exc_r, vxc_r) = gpu.lda_xc(&rho_r);
-            let mut vxc_g = vec![Complex64::new(0.0, 0.0); n_grid];
-            for (i, &v) in vxc_r.iter().enumerate() {
-                vxc_g[i] = Complex64::new(v, 0.0);
-            }
-            grid.fft.forward(&mut vxc_g);
-            let norm = 1.0 / n_grid as f64;
-            for v in &mut vxc_g {
-                *v *= norm;
-            }
-
-            let v_eff = gpu.v_eff_assembly(&v_local_fft, &v_h, &vxc_g);
-            (v_h, vxc_g, v_eff)
+            gpu.hartree_potential(&rho_g, &g_squared, fourpi_e2)
         } else {
-            let v_h = hartree_on_fft_grid(&rho_g, &grid);
-            let (_exc_r, vxc_r) = xc::lda_xc_grid(&rho_r);
-            let mut vxc_g = vec![Complex64::new(0.0, 0.0); n_grid];
-            for (i, &v) in vxc_r.iter().enumerate() {
-                vxc_g[i] = Complex64::new(v, 0.0);
-            }
-            grid.fft.forward(&mut vxc_g);
-            let norm = 1.0 / n_grid as f64;
-            for v in &mut vxc_g {
-                *v *= norm;
-            }
-            let v_eff: Vec<Complex64> = v_local_fft
-                .par_iter()
-                .zip(v_h.par_iter())
-                .zip(vxc_g.par_iter())
-                .map(|((&vl, &vh), &vxc)| vl + vh + vxc)
-                .collect();
-            (v_h, vxc_g, v_eff)
+            hartree_on_fft_grid(&rho_g, &g_squared)
         };
-
         #[cfg(not(feature = "gpu"))]
-        let (v_h_fft, vxc_g, v_eff_fft) = {
-            let v_h = hartree_on_fft_grid(&rho_g, &grid);
-            let (_exc_r, vxc_r) = xc::lda_xc_grid(&rho_r);
-            let mut vxc_g = vec![Complex64::new(0.0, 0.0); n_grid];
-            for (i, &v) in vxc_r.iter().enumerate() {
-                vxc_g[i] = Complex64::new(v, 0.0);
-            }
-            grid.fft.forward(&mut vxc_g);
-            let norm = 1.0 / n_grid as f64;
-            for v in &mut vxc_g {
-                *v *= norm;
-            }
-            let v_eff: Vec<Complex64> = v_local_fft
-                .par_iter()
-                .zip(v_h.par_iter())
-                .zip(vxc_g.par_iter())
-                .map(|((&vl, &vh), &vxc)| vl + vh + vxc)
-                .collect();
-            (v_h, vxc_g, v_eff)
+        let v_h_fft = hartree_on_fft_grid(&rho_g, &g_squared);
+
+        // 2. XC potential: compute in real space, FFT to G-space
+        #[cfg(feature = "gpu")]
+        let (_exc_r, vxc_r) = if let Some(ref gpu) = gpu {
+            gpu.lda_xc(&rho_r)
+        } else {
+            xc::lda_xc_grid(&rho_r)
         };
+        #[cfg(not(feature = "gpu"))]
+        let (_exc_r, vxc_r) = xc::lda_xc_grid(&rho_r);
+
+        let vxc_g = real_to_g_space(&vxc_r, &grid.fft);
+
+        // 3. V_eff = V_local + V_H + V_xc
+        #[cfg(feature = "gpu")]
+        let v_eff_fft = if let Some(ref gpu) = gpu {
+            gpu.v_eff_assembly(&v_local_fft, &v_h_fft, &vxc_g)
+        } else {
+            assemble_v_eff(&v_local_fft, &v_h_fft, &vxc_g)
+        };
+        #[cfg(not(feature = "gpu"))]
+        let v_eff_fft = assemble_v_eff(&v_local_fft, &v_h_fft, &vxc_g);
 
         // 4. Solve eigenvalue problem at each k-point (parallel over k-points)
         let kpoint_results: Vec<_> = kpoints
@@ -341,7 +305,7 @@ pub fn run_scf(
 
             let total_energy = compute_total_energy(
                 &eigenvalues_all, &occupations, kpoints, &rho_r, &rho_g,
-                &grid, crystal, pseudopotentials, omega,
+                &g_squared, crystal, pseudopotentials, omega,
             );
 
             return Ok(ScfResult {
@@ -378,14 +342,8 @@ fn compute_v_local_on_fft_grid(
         .atoms
         .iter()
         .map(|atom| {
-            let pp = pseudopotentials
-                .iter()
-                .find(|pp| {
-                    crate::atoms::Element::from_symbol(&pp.element)
-                        .map_or(false, |e| e.atomic_number() == atom.z)
-                })
-                .unwrap();
-            (atom.cart_position(&crystal.lattice), *pp)
+            let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
+            (atom.cart_position(&crystal.lattice), pp)
         })
         .collect();
 
@@ -408,19 +366,45 @@ fn compute_v_local_on_fft_grid(
 }
 
 /// Compute Hartree potential on the FULL FFT grid.
-fn hartree_on_fft_grid(rho_g: &[Complex64], grid: &FftGrid) -> Vec<Complex64> {
+fn hartree_on_fft_grid(rho_g: &[Complex64], g_squared: &[f64]) -> Vec<Complex64> {
     let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
 
-    (0..grid.total_size())
-        .into_par_iter()
-        .map(|idx| {
-            let g2 = grid.g_vector_at(idx).norm_squared();
+    rho_g
+        .par_iter()
+        .zip(g_squared.par_iter())
+        .map(|(&rho, &g2)| {
             if g2 > 1e-20 {
-                rho_g[idx] * fourpi_e2 / g2
+                rho * fourpi_e2 / g2
             } else {
                 Complex64::new(0.0, 0.0)
             }
         })
+        .collect()
+}
+
+/// Convert real-space array to G-space with FFT normalization.
+fn real_to_g_space(data_r: &[f64], fft: &FFT3D) -> Vec<Complex64> {
+    let n = data_r.len();
+    let mut data_g: Vec<Complex64> = data_r.iter().map(|&v| Complex64::new(v, 0.0)).collect();
+    fft.forward(&mut data_g);
+    let norm = 1.0 / n as f64;
+    for v in &mut data_g {
+        *v *= norm;
+    }
+    data_g
+}
+
+/// Assemble V_eff = V_local + V_H + V_xc (CPU path).
+fn assemble_v_eff(
+    v_local: &[Complex64],
+    v_h: &[Complex64],
+    v_xc: &[Complex64],
+) -> Vec<Complex64> {
+    v_local
+        .par_iter()
+        .zip(v_h.par_iter())
+        .zip(v_xc.par_iter())
+        .map(|((&vl, &vh), &vxc)| vl + vh + vxc)
         .collect()
 }
 
@@ -484,12 +468,12 @@ fn compute_total_energy(
     kpoints: &[KPoint],
     rho_r: &[f64],
     rho_g: &[Complex64],
-    grid: &FftGrid,
+    g_squared: &[f64],
     crystal: &Crystal,
     pseudopotentials: &[&PseudopotentialData],
     omega: f64,
 ) -> f64 {
-    let n_grid = grid.total_size();
+    let n_grid = rho_g.len();
 
     // Band energy
     let e_band: f64 = eigenvalues
@@ -503,14 +487,11 @@ fn compute_total_energy(
 
     // Hartree energy on full FFT grid
     let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
-    let e_hartree: f64 = (0..n_grid)
-        .map(|idx| {
-            let g2 = grid.g_vector_at(idx).norm_squared();
-            if g2 > 1e-20 {
-                rho_g[idx].norm_sqr() * fourpi_e2 / g2
-            } else {
-                0.0
-            }
+    let e_hartree: f64 = rho_g
+        .iter()
+        .zip(g_squared.iter())
+        .map(|(rho, &g2)| {
+            if g2 > 1e-20 { rho.norm_sqr() * fourpi_e2 / g2 } else { 0.0 }
         })
         .sum::<f64>()
         * 0.5

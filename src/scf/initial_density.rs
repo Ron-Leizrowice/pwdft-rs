@@ -66,13 +66,7 @@ pub(super) fn generate_initial_density(
     let mut rho_g = vec![Complex64::new(0.0, 0.0); n_grid];
 
     for atom in &crystal.atoms {
-        let pp = pseudopotentials
-            .iter()
-            .find(|pp| {
-                crate::atoms::Element::from_symbol(&pp.element)
-                    .map_or(false, |e| e.atomic_number() == atom.z)
-            })
-            .unwrap();
+        let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
 
         let tau = atom.cart_position(&crystal.lattice);
         let z_val = pp.z_valence;

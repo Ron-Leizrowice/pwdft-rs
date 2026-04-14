@@ -83,6 +83,20 @@ pub fn load(path: &Path) -> Result<PseudopotentialData> {
     }
 }
 
+/// Find the pseudopotential matching an atom's atomic number.
+///
+/// Matches by converting the PP element symbol to an atomic number.
+/// Panics if no match is found — callers should validate PP coverage at startup.
+pub fn find_for_atom<'a>(z: u32, pseudopotentials: &[&'a PseudopotentialData]) -> &'a PseudopotentialData {
+    pseudopotentials
+        .iter()
+        .find(|pp| {
+            crate::atoms::Element::from_symbol(&pp.element)
+                .map_or(false, |e| e.atomic_number() == z)
+        })
+        .expect("no pseudopotential found for atom")
+}
+
 impl PseudopotentialData {
     /// Compute V_local(G) via spherical Bessel transform.
     ///

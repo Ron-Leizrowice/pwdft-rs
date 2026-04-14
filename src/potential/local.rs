@@ -41,14 +41,7 @@ impl LocalPotential {
             let g_norm = g.norm();
 
             for atom in &crystal.atoms {
-                // Find the pseudopotential for this atom type
-                let pp = pseudopotentials
-                    .iter()
-                    .find(|pp| {
-                        crate::atoms::Element::from_symbol(&pp.element)
-                            .map_or(false, |e| e.atomic_number() == atom.z)
-                    })
-                    .unwrap_or_else(|| panic!("no pseudopotential for Z={}", atom.z));
+                let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
 
                 // Structure factor: S(G) = exp(-i G · τ)
                 let tau = atom.cart_position(&crystal.lattice);
@@ -98,13 +91,7 @@ pub fn v_local_matrix_element(
     let mut result = Complex64::new(0.0, 0.0);
 
     for atom in &crystal.atoms {
-        let pp = pseudopotentials
-            .iter()
-            .find(|pp| {
-                crate::atoms::Element::from_symbol(&pp.element)
-                    .map_or(false, |e| e.atomic_number() == atom.z)
-            })
-            .unwrap_or_else(|| panic!("no pseudopotential for Z={}", atom.z));
+        let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
 
         let tau = atom.cart_position(&crystal.lattice);
         let phase = -g_diff.dot(&tau);

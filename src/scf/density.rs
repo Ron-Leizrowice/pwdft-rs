@@ -31,50 +31,49 @@ pub fn compute_density(
     let n_grid = fft.total_size();
     let n_pw = basis.len();
 
-    // Each k-point computes its contribution independently, then we reduce
-    let rho_per_k: Vec<Vec<f64>> = (0..kpoints.len())
+    // Parallel map-reduce: each k-point accumulates into a thread-local buffer,
+    // then rayon reduces by summing the buffers. Avoids n_kpoints intermediate
+    // allocations — only allocates one buffer per rayon worker thread.
+    let [dnx, dny, dnz] = fft.dims();
+    let mut rho_r: Vec<f64> = (0..kpoints.len())
         .into_par_iter()
-        .map(|ik| {
-            let kp = &kpoints[ik];
-            let wfn = &wavefunctions[ik];
-            let occ = &occupations[ik];
-            let n_bands = occ.len();
-            let mut rho_k = vec![0.0; n_grid];
+        .fold(
+            || vec![0.0; n_grid],
+            |mut rho_acc, ik| {
+                let kp = &kpoints[ik];
+                let wfn = &wavefunctions[ik];
+                let occ = &occupations[ik];
+                let n_bands = occ.len();
+                let fft_local = FFT3D::new(dnx, dny, dnz);
 
-            // Each k-point needs its own FFT instance (plans are Arc-shared internally)
-            let fft_local = FFT3D::new(fft.dims()[0], fft.dims()[1], fft.dims()[2]);
+                for ib in 0..n_bands {
+                    let f = occ[ib] * kp.weight;
+                    if f < 1e-15 {
+                        continue;
+                    }
 
-            for ib in 0..n_bands {
-                let f = occ[ib] * kp.weight;
-                if f < 1e-15 {
-                    continue;
+                    let mut psi_g = vec![Complex64::new(0.0, 0.0); n_grid];
+                    for ig in 0..n_pw {
+                        psi_g[g_to_fft[ig]] = wfn[(ig, ib)];
+                    }
+                    fft_local.inverse(&mut psi_g);
+
+                    for (i, &psi) in psi_g.iter().enumerate() {
+                        rho_acc[i] += f * psi.norm_sqr();
+                    }
                 }
-
-                // Place PW coefficients on FFT grid
-                let mut psi_g = vec![Complex64::new(0.0, 0.0); n_grid];
-                for ig in 0..n_pw {
-                    psi_g[g_to_fft[ig]] = wfn[(ig, ib)];
+                rho_acc
+            },
+        )
+        .reduce(
+            || vec![0.0; n_grid],
+            |mut a, b| {
+                for (ai, &bi) in a.iter_mut().zip(b.iter()) {
+                    *ai += bi;
                 }
-
-                // Inverse FFT: ψ(G) → ψ(r)
-                fft_local.inverse(&mut psi_g);
-
-                // Accumulate |ψ(r)|²
-                for (i, &psi) in psi_g.iter().enumerate() {
-                    rho_k[i] += f * psi.norm_sqr();
-                }
-            }
-            rho_k
-        })
-        .collect();
-
-    // Reduce: sum contributions from all k-points
-    let mut rho_r = vec![0.0; n_grid];
-    for rho_k in &rho_per_k {
-        for (i, &v) in rho_k.iter().enumerate() {
-            rho_r[i] += v;
-        }
-    }
+                a
+            },
+        );
 
     // Normalize: the integral ∫ρ(r)dr should equal N_electrons
     let dvol = omega / n_grid as f64;

@@ -16,12 +16,33 @@ use num_complex::Complex64;
 use wgpu::util::DeviceExt;
 
 /// GPU accelerator wrapping wgpu device and precompiled compute pipelines.
+///
+/// When `prepare_buffers` is called, allocates persistent GPU buffers for a
+/// given grid size. Subsequent kernel calls reuse these buffers, avoiding
+/// per-call allocation overhead (~1 ms per call).
 pub struct GpuAccelerator {
     device: wgpu::Device,
     queue: wgpu::Queue,
     hartree_pipeline: wgpu::ComputePipeline,
     v_eff_pipeline: wgpu::ComputePipeline,
     lda_xc_pipeline: wgpu::ComputePipeline,
+    /// Persistent buffer pool for a fixed grid size.
+    pool: Option<BufferPool>,
+}
+
+/// Pre-allocated GPU buffers for a fixed grid size.
+#[allow(dead_code)] // real_bufs/real_staging reserved for LDA XC pooled path
+struct BufferPool {
+    n_grid: usize,
+    /// Complex buffers: 2 × n_grid f32 values
+    complex_bufs: Vec<wgpu::Buffer>,
+    /// Real buffers: n_grid f32 values (for LDA XC pooled path)
+    real_bufs: Vec<wgpu::Buffer>,
+    /// Staging buffers for readback
+    complex_staging: wgpu::Buffer,
+    real_staging: wgpu::Buffer,
+    /// Precomputed |G|² on GPU (doesn't change between SCF iterations)
+    g_squared_buf: Option<wgpu::Buffer>,
 }
 
 // Uniform parameter structs matching WGSL layout.
@@ -95,7 +116,68 @@ impl GpuAccelerator {
             hartree_pipeline,
             v_eff_pipeline,
             lda_xc_pipeline,
+            pool: None,
         })
+    }
+
+    /// Pre-allocate persistent GPU buffers for a given grid size.
+    /// Also uploads the static |G|² array that doesn't change between iterations.
+    pub fn prepare_buffers(&mut self, n_grid: usize, g_squared: &[f64]) {
+        let complex_size = (2 * n_grid * std::mem::size_of::<f32>()) as u64;
+        let real_size = (n_grid * std::mem::size_of::<f32>()) as u64;
+
+        // Allocate 5 complex storage buffers (enough for hartree + v_eff inputs/output)
+        let complex_bufs: Vec<wgpu::Buffer> = (0..5)
+            .map(|i| {
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(&format!("pool_complex_{i}")),
+                    size: complex_size,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                })
+            })
+            .collect();
+
+        // Allocate 3 real storage buffers (rho_r, exc_r, vxc_r)
+        let real_bufs: Vec<wgpu::Buffer> = (0..3)
+            .map(|i| {
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(&format!("pool_real_{i}")),
+                    size: real_size,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                })
+            })
+            .collect();
+
+        let complex_staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pool_complex_staging"),
+            size: complex_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let real_staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pool_real_staging"),
+            size: real_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        // Upload static g_squared
+        let g2_f32: Vec<f32> = g_squared.iter().map(|&v| v as f32).collect();
+        let g_squared_buf = self.create_storage_buffer(&g2_f32);
+
+        self.pool = Some(BufferPool {
+            n_grid,
+            complex_bufs,
+            real_bufs,
+            complex_staging,
+            real_staging,
+            g_squared_buf: Some(g_squared_buf),
+        });
+
+        info!("GPU buffer pool allocated for {n_grid} grid points");
     }
 
     fn create_pipeline(
@@ -120,6 +202,8 @@ impl GpuAccelerator {
     /// Compute Hartree potential on GPU.
     ///
     /// V_H(G) = 4πe² × ρ(G) / |G|² for |G|² > 0, else 0.
+    ///
+    /// Uses pooled buffers if `prepare_buffers` was called; otherwise allocates fresh.
     pub fn hartree_potential(
         &self,
         rho_g: &[Complex64],
@@ -127,25 +211,57 @@ impl GpuAccelerator {
         fourpi_e2: f64,
     ) -> Vec<Complex64> {
         let n_grid = rho_g.len();
-        assert_eq!(g_squared.len(), n_grid);
-
-        // Convert to f32 for GPU
         let rho_f32 = complex_to_f32_pairs(rho_g);
-        let g2_f32: Vec<f32> = g_squared.iter().map(|&v| v as f32).collect();
 
         let params = HartreeParams {
             fourpi_e2: fourpi_e2 as f32,
             n_grid: n_grid as u32,
         };
-
-        // Create GPU buffers
         let params_buf = self.create_uniform_buffer(&params);
+
+        // Use pooled buffers if available and sized correctly
+        if let Some(ref pool) = self.pool {
+            if pool.n_grid == n_grid {
+                let rho_buf = &pool.complex_bufs[0];
+                let out_buf = &pool.complex_bufs[1];
+                let g2_buf = pool.g_squared_buf.as_ref().unwrap();
+
+                self.queue.write_buffer(rho_buf, 0, bytemuck::cast_slice(&rho_f32));
+
+                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("hartree"),
+                    layout: &self.hartree_pipeline.get_bind_group_layout(0),
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 1, resource: rho_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 2, resource: g2_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 3, resource: out_buf.as_entire_binding() },
+                    ],
+                });
+
+                let mut encoder = self.device.create_command_encoder(&Default::default());
+                {
+                    let mut pass = encoder.begin_compute_pass(&Default::default());
+                    pass.set_pipeline(&self.hartree_pipeline);
+                    pass.set_bind_group(0, &bind_group, &[]);
+                    pass.dispatch_workgroups(dispatch_size(n_grid as u32), 1, 1);
+                }
+                let byte_size = (rho_f32.len() * std::mem::size_of::<f32>()) as u64;
+                encoder.copy_buffer_to_buffer(out_buf, 0, &pool.complex_staging, 0, byte_size);
+                self.queue.submit(std::iter::once(encoder.finish()));
+
+                let result_f32 = self.read_staging_buffer(&pool.complex_staging, rho_f32.len());
+                return f32_pairs_to_complex(&result_f32);
+            }
+        }
+
+        // Fallback: allocate fresh buffers
+        let g2_f32: Vec<f32> = g_squared.iter().map(|&v| v as f32).collect();
         let rho_buf = self.create_storage_buffer(&rho_f32);
         let g2_buf = self.create_storage_buffer(&g2_f32);
         let out_buf = self.create_output_buffer(rho_f32.len());
         let staging_buf = self.create_staging_buffer(rho_f32.len());
 
-        // Bind group
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("hartree"),
             layout: &self.hartree_pipeline.get_bind_group_layout(0),
@@ -157,7 +273,6 @@ impl GpuAccelerator {
             ],
         });
 
-        // Dispatch
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
@@ -165,17 +280,10 @@ impl GpuAccelerator {
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(dispatch_size(n_grid as u32), 1, 1);
         }
-
-        // Copy to staging buffer for readback
-        encoder.copy_buffer_to_buffer(
-            &out_buf, 0,
-            &staging_buf, 0,
-            (rho_f32.len() * std::mem::size_of::<f32>()) as u64,
-        );
-
+        let byte_size = (rho_f32.len() * std::mem::size_of::<f32>()) as u64;
+        encoder.copy_buffer_to_buffer(&out_buf, 0, &staging_buf, 0, byte_size);
         self.queue.submit(std::iter::once(encoder.finish()));
 
-        // Read back results
         let result_f32 = self.read_staging_buffer(&staging_buf, rho_f32.len());
         f32_pairs_to_complex(&result_f32)
     }
