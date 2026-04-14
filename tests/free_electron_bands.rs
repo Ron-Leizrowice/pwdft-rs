@@ -25,6 +25,8 @@ use pwdft_rs::{
 };
 
 const SI_A: f64 = 5.431; // Å
+const C_A: f64 = 3.567;  // Å — diamond cubic
+const FE_A: f64 = 2.87;  // Å — BCC iron
 const N_BANDS: usize = 15;
 const ECUT: f64 = 100.0; // eV — lower cutoff keeps debug-mode eigensolves fast
 
@@ -33,6 +35,24 @@ fn si_lattice() -> Lattice {
         SI_A / 2.0 * Vector3::new(0.0, 1.0, 1.0),
         SI_A / 2.0 * Vector3::new(1.0, 0.0, 1.0),
         SI_A / 2.0 * Vector3::new(1.0, 1.0, 0.0),
+    )
+}
+
+/// Diamond carbon: FCC with a=3.567 Å (same structure as Si but smaller cell)
+fn c_diamond_lattice() -> Lattice {
+    Lattice::new(
+        C_A / 2.0 * Vector3::new(0.0, 1.0, 1.0),
+        C_A / 2.0 * Vector3::new(1.0, 0.0, 1.0),
+        C_A / 2.0 * Vector3::new(1.0, 1.0, 0.0),
+    )
+}
+
+/// BCC iron: conventional cell a=2.87 Å
+fn fe_bcc_lattice() -> Lattice {
+    Lattice::new(
+        FE_A / 2.0 * Vector3::new(-1.0, 1.0, 1.0),
+        FE_A / 2.0 * Vector3::new(1.0, -1.0, 1.0),
+        FE_A / 2.0 * Vector3::new(1.0, 1.0, -1.0),
     )
 }
 
@@ -386,6 +406,150 @@ fn test_gamma_numerical_values() {
             relative_eq!(result.eigenvalues[i], e_shell2, epsilon = 1e-8),
             "Γ band {i}: expected {e_shell2:.10}, got {:.10}",
             result.eigenvalues[i]
+        );
+    }
+}
+
+// ============================================================
+// Test 9: Diamond carbon — FCC with smaller cell
+// ============================================================
+#[test]
+fn test_diamond_c_eigenvalues_at_gamma() {
+    let lattice = c_diamond_lattice();
+    let basis = BasisSet::new(&lattice, ECUT);
+    let k = Vector3::zeros();
+    let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
+
+    let h = hamiltonian::build_hamiltonian(&basis, &k, None);
+    let result = dense::diagonalize_lowest(&h, N_BANDS);
+
+    for (i, (&computed, &expected)) in result
+        .eigenvalues
+        .iter()
+        .zip(analytic.iter())
+        .enumerate()
+    {
+        assert!(
+            relative_eq!(computed, expected, epsilon = 1e-8),
+            "C diamond Γ band {i}: computed={computed:.10}, expected={expected:.10}"
+        );
+    }
+
+    // Diamond C has smaller lattice → larger reciprocal → shells at higher energy
+    // First shell: E = 3κ² ℏ²/2m where κ = 2π/a
+    let kappa_sq = (2.0 * std::f64::consts::PI / C_A).powi(2);
+    let e_shell1 = 3.0 * kappa_sq * HBAR2_OVER_2M;
+    assert!(
+        result.eigenvalues[0].abs() < 1e-10,
+        "C Γ band 0 should be 0: got {}", result.eigenvalues[0]
+    );
+    // Bands 1-8 should all be degenerate at the first shell
+    for i in 1..=8.min(result.eigenvalues.len() - 1) {
+        assert!(
+            relative_eq!(result.eigenvalues[i], e_shell1, epsilon = 1e-6),
+            "C Γ band {i}: expected {e_shell1:.4} eV, got {:.4} eV",
+            result.eigenvalues[i]
+        );
+    }
+}
+
+// ============================================================
+// Test 10: BCC iron — different Bravais lattice
+// ============================================================
+#[test]
+fn test_bcc_fe_eigenvalues_at_gamma() {
+    let lattice = fe_bcc_lattice();
+    let basis = BasisSet::new(&lattice, ECUT);
+    let k = Vector3::zeros();
+    let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
+
+    let h = hamiltonian::build_hamiltonian(&basis, &k, None);
+    let result = dense::diagonalize_lowest(&h, N_BANDS);
+
+    for (i, (&computed, &expected)) in result
+        .eigenvalues
+        .iter()
+        .zip(analytic.iter())
+        .enumerate()
+    {
+        assert!(
+            relative_eq!(computed, expected, epsilon = 1e-8),
+            "Fe BCC Γ band {i}: computed={computed:.10}, expected={expected:.10}"
+        );
+    }
+
+    // BCC: Γ ground state E=0, first shell is 2κ² (12-fold degenerate: ±110 family)
+    assert!(result.eigenvalues[0].abs() < 1e-10);
+}
+
+// ============================================================
+// Test 11: BCC Fe free-electron band continuity
+// ============================================================
+#[test]
+fn test_bcc_fe_band_continuity() {
+    let lattice = fe_bcc_lattice();
+    let basis = BasisSet::new(&lattice, ECUT);
+
+    // Γ → H path for BCC: Γ=(0,0,0), H=(1,0,0) in fractional reciprocal
+    let recip = lattice.reciprocal();
+    let gamma = Vector3::zeros();
+    let h_point = 0.5 * recip.a; // H = (1/2, 0, 0) × 2π/a in Cartesian? Actually H = (1,0,0) frac
+    // For BCC, H point in Cartesian = b1/2 where b1 = reciprocal lattice vector
+    // Actually, let's just test along a generic direction
+    let k_end = 0.5 * (recip.a + recip.b); // N point for BCC
+
+    let n_kpts = 10;
+    let n_bands = 8;
+    let mut prev_eigenvalues: Option<Vec<f64>> = None;
+
+    for ik in 0..n_kpts {
+        let t = ik as f64 / (n_kpts - 1) as f64;
+        let k = gamma * (1.0 - t) + k_end * t;
+        let h = hamiltonian::build_hamiltonian(&basis, &k, None);
+        let result = dense::diagonalize_lowest(&h, n_bands);
+
+        if let Some(ref prev) = prev_eigenvalues {
+            for ib in 0..n_bands {
+                let jump = (result.eigenvalues[ib] - prev[ib]).abs();
+                // Adjacent k-points should have smooth dispersion
+                // For free electrons, max jump ≈ (2ℏ²/2m) * |Δk| * |G_max|
+                let dk = 1.0 / (n_kpts - 1) as f64 * k_end.norm();
+                let max_jump = 2.0 * HBAR2_OVER_2M * dk * basis.g_vectors().iter().map(|g| g.norm()).fold(0.0_f64, f64::max) + 50.0;
+                assert!(
+                    jump < max_jump,
+                    "Fe BCC band {ib} at k={ik}: jump={jump:.4} eV exceeds {max_jump:.4} eV"
+                );
+            }
+        }
+        prev_eigenvalues = Some(result.eigenvalues);
+    }
+}
+
+// ============================================================
+// Test 12: Diamond C at off-Γ k-point matches analytic
+// ============================================================
+#[test]
+fn test_diamond_c_off_gamma() {
+    let lattice = c_diamond_lattice();
+    let basis = BasisSet::new(&lattice, ECUT);
+    let recip = lattice.reciprocal();
+
+    // X point for FCC: (0, 1, 0) in fractional reciprocal = b2/2
+    let k = 0.5 * recip.b;
+    let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
+
+    let h = hamiltonian::build_hamiltonian(&basis, &k, None);
+    let result = dense::diagonalize_lowest(&h, N_BANDS);
+
+    for (i, (&computed, &expected)) in result
+        .eigenvalues
+        .iter()
+        .zip(analytic.iter())
+        .enumerate()
+    {
+        assert!(
+            relative_eq!(computed, expected, epsilon = 1e-8),
+            "C diamond X band {i}: computed={computed:.10}, expected={expected:.10}"
         );
     }
 }

@@ -3,12 +3,14 @@
 //! Anderson (Pulay) mixing: stores a history of input/output density pairs
 //! and finds the optimal linear combination.
 
+use ndarray::{Array1, ArrayView1};
+
 /// Anderson/Pulay density mixer.
 pub struct AndersonMixer {
     beta: f64,
     max_history: usize,
-    history_in: Vec<Vec<f64>>,
-    history_res: Vec<Vec<f64>>,
+    history_in: Vec<Array1<f64>>,
+    history_res: Vec<Array1<f64>>,
 }
 
 impl AndersonMixer {
@@ -28,10 +30,11 @@ impl AndersonMixer {
     ///
     /// Returns the new input density for the next iteration.
     pub fn mix(&mut self, rho_in: &[f64], rho_out: &[f64]) -> Vec<f64> {
-        let n = rho_in.len();
-        let residual: Vec<f64> = rho_out.iter().zip(rho_in.iter()).map(|(&o, &i)| o - i).collect();
+        let rho_in_arr = ArrayView1::from(rho_in);
+        let rho_out_arr = ArrayView1::from(rho_out);
+        let residual = &rho_out_arr - &rho_in_arr;
 
-        self.history_in.push(rho_in.to_vec());
+        self.history_in.push(rho_in_arr.to_owned());
         self.history_res.push(residual.clone());
 
         // Trim history
@@ -43,11 +46,8 @@ impl AndersonMixer {
         let m = self.history_in.len();
         if m < 2 {
             // Simple linear mixing for first iteration
-            let mut rho_new = vec![0.0; n];
-            for i in 0..n {
-                rho_new[i] = rho_in[i] + self.beta * residual[i];
-            }
-            return rho_new;
+            let rho_new = &rho_in_arr + &(self.beta * &residual);
+            return rho_new.to_vec();
         }
 
         // Anderson mixing: find coefficients that minimize |Σ α_i R_i|²
@@ -56,27 +56,21 @@ impl AndersonMixer {
         let last = m - 1;
         let mm = m - 1; // number of equations
 
-        // Build the system
+        let r_last = &self.history_res[last];
+
+        // Build the system using ndarray dot products
         let mut a_mat = vec![0.0; mm * mm];
         let mut b_vec = vec![0.0; mm];
 
+        // Precompute delta residuals
+        let dr: Vec<Array1<f64>> = (0..mm)
+            .map(|i| &self.history_res[i] - r_last)
+            .collect();
+
         for i in 0..mm {
-            let dr_i: Vec<f64> = self.history_res[i]
-                .iter()
-                .zip(self.history_res[last].iter())
-                .map(|(&a, &b)| a - b)
-                .collect();
-
-            b_vec[i] = -dot(&dr_i, &self.history_res[last]);
-
+            b_vec[i] = -dr[i].dot(r_last);
             for j in 0..mm {
-                let dr_j: Vec<f64> = self.history_res[j]
-                    .iter()
-                    .zip(self.history_res[last].iter())
-                    .map(|(&a, &b)| a - b)
-                    .collect();
-
-                a_mat[i * mm + j] = dot(&dr_i, &dr_j);
+                a_mat[i * mm + j] = dr[i].dot(&dr[j]);
             }
         }
 
@@ -84,23 +78,14 @@ impl AndersonMixer {
         let alpha_prev = solve_linear_system(&a_mat, &b_vec, mm);
         let alpha_last = 1.0 - alpha_prev.iter().sum::<f64>();
 
-        // Construct mixed density
-        let mut rho_new = vec![0.0; n];
-        for i in 0..n {
-            let mut val = alpha_last * (self.history_in[last][i] + self.beta * self.history_res[last][i]);
-            for j in 0..mm {
-                val += alpha_prev[j]
-                    * (self.history_in[j][i] + self.beta * self.history_res[j][i]);
-            }
-            rho_new[i] = val;
+        // Construct mixed density: Σ α_i (ρ_in_i + β R_i)
+        let mut rho_new = alpha_last * (&self.history_in[last] + &(self.beta * r_last));
+        for j in 0..mm {
+            rho_new += &(alpha_prev[j] * (&self.history_in[j] + &(self.beta * &self.history_res[j])));
         }
 
-        rho_new
+        rho_new.to_vec()
     }
-}
-
-fn dot(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
 }
 
 /// Solve A x = b for small systems via Gauss elimination with partial pivoting.

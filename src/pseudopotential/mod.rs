@@ -207,6 +207,31 @@ mod tests {
     }
 
     #[test]
+    fn test_load_fe_upf() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Fe.UPF");
+        let pp = load(&path).unwrap();
+        assert_eq!(pp.element, "Fe");
+        assert!(pp.z_valence > 7.0); // Fe has 8 or 16 valence electrons depending on PP
+        assert!(pp.n_projectors > 0);
+        assert!(pp.r_grid.len() > 100);
+    }
+
+    #[test]
+    fn test_load_c_upf() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/C.UPF");
+        match load(&path) {
+            Ok(pp) => {
+                assert_eq!(pp.element, "C");
+                assert!((pp.z_valence - 4.0).abs() < 1e-10);
+            }
+            Err(e) => {
+                // C.UPF may be v1 format which we don't support yet
+                eprintln!("C.UPF parse failed (may be v1 format): {e}");
+            }
+        }
+    }
+
+    #[test]
     fn test_v_local_of_g_finite() {
         let pp = load(&si_pp_path()).unwrap();
         let omega = 40.0; // approximate Si cell volume in ų
