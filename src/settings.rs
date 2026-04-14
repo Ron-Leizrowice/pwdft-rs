@@ -200,8 +200,10 @@ impl Default for ElectronSettings {
 /// Smearing function for partial occupation numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SmearingType {
     /// Fermi-Dirac (finite-temperature) smearing. QE: 'fermi-dirac' / 'f-d'.
+    #[default]
     FermiDirac,
     /// Gaussian smearing. QE: 'gaussian' / 'gauss'.
     Gaussian,
@@ -213,30 +215,23 @@ pub enum SmearingType {
     Fixed,
 }
 
-impl Default for SmearingType {
-    fn default() -> Self {
-        Self::FermiDirac
-    }
-}
 
 /// How occupation numbers are determined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum OccupationType {
     /// Use smearing to determine occupations (metals / finite-T).
+    #[default]
     Smearing,
     /// Fixed integer occupations (insulators at T=0).
     Fixed,
 }
 
-impl Default for OccupationType {
-    fn default() -> Self {
-        Self::Smearing
-    }
-}
 
 /// Exchange-correlation functional specification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct XcSettings {
     /// Functional name. Currently supported: "pz" (LDA).
     /// Future: "pbe" (GGA), "pbe0", "hse06".
@@ -244,19 +239,14 @@ pub struct XcSettings {
     pub functional: XcFunctional,
 }
 
-impl Default for XcSettings {
-    fn default() -> Self {
-        Self {
-            functional: XcFunctional::default(),
-        }
-    }
-}
 
 /// Supported exchange-correlation functionals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum XcFunctional {
     /// Perdew-Zunger LDA (Ceperley-Alder). QE: input_dft = 'PZ'.
+    #[default]
     Pz,
     /// Perdew-Burke-Ernzerhof GGA. QE: input_dft = 'PBE'.
     Pbe,
@@ -266,11 +256,6 @@ pub enum XcFunctional {
     Hse06,
 }
 
-impl Default for XcFunctional {
-    fn default() -> Self {
-        Self::Pz
-    }
-}
 
 /// Crystal symmetry settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -309,17 +294,14 @@ pub struct PseudopotentialSettings {
 /// Verbosity level for output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum Verbosity {
     Low,
+    #[default]
     Normal,
     High,
 }
 
-impl Default for Verbosity {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 /// Output and I/O settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]

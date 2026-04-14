@@ -12,6 +12,7 @@ approx = ">=0.5"
 nalgebra = { version = ">=0.34", features = ["serde-serialize"] }
 nalgebra-lapack = { version = ">=0.27", default-features = false, features = ["lapack-accelerate"] }
 lapack = { version = ">=0.20", default-features = false }
+faer = ">=0.24"
 num-complex = ">=0.4"
 rustfft = ">=6.2"
 rayon = ">=1.11"

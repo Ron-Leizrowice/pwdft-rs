@@ -67,7 +67,7 @@ pub fn load(path: &Path) -> Result<PseudopotentialData> {
         let lines: Vec<&str> = content.lines().collect();
         if lines.len() > 2 {
             let fields: Vec<&str> = lines[2].split_whitespace().collect();
-            if fields.first().map_or(false, |&f| f == "8") {
+            if fields.first().is_some_and(|&f| f == "8") {
                 return psp8::parse(&content);
             }
         }
@@ -92,7 +92,7 @@ pub fn find_for_atom<'a>(z: u32, pseudopotentials: &[&'a PseudopotentialData]) -
         .iter()
         .find(|pp| {
             crate::atoms::Element::from_symbol(&pp.element)
-                .map_or(false, |e| e.atomic_number() == z)
+                .is_some_and(|e| e.atomic_number() == z)
         })
         .expect("no pseudopotential found for atom")
 }

@@ -329,8 +329,8 @@ fn test_eigenvector_reconstruction() {
     // Verify H V = V Λ, i.e. H v_i = λ_i v_i for each eigenpair
     for i in 0..n.min(10) {
         let v_i = result.eigenvectors.column(i);
-        let hv = &h * &v_i;
-        let lambda_v = &v_i * num_complex::Complex64::new(result.eigenvalues[i], 0.0);
+        let hv = &h * v_i;
+        let lambda_v = v_i * num_complex::Complex64::new(result.eigenvalues[i], 0.0);
 
         let residual: f64 = (&hv - &lambda_v).iter().map(|c| c.norm_sqr()).sum::<f64>().sqrt();
         assert!(

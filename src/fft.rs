@@ -164,7 +164,7 @@ fn is_fft_friendly(mut n: usize) -> bool {
         return false;
     }
     for &p in &[2, 3, 5] {
-        while n % p == 0 {
+        while n.is_multiple_of(p) {
             n /= p;
         }
     }

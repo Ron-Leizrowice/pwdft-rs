@@ -10,7 +10,7 @@ use num_complex::Complex64;
 use pwdft_rs::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
-    fft::{FFT3D, fft_grid_size},
+    fft::FFT3D,
 };
 
 /// Build a standard Si FCC crystal for benchmarks.

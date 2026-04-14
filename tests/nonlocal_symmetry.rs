@@ -198,7 +198,7 @@ fn test_kinetic_plus_vlocal_degeneracy() {
     // If this is broken, the issue is in V_local or the FFT grid lookup.
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
-    let k: Vector3<f64> = Vector3::zeros();
+    let _k: Vector3<f64> = Vector3::zeros();
     let pp = pwdft_rs::pseudopotential::load(
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
     )
@@ -207,7 +207,7 @@ fn test_kinetic_plus_vlocal_degeneracy() {
 
     let n = basis.len();
     let g_vecs = basis.g_vectors();
-    let miller = basis.miller_indices();
+    let _miller = basis.miller_indices();
     let mut h = DMatrix::<Complex64>::zeros(n, n);
 
     // Kinetic
@@ -253,7 +253,7 @@ fn test_kinetic_plus_vlocal_via_fft_grid() {
 
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
-    let k: Vector3<f64> = Vector3::zeros();
+    let _k: Vector3<f64> = Vector3::zeros();
     let pp = pwdft_rs::pseudopotential::load(
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
     )

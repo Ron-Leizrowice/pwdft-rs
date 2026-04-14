@@ -205,7 +205,7 @@ mod tests {
 
         // Set density at a single non-special point
         let mut rho = vec![0.0; n];
-        let test_idx = 1 * dims[1] * dims[2] + 2 * dims[2] + 3; // (1,2,3)
+        let test_idx = dims[1] * dims[2] + 2 * dims[2] + 3; // (1,2,3)
         rho[test_idx] = 48.0; // put n_ops worth of charge so average = 1.0 per orbit point
 
         symmetrize_density(&mut rho, dims, &symmetry);

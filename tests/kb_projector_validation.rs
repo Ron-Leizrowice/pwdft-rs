@@ -121,7 +121,7 @@ fn bessel_transform_simpson(
     // Simpson's rule requires an odd number of points.
     // If n is even, we drop the last point (whose contribution is negligible
     // because chi has decayed to zero by then).
-    let n_eff = if n % 2 == 0 { n - 1 } else { n };
+    let n_eff = if n.is_multiple_of(2) { n - 1 } else { n };
 
     let mut integral = 0.0;
     for i in 0..n_eff {
@@ -203,11 +203,7 @@ fn test_01_inspect_projector_data() {
             .iter()
             .rposition(|&v| v.abs() > 1e-30)
             .unwrap_or(n - 1);
-        let start = if last_nonzero >= 4 {
-            last_nonzero - 4
-        } else {
-            0
-        };
+        let start = last_nonzero.saturating_sub(4);
         eprint!("  last 5 nonzero chi(r) [idx {}-{}]: ", start, last_nonzero);
         for i in start..=last_nonzero {
             eprint!("{:.6e}  ", chi[i]);
@@ -885,7 +881,7 @@ fn test_10_vnl_hermiticity_and_reality() {
 fn extract_block_f64(content: &str, tag: &str) -> Vec<f64> {
     let open = format!("<{tag}");
     let close = format!("</{tag}>");
-    let tag_pos = content.find(&open).expect(&format!("missing <{tag}>"));
+    let tag_pos = content.find(&open).unwrap_or_else(|| panic!("missing <{tag}>"));
     let data_start = content[tag_pos..]
         .find('>')
         .expect("malformed tag")
@@ -893,11 +889,11 @@ fn extract_block_f64(content: &str, tag: &str) -> Vec<f64> {
         + 1;
     let data_end = content[data_start..]
         .find(&close)
-        .expect(&format!("missing </{tag}>"))
+        .unwrap_or_else(|| panic!("missing </{tag}>"))
         + data_start;
     content[data_start..data_end]
         .split_whitespace()
-        .map(|s| s.parse::<f64>().expect(&format!("parse error in {tag}: {s}")))
+        .map(|s| s.parse::<f64>().unwrap_or_else(|_| panic!("parse error in {tag}: {s}")))
         .collect()
 }
 
@@ -964,7 +960,7 @@ fn test_vloc_comparison_with_qe() {
     let qe_vloc_g111_abs = 6.967521;
 
     // Compute our values
-    let g000: Vector3<f64> = Vector3::zeros();
+    let _g000: Vector3<f64> = Vector3::zeros();
     let g100 = 1.0 * recip.a;
     let g111 = 1.0 * recip.a + 1.0 * recip.b + 1.0 * recip.c;
 

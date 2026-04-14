@@ -188,7 +188,7 @@ fn add_atomic_density_from_pp(
 mod tests {
     use super::*;
     use crate::crystal::{Atom, Crystal, Lattice};
-    use crate::fft::fft_grid_size;
+    
     use approx::relative_eq;
     use nalgebra::Vector3;
 
@@ -283,7 +283,7 @@ mod tests {
         let config = InitialDensityConfig::non_magnetic(2);
         let rho = generate_initial_density(&crystal, &grid, &[&pp], 8.0, &config);
 
-        let [nx, ny, nz] = grid.dims;
+        let [_nx, ny, nz] = grid.dims;
         // For FCC Si with equal grid dims, permuting (x,y,z) should give same density
         // (cubic symmetry). Check a few points.
         let rho_at = |ix: usize, iy: usize, iz: usize| rho[ix * ny * nz + iy * nz + iz];

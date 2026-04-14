@@ -44,22 +44,20 @@ pub fn reduce_kpoints(
             let r_inv_t = SymmOp { rotation: op.rotation }.inverse_transpose();
             let k_rot = r_inv_t.apply(frac);
 
-            if let Some(rot_idx) = frac_to_grid_index(&k_rot, grid) {
-                if !visited[rot_idx] {
+            if let Some(rot_idx) = frac_to_grid_index(&k_rot, grid)
+                && !visited[rot_idx] {
                     visited[rot_idx] = true;
                     orbit_count += 1;
                 }
-            }
 
             // Time-reversal: k → -k
             if symmetry.has_time_reversal {
                 let k_neg = [-k_rot[0], -k_rot[1], -k_rot[2]];
-                if let Some(neg_idx) = frac_to_grid_index(&k_neg, grid) {
-                    if !visited[neg_idx] {
+                if let Some(neg_idx) = frac_to_grid_index(&k_neg, grid)
+                    && !visited[neg_idx] {
                         visited[neg_idx] = true;
                         orbit_count += 1;
                     }
-                }
             }
         }
 
