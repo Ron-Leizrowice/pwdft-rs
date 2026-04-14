@@ -35,6 +35,10 @@ pub struct ScfConfig {
     /// Fermi-Dirac smearing width in eV.
     #[serde(default = "default_smearing")]
     pub smearing_sigma: f64,
+    /// Explicit FFT grid dimensions [nx, ny, nz]. Overrides ecutrho_ratio.
+    /// Use this to match QE's grid exactly for validation.
+    #[serde(default)]
+    pub fft_grid: Option<[usize; 3]>,
     /// Charge density cutoff as a multiple of ecutwfc.
     /// QE default for NC PPs is 4. Higher = more accurate V_xc but slower.
     #[serde(default = "default_ecutrho_ratio")]

@@ -28,6 +28,7 @@ mixing_beta = 0.3
 mixing_ndim = 8
 smearing_sigma = 0.05
 ecutrho_ratio = 4             # QE default for NC PPs (ecutrho = 4 * ecutwfc)
+fft_grid = [20, 20, 20]      # Match QE's FFT grid exactly
 
 [scf.pseudopotentials]
 Si = "../pseudopotentials/Si.UPF"

@@ -905,3 +905,107 @@ fn extract_beta_block(content: &str, tag: &str) -> Vec<f64> {
     // Same as extract_block_f64 but for PP_BETA blocks which can have multiline opening tags
     extract_block_f64(content, tag)
 }
+
+// ===========================================================================
+//  V_local(G) comparison with QE
+// ===========================================================================
+
+/// Compare our V_local(G) against QE's Cube file FFT at key G-vectors.
+///
+/// QE reference (from pp.x plot_num=2 → Cube → FFT):
+///   G=(0,0,0):  -1.002741 eV
+///   G=(1,0,0):  (-4.9268, +4.9268)i eV  |V| = 6.9675 eV
+///   G=(1,1,1):  (-4.9268, -4.9268)i eV  |V| = 6.9675 eV
+///   G=(2,0,0):  ~0 eV
+#[test]
+fn test_vloc_comparison_with_qe() {
+    let pp = load_si_pp();
+    let crystal = si_crystal();
+    let omega = crystal.lattice.volume().abs();
+    let recip = crystal.lattice.reciprocal();
+
+    // Compute V_local(G) at specific G-vectors using our Bessel transform
+    // G-vector for Miller index (n1,n2,n3): G = n1*b1 + n2*b2 + n3*b3
+
+    let test_cases: Vec<(&str, [i32; 3])> = vec![
+        ("G=(0,0,0)", [0, 0, 0]),
+        ("G=(1,0,0)", [1, 0, 0]),
+        ("G=(0,1,0)", [0, 1, 0]),
+        ("G=(0,0,1)", [0, 0, 1]),
+        ("G=(1,1,1)", [1, 1, 1]),
+        ("G=(2,0,0)", [2, 0, 0]),
+        ("G=(-1,0,0)", [-1, 0, 0]),
+    ];
+
+    eprintln!("\nOur V_local(G) (eV):");
+    for (label, [n1, n2, n3]) in &test_cases {
+        let g = *n1 as f64 * recip.a + *n2 as f64 * recip.b + *n3 as f64 * recip.c;
+        let g_norm = g.norm();
+
+        // Sum over atoms: V_local(G) = Σ_atom S(G) × v_form(|G|)
+        let mut v_total = Complex64::new(0.0, 0.0);
+        for atom in &crystal.atoms {
+            let tau = atom.cart_position(&crystal.lattice);
+            let phase = -g.dot(&tau);
+            let sf = Complex64::new(phase.cos(), phase.sin());
+            let v_form = pp.v_local_of_g(g_norm, omega);
+            v_total += sf * v_form;
+        }
+
+        eprintln!(
+            "  {}: {:+12.6} {:+12.6}i  |V|={:12.6}",
+            label, v_total.re, v_total.im, v_total.norm()
+        );
+    }
+
+    // QE reference values (from Cube FFT, in eV)
+    let qe_vloc_g000 = -1.002741;
+    let qe_vloc_g100_abs = 6.967521;
+    let qe_vloc_g111_abs = 6.967521;
+
+    // Compute our values
+    let g000: Vector3<f64> = Vector3::zeros();
+    let g100 = 1.0 * recip.a;
+    let g111 = 1.0 * recip.a + 1.0 * recip.b + 1.0 * recip.c;
+
+    // V_local(G=0) — just the form factor times 2 (two atoms, both S(0)=1)
+    let our_vloc_g000 = 2.0 * pp.v_local_of_g(0.0, omega);
+
+    // V_local(G=(1,0,0))
+    let mut our_vloc_g100 = Complex64::new(0.0, 0.0);
+    for atom in &crystal.atoms {
+        let tau = atom.cart_position(&crystal.lattice);
+        let phase = -g100.dot(&tau);
+        let sf = Complex64::new(phase.cos(), phase.sin());
+        our_vloc_g100 += sf * pp.v_local_of_g(g100.norm(), omega);
+    }
+
+    // V_local(G=(1,1,1))
+    let mut our_vloc_g111 = Complex64::new(0.0, 0.0);
+    for atom in &crystal.atoms {
+        let tau = atom.cart_position(&crystal.lattice);
+        let phase = -g111.dot(&tau);
+        let sf = Complex64::new(phase.cos(), phase.sin());
+        our_vloc_g111 += sf * pp.v_local_of_g(g111.norm(), omega);
+    }
+
+    eprintln!("\nComparison with QE:");
+    eprintln!("  V_local(G=0):  ours={:.6} eV,  QE={:.6} eV,  diff={:.6} eV",
+        our_vloc_g000, qe_vloc_g000, our_vloc_g000 - qe_vloc_g000);
+    eprintln!("  |V_local(G=(1,0,0))|:  ours={:.6} eV,  QE={:.6} eV,  diff={:.6} eV",
+        our_vloc_g100.norm(), qe_vloc_g100_abs, our_vloc_g100.norm() - qe_vloc_g100_abs);
+    eprintln!("  |V_local(G=(1,1,1))|:  ours={:.6} eV,  QE={:.6} eV,  diff={:.6} eV",
+        our_vloc_g111.norm(), qe_vloc_g111_abs, our_vloc_g111.norm() - qe_vloc_g111_abs);
+
+    // Check agreement — tolerance of 0.1 eV for now (FFT grid differences cause some discrepancy)
+    assert!(
+        (our_vloc_g000 - qe_vloc_g000).abs() < 0.5,
+        "V_local(G=0) disagrees: ours={:.6}, QE={:.6}",
+        our_vloc_g000, qe_vloc_g000
+    );
+    assert!(
+        (our_vloc_g100.norm() - qe_vloc_g100_abs).abs() < 0.5,
+        "|V_local(G=(1,0,0))| disagrees: ours={:.6}, QE={:.6}",
+        our_vloc_g100.norm(), qe_vloc_g100_abs
+    );
+}

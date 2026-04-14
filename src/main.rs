@@ -120,6 +120,7 @@ fn main() -> pwdft_rs::error::Result<()> {
                 mixing_ndim: scf_config.mixing_ndim,
                 smearing_sigma: scf_config.smearing_sigma,
                 ecutrho_ratio: scf_config.ecutrho_ratio,
+                fft_grid: scf_config.fft_grid,
             };
 
             let result = scf::run_scf(&crystal, &basis, &kpts, &pp_refs, &params, Some(&symmetry))?;

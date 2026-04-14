@@ -440,6 +440,7 @@ impl Settings {
             mixing_ndim: self.electrons.mixing_ndim,
             smearing_sigma: self.electrons.smearing_width,
             ecutrho_ratio: self.basis.ecutrho_ratio,
+            fft_grid: None,
         }
     }
 

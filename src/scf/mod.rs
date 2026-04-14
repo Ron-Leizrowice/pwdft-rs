@@ -29,6 +29,8 @@ pub struct ScfParams {
     /// Charge density cutoff as multiple of wavefunction cutoff.
     /// Controls FFT grid density. QE default is 4 for NC PPs.
     pub ecutrho_ratio: u32,
+    /// Explicit FFT grid dimensions. If set, overrides ecutrho_ratio.
+    pub fft_grid: Option<[usize; 3]>,
 }
 
 impl Default for ScfParams {
@@ -41,6 +43,7 @@ impl Default for ScfParams {
             mixing_ndim: 8,
             smearing_sigma: 0.01,
             ecutrho_ratio: 4,
+            fft_grid: None,
         }
     }
 }
@@ -69,19 +72,28 @@ impl FftGrid {
     /// QE's ecutrho = 4*ecutwfc for NC PPs). The grid must accommodate G-vectors
     /// up to sqrt(ecutrho_ratio) × G_max in each direction. Higher ratio = more
     /// accurate V_xc (nonlinear function of ρ) but larger grid.
-    fn new(basis: &BasisSet, lattice: &crate::crystal::Lattice, ecutrho_ratio: u32) -> Self {
-        let miller = basis.miller_indices();
-        let n_max: Vec<i32> = (0..3)
-            .map(|dim| miller.iter().map(|m| m[dim].abs()).max().unwrap_or(0))
-            .collect();
-        // Grid must accommodate G-vectors up to sqrt(ratio) × G_max.
-        // For ratio=4 (QE default), this is 2× G_max in each direction.
-        let scale = (ecutrho_ratio as f64).sqrt().ceil() as i32;
-        let dims = [
-            fft_grid_size(scale * n_max[0]),
-            fft_grid_size(scale * n_max[1]),
-            fft_grid_size(scale * n_max[2]),
-        ];
+    fn new(
+        basis: &BasisSet,
+        lattice: &crate::crystal::Lattice,
+        ecutrho_ratio: u32,
+        explicit_dims: Option<[usize; 3]>,
+    ) -> Self {
+        let dims = if let Some(d) = explicit_dims {
+            d
+        } else {
+            let miller = basis.miller_indices();
+            let n_max: Vec<i32> = (0..3)
+                .map(|dim| miller.iter().map(|m| m[dim].abs()).max().unwrap_or(0))
+                .collect();
+            // Grid must accommodate G-vectors up to sqrt(ratio) × G_max.
+            // For ratio=4 (QE default), this is 2× G_max in each direction.
+            let scale = (ecutrho_ratio as f64).sqrt().ceil() as i32;
+            [
+                fft_grid_size(scale * n_max[0]),
+                fft_grid_size(scale * n_max[1]),
+                fft_grid_size(scale * n_max[2]),
+            ]
+        };
         let fft = FFT3D::new(dims[0], dims[1], dims[2]);
         let recip = lattice.reciprocal();
         Self { dims, fft, recip }
@@ -153,7 +165,7 @@ pub fn run_scf(
 
     info!("SCF: {n_electrons} electrons, {omega:.3} ų cell volume");
 
-    let grid = FftGrid::new(basis, &crystal.lattice, params.ecutrho_ratio);
+    let grid = FftGrid::new(basis, &crystal.lattice, params.ecutrho_ratio, params.fft_grid);
     let n_grid = grid.total_size();
     let [nx, ny, nz] = grid.dims;
     info!("FFT grid: {nx}×{ny}×{nz} = {n_grid} points (ecutrho_ratio={})", params.ecutrho_ratio);
@@ -247,6 +259,17 @@ pub fn run_scf(
             rho_r = rho_r_new;
             density_r_to_g(&grid.fft, &rho_r, &mut rho_g);
             let rho_g_basis: Vec<Complex64> = g_to_fft.iter().map(|&idx| rho_g[idx]).collect();
+
+            // Diagnostics: print V_eff at key G-vectors for comparison with QE
+            for &[n1, n2, n3] in &[[0,0,0], [1,0,0], [1,1,0], [1,1,1], [2,0,0]] {
+                let fft_idx = grid.miller_to_idx(n1, n2, n3);
+                info!(
+                    "V_eff(G=({},{},{})) = {:+.6} {:+.6}i eV  (loc={:+.6} H={:+.6} xc={:+.6})",
+                    n1, n2, n3,
+                    v_eff_fft[fft_idx].re, v_eff_fft[fft_idx].im,
+                    v_local_fft[fft_idx].re, v_h_fft[fft_idx].re, vxc_g[fft_idx].re
+                );
+            }
 
             let total_energy = compute_total_energy(
                 &eigenvalues_all, &occupations, kpoints, &rho_r, &rho_g,
