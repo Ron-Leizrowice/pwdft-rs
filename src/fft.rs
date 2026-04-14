@@ -42,19 +42,22 @@ mod backend {
 
     /// 3D FFT backed by FFTW3 with in-place transforms (zero copy).
     ///
-    /// Uses fftw_sys directly to create in-place plans where in == out,
-    /// bypassing the fftw crate's safe wrapper which requires separate
-    /// input/output buffers. Since fftw_complex = Complex64 (same type),
-    /// we operate directly on the caller's data with no copies.
+    /// Uses fftw_sys directly to create in-place plans where in == out.
+    /// Since fftw_complex = Complex64 (same type), we operate directly on
+    /// the caller's data with no copies.
     pub struct FFT3D {
         dims: [usize; 3],
         plan_fwd: fftw_sys::fftw_plan,
         plan_inv: fftw_sys::fftw_plan,
+        /// Planning buffer kept alive for FFTW's internal reference.
+        /// FFTW_MEASURE profiles algorithms using this buffer; it may cache
+        /// layout information, so the buffer must outlive the plans.
+        _plan_buf: Vec<Complex64>,
     }
 
     // Safety: FFTW plan execution (fftw_execute_dft) is thread-safe for
     // distinct data pointers. Only plan creation/destruction is non-thread-safe,
-    // and we do that only in new/Drop.
+    // and we serialize those with FFTW_PLANNER_LOCK.
     unsafe impl Send for FFT3D {}
 
     impl Drop for FFT3D {
@@ -73,23 +76,16 @@ mod backend {
             let _lock = FFTW_PLANNER_LOCK.lock().unwrap();
             let n = nx * ny * nz;
             unsafe { fftw_sys::fftw_plan_with_nthreads(threads_for_size(n)) };
-            // Use FFTW-aligned buffer for planning. FFTW_MEASURE will overwrite it.
-            // fftw_execute_dft (new-array execute) requires the runtime buffer to have
-            // the same alignment as the planning buffer. Using fftw_malloc guarantees
-            // SIMD-compatible alignment (typically 16 or 32 bytes).
-            let mut buf = vec![Complex64::new(0.0, 0.0); n];
-            let ptr = buf.as_mut_ptr();
+            let mut plan_buf = vec![Complex64::new(0.0, 0.0); n];
+            let ptr = plan_buf.as_mut_ptr();
             let dims = [nx as i32, ny as i32, nz as i32];
-            // MEASURE | UNALIGNED: MEASURE profiles algorithms for this size;
-            // UNALIGNED allows execution on any pointer alignment (so Vec<Complex64>
-            // works without requiring fftw_malloc alignment).
             let flags = fftw_sys::FFTW_MEASURE | fftw_sys::FFTW_UNALIGNED;
 
             let plan_fwd = unsafe {
                 fftw_sys::fftw_plan_dft(
                     3,
                     dims.as_ptr(),
-                    ptr, ptr, // in-place
+                    ptr, ptr,
                     fftw_sys::FFTW_FORWARD,
                     flags,
                 )
@@ -111,6 +107,7 @@ mod backend {
                 dims: [nx, ny, nz],
                 plan_fwd,
                 plan_inv,
+                _plan_buf: plan_buf,
             }
         }
 
@@ -123,12 +120,8 @@ mod backend {
         }
 
         /// Forward FFT: real-space → reciprocal-space (unnormalized).
-        /// Operates in-place on the caller's data — zero copies.
         pub fn forward(&mut self, data: &mut [Complex64]) {
             assert_eq!(data.len(), self.total_size());
-            // fftw_execute_dft is the "new-array execute" function — safe to call
-            // with any pointer that has the same alignment as the planning buffer.
-            // Complex64 = fftw_complex, so the pointer cast is a no-op.
             unsafe {
                 fftw_sys::fftw_execute_dft(self.plan_fwd, data.as_mut_ptr(), data.as_mut_ptr());
             }
@@ -154,42 +147,42 @@ mod backend {
 }
 
 // ============================================================================
-// rustfft backend (default, no feature flag)
+// ndrustfft backend (default, no feature flag) — zero unsafe
 // ============================================================================
 
 #[cfg(not(feature = "fftw"))]
 mod backend {
     use super::Complex64;
-    use rayon::prelude::*;
-    use rustfft::{FftPlanner, num_complex::Complex};
-    use std::sync::Arc;
+    use ndarray::Array3;
+    use ndrustfft::{FftHandler, Normalization, ndfft, ndifft};
 
-    /// 3D FFT backed by rustfft with rayon parallelism.
+    /// 3D FFT backed by ndrustfft (safe wrapper over rustfft + ndarray).
     ///
-    /// Performs forward and inverse transforms by batching 1D FFTs
-    /// along each dimension (z → y → x). The z-dimension transforms
-    /// operate on contiguous memory. The y and x transforms use
-    /// gather/scatter with thread-local buffers.
+    /// Uses ndarray's safe strided access for all three dimension transforms.
+    /// No unsafe code, no raw pointer arithmetic, no provenance violations.
     pub struct FFT3D {
         dims: [usize; 3],
-        fwd: [Arc<dyn rustfft::Fft<f64>>; 3],
-        inv: [Arc<dyn rustfft::Fft<f64>>; 3],
+        fwd_handlers: [FftHandler<f64>; 3],
+        inv_handlers: [FftHandler<f64>; 3],
     }
 
     impl FFT3D {
         pub fn new(nx: usize, ny: usize, nz: usize) -> Self {
-            let mut planner = FftPlanner::<f64>::new();
-            let fwd = [
-                planner.plan_fft_forward(nx),
-                planner.plan_fft_forward(ny),
-                planner.plan_fft_forward(nz),
-            ];
-            let inv = [
-                planner.plan_fft_inverse(nx),
-                planner.plan_fft_inverse(ny),
-                planner.plan_fft_inverse(nz),
-            ];
-            Self { dims: [nx, ny, nz], fwd, inv }
+            // Forward: no normalization (matches FFTW/rustfft convention)
+            // Inverse: no normalization (we do 1/N manually in inverse_normalized)
+            Self {
+                dims: [nx, ny, nz],
+                fwd_handlers: [
+                    FftHandler::new(nx),
+                    FftHandler::new(ny),
+                    FftHandler::new(nz),
+                ],
+                inv_handlers: [
+                    FftHandler::<f64>::new(nx).normalization(Normalization::None),
+                    FftHandler::<f64>::new(ny).normalization(Normalization::None),
+                    FftHandler::<f64>::new(nz).normalization(Normalization::None),
+                ],
+            }
         }
 
         pub fn dims(&self) -> [usize; 3] {
@@ -202,14 +195,35 @@ mod backend {
 
         /// Forward FFT: real-space → reciprocal-space (unnormalized).
         pub fn forward(&mut self, data: &mut [Complex64]) {
-            assert_eq!(data.len(), self.total_size());
-            self.transform_all_dims(data, &self.fwd.clone());
+            let [nx, ny, nz] = self.dims;
+            assert_eq!(data.len(), nx * ny * nz);
+
+            // Wrap flat slice as 3D array (copies into owned array)
+            let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec()).unwrap();
+            let mut b = Array3::zeros((nx, ny, nz));
+
+            // Transform each axis: a → b → a → b
+            ndfft(&a, &mut b, &self.fwd_handlers[0], 0);
+            ndfft(&b, &mut a, &self.fwd_handlers[1], 1);
+            ndfft(&a, &mut b, &self.fwd_handlers[2], 2);
+
+            // Copy result back to caller's slice
+            data.copy_from_slice(b.as_slice().unwrap());
         }
 
         /// Inverse FFT: reciprocal-space → real-space (unnormalized).
         pub fn inverse(&mut self, data: &mut [Complex64]) {
-            assert_eq!(data.len(), self.total_size());
-            self.transform_all_dims(data, &self.inv.clone());
+            let [nx, ny, nz] = self.dims;
+            assert_eq!(data.len(), nx * ny * nz);
+
+            let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec()).unwrap();
+            let mut b = Array3::zeros((nx, ny, nz));
+
+            ndifft(&a, &mut b, &self.inv_handlers[0], 0);
+            ndifft(&b, &mut a, &self.inv_handlers[1], 1);
+            ndifft(&a, &mut b, &self.inv_handlers[2], 2);
+
+            data.copy_from_slice(b.as_slice().unwrap());
         }
 
         /// Inverse FFT with normalization (divides by N).
@@ -218,77 +232,6 @@ mod backend {
             let norm = 1.0 / self.total_size() as f64;
             for v in data.iter_mut() {
                 *v *= norm;
-            }
-        }
-
-        fn transform_all_dims(
-            &self,
-            data: &mut [Complex64],
-            plans: &[Arc<dyn rustfft::Fft<f64>>; 3],
-        ) {
-            let [nx, ny, nz] = self.dims;
-
-            // Transform along z (innermost, contiguous)
-            {
-                let plan = &plans[2];
-                data.par_chunks_mut(nz).for_each(|slab| {
-                    let mut scratch =
-                        vec![Complex::new(0.0, 0.0); plan.get_inplace_scratch_len()];
-                    let slab = unsafe {
-                        std::slice::from_raw_parts_mut(slab.as_mut_ptr().cast(), nz)
-                    };
-                    plan.process_with_scratch(slab, &mut scratch);
-                });
-            }
-
-            // Transform along y — parallel over ix slabs
-            {
-                let plan = &plans[1];
-                let slab_ny_nz = ny * nz;
-                let slabs: Vec<&mut [Complex64]> = data.chunks_mut(slab_ny_nz).collect();
-                slabs.into_par_iter().for_each(|slab| {
-                    let mut scratch =
-                        vec![Complex::new(0.0, 0.0); plan.get_inplace_scratch_len()];
-                    let mut buf = vec![Complex::new(0.0, 0.0); ny];
-                    for iz in 0..nz {
-                        for iy in 0..ny {
-                            let v = slab[iy * nz + iz];
-                            buf[iy] = Complex::new(v.re, v.im);
-                        }
-                        plan.process_with_scratch(&mut buf, &mut scratch);
-                        for iy in 0..ny {
-                            slab[iy * nz + iz] = Complex64::new(buf[iy].re, buf[iy].im);
-                        }
-                    }
-                });
-            }
-
-            // Transform along x — parallel over (iy, iz) pairs
-            {
-                let plan = &plans[0];
-                let stride = ny * nz;
-                let base = data.as_mut_ptr() as usize;
-                let data_len = data.len();
-
-                (0..ny * nz).into_par_iter().for_each(|yz| {
-                    let ptr = base as *mut Complex64;
-                    let mut scratch =
-                        vec![Complex::new(0.0, 0.0); plan.get_inplace_scratch_len()];
-                    let mut buf = vec![Complex::new(0.0, 0.0); nx];
-                    for ix in 0..nx {
-                        let idx = ix * stride + yz;
-                        debug_assert!(idx < data_len);
-                        let v = unsafe { *ptr.add(idx) };
-                        buf[ix] = Complex::new(v.re, v.im);
-                    }
-                    plan.process_with_scratch(&mut buf, &mut scratch);
-                    for ix in 0..nx {
-                        let idx = ix * stride + yz;
-                        unsafe {
-                            *ptr.add(idx) = Complex64::new(buf[ix].re, buf[ix].im)
-                        };
-                    }
-                });
             }
         }
     }

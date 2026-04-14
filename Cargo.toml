@@ -12,8 +12,9 @@ fftw = ["dep:fftw", "dep:fftw-sys"]
 approx = ">=0.5"
 nalgebra = { version = ">=0.34", features = ["serde-serialize"] }
 faer = ">=0.24"
+ndarray = ">=0.16"
+ndrustfft = ">=0.5"
 num-complex = ">=0.4"
-rustfft = ">=6.2"
 rayon = ">=1.11"
 serde = { version = ">=1", features = ["derive"] }
 toml = ">=0.8"
