@@ -4,13 +4,41 @@ use num_complex::Complex64;
 // FFTW3 backend (feature = "fftw")
 // ============================================================================
 
+// Link the FFTW threads library for multi-threaded transforms.
+// The search path is set via build.rs for the system FFTW installation.
+#[cfg(feature = "fftw")]
+#[link(name = "fftw3_threads")]
+unsafe extern "C" {}
+
 #[cfg(feature = "fftw")]
 mod backend {
     use super::Complex64;
-    use std::sync::Mutex;
+    use std::sync::{Mutex, Once};
 
     /// Global mutex for FFTW plan creation/destruction (not thread-safe in FFTW).
     static FFTW_PLANNER_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Initialize FFTW threading once.
+    static INIT_THREADS: Once = Once::new();
+
+    fn init_fftw_threads() {
+        INIT_THREADS.call_once(|| {
+            let ok = unsafe { fftw_sys::fftw_init_threads() };
+            assert!(ok != 0, "fftw_init_threads failed");
+        });
+    }
+
+    /// Choose thread count based on grid size.
+    /// Threading overhead dominates for small grids; use 1 thread below 32³.
+    fn threads_for_size(n: usize) -> i32 {
+        if n < 32 * 32 * 32 {
+            1
+        } else {
+            std::thread::available_parallelism()
+                .map(|n| n.get() as i32)
+                .unwrap_or(4)
+        }
+    }
 
     /// 3D FFT backed by FFTW3 with in-place transforms (zero copy).
     ///
@@ -41,8 +69,10 @@ mod backend {
 
     impl FFT3D {
         pub fn new(nx: usize, ny: usize, nz: usize) -> Self {
+            init_fftw_threads();
             let _lock = FFTW_PLANNER_LOCK.lock().unwrap();
             let n = nx * ny * nz;
+            unsafe { fftw_sys::fftw_plan_with_nthreads(threads_for_size(n)) };
             // Use FFTW-aligned buffer for planning. FFTW_MEASURE will overwrite it.
             // fftw_execute_dft (new-array execute) requires the runtime buffer to have
             // the same alignment as the planning buffer. Using fftw_malloc guarantees
