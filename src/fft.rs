@@ -7,36 +7,80 @@ use num_complex::Complex64;
 #[cfg(feature = "fftw")]
 mod backend {
     use super::Complex64;
-    use fftw::array::AlignedVec;
-    use fftw::plan::*;
-    use fftw::types::*;
+    use std::sync::Mutex;
 
-    /// 3D FFT backed by FFTW3.
+    /// Global mutex for FFTW plan creation/destruction (not thread-safe in FFTW).
+    static FFTW_PLANNER_LOCK: Mutex<()> = Mutex::new(());
+
+    /// 3D FFT backed by FFTW3 with in-place transforms (zero copy).
     ///
-    /// Uses native multi-dimensional C2C transforms — no manual gather/scatter.
-    /// Plans are created with MEASURE for optimal performance (amortized over
-    /// many SCF iterations).
+    /// Uses fftw_sys directly to create in-place plans where in == out,
+    /// bypassing the fftw crate's safe wrapper which requires separate
+    /// input/output buffers. Since fftw_complex = Complex64 (same type),
+    /// we operate directly on the caller's data with no copies.
     pub struct FFT3D {
         dims: [usize; 3],
-        plan_fwd: C2CPlan64,
-        plan_inv: C2CPlan64,
-        /// Aligned scratch buffer for FFTW execution
-        buf: AlignedVec<c64>,
+        plan_fwd: fftw_sys::fftw_plan,
+        plan_inv: fftw_sys::fftw_plan,
+    }
+
+    // Safety: FFTW plan execution (fftw_execute_dft) is thread-safe for
+    // distinct data pointers. Only plan creation/destruction is non-thread-safe,
+    // and we do that only in new/Drop.
+    unsafe impl Send for FFT3D {}
+
+    impl Drop for FFT3D {
+        fn drop(&mut self) {
+            let _lock = FFTW_PLANNER_LOCK.lock().unwrap();
+            unsafe {
+                fftw_sys::fftw_destroy_plan(self.plan_fwd);
+                fftw_sys::fftw_destroy_plan(self.plan_inv);
+            }
+        }
     }
 
     impl FFT3D {
         pub fn new(nx: usize, ny: usize, nz: usize) -> Self {
+            let _lock = FFTW_PLANNER_LOCK.lock().unwrap();
             let n = nx * ny * nz;
-            let plan_fwd =
-                C2CPlan64::aligned(&[nx, ny, nz], Sign::Forward, Flag::MEASURE).unwrap();
-            let plan_inv =
-                C2CPlan64::aligned(&[nx, ny, nz], Sign::Backward, Flag::MEASURE).unwrap();
-            let buf = AlignedVec::new(n);
+            // Use FFTW-aligned buffer for planning. FFTW_MEASURE will overwrite it.
+            // fftw_execute_dft (new-array execute) requires the runtime buffer to have
+            // the same alignment as the planning buffer. Using fftw_malloc guarantees
+            // SIMD-compatible alignment (typically 16 or 32 bytes).
+            let mut buf = vec![Complex64::new(0.0, 0.0); n];
+            let ptr = buf.as_mut_ptr();
+            let dims = [nx as i32, ny as i32, nz as i32];
+            // MEASURE | UNALIGNED: MEASURE profiles algorithms for this size;
+            // UNALIGNED allows execution on any pointer alignment (so Vec<Complex64>
+            // works without requiring fftw_malloc alignment).
+            let flags = fftw_sys::FFTW_MEASURE | fftw_sys::FFTW_UNALIGNED;
+
+            let plan_fwd = unsafe {
+                fftw_sys::fftw_plan_dft(
+                    3,
+                    dims.as_ptr(),
+                    ptr, ptr, // in-place
+                    fftw_sys::FFTW_FORWARD,
+                    flags,
+                )
+            };
+            assert!(!plan_fwd.is_null(), "FFTW forward plan creation failed");
+
+            let plan_inv = unsafe {
+                fftw_sys::fftw_plan_dft(
+                    3,
+                    dims.as_ptr(),
+                    ptr, ptr,
+                    fftw_sys::FFTW_BACKWARD as i32,
+                    flags,
+                )
+            };
+            assert!(!plan_inv.is_null(), "FFTW inverse plan creation failed");
+
             Self {
                 dims: [nx, ny, nz],
                 plan_fwd,
                 plan_inv,
-                buf,
             }
         }
 
@@ -49,30 +93,23 @@ mod backend {
         }
 
         /// Forward FFT: real-space → reciprocal-space (unnormalized).
+        /// Operates in-place on the caller's data — zero copies.
         pub fn forward(&mut self, data: &mut [Complex64]) {
             assert_eq!(data.len(), self.total_size());
-            let n = self.total_size();
-            // Copy into aligned buffer, execute, copy back.
-            // fftw::c64 and Complex64 are the same type.
-            let in_buf = unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr().cast(), n) };
-            let out_buf: &mut [c64] = &mut self.buf;
-            self.plan_fwd.c2c(in_buf, out_buf).unwrap();
-            // Copy result back
-            let out_slice =
-                unsafe { std::slice::from_raw_parts(out_buf.as_ptr().cast::<Complex64>(), n) };
-            data.copy_from_slice(out_slice);
+            // fftw_execute_dft is the "new-array execute" function — safe to call
+            // with any pointer that has the same alignment as the planning buffer.
+            // Complex64 = fftw_complex, so the pointer cast is a no-op.
+            unsafe {
+                fftw_sys::fftw_execute_dft(self.plan_fwd, data.as_mut_ptr(), data.as_mut_ptr());
+            }
         }
 
         /// Inverse FFT: reciprocal-space → real-space (unnormalized).
         pub fn inverse(&mut self, data: &mut [Complex64]) {
             assert_eq!(data.len(), self.total_size());
-            let n = self.total_size();
-            let in_buf = unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr().cast(), n) };
-            let out_buf: &mut [c64] = &mut self.buf;
-            self.plan_inv.c2c(in_buf, out_buf).unwrap();
-            let out_slice =
-                unsafe { std::slice::from_raw_parts(out_buf.as_ptr().cast::<Complex64>(), n) };
-            data.copy_from_slice(out_slice);
+            unsafe {
+                fftw_sys::fftw_execute_dft(self.plan_inv, data.as_mut_ptr(), data.as_mut_ptr());
+            }
         }
 
         /// Inverse FFT with normalization (divides by N).
