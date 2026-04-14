@@ -1,19 +1,28 @@
 //! Criterion benchmarks for the hot computational paths.
 //!
-//! Run with: cargo bench
+//! Run with: cargo bench --bench scf_benchmarks
 //! Results are written to target/criterion/ with HTML reports.
+//!
+//! Benchmarks cover multiple problem sizes via energy cutoff variation:
+//!   ecut=100 → n_pw≈59,  small molecule
+//!   ecut=200 → n_pw≈283, typical production
+//!   ecut=400 → n_pw≈893, high-accuracy
+//!   ecut=600 → n_pw≈1639, stress test
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main, black_box};
 use nalgebra::Vector3;
 use num_complex::Complex64;
 
 use pwdft_rs::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
+    eigensolver::dense,
     fft::FFT3D,
+    hamiltonian,
+    potential::nonlocal::NonlocalPotential,
 };
 
-/// Build a standard Si FCC crystal for benchmarks.
+/// Si FCC crystal (2 atoms, diamond structure).
 fn si_crystal() -> Crystal {
     let a = 5.431;
     Crystal {
@@ -29,19 +38,77 @@ fn si_crystal() -> Crystal {
     }
 }
 
-fn bench_fft_forward(c: &mut Criterion) {
-    let mut group = c.benchmark_group("fft");
+fn si_pp() -> pwdft_rs::pseudopotential::PseudopotentialData {
+    pwdft_rs::pseudopotential::load(
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+    )
+    .unwrap()
+}
 
-    for &size in &[16, 20, 24, 32] {
-        let fft = FFT3D::new(size, size, size);
-        let n = fft.total_size();
-        let mut data: Vec<Complex64> = (0..n)
-            .map(|i| Complex64::new((i as f64 * 0.1).sin(), (i as f64 * 0.2).cos()))
-            .collect();
+// ---------------------------------------------------------------------------
+// Eigensolver: the SCF bottleneck
+// ---------------------------------------------------------------------------
 
-        group.bench_function(format!("forward_{size}x{size}x{size}"), |b| {
+fn bench_eigensolver(c: &mut Criterion) {
+    let crystal = si_crystal();
+    let pp = si_pp();
+    let k = Vector3::zeros();
+
+    let mut group = c.benchmark_group("eigensolver");
+    group.sample_size(20); // eigensolves are slow at large n
+
+    // ecut=600 (n≈1363) crashes Accelerate in release mode due to libc++ TMO bug
+    for &ecut in &[100.0, 200.0, 400.0] {
+        let basis = BasisSet::new(&crystal.lattice, ecut);
+        let n = basis.len();
+
+        // Build a realistic Hamiltonian (kinetic + nonlocal, not just diagonal)
+        let mut h = hamiltonian::build_kinetic(&basis, &k);
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
+        vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
+
+        group.bench_function(format!("lapack_zheev_n{n}"), |b| {
+            b.iter(|| black_box(dense::diagonalize_hermitian(black_box(&h))));
+        });
+    }
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Hamiltonian construction (kinetic + V_NL)
+// ---------------------------------------------------------------------------
+
+fn bench_hamiltonian(c: &mut Criterion) {
+    let crystal = si_crystal();
+    let pp = si_pp();
+    let k_gamma = Vector3::zeros();
+    let k_offgamma = Vector3::new(0.1, 0.2, 0.3);
+
+    let mut group = c.benchmark_group("hamiltonian");
+
+    for &ecut in &[100.0, 200.0, 400.0] {
+        let basis = BasisSet::new(&crystal.lattice, ecut);
+        let n = basis.len();
+
+        group.bench_function(format!("kinetic_n{n}"), |b| {
+            b.iter(|| black_box(hamiltonian::build_kinetic(&basis, &k_gamma)));
+        });
+
+        group.bench_function(format!("vnl_new_n{n}"), |b| {
             b.iter(|| {
-                fft.forward(&mut data);
+                black_box(NonlocalPotential::new(&crystal, &basis, &k_offgamma, &[&pp]));
+            });
+        });
+
+        let mut h = hamiltonian::build_kinetic(&basis, &k_gamma);
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &[&pp]);
+
+        group.bench_function(format!("vnl_apply_n{n}"), |b| {
+            b.iter(|| {
+                let mut h_copy = h.clone();
+                vnl.add_to_hamiltonian(&mut h_copy, &crystal, &basis, &k_gamma);
+                black_box(h_copy);
             });
         });
     }
@@ -49,61 +116,57 @@ fn bench_fft_forward(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_fft_roundtrip(c: &mut Criterion) {
-    let fft = FFT3D::new(20, 20, 20);
-    let n = fft.total_size();
-    let mut data: Vec<Complex64> = (0..n)
-        .map(|i| Complex64::new((i as f64 * 0.1).sin(), 0.0))
-        .collect();
+// ---------------------------------------------------------------------------
+// FFT at multiple grid sizes
+// ---------------------------------------------------------------------------
 
-    c.bench_function("fft_roundtrip_20x20x20", |b| {
-        b.iter(|| {
-            fft.forward(&mut data);
-            fft.inverse_normalized(&mut data);
+fn bench_fft(c: &mut Criterion) {
+    let mut group = c.benchmark_group("fft");
+
+    for &size in &[16, 20, 24, 32, 48] {
+        let fft = FFT3D::new(size, size, size);
+        let n = fft.total_size();
+        let mut data: Vec<Complex64> = (0..n)
+            .map(|i| Complex64::new((i as f64 * 0.1).sin(), (i as f64 * 0.2).cos()))
+            .collect();
+
+        group.bench_function(format!("forward_{size}x{size}x{size}"), |b| {
+            b.iter(|| fft.forward(&mut data));
         });
-    });
-}
 
-fn bench_basis_construction(c: &mut Criterion) {
-    let crystal = si_crystal();
-
-    let mut group = c.benchmark_group("basis");
-    for &ecut in &[100.0, 200.0, 400.0] {
-        group.bench_function(format!("new_ecut_{ecut}"), |b| {
-            b.iter(|| BasisSet::new(&crystal.lattice, ecut));
+        group.bench_function(format!("roundtrip_{size}x{size}x{size}"), |b| {
+            b.iter(|| {
+                fft.forward(&mut data);
+                fft.inverse_normalized(&mut data);
+            });
         });
     }
+
     group.finish();
 }
 
-fn bench_hamiltonian_build(c: &mut Criterion) {
+// ---------------------------------------------------------------------------
+// Basis construction
+// ---------------------------------------------------------------------------
+
+fn bench_basis(c: &mut Criterion) {
     let crystal = si_crystal();
-    let basis = BasisSet::new(&crystal.lattice, 204.09);
-    let n_pw = basis.len();
-    let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
-    )
-    .unwrap();
+    let mut group = c.benchmark_group("basis");
 
-    let k = Vector3::new(0.0, 0.0, 0.0);
-
-    c.bench_function(&format!("nonlocal_potential_new_{n_pw}pw"), |b| {
-        b.iter(|| {
-            pwdft_rs::potential::nonlocal::NonlocalPotential::new(
-                &crystal,
-                &basis,
-                &k,
-                &[&pp],
-            )
+    for &ecut in &[100.0, 200.0, 400.0, 600.0] {
+        group.bench_function(format!("new_ecut_{ecut}"), |b| {
+            b.iter(|| black_box(BasisSet::new(&crystal.lattice, ecut)));
         });
-    });
+    }
+
+    group.finish();
 }
 
 criterion_group!(
     benches,
-    bench_fft_forward,
-    bench_fft_roundtrip,
-    bench_basis_construction,
-    bench_hamiltonian_build,
+    bench_eigensolver,
+    bench_hamiltonian,
+    bench_fft,
+    bench_basis,
 );
 criterion_main!(benches);
