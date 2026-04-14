@@ -420,7 +420,7 @@ fn test_05_vnl_diagonal_at_gamma() {
     eprintln!("Number of PWs: {}", n_pw);
 
     // Build V_NL using the library
-    let mut h_lib = nalgebra::DMatrix::<Complex64>::zeros(n_pw, n_pw);
+    let mut h_lib = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
     let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
     vnl.add_to_hamiltonian(&mut h_lib, &crystal, &basis, &k);
 
@@ -574,7 +574,7 @@ fn test_06_vnl_g0_g0_analytic() {
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let k = Vector3::zeros();
     let n_pw = basis.len();
-    let mut h = nalgebra::DMatrix::<Complex64>::zeros(n_pw, n_pw);
+    let mut h = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
     let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
     vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
@@ -667,7 +667,7 @@ fn test_08_vnl_offdiagonal() {
     eprintln!("\n=== TEST 8: Off-diagonal V_NL matrix elements ===");
 
     // Build V_NL using the library
-    let mut h_lib = nalgebra::DMatrix::<Complex64>::zeros(n_pw, n_pw);
+    let mut h_lib = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
     let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
     vnl.add_to_hamiltonian(&mut h_lib, &crystal, &basis, &k);
 
@@ -843,7 +843,7 @@ fn test_10_vnl_hermiticity_and_reality() {
 
     eprintln!("\n=== TEST 10: V_NL Hermiticity and diagonal reality ===");
 
-    let mut h = nalgebra::DMatrix::<Complex64>::zeros(n_pw, n_pw);
+    let mut h = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
     let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
     vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 

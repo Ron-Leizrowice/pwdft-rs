@@ -10,8 +10,6 @@ gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 [dependencies]
 approx = ">=0.5"
 nalgebra = { version = ">=0.34", features = ["serde-serialize"] }
-nalgebra-lapack = { version = ">=0.27", default-features = false, features = ["lapack-accelerate"] }
-lapack = { version = ">=0.20", default-features = false }
 faer = ">=0.24"
 num-complex = ">=0.4"
 rustfft = ">=6.2"
@@ -42,3 +40,16 @@ required-features = ["gpu"]
 [profile.release]
 opt-level = 3
 lto = "thin"
+
+# Optimize faer in test/debug builds — its SIMD codegen is 230× slower
+# without optimizations, making eigensolve-heavy tests impractical.
+[profile.dev.package.faer]
+opt-level = 3
+[profile.dev.package.faer-traits]
+opt-level = 3
+[profile.dev.package.gemm]
+opt-level = 3
+[profile.dev.package.gemm-common]
+opt-level = 3
+[profile.dev.package.pulp]
+opt-level = 3

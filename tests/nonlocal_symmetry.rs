@@ -1,7 +1,7 @@
 //! Diagnostic test: check that the non-local potential preserves
 //! cubic symmetry at the Γ point for Si FCC.
 
-use nalgebra::{DMatrix, Vector3};
+use nalgebra::Vector3;
 use num_complex::Complex64;
 
 use pwdft_rs::{
@@ -37,7 +37,7 @@ fn test_vnl_hermitian_at_gamma() {
     .unwrap();
 
     let n = basis.len();
-    let mut h = DMatrix::zeros(n, n);
+    let mut h = faer::Mat::<Complex64>::zeros(n, n);
     let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
     vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
@@ -66,7 +66,7 @@ fn test_vnl_diagonal_same_for_symmetry_related_g() {
     .unwrap();
 
     let n = basis.len();
-    let mut h_nl = DMatrix::<Complex64>::zeros(n, n);
+    let mut h_nl = faer::Mat::<Complex64>::zeros(n, n);
     let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
     vnl.add_to_hamiltonian(&mut h_nl, &crystal, &basis, &k);
 
@@ -112,7 +112,7 @@ fn test_full_hamiltonian_degeneracy_at_gamma() {
     .unwrap();
 
     let n = basis.len();
-    let mut h = DMatrix::<Complex64>::zeros(n, n);
+    let mut h = faer::Mat::<Complex64>::zeros(n, n);
 
     // Kinetic
     for (i, g) in basis.g_vectors().iter().enumerate() {
@@ -208,7 +208,7 @@ fn test_kinetic_plus_vlocal_degeneracy() {
     let n = basis.len();
     let g_vecs = basis.g_vectors();
     let _miller = basis.miller_indices();
-    let mut h = DMatrix::<Complex64>::zeros(n, n);
+    let mut h = faer::Mat::<Complex64>::zeros(n, n);
 
     // Kinetic
     for (i, g) in g_vecs.iter().enumerate() {
@@ -301,7 +301,7 @@ fn test_kinetic_plus_vlocal_via_fft_grid() {
     }
 
     // Build H using FFT grid lookup
-    let mut h = DMatrix::<Complex64>::zeros(n, n);
+    let mut h = faer::Mat::<Complex64>::zeros(n, n);
     for (i, g) in g_vecs.iter().enumerate() {
         h[(i, i)] = Complex64::new(HBAR2_OVER_2M * g.norm_squared(), 0.0);
     }

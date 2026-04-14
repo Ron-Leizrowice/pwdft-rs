@@ -111,7 +111,7 @@ impl NonlocalPotential {
     /// q-vectors and norms precomputed, projector sums lifted out of atom loop.
     pub fn add_to_hamiltonian(
         &self,
-        h: &mut nalgebra::DMatrix<Complex64>,
+        h: &mut faer::Mat<Complex64>,
         crystal: &Crystal,
         basis: &BasisSet,
         k: &Vector3<f64>,

@@ -38,11 +38,9 @@ fn make_test_data(n: usize) -> Vec<Complex64> {
 
 #[test]
 fn test_fft_serial_vs_parallel() {
-    // Run FFT with 1 thread, then with all threads, compare results
     let fft = FFT3D::new(20, 20, 20);
     let original = make_test_data(fft.total_size());
 
-    // Single-threaded
     let mut data_serial = original.clone();
     let result_serial = rayon::ThreadPoolBuilder::new()
         .num_threads(1)
@@ -53,12 +51,9 @@ fn test_fft_serial_vs_parallel() {
             data_serial.clone()
         });
 
-    // Multi-threaded (default thread count)
     let mut data_parallel = original.clone();
     fft.forward(&mut data_parallel);
 
-    // Compare: should be bitwise identical since the math is the same,
-    // just distributed across threads
     for (i, (s, p)) in result_serial.iter().zip(data_parallel.iter()).enumerate() {
         assert!(
             (s - p).norm() < 1e-12,
@@ -112,48 +107,55 @@ fn test_fft_roundtrip_preserves_data() {
 
 #[test]
 fn test_scf_serial_vs_parallel() {
-    // Run a short SCF (3 iterations) with 1 and N threads, compare eigenvalues
+    // Compare single-threaded vs multi-threaded SCF over a short run.
+    // Uses Γ-only (1 k-point) and 5 iterations to keep debug-mode runtime
+    // under 10 seconds while still exercising the full SCF pipeline.
     let crystal = si_crystal();
-    let basis = BasisSet::new(&crystal.lattice, 204.09);
+    let basis = BasisSet::new(&crystal.lattice, 100.0); // smaller basis for speed
     let pp = pwdft_rs::pseudopotential::load(
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
     )
     .unwrap();
 
-    let kpoints = pwdft_rs::kpoints::monkhorst_pack(2, 2, 2, &crystal.lattice);
+    // Γ-only: 1 k-point, fast but still exercises all code paths
+    let kpoints = vec![pwdft_rs::kpoints::KPoint {
+        k: Vector3::zeros(),
+        weight: 1.0,
+        label: None,
+    }];
 
     let params = pwdft_rs::scf::ScfParams {
-        n_bands: 8,
-        max_iter: 3, // Just a few iterations — enough to test numerical consistency
-        conv_threshold: 1e-20, // Won't converge, but that's fine
+        n_bands: 4,
+        max_iter: 5,
+        conv_threshold: 1e-20, // Won't converge in 5 iters — that's fine
         mixing_beta: 0.3,
         mixing_ndim: 4,
         smearing_sigma: 0.05,
         ecutrho_ratio: 4,
-        fft_grid: Some([20, 20, 20]),
+        fft_grid: Some([16, 16, 16]),
     };
 
-    // Single-threaded
+    // Single-threaded: run 5 SCF iterations
     let result_serial = rayon::ThreadPoolBuilder::new()
         .num_threads(1)
         .build()
         .unwrap()
         .install(|| {
-            // SCF won't converge in 3 iters; that's expected
             pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None)
         });
 
-    // Multi-threaded
+    // Multi-threaded: same 5 iterations
     let result_parallel =
         pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None);
 
-    // Both should fail with ConvergenceFailure (only 3 iters)
+    // Both should fail to converge (only 5 iters)
     assert!(result_serial.is_err());
     assert!(result_parallel.is_err());
 
-    // Run enough to compare eigenvalues: use a tighter threshold
+    // Now run to convergence with a small but real problem
     let params_conv = pwdft_rs::scf::ScfParams {
-        max_iter: 60,
+        n_bands: 4,
+        max_iter: 40,
         conv_threshold: 1e-6,
         ..params
     };

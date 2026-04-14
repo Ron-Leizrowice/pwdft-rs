@@ -2,7 +2,6 @@
 //!
 //! ρ(r) = Σ_{n,k} f_{n,k} w_k |ψ_{n,k}(r)|²
 
-use nalgebra::DMatrix;
 use num_complex::Complex64;
 use rayon::prelude::*;
 
@@ -21,7 +20,7 @@ use crate::{basis::BasisSet, fft::FFT3D, kpoints::KPoint};
 pub fn compute_density(
     basis: &BasisSet,
     kpoints: &[KPoint],
-    wavefunctions: &[DMatrix<Complex64>],
+    wavefunctions: &[faer::Mat<Complex64>],
     occupations: &[Vec<f64>],
     g_to_fft: &[usize],
     fft: &FFT3D,

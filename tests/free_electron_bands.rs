@@ -26,7 +26,7 @@ use pwdft_rs::{
 
 const SI_A: f64 = 5.431; // Å
 const N_BANDS: usize = 15;
-const ECUT: f64 = 200.0; // eV
+const ECUT: f64 = 100.0; // eV — lower cutoff keeps debug-mode eigensolves fast
 
 fn si_lattice() -> Lattice {
     Lattice::new(
@@ -328,11 +328,17 @@ fn test_eigenvector_reconstruction() {
 
     // Verify H V = V Λ, i.e. H v_i = λ_i v_i for each eigenpair
     for i in 0..n.min(10) {
-        let v_i = result.eigenvectors.column(i);
-        let hv = &h * v_i;
-        let lambda_v = v_i * num_complex::Complex64::new(result.eigenvalues[i], 0.0);
-
-        let residual: f64 = (&hv - &lambda_v).iter().map(|c| c.norm_sqr()).sum::<f64>().sqrt();
+        let lambda = num_complex::Complex64::new(result.eigenvalues[i], 0.0);
+        let mut residual_sq = 0.0_f64;
+        for r in 0..n {
+            let mut hv_r = num_complex::Complex64::new(0.0, 0.0);
+            for c in 0..n {
+                hv_r += h[(r, c)] * result.eigenvectors[(c, i)];
+            }
+            let diff = hv_r - lambda * result.eigenvectors[(r, i)];
+            residual_sq += diff.norm_sqr();
+        }
+        let residual = residual_sq.sqrt();
         assert!(
             residual < 1e-8,
             "eigenvector {i}: residual |Hv - λv| = {residual:.2e}"

@@ -414,9 +414,9 @@ fn build_hamiltonian_with_v_eff(
     k: &Vector3<f64>,
     v_eff_fft: &[Complex64],
     grid: &FftGrid,
-) -> nalgebra::DMatrix<Complex64> {
+) -> faer::Mat<Complex64> {
     let n = basis.len();
-    let mut h = nalgebra::DMatrix::zeros(n, n);
+    let mut h = faer::Mat::<Complex64>::zeros(n, n);
 
     // Kinetic (diagonal)
     for (i, g) in basis.g_vectors().iter().enumerate() {

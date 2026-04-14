@@ -1,4 +1,4 @@
-use nalgebra::{DMatrix, Vector3};
+use nalgebra::Vector3;
 use num_complex::Complex64;
 
 use crate::{basis::BasisSet, consts::HBAR2_OVER_2M};
@@ -8,9 +8,9 @@ use crate::{basis::BasisSet, consts::HBAR2_OVER_2M};
 /// H_{G,G'}(k) = δ_{GG'} · (ℏ²/2m) |k + G|²
 ///
 /// This is a diagonal matrix in the plane-wave basis.
-pub fn build_kinetic(basis: &BasisSet, k: &Vector3<f64>) -> DMatrix<Complex64> {
+pub fn build_kinetic(basis: &BasisSet, k: &Vector3<f64>) -> faer::Mat<Complex64> {
     let n = basis.len();
-    let mut h = DMatrix::zeros(n, n);
+    let mut h = faer::Mat::<Complex64>::zeros(n, n);
 
     for (i, g) in basis.g_vectors().iter().enumerate() {
         let kpg = k + g;
@@ -34,7 +34,7 @@ pub fn build_hamiltonian(
     basis: &BasisSet,
     k: &Vector3<f64>,
     v_eff: Option<&dyn Fn(usize, usize) -> Complex64>,
-) -> DMatrix<Complex64> {
+) -> faer::Mat<Complex64> {
     let mut h = build_kinetic(basis, k);
 
     if let Some(v) = v_eff {
@@ -72,7 +72,6 @@ mod tests {
         let h = build_kinetic(&basis, &k);
         let n = basis.len();
 
-        // Should be diagonal
         for i in 0..n {
             for j in 0..n {
                 if i != j {
@@ -92,7 +91,6 @@ mod tests {
         let k = Vector3::zeros();
         let h = build_kinetic(&basis, &k);
 
-        // At Γ, the diagonal should equal the kinetic energies of each G-vector
         let ke = basis.kinetic_energy();
         for (i, &expected) in ke.iter().enumerate() {
             assert!(
@@ -111,7 +109,6 @@ mod tests {
         let h = build_kinetic(&basis, &k);
         let n = basis.len();
 
-        // Kinetic-only is real diagonal, hence trivially Hermitian
         for i in 0..n {
             for j in 0..n {
                 let diff = (h[(i, j)] - h[(j, i)].conj()).norm();
