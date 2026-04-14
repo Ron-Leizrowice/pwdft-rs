@@ -1,0 +1,51 @@
+# Self-consistent field calculation for bulk Si (FCC, 2 atoms)
+# Uses norm-conserving pseudopotential with LDA (Perdew-Zunger)
+#
+# This is the YAML equivalent of si_scf.toml, parsed by src/settings.rs.
+
+system:
+  lattice:
+    - [0.0, 2.7155, 2.7155]
+    - [2.7155, 0.0, 2.7155]
+    - [2.7155, 2.7155, 0.0]
+  atoms:
+    - symbol: Si
+      position: [0.0, 0.0, 0.0]
+    - symbol: Si
+      position: [0.25, 0.25, 0.25]
+
+basis:
+  ecutwfc: 204.09          # eV, wavefunction cutoff (15 Ry)
+  ecutrho_ratio: 4         # charge density cutoff = 4 * ecutwfc (NC PP default)
+
+kpoints:
+  type: monkhorst_pack
+  grid: [4, 4, 4]
+
+scf:
+  max_iter: 100
+  conv_threshold: 1.0e-6   # RMS density change (e/A^3)
+  n_bands: 8               # null = auto from n_electrons/2 + padding
+
+electrons:
+  mixing_beta: 0.3         # density mixing parameter (0 < beta <= 1)
+  mixing_ndim: 8           # Anderson/Pulay history depth
+  smearing: fermi_dirac    # fermi_dirac | gaussian | methfessel_paxton | cold | fixed
+  smearing_width: 0.05     # eV (QE degauss equivalent)
+  occupations: smearing    # smearing | fixed
+
+xc:
+  functional: pz           # pz (LDA) | pbe (GGA) | pbe0 | hse06
+
+symmetry:
+  enabled: true
+  time_reversal: true
+  tolerance: 1.0e-5
+
+pseudopotentials:
+  Si: "../pseudopotentials/Si.UPF"
+
+output:
+  verbosity: normal        # low | normal | high
+  write_density: false
+  write_bands: true

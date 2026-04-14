@@ -13,6 +13,7 @@ rustfft = ">=6.2"
 rayon = ">=1.11"
 serde = { version = ">=1", features = ["derive"] }
 toml = ">=0.8"
+serde_yml = ">=0.0.12"
 quick-xml = ">=0.37"
 thiserror = ">=2"
 clap = { version = ">=4", features = ["derive"] }

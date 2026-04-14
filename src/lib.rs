@@ -13,3 +13,5 @@ pub mod kpoints;
 pub mod potential;
 pub mod pseudopotential;
 pub mod scf;
+pub mod settings;
+pub mod symmetry;
