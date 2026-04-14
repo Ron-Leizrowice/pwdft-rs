@@ -71,10 +71,21 @@ fn main() -> pwdft_rs::error::Result<()> {
             }
         }
         KPointsConfig::MonkhorstPack { grid } => {
-            let kpts = kpoints::monkhorst_pack(grid[0], grid[1], grid[2], &crystal.lattice);
+            let full_kpts = kpoints::monkhorst_pack(grid[0], grid[1], grid[2], &crystal.lattice);
+
+            // Detect symmetry and reduce k-points
+            let symmetry = pwdft_rs::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
+            info!("Symmetry: {} space group operations", symmetry.n_ops);
+
+            let kpts = pwdft_rs::symmetry::kpoints::reduce_kpoints(
+                &full_kpts,
+                *grid,
+                &symmetry,
+                &crystal.lattice,
+            );
             info!(
-                "Monkhorst-Pack grid: {}×{}×{} = {} k-points",
-                grid[0], grid[1], grid[2], kpts.len()
+                "Monkhorst-Pack grid: {}×{}×{} = {} → {} IBZ k-points",
+                grid[0], grid[1], grid[2], full_kpts.len(), kpts.len()
             );
 
             // Load pseudopotentials
@@ -111,7 +122,7 @@ fn main() -> pwdft_rs::error::Result<()> {
                 ecutrho_ratio: scf_config.ecutrho_ratio,
             };
 
-            let result = scf::run_scf(&crystal, &basis, &kpts, &pp_refs, &params)?;
+            let result = scf::run_scf(&crystal, &basis, &kpts, &pp_refs, &params, Some(&symmetry))?;
 
             eprintln!("SCF converged in {} iterations", result.n_iterations);
             eprintln!("Total energy: {:.6} eV", result.total_energy);

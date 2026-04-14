@@ -123,12 +123,17 @@ impl FftGrid {
 }
 
 /// Run the self-consistent field loop.
+///
+/// If `symmetry` is provided, the charge density is symmetrized after each
+/// SCF step to enforce crystal symmetry. K-point reduction should be done
+/// by the caller before passing `kpoints`.
 pub fn run_scf(
     crystal: &Crystal,
     basis: &BasisSet,
     kpoints: &[KPoint],
     pseudopotentials: &[&PseudopotentialData],
     params: &ScfParams,
+    symmetry: Option<&crate::symmetry::SymmetryInfo>,
 ) -> Result<ScfResult> {
     let omega = crystal.lattice.volume().abs();
     let n_electrons: f64 = crystal
@@ -223,10 +228,15 @@ pub fn run_scf(
             .collect();
 
         // 6. New density
-        let rho_r_new = density::compute_density(
+        let mut rho_r_new = density::compute_density(
             basis, kpoints, &all_kpoint_wavefns, &occupations, &g_to_fft, &grid.fft,
             n_electrons, omega,
         );
+
+        // 6b. Symmetrize density if symmetry info is available
+        if let Some(symm) = symmetry {
+            crate::symmetry::density::symmetrize_density(&mut rho_r_new, grid.dims, symm);
+        }
 
         // 7. Convergence check
         let delta = density_diff(&rho_r, &rho_r_new, omega, n_grid);
