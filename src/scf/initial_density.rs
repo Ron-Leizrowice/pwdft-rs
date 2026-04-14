@@ -53,7 +53,7 @@ impl InitialDensityConfig {
 /// Returns ρ(r) on the FFT grid, normalized to integrate to n_electrons.
 pub(super) fn generate_initial_density(
     crystal: &Crystal,
-    grid: &FftGrid,
+    grid: &mut FftGrid,
     pseudopotentials: &[&PseudopotentialData],
     n_electrons: f64,
     config: &InitialDensityConfig,
@@ -215,14 +215,14 @@ mod tests {
     #[test]
     fn test_gaussian_density_integrates_to_n_electrons() {
         let crystal = si_crystal();
-        let grid = make_grid(&crystal);
+        let mut grid = make_grid(&crystal);
         let pp = crate::pseudopotential::load(
             &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
         )
         .unwrap();
 
         let config = InitialDensityConfig::non_magnetic(2);
-        let rho = generate_initial_density(&crystal, &grid, &[&pp], 8.0, &config);
+        let rho = generate_initial_density(&crystal, &mut grid, &[&pp], 8.0, &config);
 
         let omega = crystal.lattice.volume().abs();
         let dvol = omega / rho.len() as f64;
@@ -236,14 +236,14 @@ mod tests {
     #[test]
     fn test_gaussian_density_non_negative() {
         let crystal = si_crystal();
-        let grid = make_grid(&crystal);
+        let mut grid = make_grid(&crystal);
         let pp = crate::pseudopotential::load(
             &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
         )
         .unwrap();
 
         let config = InitialDensityConfig::non_magnetic(2);
-        let rho = generate_initial_density(&crystal, &grid, &[&pp], 8.0, &config);
+        let rho = generate_initial_density(&crystal, &mut grid, &[&pp], 8.0, &config);
 
         for &v in &rho {
             assert!(v >= 0.0, "negative density: {v}");
@@ -253,14 +253,14 @@ mod tests {
     #[test]
     fn test_gaussian_density_peaked_at_atoms() {
         let crystal = si_crystal();
-        let grid = make_grid(&crystal);
+        let mut grid = make_grid(&crystal);
         let pp = crate::pseudopotential::load(
             &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
         )
         .unwrap();
 
         let config = InitialDensityConfig::non_magnetic(2);
-        let rho = generate_initial_density(&crystal, &grid, &[&pp], 8.0, &config);
+        let rho = generate_initial_density(&crystal, &mut grid, &[&pp], 8.0, &config);
 
         // Origin (0,0,0) is atom position — density should be higher there than average
         let rho_origin = rho[0];
@@ -274,14 +274,14 @@ mod tests {
     #[test]
     fn test_gaussian_density_has_diamond_symmetry() {
         let crystal = si_crystal();
-        let grid = make_grid(&crystal);
+        let mut grid = make_grid(&crystal);
         let pp = crate::pseudopotential::load(
             &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
         )
         .unwrap();
 
         let config = InitialDensityConfig::non_magnetic(2);
-        let rho = generate_initial_density(&crystal, &grid, &[&pp], 8.0, &config);
+        let rho = generate_initial_density(&crystal, &mut grid, &[&pp], 8.0, &config);
 
         let [_nx, ny, nz] = grid.dims;
         // For FCC Si with equal grid dims, permuting (x,y,z) should give same density

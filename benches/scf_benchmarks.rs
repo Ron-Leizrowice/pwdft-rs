@@ -67,12 +67,8 @@ fn bench_eigensolver(c: &mut Criterion) {
         let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
         vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
-        group.bench_function(format!("lapack_zheev_n{n}"), |b| {
-            b.iter(|| black_box(dense::diagonalize_hermitian(black_box(&h))));
-        });
-
         group.bench_function(format!("faer_eigen_n{n}"), |b| {
-            b.iter(|| black_box(dense::diagonalize_hermitian_faer(black_box(&h))));
+            b.iter(|| black_box(dense::diagonalize_hermitian(black_box(&h))));
         });
     }
 
@@ -128,7 +124,7 @@ fn bench_fft(c: &mut Criterion) {
     let mut group = c.benchmark_group("fft");
 
     for &size in &[16, 20, 24, 32, 48] {
-        let fft = FFT3D::new(size, size, size);
+        let mut fft = FFT3D::new(size, size, size);
         let n = fft.total_size();
         let mut data: Vec<Complex64> = (0..n)
             .map(|i| Complex64::new((i as f64 * 0.1).sin(), (i as f64 * 0.2).cos()))

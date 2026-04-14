@@ -105,25 +105,13 @@ impl FftGrid {
         self.dims[0] * self.dims[1] * self.dims[2]
     }
 
-    /// Map Miller indices (n1, n2, n3) to a flat FFT grid index.
     fn miller_to_idx(&self, n1: i32, n2: i32, n3: i32) -> usize {
-        let i1 = ((n1 % self.dims[0] as i32) + self.dims[0] as i32) as usize % self.dims[0];
-        let i2 = ((n2 % self.dims[1] as i32) + self.dims[1] as i32) as usize % self.dims[1];
-        let i3 = ((n3 % self.dims[2] as i32) + self.dims[2] as i32) as usize % self.dims[2];
-        i1 * self.dims[1] * self.dims[2] + i2 * self.dims[2] + i3
+        miller_to_idx(self.dims, n1, n2, n3)
     }
 
     /// Compute the Cartesian G-vector for FFT grid index.
     fn g_vector_at(&self, idx: usize) -> Vector3<f64> {
-        let [nx, ny, nz] = self.dims;
-        let i1 = idx / (ny * nz);
-        let i2 = (idx / nz) % ny;
-        let i3 = idx % nz;
-        // Map FFT index back to Miller index (centered)
-        let n1 = if i1 > nx / 2 { i1 as i32 - nx as i32 } else { i1 as i32 };
-        let n2 = if i2 > ny / 2 { i2 as i32 - ny as i32 } else { i2 as i32 };
-        let n3 = if i3 > nz / 2 { i3 as i32 - nz as i32 } else { i3 as i32 };
-        n1 as f64 * self.recip.a + n2 as f64 * self.recip.b + n3 as f64 * self.recip.c
+        g_vector_at_dims(idx, self.dims, &self.recip)
     }
 
     /// Mapping from basis G-vectors to FFT grid indices.
@@ -141,6 +129,18 @@ impl FftGrid {
 /// If `symmetry` is provided, the charge density is symmetrized after each
 /// SCF step to enforce crystal symmetry. K-point reduction should be done
 /// by the caller before passing `kpoints`.
+/// Compute G-vector from FFT grid index (standalone, safe to call from parallel contexts).
+fn g_vector_at_dims(idx: usize, dims: [usize; 3], recip: &crate::crystal::Lattice) -> Vector3<f64> {
+    let [nx, ny, nz] = dims;
+    let i1 = idx / (ny * nz);
+    let i2 = (idx / nz) % ny;
+    let i3 = idx % nz;
+    let n1 = if i1 > nx / 2 { i1 as i32 - nx as i32 } else { i1 as i32 };
+    let n2 = if i2 > ny / 2 { i2 as i32 - ny as i32 } else { i2 as i32 };
+    let n3 = if i3 > nz / 2 { i3 as i32 - nz as i32 } else { i3 as i32 };
+    n1 as f64 * recip.a + n2 as f64 * recip.b + n3 as f64 * recip.c
+}
+
 pub fn run_scf(
     crystal: &Crystal,
     basis: &BasisSet,
@@ -158,7 +158,7 @@ pub fn run_scf(
 
     info!("SCF: {n_electrons} electrons, {omega:.3} ų cell volume");
 
-    let grid = FftGrid::new(basis, &crystal.lattice, params.ecutrho_ratio, params.fft_grid);
+    let mut grid = FftGrid::new(basis, &crystal.lattice, params.ecutrho_ratio, params.fft_grid);
     let n_grid = grid.total_size();
     let [nx, ny, nz] = grid.dims;
     info!("FFT grid: {nx}×{ny}×{nz} = {n_grid} points (ecutrho_ratio={})", params.ecutrho_ratio);
@@ -176,9 +176,11 @@ pub fn run_scf(
         info!("GPU acceleration enabled for grid operations");
     }
     // Precompute |G|² for each FFT grid point (used by Hartree, both CPU and GPU)
+    let dims = grid.dims;
+    let recip = grid.recip.clone();
     let g_squared: Vec<f64> = (0..n_grid)
         .into_par_iter()
-        .map(|idx| grid.g_vector_at(idx).norm_squared())
+        .map(|idx| g_vector_at_dims(idx, dims, &recip).norm_squared())
         .collect();
 
     // Prepare persistent GPU buffers if GPU is available
@@ -190,10 +192,10 @@ pub fn run_scf(
     // Initial density: superposition of atomic densities (SAD)
     let init_config = initial_density::InitialDensityConfig::non_magnetic(crystal.atoms.len());
     let mut rho_r = initial_density::generate_initial_density(
-        crystal, &grid, pseudopotentials, n_electrons, &init_config,
+        crystal, &mut grid, pseudopotentials, n_electrons, &init_config,
     );
     let mut rho_g = vec![Complex64::new(0.0, 0.0); n_grid];
-    density_r_to_g(&grid.fft, &rho_r, &mut rho_g);
+    density_r_to_g(&mut grid.fft, &rho_r, &mut rho_g);
     info!("Initial density: superposition of atomic densities (Gaussian model)");
 
     let mut mixer = mixing::AndersonMixer::new(params.mixing_beta, params.mixing_ndim, n_grid);
@@ -226,7 +228,7 @@ pub fn run_scf(
         #[cfg(not(feature = "gpu"))]
         let (_exc_r, vxc_r) = xc::lda_xc_grid(&rho_r);
 
-        let vxc_g = real_to_g_space(&vxc_r, &grid.fft);
+        let vxc_g = real_to_g_space(&vxc_r, &mut grid.fft);
 
         // 3. V_eff = V_local + V_H + V_xc
         #[cfg(feature = "gpu")]
@@ -242,7 +244,7 @@ pub fn run_scf(
         let kpoint_results: Vec<_> = kpoints
             .par_iter()
             .map(|kp| {
-                let mut h = build_hamiltonian_with_v_eff(basis, &kp.k, &v_eff_fft, &grid);
+                let mut h = build_hamiltonian_with_v_eff(basis, &kp.k, &v_eff_fft, grid.dims);
 
                 // Add non-local pseudopotential
                 let vnl = NonlocalPotential::new(crystal, basis, &kp.k, pseudopotentials);
@@ -273,7 +275,7 @@ pub fn run_scf(
 
         // 6. New density
         let mut rho_r_new = density::compute_density(
-            basis, kpoints, &all_kpoint_wavefns, &occupations, &g_to_fft, &grid.fft,
+            basis, kpoints, &all_kpoint_wavefns, &occupations, &g_to_fft, &mut grid.fft,
             n_electrons, omega,
         );
 
@@ -289,7 +291,7 @@ pub fn run_scf(
         if delta < params.conv_threshold {
             info!("SCF converged after {} iterations", iter + 1);
             rho_r = rho_r_new;
-            density_r_to_g(&grid.fft, &rho_r, &mut rho_g);
+            density_r_to_g(&mut grid.fft, &rho_r, &mut rho_g);
             let rho_g_basis: Vec<Complex64> = g_to_fft.iter().map(|&idx| rho_g[idx]).collect();
 
             // Diagnostics: print V_eff at key G-vectors for comparison with QE
@@ -319,7 +321,7 @@ pub fn run_scf(
 
         // 8. Mix
         rho_r = mixer.mix(&rho_r, &rho_r_new);
-        density_r_to_g(&grid.fft, &rho_r, &mut rho_g);
+        density_r_to_g(&mut grid.fft, &rho_r, &mut rho_g);
     }
 
     Err(PwdftError::ConvergenceFailure {
@@ -347,10 +349,12 @@ fn compute_v_local_on_fft_grid(
         })
         .collect();
 
+    let dims = grid.dims;
+    let recip = grid.recip.clone();
     (0..n_grid)
         .into_par_iter()
         .map(|idx| {
-            let g = grid.g_vector_at(idx);
+            let g = g_vector_at_dims(idx, dims, &recip);
             let g_norm = g.norm();
             let mut v = Complex64::new(0.0, 0.0);
 
@@ -383,7 +387,7 @@ fn hartree_on_fft_grid(rho_g: &[Complex64], g_squared: &[f64]) -> Vec<Complex64>
 }
 
 /// Convert real-space array to G-space with FFT normalization.
-fn real_to_g_space(data_r: &[f64], fft: &FFT3D) -> Vec<Complex64> {
+fn real_to_g_space(data_r: &[f64], fft: &mut FFT3D) -> Vec<Complex64> {
     let n = data_r.len();
     let mut data_g: Vec<Complex64> = data_r.iter().map(|&v| Complex64::new(v, 0.0)).collect();
     fft.forward(&mut data_g);
@@ -408,12 +412,20 @@ fn assemble_v_eff(
         .collect()
 }
 
+/// Map Miller indices to a flat FFT grid index (standalone, for use in parallel contexts).
+fn miller_to_idx(dims: [usize; 3], n1: i32, n2: i32, n3: i32) -> usize {
+    let i1 = ((n1 % dims[0] as i32) + dims[0] as i32) as usize % dims[0];
+    let i2 = ((n2 % dims[1] as i32) + dims[1] as i32) as usize % dims[1];
+    let i3 = ((n3 % dims[2] as i32) + dims[2] as i32) as usize % dims[2];
+    i1 * dims[1] * dims[2] + i2 * dims[2] + i3
+}
+
 /// Build Hamiltonian: kinetic + V_eff(G-G') looked up from FFT grid.
 fn build_hamiltonian_with_v_eff(
     basis: &BasisSet,
     k: &Vector3<f64>,
     v_eff_fft: &[Complex64],
-    grid: &FftGrid,
+    grid_dims: [usize; 3],
 ) -> faer::Mat<Complex64> {
     let n = basis.len();
     let mut h = faer::Mat::<Complex64>::zeros(n, n);
@@ -425,13 +437,13 @@ fn build_hamiltonian_with_v_eff(
     }
 
     // Potential: V_{G,G'} = V_eff(G-G') from FFT grid
-    let miller = basis.miller_indices();
+    let miller_idx = basis.miller_indices();
     for i in 0..n {
         for j in 0..n {
-            let dn1 = miller[i][0] - miller[j][0];
-            let dn2 = miller[i][1] - miller[j][1];
-            let dn3 = miller[i][2] - miller[j][2];
-            let fft_idx = grid.miller_to_idx(dn1, dn2, dn3);
+            let dn1 = miller_idx[i][0] - miller_idx[j][0];
+            let dn2 = miller_idx[i][1] - miller_idx[j][1];
+            let dn3 = miller_idx[i][2] - miller_idx[j][2];
+            let fft_idx = miller_to_idx(grid_dims, dn1, dn2, dn3);
             h[(i, j)] += v_eff_fft[fft_idx];
         }
     }
@@ -440,7 +452,7 @@ fn build_hamiltonian_with_v_eff(
 }
 
 /// FFT density from real space to G-space (normalized).
-fn density_r_to_g(fft: &FFT3D, rho_r: &[f64], rho_g: &mut [Complex64]) {
+fn density_r_to_g(fft: &mut FFT3D, rho_r: &[f64], rho_g: &mut [Complex64]) {
     for (i, &r) in rho_r.iter().enumerate() {
         rho_g[i] = Complex64::new(r, 0.0);
     }
@@ -526,11 +538,11 @@ mod tests {
     fn test_real_to_g_space_dc_component() {
         // A constant real-space function f(r) = C should give
         // F(G=0) = C and F(G≠0) = 0.
-        let fft = FFT3D::new(8, 8, 8);
+        let mut fft = FFT3D::new(8, 8, 8);
         let n = fft.total_size();
         let c = 3.5;
         let data_r = vec![c; n];
-        let data_g = real_to_g_space(&data_r, &fft);
+        let data_g = real_to_g_space(&data_r, &mut fft);
 
         // G=0 component (index 0) should be C
         assert!(
@@ -550,10 +562,10 @@ mod tests {
 
     #[test]
     fn test_real_to_g_space_roundtrip() {
-        let fft = FFT3D::new(8, 8, 8);
+        let mut fft = FFT3D::new(8, 8, 8);
         let n = fft.total_size();
         let data_r: Vec<f64> = (0..n).map(|i| (i as f64 * 0.1).sin()).collect();
-        let data_g = real_to_g_space(&data_r, &fft);
+        let data_g = real_to_g_space(&data_r, &mut fft);
 
         // Inverse FFT should recover original (unnormalized → need N factor)
         let mut data_back = data_g;

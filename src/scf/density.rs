@@ -23,7 +23,7 @@ pub fn compute_density(
     wavefunctions: &[faer::Mat<Complex64>],
     occupations: &[Vec<f64>],
     g_to_fft: &[usize],
-    fft: &FFT3D,
+    fft: &mut FFT3D,
     n_electrons: f64,
     omega: f64,
 ) -> Vec<f64> {
@@ -43,7 +43,7 @@ pub fn compute_density(
                 let wfn = &wavefunctions[ik];
                 let occ = &occupations[ik];
                 let n_bands = occ.len();
-                let fft_local = FFT3D::new(dnx, dny, dnz);
+                let mut fft_local = FFT3D::new(dnx, dny, dnz);
 
                 for ib in 0..n_bands {
                     let f = occ[ib] * kp.weight;

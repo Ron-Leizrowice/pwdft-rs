@@ -38,8 +38,7 @@ fn make_test_data(n: usize) -> Vec<Complex64> {
 
 #[test]
 fn test_fft_serial_vs_parallel() {
-    let fft = FFT3D::new(20, 20, 20);
-    let original = make_test_data(fft.total_size());
+    let original = make_test_data(20 * 20 * 20);
 
     let mut data_serial = original.clone();
     let result_serial = rayon::ThreadPoolBuilder::new()
@@ -47,10 +46,12 @@ fn test_fft_serial_vs_parallel() {
         .build()
         .unwrap()
         .install(|| {
+            let mut fft = FFT3D::new(20, 20, 20);
             fft.forward(&mut data_serial);
             data_serial.clone()
         });
 
+    let mut fft = FFT3D::new(20, 20, 20);
     let mut data_parallel = original.clone();
     fft.forward(&mut data_parallel);
 
@@ -64,8 +65,7 @@ fn test_fft_serial_vs_parallel() {
 
 #[test]
 fn test_fft_inverse_serial_vs_parallel() {
-    let fft = FFT3D::new(20, 20, 20);
-    let original = make_test_data(fft.total_size());
+    let original = make_test_data(20 * 20 * 20);
 
     let mut data_serial = original.clone();
     let result_serial = rayon::ThreadPoolBuilder::new()
@@ -73,10 +73,12 @@ fn test_fft_inverse_serial_vs_parallel() {
         .build()
         .unwrap()
         .install(|| {
+            let mut fft = FFT3D::new(20, 20, 20);
             fft.inverse_normalized(&mut data_serial);
             data_serial.clone()
         });
 
+    let mut fft = FFT3D::new(20, 20, 20);
     let mut data_parallel = original.clone();
     fft.inverse_normalized(&mut data_parallel);
 
@@ -90,7 +92,7 @@ fn test_fft_inverse_serial_vs_parallel() {
 
 #[test]
 fn test_fft_roundtrip_preserves_data() {
-    let fft = FFT3D::new(20, 20, 20);
+    let mut fft = FFT3D::new(20, 20, 20);
     let original = make_test_data(fft.total_size());
 
     let mut data = original.clone();
