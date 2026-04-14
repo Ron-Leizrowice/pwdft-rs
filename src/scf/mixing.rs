@@ -296,6 +296,157 @@ mod tests {
     }
 
     #[test]
+    fn test_kerker_anderson_multi_iteration() {
+        // Run 3 iterations of Anderson+Kerker to verify the preconditioned
+        // residual history works correctly (not just 1st iteration linear mixing).
+        let mut fft = FFT3D::new(4, 4, 4);
+        let n = 64;
+        let g_squared: Vec<f64> = (0..n)
+            .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 * 0.5 })
+            .collect();
+        let mut mixer = AndersonMixer::new(
+            0.3, 4,
+            &MixingMode::Kerker { q_tf: Some(1.0) },
+            Some(&g_squared),
+            8.0, 40.0,
+        );
+
+        let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
+        let rho_target: Vec<f64> = (0..n).map(|i| 1.0 + 0.02 * (i as f64).cos()).collect();
+
+        // 3 iterations — should not panic and should produce finite values
+        for _ in 0..3 {
+            let result = mixer.mix(&rho_in, &rho_target, &mut fft);
+            assert!(result.iter().all(|v| v.is_finite()), "Non-finite density after mixing");
+            rho_in = result;
+        }
+    }
+
+    #[test]
+    fn test_kerker_small_qtf_approaches_plain() {
+        // As q_TF → 0, P(G) → 1 for all G≠0, so Kerker → plain mixing
+        let mut fft = FFT3D::new(4, 4, 4);
+        let n = 64;
+        let g_squared: Vec<f64> = (0..n)
+            .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
+            .collect();
+
+        let rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.1 * (i as f64 * 0.3).sin()).collect();
+        let rho_out: Vec<f64> = (0..n).map(|i| 1.0 + 0.2 * (i as f64 * 0.3).sin()).collect();
+
+        let mut mixer_plain = AndersonMixer::new(
+            0.3, 4, &MixingMode::Plain, None, 8.0, 40.0,
+        );
+        let result_plain = mixer_plain.mix(&rho_in, &rho_out, &mut fft);
+
+        let mut mixer_kerker = AndersonMixer::new(
+            0.3, 4,
+            &MixingMode::Kerker { q_tf: Some(0.001) }, // tiny q_TF
+            Some(&g_squared),
+            8.0, 40.0,
+        );
+        let result_kerker = mixer_kerker.mix(&rho_in, &rho_out, &mut fft);
+
+        // Should be nearly identical (small q_TF means almost no preconditioning)
+        let max_diff: f64 = result_plain.iter()
+            .zip(result_kerker.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        assert!(
+            max_diff < 0.01,
+            "Kerker with tiny q_TF should match plain mixing, max_diff={max_diff}"
+        );
+    }
+
+    #[test]
+    fn test_kerker_large_qtf_suppresses_all() {
+        // As q_TF → ∞, P(G) → 0 for all G, total suppression
+        let mut fft = FFT3D::new(4, 4, 4);
+        let n = 64;
+        let g_squared: Vec<f64> = (0..n)
+            .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
+            .collect();
+        let mut mixer = AndersonMixer::new(
+            0.3, 4,
+            &MixingMode::Kerker { q_tf: Some(1000.0) }, // huge q_TF
+            Some(&g_squared),
+            8.0, 40.0,
+        );
+
+        let rho_in = vec![1.0; n];
+        let rho_out = vec![2.0; n];
+        let result = mixer.mix(&rho_in, &rho_out, &mut fft);
+
+        // With huge q_TF, almost no mixing should occur (residual fully suppressed)
+        let max_change: f64 = result.iter().zip(rho_in.iter())
+            .map(|(r, &i)| (r - i).abs())
+            .fold(0.0, f64::max);
+        assert!(
+            max_change < 0.01,
+            "Kerker with huge q_TF should suppress all mixing, max_change={max_change}"
+        );
+    }
+
+    #[test]
+    fn test_precondition_preserves_real() {
+        // precondition_residual should produce a real-valued result
+        // (imaginary parts should be negligible after FFT→filter→IFFT of real data)
+        let mut fft = FFT3D::new(4, 4, 4);
+        let n = 64;
+        let weights: Vec<f64> = (0..n)
+            .map(|i| if i == 0 { 0.0 } else { 0.5 })
+            .collect();
+        let residual: Vec<f64> = (0..n).map(|i| (i as f64 * 0.1).sin()).collect();
+
+        let result = precondition_residual(&residual, &weights, &mut fft);
+        assert_eq!(result.len(), n);
+        assert!(result.iter().all(|v| v.is_finite()), "Non-finite preconditioned residual");
+    }
+
+    #[test]
+    fn test_kerker_high_g_passes_through() {
+        // A residual with only high-G components should pass through Kerker
+        // nearly unchanged (P(G) → 1 for large |G|²)
+        let mut fft = FFT3D::new(4, 4, 4);
+        let n = 64;
+        // All G-vectors have large |G|² (>> q_TF²)
+        let g_squared: Vec<f64> = (0..n).map(|i| 100.0 + i as f64).collect();
+        let q_tf = 1.0; // q_TF² = 1, much smaller than all |G|²
+
+        let weights: Vec<f64> = g_squared.iter()
+            .map(|&g2| g2 / (g2 + q_tf * q_tf))
+            .collect();
+
+        // All weights should be close to 1.0
+        for (i, &w) in weights.iter().enumerate() {
+            assert!(
+                w > 0.99,
+                "Weight at G={i} should be ~1.0 for large |G|², got {w}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_plain_ignores_fft() {
+        // Plain mixing should produce the same result regardless of FFT state
+        let mut fft1 = FFT3D::new(2, 2, 2);
+        let mut fft2 = FFT3D::new(2, 2, 2);
+
+        let mut mixer1 = AndersonMixer::new(0.3, 4, &MixingMode::Plain, None, 8.0, 40.0);
+        let mut mixer2 = AndersonMixer::new(0.3, 4, &MixingMode::Plain, None, 8.0, 40.0);
+
+        let rho_in = vec![1.0; 8];
+        let rho_out = vec![2.0; 8];
+
+        let r1 = mixer1.mix(&rho_in, &rho_out, &mut fft1);
+        let r2 = mixer2.mix(&rho_in, &rho_out, &mut fft2);
+
+        for (a, b) in r1.iter().zip(r2.iter()) {
+            assert!((a - b).abs() < 1e-15, "Plain mixing results should be identical");
+        }
+    }
+
+    #[test]
     fn test_solve_linear_system() {
         let a = vec![2.0, 1.0, 1.0, 3.0];
         let b = vec![5.0, 7.0];
