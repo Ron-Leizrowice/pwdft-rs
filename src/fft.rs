@@ -1,244 +1,89 @@
+//! 3D FFT via ndrustfft (safe wrapper over rustfft + ndarray).
+//!
+//! Zero unsafe code. Uses ndarray's safe strided access for all
+//! three dimension transforms.
+
+use ndarray::Array3;
+use ndrustfft::{FftHandler, Normalization, ndfft, ndifft};
 use num_complex::Complex64;
 
-// ============================================================================
-// FFTW3 backend (feature = "fftw")
-// ============================================================================
+/// 3D FFT on a regular grid.
+///
+/// Performs forward and inverse complex-to-complex transforms using
+/// ndrustfft's safe ndarray-based 1D FFTs along each axis.
+pub struct FFT3D {
+    dims: [usize; 3],
+    fwd_handlers: [FftHandler<f64>; 3],
+    inv_handlers: [FftHandler<f64>; 3],
+}
 
-// Link the FFTW threads library for multi-threaded transforms.
-// The search path is set via build.rs for the system FFTW installation.
-#[cfg(feature = "fftw")]
-#[link(name = "fftw3_threads")]
-unsafe extern "C" {}
-
-#[cfg(feature = "fftw")]
-mod backend {
-    use super::Complex64;
-    use std::sync::{Mutex, Once};
-
-    /// Global mutex for FFTW plan creation/destruction (not thread-safe in FFTW).
-    static FFTW_PLANNER_LOCK: Mutex<()> = Mutex::new(());
-
-    /// Initialize FFTW threading once.
-    static INIT_THREADS: Once = Once::new();
-
-    fn init_fftw_threads() {
-        INIT_THREADS.call_once(|| {
-            let ok = unsafe { fftw_sys::fftw_init_threads() };
-            assert!(ok != 0, "fftw_init_threads failed");
-        });
-    }
-
-    /// Choose thread count based on grid size.
-    /// Threading overhead dominates for small grids; use 1 thread below 32³.
-    fn threads_for_size(n: usize) -> i32 {
-        if n < 32 * 32 * 32 {
-            1
-        } else {
-            std::thread::available_parallelism()
-                .map(|n| n.get() as i32)
-                .unwrap_or(4)
+impl FFT3D {
+    pub fn new(nx: usize, ny: usize, nz: usize) -> Self {
+        // Forward: no normalization (standard convention: unnormalized forward)
+        // Inverse: no normalization (we apply 1/N manually in inverse_normalized)
+        Self {
+            dims: [nx, ny, nz],
+            fwd_handlers: [
+                FftHandler::new(nx),
+                FftHandler::new(ny),
+                FftHandler::new(nz),
+            ],
+            inv_handlers: [
+                FftHandler::<f64>::new(nx).normalization(Normalization::None),
+                FftHandler::<f64>::new(ny).normalization(Normalization::None),
+                FftHandler::<f64>::new(nz).normalization(Normalization::None),
+            ],
         }
     }
 
-    /// 3D FFT backed by FFTW3 with in-place transforms (zero copy).
-    ///
-    /// Uses fftw_sys directly to create in-place plans where in == out.
-    /// Since fftw_complex = Complex64 (same type), we operate directly on
-    /// the caller's data with no copies.
-    pub struct FFT3D {
-        dims: [usize; 3],
-        plan_fwd: fftw_sys::fftw_plan,
-        plan_inv: fftw_sys::fftw_plan,
-        /// Planning buffer kept alive for FFTW's internal reference.
-        /// FFTW_MEASURE profiles algorithms using this buffer; it may cache
-        /// layout information, so the buffer must outlive the plans.
-        _plan_buf: Vec<Complex64>,
+    pub fn dims(&self) -> [usize; 3] {
+        self.dims
     }
 
-    // Safety: FFTW plan execution (fftw_execute_dft) is thread-safe for
-    // distinct data pointers. Only plan creation/destruction is non-thread-safe,
-    // and we serialize those with FFTW_PLANNER_LOCK.
-    unsafe impl Send for FFT3D {}
-
-    impl Drop for FFT3D {
-        fn drop(&mut self) {
-            let _lock = FFTW_PLANNER_LOCK.lock().unwrap();
-            unsafe {
-                fftw_sys::fftw_destroy_plan(self.plan_fwd);
-                fftw_sys::fftw_destroy_plan(self.plan_inv);
-            }
-        }
+    pub fn total_size(&self) -> usize {
+        self.dims[0] * self.dims[1] * self.dims[2]
     }
 
-    impl FFT3D {
-        pub fn new(nx: usize, ny: usize, nz: usize) -> Self {
-            init_fftw_threads();
-            let _lock = FFTW_PLANNER_LOCK.lock().unwrap();
-            let n = nx * ny * nz;
-            unsafe { fftw_sys::fftw_plan_with_nthreads(threads_for_size(n)) };
-            let mut plan_buf = vec![Complex64::new(0.0, 0.0); n];
-            let ptr = plan_buf.as_mut_ptr();
-            let dims = [nx as i32, ny as i32, nz as i32];
-            let flags = fftw_sys::FFTW_MEASURE | fftw_sys::FFTW_UNALIGNED;
+    /// Forward FFT: real-space → reciprocal-space (unnormalized).
+    pub fn forward(&mut self, data: &mut [Complex64]) {
+        let [nx, ny, nz] = self.dims;
+        assert_eq!(data.len(), nx * ny * nz);
 
-            let plan_fwd = unsafe {
-                fftw_sys::fftw_plan_dft(
-                    3,
-                    dims.as_ptr(),
-                    ptr, ptr,
-                    fftw_sys::FFTW_FORWARD,
-                    flags,
-                )
-            };
-            assert!(!plan_fwd.is_null(), "FFTW forward plan creation failed");
+        let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec()).unwrap();
+        let mut b = Array3::zeros((nx, ny, nz));
 
-            let plan_inv = unsafe {
-                fftw_sys::fftw_plan_dft(
-                    3,
-                    dims.as_ptr(),
-                    ptr, ptr,
-                    fftw_sys::FFTW_BACKWARD as i32,
-                    flags,
-                )
-            };
-            assert!(!plan_inv.is_null(), "FFTW inverse plan creation failed");
+        ndfft(&a, &mut b, &self.fwd_handlers[0], 0);
+        ndfft(&b, &mut a, &self.fwd_handlers[1], 1);
+        ndfft(&a, &mut b, &self.fwd_handlers[2], 2);
 
-            Self {
-                dims: [nx, ny, nz],
-                plan_fwd,
-                plan_inv,
-                _plan_buf: plan_buf,
-            }
-        }
+        data.copy_from_slice(b.as_slice().unwrap());
+    }
 
-        pub fn dims(&self) -> [usize; 3] {
-            self.dims
-        }
+    /// Inverse FFT: reciprocal-space → real-space (unnormalized).
+    /// Divide by `total_size()` afterwards for proper normalization.
+    pub fn inverse(&mut self, data: &mut [Complex64]) {
+        let [nx, ny, nz] = self.dims;
+        assert_eq!(data.len(), nx * ny * nz);
 
-        pub fn total_size(&self) -> usize {
-            self.dims[0] * self.dims[1] * self.dims[2]
-        }
+        let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec()).unwrap();
+        let mut b = Array3::zeros((nx, ny, nz));
 
-        /// Forward FFT: real-space → reciprocal-space (unnormalized).
-        pub fn forward(&mut self, data: &mut [Complex64]) {
-            assert_eq!(data.len(), self.total_size());
-            unsafe {
-                fftw_sys::fftw_execute_dft(self.plan_fwd, data.as_mut_ptr(), data.as_mut_ptr());
-            }
-        }
+        ndifft(&a, &mut b, &self.inv_handlers[0], 0);
+        ndifft(&b, &mut a, &self.inv_handlers[1], 1);
+        ndifft(&a, &mut b, &self.inv_handlers[2], 2);
 
-        /// Inverse FFT: reciprocal-space → real-space (unnormalized).
-        pub fn inverse(&mut self, data: &mut [Complex64]) {
-            assert_eq!(data.len(), self.total_size());
-            unsafe {
-                fftw_sys::fftw_execute_dft(self.plan_inv, data.as_mut_ptr(), data.as_mut_ptr());
-            }
-        }
+        data.copy_from_slice(b.as_slice().unwrap());
+    }
 
-        /// Inverse FFT with normalization (divides by N).
-        pub fn inverse_normalized(&mut self, data: &mut [Complex64]) {
-            self.inverse(data);
-            let norm = 1.0 / self.total_size() as f64;
-            for v in data.iter_mut() {
-                *v *= norm;
-            }
+    /// Inverse FFT with normalization (divides by N).
+    pub fn inverse_normalized(&mut self, data: &mut [Complex64]) {
+        self.inverse(data);
+        let norm = 1.0 / self.total_size() as f64;
+        for v in data.iter_mut() {
+            *v *= norm;
         }
     }
 }
-
-// ============================================================================
-// ndrustfft backend (default, no feature flag) — zero unsafe
-// ============================================================================
-
-#[cfg(not(feature = "fftw"))]
-mod backend {
-    use super::Complex64;
-    use ndarray::Array3;
-    use ndrustfft::{FftHandler, Normalization, ndfft, ndifft};
-
-    /// 3D FFT backed by ndrustfft (safe wrapper over rustfft + ndarray).
-    ///
-    /// Uses ndarray's safe strided access for all three dimension transforms.
-    /// No unsafe code, no raw pointer arithmetic, no provenance violations.
-    pub struct FFT3D {
-        dims: [usize; 3],
-        fwd_handlers: [FftHandler<f64>; 3],
-        inv_handlers: [FftHandler<f64>; 3],
-    }
-
-    impl FFT3D {
-        pub fn new(nx: usize, ny: usize, nz: usize) -> Self {
-            // Forward: no normalization (matches FFTW/rustfft convention)
-            // Inverse: no normalization (we do 1/N manually in inverse_normalized)
-            Self {
-                dims: [nx, ny, nz],
-                fwd_handlers: [
-                    FftHandler::new(nx),
-                    FftHandler::new(ny),
-                    FftHandler::new(nz),
-                ],
-                inv_handlers: [
-                    FftHandler::<f64>::new(nx).normalization(Normalization::None),
-                    FftHandler::<f64>::new(ny).normalization(Normalization::None),
-                    FftHandler::<f64>::new(nz).normalization(Normalization::None),
-                ],
-            }
-        }
-
-        pub fn dims(&self) -> [usize; 3] {
-            self.dims
-        }
-
-        pub fn total_size(&self) -> usize {
-            self.dims[0] * self.dims[1] * self.dims[2]
-        }
-
-        /// Forward FFT: real-space → reciprocal-space (unnormalized).
-        pub fn forward(&mut self, data: &mut [Complex64]) {
-            let [nx, ny, nz] = self.dims;
-            assert_eq!(data.len(), nx * ny * nz);
-
-            // Wrap flat slice as 3D array (copies into owned array)
-            let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec()).unwrap();
-            let mut b = Array3::zeros((nx, ny, nz));
-
-            // Transform each axis: a → b → a → b
-            ndfft(&a, &mut b, &self.fwd_handlers[0], 0);
-            ndfft(&b, &mut a, &self.fwd_handlers[1], 1);
-            ndfft(&a, &mut b, &self.fwd_handlers[2], 2);
-
-            // Copy result back to caller's slice
-            data.copy_from_slice(b.as_slice().unwrap());
-        }
-
-        /// Inverse FFT: reciprocal-space → real-space (unnormalized).
-        pub fn inverse(&mut self, data: &mut [Complex64]) {
-            let [nx, ny, nz] = self.dims;
-            assert_eq!(data.len(), nx * ny * nz);
-
-            let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec()).unwrap();
-            let mut b = Array3::zeros((nx, ny, nz));
-
-            ndifft(&a, &mut b, &self.inv_handlers[0], 0);
-            ndifft(&b, &mut a, &self.inv_handlers[1], 1);
-            ndifft(&a, &mut b, &self.inv_handlers[2], 2);
-
-            data.copy_from_slice(b.as_slice().unwrap());
-        }
-
-        /// Inverse FFT with normalization (divides by N).
-        pub fn inverse_normalized(&mut self, data: &mut [Complex64]) {
-            self.inverse(data);
-            let norm = 1.0 / self.total_size() as f64;
-            for v in data.iter_mut() {
-                *v *= norm;
-            }
-        }
-    }
-}
-
-// Re-export the active backend
-pub use backend::FFT3D;
 
 /// Choose FFT-friendly grid dimensions for a given basis.
 ///
