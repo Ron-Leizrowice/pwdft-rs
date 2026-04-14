@@ -1,6 +1,6 @@
 //! Comprehensive settings/configuration for plane-wave DFT calculations.
 //!
-//! Parsed from YAML files via `serde_yml`. This is a parallel configuration path
+//! Parsed from YAML files via `serde_yaml_ng`. This is a parallel configuration path
 //! alongside the existing TOML-based `input.rs` -- both remain fully functional.
 //!
 //! Defaults follow Quantum ESPRESSO conventions where applicable.
@@ -392,7 +392,7 @@ fn default_true() -> bool {
 impl Settings {
     /// Parse settings from a YAML string.
     pub fn from_yaml_str(s: &str) -> Result<Self> {
-        serde_yml::from_str(s).map_err(|e| PwdftError::Parse(format!("YAML parse error: {e}")))
+        serde_yaml_ng::from_str(s).map_err(|e| PwdftError::Parse(format!("YAML parse error: {e}")))
     }
 
     /// Parse settings from a YAML file on disk.
@@ -742,8 +742,8 @@ kpoints:
             SmearingType::Cold,
             SmearingType::Fixed,
         ] {
-            let yaml = serde_yml::to_string(&variant).unwrap();
-            let parsed: SmearingType = serde_yml::from_str(&yaml).unwrap();
+            let yaml = serde_yaml_ng::to_string(&variant).unwrap();
+            let parsed: SmearingType = serde_yaml_ng::from_str(&yaml).unwrap();
             assert_eq!(parsed, variant);
         }
     }
@@ -756,8 +756,8 @@ kpoints:
             XcFunctional::Pbe0,
             XcFunctional::Hse06,
         ] {
-            let yaml = serde_yml::to_string(&variant).unwrap();
-            let parsed: XcFunctional = serde_yml::from_str(&yaml).unwrap();
+            let yaml = serde_yaml_ng::to_string(&variant).unwrap();
+            let parsed: XcFunctional = serde_yaml_ng::from_str(&yaml).unwrap();
             assert_eq!(parsed, variant);
         }
     }
@@ -765,8 +765,8 @@ kpoints:
     #[test]
     fn verbosity_roundtrip() {
         for variant in [Verbosity::Low, Verbosity::Normal, Verbosity::High] {
-            let yaml = serde_yml::to_string(&variant).unwrap();
-            let parsed: Verbosity = serde_yml::from_str(&yaml).unwrap();
+            let yaml = serde_yaml_ng::to_string(&variant).unwrap();
+            let parsed: Verbosity = serde_yaml_ng::from_str(&yaml).unwrap();
             assert_eq!(parsed, variant);
         }
     }
@@ -774,8 +774,8 @@ kpoints:
     #[test]
     fn occupation_type_roundtrip() {
         for variant in [OccupationType::Smearing, OccupationType::Fixed] {
-            let yaml = serde_yml::to_string(&variant).unwrap();
-            let parsed: OccupationType = serde_yml::from_str(&yaml).unwrap();
+            let yaml = serde_yaml_ng::to_string(&variant).unwrap();
+            let parsed: OccupationType = serde_yaml_ng::from_str(&yaml).unwrap();
             assert_eq!(parsed, variant);
         }
     }
@@ -785,7 +785,7 @@ kpoints:
     #[test]
     fn full_settings_roundtrip() {
         let original = Settings::from_yaml_str(FULL_YAML).unwrap();
-        let serialized = serde_yml::to_string(&original).unwrap();
+        let serialized = serde_yaml_ng::to_string(&original).unwrap();
         let restored = Settings::from_yaml_str(&serialized).unwrap();
 
         assert_eq!(original.system.atoms.len(), restored.system.atoms.len());
