@@ -1,4 +1,5 @@
 pub mod density;
+pub mod initial_density;
 pub mod mixing;
 pub mod smearing;
 
@@ -175,11 +176,14 @@ pub fn run_scf(
     // Precompute local pseudopotential on the FULL FFT grid
     let v_local_fft = compute_v_local_on_fft_grid(crystal, &grid, pseudopotentials, omega);
 
-    // Initial density: uniform
-    let rho_init = n_electrons / omega;
-    let mut rho_r = vec![rho_init; n_grid];
+    // Initial density: superposition of atomic densities (SAD)
+    let init_config = initial_density::InitialDensityConfig::non_magnetic(crystal.atoms.len());
+    let mut rho_r = initial_density::generate_initial_density(
+        crystal, &grid, pseudopotentials, n_electrons, &init_config,
+    );
     let mut rho_g = vec![Complex64::new(0.0, 0.0); n_grid];
     density_r_to_g(&grid.fft, &rho_r, &mut rho_g);
+    info!("Initial density: superposition of atomic densities (Gaussian model)");
 
     let mut mixer = mixing::AndersonMixer::new(params.mixing_beta, params.mixing_ndim, n_grid);
     let mut eigenvalues_all = Vec::new();
