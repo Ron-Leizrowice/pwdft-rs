@@ -192,6 +192,21 @@ mod tests {
     }
 
     #[test]
+    fn test_find_for_atom() {
+        let pp = load(&si_pp_path()).unwrap();
+        let found = find_for_atom(14, &[&pp]);
+        assert_eq!(found.element, "Si");
+        assert!((found.z_valence - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    #[should_panic(expected = "no pseudopotential found")]
+    fn test_find_for_atom_missing() {
+        let pp = load(&si_pp_path()).unwrap();
+        find_for_atom(6, &[&pp]); // Carbon, not in list
+    }
+
+    #[test]
     fn test_v_local_of_g_finite() {
         let pp = load(&si_pp_path()).unwrap();
         let omega = 40.0; // approximate Si cell volume in ų
