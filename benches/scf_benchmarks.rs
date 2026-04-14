@@ -70,6 +70,10 @@ fn bench_eigensolver(c: &mut Criterion) {
         group.bench_function(format!("lapack_zheev_n{n}"), |b| {
             b.iter(|| black_box(dense::diagonalize_hermitian(black_box(&h))));
         });
+
+        group.bench_function(format!("faer_eigen_n{n}"), |b| {
+            b.iter(|| black_box(dense::diagonalize_hermitian_faer(black_box(&h))));
+        });
     }
 
     group.finish();
