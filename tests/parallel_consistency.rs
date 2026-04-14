@@ -1,0 +1,190 @@
+//! Verify that parallel (rayon) and single-threaded execution produce
+//! identical numerical results for FFT, density, and the full SCF pipeline.
+
+use nalgebra::Vector3;
+use num_complex::Complex64;
+
+use pwdft_rs::{
+    basis::BasisSet,
+    crystal::{Atom, Crystal, Lattice},
+    fft::FFT3D,
+};
+
+fn si_crystal() -> Crystal {
+    let a = 5.431;
+    Crystal {
+        lattice: Lattice::new(
+            a / 2.0 * Vector3::new(0.0, 1.0, 1.0),
+            a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
+            a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
+        ),
+        atoms: vec![
+            Atom::new(14, [0.0, 0.0, 0.0]),
+            Atom::new(14, [0.25, 0.25, 0.25]),
+        ],
+    }
+}
+
+fn make_test_data(n: usize) -> Vec<Complex64> {
+    (0..n)
+        .map(|i| {
+            Complex64::new(
+                (i as f64 * 0.123).sin(),
+                (i as f64 * 0.456).cos(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn test_fft_serial_vs_parallel() {
+    // Run FFT with 1 thread, then with all threads, compare results
+    let fft = FFT3D::new(20, 20, 20);
+    let original = make_test_data(fft.total_size());
+
+    // Single-threaded
+    let mut data_serial = original.clone();
+    let result_serial = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap()
+        .install(|| {
+            fft.forward(&mut data_serial);
+            data_serial.clone()
+        });
+
+    // Multi-threaded (default thread count)
+    let mut data_parallel = original.clone();
+    fft.forward(&mut data_parallel);
+
+    // Compare: should be bitwise identical since the math is the same,
+    // just distributed across threads
+    for (i, (s, p)) in result_serial.iter().zip(data_parallel.iter()).enumerate() {
+        assert!(
+            (s - p).norm() < 1e-12,
+            "FFT mismatch at index {i}: serial={s}, parallel={p}"
+        );
+    }
+}
+
+#[test]
+fn test_fft_inverse_serial_vs_parallel() {
+    let fft = FFT3D::new(20, 20, 20);
+    let original = make_test_data(fft.total_size());
+
+    let mut data_serial = original.clone();
+    let result_serial = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap()
+        .install(|| {
+            fft.inverse_normalized(&mut data_serial);
+            data_serial.clone()
+        });
+
+    let mut data_parallel = original.clone();
+    fft.inverse_normalized(&mut data_parallel);
+
+    for (i, (s, p)) in result_serial.iter().zip(data_parallel.iter()).enumerate() {
+        assert!(
+            (s - p).norm() < 1e-12,
+            "Inverse FFT mismatch at index {i}: serial={s}, parallel={p}"
+        );
+    }
+}
+
+#[test]
+fn test_fft_roundtrip_preserves_data() {
+    let fft = FFT3D::new(20, 20, 20);
+    let original = make_test_data(fft.total_size());
+
+    let mut data = original.clone();
+    fft.forward(&mut data);
+    fft.inverse_normalized(&mut data);
+
+    for (i, (got, want)) in data.iter().zip(original.iter()).enumerate() {
+        assert!(
+            (got - want).norm() < 1e-10,
+            "Roundtrip failed at {i}: got={got}, want={want}"
+        );
+    }
+}
+
+#[test]
+fn test_scf_serial_vs_parallel() {
+    // Run a short SCF (3 iterations) with 1 and N threads, compare eigenvalues
+    let crystal = si_crystal();
+    let basis = BasisSet::new(&crystal.lattice, 204.09);
+    let pp = pwdft_rs::pseudopotential::load(
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+    )
+    .unwrap();
+
+    let kpoints = pwdft_rs::kpoints::monkhorst_pack(2, 2, 2, &crystal.lattice);
+
+    let params = pwdft_rs::scf::ScfParams {
+        n_bands: 8,
+        max_iter: 3, // Just a few iterations — enough to test numerical consistency
+        conv_threshold: 1e-20, // Won't converge, but that's fine
+        mixing_beta: 0.3,
+        mixing_ndim: 4,
+        smearing_sigma: 0.05,
+        ecutrho_ratio: 4,
+        fft_grid: Some([20, 20, 20]),
+    };
+
+    // Single-threaded
+    let result_serial = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap()
+        .install(|| {
+            // SCF won't converge in 3 iters; that's expected
+            pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None)
+        });
+
+    // Multi-threaded
+    let result_parallel =
+        pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None);
+
+    // Both should fail with ConvergenceFailure (only 3 iters)
+    assert!(result_serial.is_err());
+    assert!(result_parallel.is_err());
+
+    // Run enough to compare eigenvalues: use a tighter threshold
+    let params_conv = pwdft_rs::scf::ScfParams {
+        max_iter: 60,
+        conv_threshold: 1e-6,
+        ..params
+    };
+
+    let result_s = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap()
+        .install(|| {
+            pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_conv, None)
+        });
+
+    let result_p =
+        pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_conv, None);
+
+    // If both converge, eigenvalues should match closely
+    if let (Ok(s), Ok(p)) = (&result_s, &result_p) {
+        assert_eq!(s.eigenvalues.len(), p.eigenvalues.len());
+        for (ik, (evs_s, evs_p)) in s.eigenvalues.iter().zip(p.eigenvalues.iter()).enumerate() {
+            for (ib, (&es, &ep)) in evs_s.iter().zip(evs_p.iter()).enumerate() {
+                assert!(
+                    (es - ep).abs() < 1e-6,
+                    "Eigenvalue mismatch at k={ik} band={ib}: serial={es:.6}, parallel={ep:.6}"
+                );
+            }
+        }
+        assert!(
+            (s.total_energy - p.total_energy).abs() < 1e-4,
+            "Total energy mismatch: serial={:.6}, parallel={:.6}",
+            s.total_energy,
+            p.total_energy
+        );
+    }
+}

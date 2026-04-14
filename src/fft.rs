@@ -1,11 +1,14 @@
 use num_complex::Complex64;
+use rayon::prelude::*;
 use rustfft::{FftPlanner, num_complex::Complex};
 use std::sync::Arc;
 
 /// 3D FFT on a regular grid, wrapping `rustfft`.
 ///
 /// Performs forward and inverse transforms by batching 1D FFTs
-/// along each dimension sequentially (x → y → z).
+/// along each dimension (z → y → x). The z-dimension transforms
+/// operate on contiguous memory. The y and x transforms use
+/// gather/scatter with thread-local buffers.
 pub struct FFT3D {
     dims: [usize; 3],
     fwd: [Arc<dyn rustfft::Fft<f64>>; 3],
@@ -65,67 +68,81 @@ impl FFT3D {
     fn transform_all_dims(&self, data: &mut [Complex64], plans: &[Arc<dyn rustfft::Fft<f64>>; 3]) {
         let [nx, ny, nz] = self.dims;
 
-        // Transform along z (innermost, contiguous)
+        // Transform along z (innermost, contiguous) — parallel over (ix, iy) slabs
         {
             let plan = &plans[2];
-            let mut scratch = vec![Complex::new(0.0, 0.0); plan.get_inplace_scratch_len()];
-            for ix in 0..nx {
-                for iy in 0..ny {
-                    let offset = (ix * ny + iy) * nz;
-                    let slice = &mut data[offset..offset + nz];
-                    // rustfft Complex and num_complex Complex64 have identical layout
-                    let slice =
-                        unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), nz) };
-                    plan.process_with_scratch(slice, &mut scratch);
-                }
-            }
+            let slab_size = nz; // each z-transform is a contiguous slab of nz
+            // Split data into nx*ny contiguous chunks of size nz
+            data.par_chunks_mut(slab_size)
+                .for_each(|slab| {
+                    let mut scratch = vec![Complex::new(0.0, 0.0); plan.get_inplace_scratch_len()];
+                    let slab = unsafe {
+                        std::slice::from_raw_parts_mut(slab.as_mut_ptr().cast(), nz)
+                    };
+                    plan.process_with_scratch(slab, &mut scratch);
+                });
         }
 
-        // Transform along y
+        // Transform along y — parallel over (ix, iz) pairs
+        // We must gather/scatter because y-stride is non-contiguous.
+        // Process groups of iz for each ix to improve cache locality.
         {
             let plan = &plans[1];
-            let mut scratch = vec![Complex::new(0.0, 0.0); plan.get_inplace_scratch_len()];
-            let mut buf = vec![Complex::new(0.0, 0.0); ny];
-            for ix in 0..nx {
+            // Each ix owns a contiguous block of ny*nz elements
+            let slab_ny_nz = ny * nz;
+            // Safety: each ix-slab is independent memory
+            let slabs: Vec<&mut [Complex64]> = data.chunks_mut(slab_ny_nz).collect();
+            slabs.into_par_iter().for_each(|slab| {
+                let mut scratch = vec![Complex::new(0.0, 0.0); plan.get_inplace_scratch_len()];
+                let mut buf = vec![Complex::new(0.0, 0.0); ny];
                 for iz in 0..nz {
-                    // Gather y-stride into contiguous buffer
+                    // Gather y-stride
                     for iy in 0..ny {
-                        let idx = (ix * ny + iy) * nz + iz;
-                        buf[iy] = Complex::new(data[idx].re, data[idx].im);
+                        let v = slab[iy * nz + iz];
+                        buf[iy] = Complex::new(v.re, v.im);
                     }
                     plan.process_with_scratch(&mut buf, &mut scratch);
                     // Scatter back
                     for iy in 0..ny {
-                        let idx = (ix * ny + iy) * nz + iz;
-                        data[idx] = Complex64::new(buf[iy].re, buf[iy].im);
+                        slab[iy * nz + iz] = Complex64::new(buf[iy].re, buf[iy].im);
                     }
                 }
-            }
+            });
         }
 
-        // Transform along x
+        // Transform along x — parallel over (iy, iz) pairs
+        // x-stride = ny*nz, so we must gather/scatter.
+        // Each (iy, iz) pair accesses disjoint memory locations.
         {
             let plan = &plans[0];
-            let mut scratch = vec![Complex::new(0.0, 0.0); plan.get_inplace_scratch_len()];
-            let mut buf = vec![Complex::new(0.0, 0.0); nx];
-            for iy in 0..ny {
-                for iz in 0..nz {
-                    // Gather x-stride
-                    for ix in 0..nx {
-                        let idx = (ix * ny + iy) * nz + iz;
-                        buf[ix] = Complex::new(data[idx].re, data[idx].im);
-                    }
-                    plan.process_with_scratch(&mut buf, &mut scratch);
-                    // Scatter back
-                    for ix in 0..nx {
-                        let idx = (ix * ny + iy) * nz + iz;
-                        data[idx] = Complex64::new(buf[ix].re, buf[ix].im);
-                    }
+            let stride = ny * nz;
+            // Encode pointer as usize to satisfy Send+Sync (safe because
+            // each (iy,iz) pair touches disjoint indices in the array).
+            let base = data.as_mut_ptr() as usize;
+            let data_len = data.len();
+
+            (0..ny * nz).into_par_iter().for_each(|yz| {
+                let ptr = base as *mut Complex64;
+                let mut scratch = vec![Complex::new(0.0, 0.0); plan.get_inplace_scratch_len()];
+                let mut buf = vec![Complex::new(0.0, 0.0); nx];
+                // Gather x-stride
+                for ix in 0..nx {
+                    let idx = ix * stride + yz;
+                    debug_assert!(idx < data_len);
+                    let v = unsafe { *ptr.add(idx) };
+                    buf[ix] = Complex::new(v.re, v.im);
                 }
-            }
+                plan.process_with_scratch(&mut buf, &mut scratch);
+                // Scatter back
+                for ix in 0..nx {
+                    let idx = ix * stride + yz;
+                    unsafe { *ptr.add(idx) = Complex64::new(buf[ix].re, buf[ix].im) };
+                }
+            });
         }
     }
 }
+
 
 /// Choose FFT-friendly grid dimensions for a given basis.
 ///

@@ -7,6 +7,8 @@ pub mod eigensolver;
 pub mod error;
 pub mod ewald;
 pub mod fft;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 pub mod hamiltonian;
 pub mod input;
 pub mod kpoints;

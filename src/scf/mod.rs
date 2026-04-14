@@ -6,6 +6,7 @@ pub mod smearing;
 use log::info;
 use nalgebra::Vector3;
 use num_complex::Complex64;
+use rayon::prelude::*;
 
 use crate::{
     basis::BasisSet,
@@ -176,6 +177,20 @@ pub fn run_scf(
     // Precompute local pseudopotential on the FULL FFT grid
     let v_local_fft = compute_v_local_on_fft_grid(crystal, &grid, pseudopotentials, omega);
 
+    // Try to initialize GPU if compiled with gpu feature
+    #[cfg(feature = "gpu")]
+    let gpu = {
+        let g = crate::gpu::GpuAccelerator::try_new();
+        if g.is_some() {
+            info!("GPU acceleration enabled for grid operations");
+        }
+        g
+    };
+    #[cfg(feature = "gpu")]
+    let g_squared: Vec<f64> = (0..n_grid)
+        .map(|idx| grid.g_vector_at(idx).norm_squared())
+        .collect();
+
     // Initial density: superposition of atomic densities (SAD)
     let init_config = initial_density::InitialDensityConfig::non_magnetic(crystal.atoms.len());
     let mut rho_r = initial_density::generate_initial_density(
@@ -186,46 +201,95 @@ pub fn run_scf(
     info!("Initial density: superposition of atomic densities (Gaussian model)");
 
     let mut mixer = mixing::AndersonMixer::new(params.mixing_beta, params.mixing_ndim, n_grid);
-    let mut eigenvalues_all = Vec::new();
+    let mut eigenvalues_all: Vec<Vec<f64>>;
     let mut fermi_energy;
 
     for iter in 0..params.max_iter {
         // 1. Hartree potential on FULL FFT grid
-        let v_h_fft = hartree_on_fft_grid(&rho_g, &grid);
-
         // 2. XC potential in real space → FFT to G-space
-        let (_exc_r, vxc_r) = xc::lda_xc_grid(&rho_r);
-        let mut vxc_g = vec![Complex64::new(0.0, 0.0); n_grid];
-        for (i, &v) in vxc_r.iter().enumerate() {
-            vxc_g[i] = Complex64::new(v, 0.0);
-        }
-        grid.fft.forward(&mut vxc_g);
-        let norm = 1.0 / n_grid as f64;
-        for v in &mut vxc_g {
-            *v *= norm;
-        }
-
         // 3. V_eff on the FULL FFT grid: V_local + V_H + V_xc
-        let mut v_eff_fft = vec![Complex64::new(0.0, 0.0); n_grid];
-        for i in 0..n_grid {
-            v_eff_fft[i] = v_local_fft[i] + v_h_fft[i] + vxc_g[i];
-        }
+        //
+        // GPU path: Hartree and V_eff assembly run on GPU (f32).
+        // XC is computed on GPU in real space, then FFT'd on CPU.
+        // CPU path: rayon-parallelized.
 
-        // 4. Solve eigenvalue problem at each k-point
-        eigenvalues_all.clear();
-        let mut all_kpoint_wavefns = Vec::new();
+        #[cfg(feature = "gpu")]
+        let (v_h_fft, vxc_g, v_eff_fft) = if let Some(ref gpu) = gpu {
+            let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
+            let v_h = gpu.hartree_potential(&rho_g, &g_squared, fourpi_e2);
 
-        for kp in kpoints {
-            let mut h = build_hamiltonian_with_v_eff(basis, &kp.k, &v_eff_fft, &grid);
+            let (_exc_r, vxc_r) = gpu.lda_xc(&rho_r);
+            let mut vxc_g = vec![Complex64::new(0.0, 0.0); n_grid];
+            for (i, &v) in vxc_r.iter().enumerate() {
+                vxc_g[i] = Complex64::new(v, 0.0);
+            }
+            grid.fft.forward(&mut vxc_g);
+            let norm = 1.0 / n_grid as f64;
+            for v in &mut vxc_g {
+                *v *= norm;
+            }
 
-            // Add non-local pseudopotential
-            let vnl = NonlocalPotential::new(crystal, basis, &kp.k, pseudopotentials);
-            vnl.add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
+            let v_eff = gpu.v_eff_assembly(&v_local_fft, &v_h, &vxc_g);
+            (v_h, vxc_g, v_eff)
+        } else {
+            let v_h = hartree_on_fft_grid(&rho_g, &grid);
+            let (_exc_r, vxc_r) = xc::lda_xc_grid(&rho_r);
+            let mut vxc_g = vec![Complex64::new(0.0, 0.0); n_grid];
+            for (i, &v) in vxc_r.iter().enumerate() {
+                vxc_g[i] = Complex64::new(v, 0.0);
+            }
+            grid.fft.forward(&mut vxc_g);
+            let norm = 1.0 / n_grid as f64;
+            for v in &mut vxc_g {
+                *v *= norm;
+            }
+            let v_eff: Vec<Complex64> = v_local_fft
+                .par_iter()
+                .zip(v_h.par_iter())
+                .zip(vxc_g.par_iter())
+                .map(|((&vl, &vh), &vxc)| vl + vh + vxc)
+                .collect();
+            (v_h, vxc_g, v_eff)
+        };
 
-            let result = dense::diagonalize_lowest(&h, params.n_bands);
-            eigenvalues_all.push(result.eigenvalues);
-            all_kpoint_wavefns.push(result.eigenvectors);
-        }
+        #[cfg(not(feature = "gpu"))]
+        let (v_h_fft, vxc_g, v_eff_fft) = {
+            let v_h = hartree_on_fft_grid(&rho_g, &grid);
+            let (_exc_r, vxc_r) = xc::lda_xc_grid(&rho_r);
+            let mut vxc_g = vec![Complex64::new(0.0, 0.0); n_grid];
+            for (i, &v) in vxc_r.iter().enumerate() {
+                vxc_g[i] = Complex64::new(v, 0.0);
+            }
+            grid.fft.forward(&mut vxc_g);
+            let norm = 1.0 / n_grid as f64;
+            for v in &mut vxc_g {
+                *v *= norm;
+            }
+            let v_eff: Vec<Complex64> = v_local_fft
+                .par_iter()
+                .zip(v_h.par_iter())
+                .zip(vxc_g.par_iter())
+                .map(|((&vl, &vh), &vxc)| vl + vh + vxc)
+                .collect();
+            (v_h, vxc_g, v_eff)
+        };
+
+        // 4. Solve eigenvalue problem at each k-point (parallel over k-points)
+        let kpoint_results: Vec<_> = kpoints
+            .par_iter()
+            .map(|kp| {
+                let mut h = build_hamiltonian_with_v_eff(basis, &kp.k, &v_eff_fft, &grid);
+
+                // Add non-local pseudopotential
+                let vnl = NonlocalPotential::new(crystal, basis, &kp.k, pseudopotentials);
+                vnl.add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
+
+                dense::diagonalize_lowest(&h, params.n_bands)
+            })
+            .collect();
+
+        eigenvalues_all = kpoint_results.iter().map(|r| r.eigenvalues.clone()).collect();
+        let all_kpoint_wavefns: Vec<_> = kpoint_results.into_iter().map(|r| r.eigenvectors).collect();
 
         // 5. Occupations
         fermi_energy = smearing::find_fermi_energy(
@@ -308,13 +372,12 @@ fn compute_v_local_on_fft_grid(
     omega: f64,
 ) -> Vec<Complex64> {
     let n_grid = grid.total_size();
-    let mut v_local = vec![Complex64::new(0.0, 0.0); n_grid];
 
-    for idx in 0..n_grid {
-        let g = grid.g_vector_at(idx);
-        let g_norm = g.norm();
-
-        for atom in &crystal.atoms {
+    // Precompute per-atom data to avoid repeated lookups in the hot loop
+    let atom_data: Vec<(Vector3<f64>, &PseudopotentialData)> = crystal
+        .atoms
+        .iter()
+        .map(|atom| {
             let pp = pseudopotentials
                 .iter()
                 .find(|pp| {
@@ -322,34 +385,43 @@ fn compute_v_local_on_fft_grid(
                         .map_or(false, |e| e.atomic_number() == atom.z)
                 })
                 .unwrap();
+            (atom.cart_position(&crystal.lattice), *pp)
+        })
+        .collect();
 
-            let tau = atom.cart_position(&crystal.lattice);
-            let phase = -g.dot(&tau);
-            let sf = Complex64::new(phase.cos(), phase.sin());
-            let v_form = pp.v_local_of_g(g_norm, omega);
+    (0..n_grid)
+        .into_par_iter()
+        .map(|idx| {
+            let g = grid.g_vector_at(idx);
+            let g_norm = g.norm();
+            let mut v = Complex64::new(0.0, 0.0);
 
-            v_local[idx] += sf * v_form;
-        }
-    }
-
-    v_local
+            for &(ref tau, pp) in &atom_data {
+                let phase = -g.dot(tau);
+                let sf = Complex64::new(phase.cos(), phase.sin());
+                let v_form = pp.v_local_of_g(g_norm, omega);
+                v += sf * v_form;
+            }
+            v
+        })
+        .collect()
 }
 
 /// Compute Hartree potential on the FULL FFT grid.
 fn hartree_on_fft_grid(rho_g: &[Complex64], grid: &FftGrid) -> Vec<Complex64> {
     let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
-    let n_grid = grid.total_size();
-    let mut v_h = vec![Complex64::new(0.0, 0.0); n_grid];
 
-    for idx in 0..n_grid {
-        let g = grid.g_vector_at(idx);
-        let g2 = g.norm_squared();
-        if g2 > 1e-20 {
-            v_h[idx] = rho_g[idx] * fourpi_e2 / g2;
-        }
-    }
-
-    v_h
+    (0..grid.total_size())
+        .into_par_iter()
+        .map(|idx| {
+            let g2 = grid.g_vector_at(idx).norm_squared();
+            if g2 > 1e-20 {
+                rho_g[idx] * fourpi_e2 / g2
+            } else {
+                Complex64::new(0.0, 0.0)
+            }
+        })
+        .collect()
 }
 
 /// Build Hamiltonian: kinetic + V_eff(G-G') looked up from FFT grid.
