@@ -230,33 +230,55 @@ fn bessel_transform_projector(
     4.0 * PI * integral
 }
 
-/// Spherical Bessel function j_l(x) for l = 0, 1, 2, 3.
+/// Spherical Bessel function j_l(x) for arbitrary l >= 0.
+///
+/// Uses explicit formulas for l = 0, 1 and upward recurrence for l >= 2:
+///   j_{l+1}(x) = (2l+1)/x × j_l(x) − j_{l-1}(x)
+///
+/// Note: upward recurrence is stable for l < x. For DFT pseudopotentials
+/// l <= 6 is typical, and qr values are always moderate, so this is safe.
 fn spherical_bessel_j(l: i32, x: f64) -> f64 {
+    assert!(l >= 0, "spherical_bessel_j: l must be non-negative, got {l}");
     if x.abs() < 1e-10 {
         return if l == 0 { 1.0 } else { 0.0 };
     }
-
-    match l {
-        0 => x.sin() / x,
-        1 => x.sin() / (x * x) - x.cos() / x,
-        2 => (3.0 / (x * x) - 1.0) * x.sin() / x - 3.0 * x.cos() / (x * x),
-        3 => {
-            (15.0 / (x * x * x) - 6.0 / x) * x.sin() / x
-                - (15.0 / (x * x) - 1.0) * x.cos() / x
-        }
-        _ => panic!("spherical_bessel_j: l={l} not implemented (max l=3)"),
+    if l == 0 {
+        return x.sin() / x;
     }
+    if l == 1 {
+        return x.sin() / (x * x) - x.cos() / x;
+    }
+    // Upward recurrence from j_0, j_1
+    let mut jlm1 = x.sin() / x;
+    let mut jl = x.sin() / (x * x) - x.cos() / x;
+    for n in 1..l {
+        let jlp1 = (2 * n + 1) as f64 / x * jl - jlm1;
+        jlm1 = jl;
+        jl = jlp1;
+    }
+    jl
 }
 
-/// Legendre polynomial P_l(x) for l = 0, 1, 2, 3.
+/// Legendre polynomial P_l(x) for arbitrary l >= 0.
+///
+/// Uses Bonnet's recurrence relation:
+///   (n+1) P_{n+1}(x) = (2n+1) x P_n(x) − n P_{n-1}(x)
 fn legendre_p(l: i32, x: f64) -> f64 {
-    match l {
-        0 => 1.0,
-        1 => x,
-        2 => 0.5 * (3.0 * x * x - 1.0),
-        3 => 0.5 * (5.0 * x * x * x - 3.0 * x),
-        _ => panic!("legendre_p: l={l} not implemented (max l=3)"),
+    assert!(l >= 0, "legendre_p: l must be non-negative, got {l}");
+    if l == 0 {
+        return 1.0;
     }
+    if l == 1 {
+        return x;
+    }
+    let mut plm1 = 1.0;
+    let mut pl = x;
+    for n in 1..l {
+        let plp1 = ((2 * n + 1) as f64 * x * pl - n as f64 * plm1) / (n + 1) as f64;
+        plm1 = pl;
+        pl = plp1;
+    }
+    pl
 }
 
 #[cfg(test)]
@@ -291,12 +313,88 @@ mod tests {
     }
 
     #[test]
+    fn test_spherical_bessel_higher_l() {
+        // j_2(x) = (3/x² - 1) sin(x)/x - 3 cos(x)/x²
+        let x: f64 = 2.5;
+        let j2_exact = (3.0 / (x * x) - 1.0) * x.sin() / x - 3.0 * x.cos() / (x * x);
+        assert!(relative_eq!(spherical_bessel_j(2, x), j2_exact, epsilon = 1e-10));
+
+        // j_3(x) = (15/x³ - 6/x) sin(x)/x - (15/x² - 1) cos(x)/x
+        let j3_exact = (15.0 / (x * x * x) - 6.0 / x) * x.sin() / x
+            - (15.0 / (x * x) - 1.0) * x.cos() / x;
+        assert!(relative_eq!(spherical_bessel_j(3, x), j3_exact, epsilon = 1e-10));
+
+        // j_4(3) ≈ 0.05615 (computed via recurrence from j_0, j_1)
+        let j4_3 = spherical_bessel_j(4, 3.0);
+        assert!(
+            relative_eq!(j4_3, 0.056149714328844, epsilon = 1e-10),
+            "j_4(3) = {j4_3}"
+        );
+
+        // j_5(5) ≈ 0.10681 (computed via recurrence)
+        let j5_5 = spherical_bessel_j(5, 5.0);
+        assert!(
+            relative_eq!(j5_5, 0.106811161456505, epsilon = 1e-10),
+            "j_5(5) = {j5_5}"
+        );
+
+        // j_4(5) ≈ 0.18702
+        let j4_5 = spherical_bessel_j(4, 5.0);
+        assert!(
+            relative_eq!(j4_5, 0.187017655344889, epsilon = 1e-10),
+            "j_4(5) = {j4_5}"
+        );
+
+        // j_l(0) = 0 for all l > 0
+        for l in 2..=6 {
+            assert!(
+                spherical_bessel_j(l, 0.0).abs() < 1e-10,
+                "j_{l}(0) should be 0"
+            );
+        }
+    }
+
+    #[test]
+    fn test_legendre_higher_l() {
+        // P_4(x) = (35x⁴ - 30x² + 3) / 8
+        let x: f64 = 0.6;
+        let p4_exact = (35.0 * x.powi(4) - 30.0 * x * x + 3.0) / 8.0;
+        assert!(relative_eq!(legendre_p(4, x), p4_exact, epsilon = 1e-12));
+
+        // P_5(x) = (63x⁵ - 70x³ + 15x) / 8
+        let p5_exact = (63.0 * x.powi(5) - 70.0 * x.powi(3) + 15.0 * x) / 8.0;
+        assert!(relative_eq!(legendre_p(5, x), p5_exact, epsilon = 1e-12));
+
+        // P_6(x) = (231x⁶ - 315x⁴ + 105x² - 5) / 16
+        let p6_exact =
+            (231.0 * x.powi(6) - 315.0 * x.powi(4) + 105.0 * x * x - 5.0) / 16.0;
+        assert!(relative_eq!(legendre_p(6, x), p6_exact, epsilon = 1e-12));
+
+        // P_l(1) = 1 for all l
+        for l in 0..=10 {
+            assert!(
+                relative_eq!(legendre_p(l, 1.0), 1.0, epsilon = 1e-12),
+                "P_{l}(1) should be 1"
+            );
+        }
+
+        // P_l(-1) = (-1)^l
+        for l in 0..=10 {
+            let expected = if l % 2 == 0 { 1.0 } else { -1.0 };
+            assert!(
+                relative_eq!(legendre_p(l, -1.0), expected, epsilon = 1e-12),
+                "P_{l}(-1) should be {expected}"
+            );
+        }
+    }
+
+    #[test]
     fn test_legendre_orthogonality() {
         // ∫₋₁¹ P_l(x) P_m(x) dx = 2/(2l+1) δ_{lm}
-        // Approximate with Gauss quadrature (Simpson's rule on [-1,1])
+        // Extended to l,m up to 6 (validates recurrence for higher l)
         let n = 1000;
-        for l in 0..=3 {
-            for m in 0..=3 {
+        for l in 0..=6 {
+            for m in 0..=6 {
                 let mut integral = 0.0;
                 for i in 0..=n {
                     let x = -1.0 + 2.0 * i as f64 / n as f64;
