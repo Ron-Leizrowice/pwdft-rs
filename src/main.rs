@@ -121,6 +121,7 @@ fn main() -> pwdft_rs::error::Result<()> {
                 smearing_sigma: scf_config.smearing_sigma,
                 ecutrho_ratio: scf_config.ecutrho_ratio,
                 fft_grid: scf_config.fft_grid,
+                mixing_mode: scf::mixing::MixingMode::Kerker { q_tf: None },
             };
 
             let result = scf::run_scf(&crystal, &basis, &kpts, &pp_refs, &params, Some(&symmetry))?;

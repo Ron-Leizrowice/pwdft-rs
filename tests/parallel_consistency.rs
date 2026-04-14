@@ -135,6 +135,7 @@ fn test_scf_serial_vs_parallel() {
         smearing_sigma: 0.05,
         ecutrho_ratio: 4,
         fft_grid: Some([16, 16, 16]),
+        ..Default::default()
     };
 
     // Single-threaded: run 5 SCF iterations

@@ -39,6 +39,7 @@ fn si_scf_params() -> pwdft_rs::scf::ScfParams {
         smearing_sigma: 0.05,
         ecutrho_ratio: 4,
         fft_grid: Some([20, 20, 20]),
+        ..Default::default()
     }
 }
 

@@ -1,38 +1,97 @@
 //! Density mixing schemes for SCF convergence.
 //!
-//! Anderson (Pulay) mixing: stores a history of input/output density pairs
-//! and finds the optimal linear combination.
+//! Anderson (Pulay) mixing with optional Kerker preconditioning.
+//! Kerker damps long-wavelength density residuals to prevent charge sloshing
+//! in metals and large cells: P(G) = |G|² / (|G|² + q_TF²).
 
 use ndarray::{Array1, ArrayView1};
+use num_complex::Complex64;
 
-/// Anderson/Pulay density mixer.
+use crate::fft::FFT3D;
+
+/// Mixing mode: plain Anderson or Kerker-preconditioned Anderson.
+#[derive(Clone, Debug, Default)]
+pub enum MixingMode {
+    /// Standard Anderson mixing (no preconditioning).
+    #[default]
+    Plain,
+    /// Kerker preconditioning with Thomas-Fermi screening wavevector q_TF (Å⁻¹).
+    /// If q_TF is None, it is auto-estimated from the average electron density.
+    Kerker { q_tf: Option<f64> },
+}
+
+/// Anderson/Pulay density mixer with optional Kerker preconditioning.
 pub struct AndersonMixer {
     beta: f64,
     max_history: usize,
     history_in: Vec<Array1<f64>>,
     history_res: Vec<Array1<f64>>,
+    /// Precomputed Kerker weights P(G) for each FFT grid point.
+    /// None if plain mixing.
+    kerker_weights: Option<Vec<f64>>,
 }
 
 impl AndersonMixer {
-    pub fn new(beta: f64, max_history: usize, _n_grid: usize) -> Self {
+    /// Create a new mixer. For Kerker mode, pass g_squared (|G|² at each FFT grid point).
+    pub fn new(
+        beta: f64,
+        max_history: usize,
+        mode: &MixingMode,
+        g_squared: Option<&[f64]>,
+        n_electrons: f64,
+        omega: f64,
+    ) -> Self {
+        let kerker_weights = match mode {
+            MixingMode::Plain => None,
+            MixingMode::Kerker { q_tf } => {
+                let g2 = g_squared.expect("Kerker mode requires g_squared");
+                let q_tf_sq = match q_tf {
+                    Some(q) => q * q,
+                    None => auto_q_tf_squared(n_electrons, omega),
+                };
+                let weights: Vec<f64> = g2
+                    .iter()
+                    .map(|&g2_val| {
+                        if g2_val < 1e-20 {
+                            0.0 // Suppress G=0 completely
+                        } else {
+                            g2_val / (g2_val + q_tf_sq)
+                        }
+                    })
+                    .collect();
+                Some(weights)
+            }
+        };
+
         Self {
             beta,
             max_history,
             history_in: Vec::new(),
             history_res: Vec::new(),
+            kerker_weights,
         }
     }
 
     /// Mix input density with output density.
     ///
-    /// `rho_in`: current input density.
-    /// `rho_out`: density computed from KS eigenstates.
+    /// `rho_in`: current input density (real space).
+    /// `rho_out`: density from KS eigenstates (real space).
+    /// `fft`: FFT instance (needed only for Kerker preconditioning).
     ///
     /// Returns the new input density for the next iteration.
-    pub fn mix(&mut self, rho_in: &[f64], rho_out: &[f64]) -> Vec<f64> {
+    pub fn mix(&mut self, rho_in: &[f64], rho_out: &[f64], fft: &mut FFT3D) -> Vec<f64> {
         let rho_in_arr = ArrayView1::from(rho_in);
         let rho_out_arr = ArrayView1::from(rho_out);
-        let residual = &rho_out_arr - &rho_in_arr;
+        let raw_residual = &rho_out_arr - &rho_in_arr;
+
+        // Apply Kerker preconditioning if enabled:
+        // R_precond(r) = IFFT[ P(G) × FFT[R(r)] ]
+        let residual = if let Some(ref weights) = self.kerker_weights {
+            precondition_residual(&raw_residual.to_vec(), weights, fft)
+        } else {
+            raw_residual.to_vec()
+        };
+        let residual = Array1::from(residual);
 
         self.history_in.push(rho_in_arr.to_owned());
         self.history_res.push(residual.clone());
@@ -52,20 +111,17 @@ impl AndersonMixer {
 
         // Anderson mixing: find coefficients that minimize |Σ α_i R_i|²
         // subject to Σ α_i = 1
-        // Solve: A α = b where A_{ij} = <R_i - R_m | R_j - R_m>, b_i = -<R_i - R_m | R_m>
         let last = m - 1;
-        let mm = m - 1; // number of equations
+        let mm = m - 1;
 
         let r_last = &self.history_res[last];
 
-        // Build the system using ndarray dot products
-        let mut a_mat = vec![0.0; mm * mm];
-        let mut b_vec = vec![0.0; mm];
-
-        // Precompute delta residuals
         let dr: Vec<Array1<f64>> = (0..mm)
             .map(|i| &self.history_res[i] - r_last)
             .collect();
+
+        let mut a_mat = vec![0.0; mm * mm];
+        let mut b_vec = vec![0.0; mm];
 
         for i in 0..mm {
             b_vec[i] = -dr[i].dot(r_last);
@@ -74,18 +130,56 @@ impl AndersonMixer {
             }
         }
 
-        // Solve via simple Gauss elimination (mm is small, typically 2-8)
         let alpha_prev = solve_linear_system(&a_mat, &b_vec, mm);
         let alpha_last = 1.0 - alpha_prev.iter().sum::<f64>();
 
         // Construct mixed density: Σ α_i (ρ_in_i + β R_i)
         let mut rho_new = alpha_last * (&self.history_in[last] + &(self.beta * r_last));
         for j in 0..mm {
-            rho_new += &(alpha_prev[j] * (&self.history_in[j] + &(self.beta * &self.history_res[j])));
+            rho_new +=
+                &(alpha_prev[j] * (&self.history_in[j] + &(self.beta * &self.history_res[j])));
         }
 
         rho_new.to_vec()
     }
+}
+
+/// Apply Kerker preconditioning in reciprocal space:
+/// R_precond(r) = IFFT[ P(G) × FFT[R(r)] ]
+fn precondition_residual(residual_r: &[f64], weights: &[f64], fft: &mut FFT3D) -> Vec<f64> {
+    let n = residual_r.len();
+    let mut res_g: Vec<Complex64> = residual_r
+        .iter()
+        .map(|&v| Complex64::new(v, 0.0))
+        .collect();
+
+    // Forward FFT
+    fft.forward(&mut res_g);
+
+    // Apply Kerker weights in G-space
+    for (g, &w) in res_g.iter_mut().zip(weights.iter()) {
+        *g *= w;
+    }
+
+    // Inverse FFT (unnormalized — need to divide by N)
+    fft.inverse(&mut res_g);
+    let norm = 1.0 / n as f64;
+
+    res_g.iter().map(|c| c.re * norm).collect()
+}
+
+/// Auto-estimate Thomas-Fermi screening wavevector squared from average density.
+///
+/// q_TF² = 4 (3π²ρ)^{1/3} / π  (in a.u., then convert from Bohr⁻² to Å⁻²)
+fn auto_q_tf_squared(n_electrons: f64, omega: f64) -> f64 {
+    const BOHR_TO_ANG: f64 = 0.529177210903;
+    let rho_avg = n_electrons / omega; // e/ų
+    let rho_bohr = rho_avg * BOHR_TO_ANG.powi(3); // e/Bohr³
+    let q_tf_bohr_sq =
+        4.0 * (3.0 * std::f64::consts::PI * std::f64::consts::PI * rho_bohr).powf(1.0 / 3.0)
+            / std::f64::consts::PI;
+    // Convert Bohr⁻² to ų
+    q_tf_bohr_sq / (BOHR_TO_ANG * BOHR_TO_ANG)
 }
 
 /// Solve A x = b for small systems via Gauss elimination with partial pivoting.
@@ -101,9 +195,7 @@ fn solve_linear_system(a: &[f64], b: &[f64], n: usize) -> Vec<f64> {
         aug[i * (n + 1) + n] = b[i];
     }
 
-    // Forward elimination
     for col in 0..n {
-        // Partial pivoting
         let mut max_row = col;
         let mut max_val = aug[col * (n + 1) + col].abs();
         for row in col + 1..n {
@@ -121,7 +213,6 @@ fn solve_linear_system(a: &[f64], b: &[f64], n: usize) -> Vec<f64> {
 
         let pivot = aug[col * (n + 1) + col];
         if pivot.abs() < 1e-15 {
-            // Singular — return equal weights
             return vec![1.0 / (n + 1) as f64; n];
         }
 
@@ -133,7 +224,6 @@ fn solve_linear_system(a: &[f64], b: &[f64], n: usize) -> Vec<f64> {
         }
     }
 
-    // Back substitution
     let mut x = vec![0.0; n];
     for i in (0..n).rev() {
         let mut sum = aug[i * (n + 1) + n];
@@ -151,12 +241,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_linear_mixing() {
-        let mut mixer = AndersonMixer::new(0.3, 4, 10);
-        let rho_in = vec![1.0; 10];
-        let rho_out = vec![2.0; 10];
-        let result = mixer.mix(&rho_in, &rho_out);
-        // First iteration: linear mixing ρ_new = ρ_in + β(ρ_out - ρ_in) = 1 + 0.3 = 1.3
+    fn test_linear_mixing_plain() {
+        let mut fft = FFT3D::new(2, 2, 2);
+        let mut mixer = AndersonMixer::new(0.3, 4, &MixingMode::Plain, None, 8.0, 40.0);
+        let rho_in = vec![1.0; 8];
+        let rho_out = vec![2.0; 8];
+        let result = mixer.mix(&rho_in, &rho_out, &mut fft);
         for &v in &result {
             assert!(
                 (v - 1.3).abs() < 1e-10,
@@ -166,8 +256,47 @@ mod tests {
     }
 
     #[test]
+    fn test_kerker_suppresses_g0() {
+        // Kerker should suppress the G=0 component of the residual
+        let mut fft = FFT3D::new(4, 4, 4);
+        let n = 64;
+        let g_squared: Vec<f64> = (0..n)
+            .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
+            .collect();
+        let mut mixer = AndersonMixer::new(
+            0.3, 4,
+            &MixingMode::Kerker { q_tf: Some(1.0) },
+            Some(&g_squared),
+            8.0, 40.0,
+        );
+
+        // Uniform residual (all G=0 component) should be heavily suppressed
+        let rho_in = vec![1.0; n];
+        let rho_out = vec![2.0; n]; // residual = 1.0 everywhere (pure G=0)
+        let result = mixer.mix(&rho_in, &rho_out, &mut fft);
+
+        // With Kerker, the G=0 residual is zeroed, so mixing should barely change rho_in
+        let max_change: f64 = result.iter().zip(rho_in.iter()).map(|(r, &i)| (r - i).abs()).fold(0.0, f64::max);
+        // Without Kerker, change would be 0.3. With Kerker on uniform residual, much less.
+        assert!(
+            max_change < 0.1,
+            "Kerker should suppress uniform (G=0) residual, but max_change={max_change}"
+        );
+    }
+
+    #[test]
+    fn test_auto_q_tf_reasonable() {
+        // Si: 8 electrons, ~40 ų → q_TF should be ~1-3 Å⁻¹
+        let q_tf_sq = auto_q_tf_squared(8.0, 40.0);
+        let q_tf = q_tf_sq.sqrt();
+        assert!(
+            q_tf > 0.5 && q_tf < 5.0,
+            "q_TF = {q_tf} Å⁻¹ outside reasonable range [0.5, 5.0]"
+        );
+    }
+
+    #[test]
     fn test_solve_linear_system() {
-        // 2x + y = 5, x + 3y = 7 → x = 1.6, y = 1.8
         let a = vec![2.0, 1.0, 1.0, 3.0];
         let b = vec![5.0, 7.0];
         let x = solve_linear_system(&a, &b, 2);

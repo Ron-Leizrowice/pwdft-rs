@@ -423,6 +423,7 @@ impl Settings {
             smearing_sigma: self.electrons.smearing_width,
             ecutrho_ratio: self.basis.ecutrho_ratio,
             fft_grid: None,
+            mixing_mode: crate::scf::mixing::MixingMode::Plain,
         }
     }
 

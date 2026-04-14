@@ -33,6 +33,8 @@ pub struct ScfParams {
     pub ecutrho_ratio: u32,
     /// Explicit FFT grid dimensions. If set, overrides ecutrho_ratio.
     pub fft_grid: Option<[usize; 3]>,
+    /// Mixing mode: plain Anderson or Kerker-preconditioned.
+    pub mixing_mode: mixing::MixingMode,
 }
 
 impl Default for ScfParams {
@@ -46,6 +48,7 @@ impl Default for ScfParams {
             smearing_sigma: 0.01,
             ecutrho_ratio: 4,
             fft_grid: None,
+            mixing_mode: mixing::MixingMode::Plain,
         }
     }
 }
@@ -198,7 +201,14 @@ pub fn run_scf(
     density_r_to_g(&mut grid.fft, &rho_r, &mut rho_g);
     info!("Initial density: superposition of atomic densities (Gaussian model)");
 
-    let mut mixer = mixing::AndersonMixer::new(params.mixing_beta, params.mixing_ndim, n_grid);
+    let mut mixer = mixing::AndersonMixer::new(
+        params.mixing_beta,
+        params.mixing_ndim,
+        &params.mixing_mode,
+        Some(&g_squared),
+        n_electrons,
+        omega,
+    );
     let mut eigenvalues_all: Vec<Vec<f64>>;
     let mut fermi_energy;
 
@@ -319,8 +329,8 @@ pub fn run_scf(
             });
         }
 
-        // 8. Mix
-        rho_r = mixer.mix(&rho_r, &rho_r_new);
+        // 8. Mix (Kerker preconditioning applied inside if enabled)
+        rho_r = mixer.mix(&rho_r, &rho_r_new, &mut grid.fft);
         density_r_to_g(&mut grid.fft, &rho_r, &mut rho_g);
     }
 
