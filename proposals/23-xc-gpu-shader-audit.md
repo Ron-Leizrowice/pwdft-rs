@@ -1,5 +1,7 @@
 # Proposal 23: XC GPU Shader Precision Audit and CPU/GPU Consistency
 
+**Status:** Partially done. Constants unified (`G2_ZERO_THRESHOLD`, `RHO_FLOOR` in `consts.rs`), density floor consistent. CPU/GPU consistency test and error budget documentation NOT yet added.
+
 ## Problem
 
 The LDA XC GPU shader (`src/gpu/shaders/lda_xc.wgsl`) runs in f32 while the CPU path (`src/potential/xc.rs`) runs in f64. Beyond the expected precision difference, there are specific issues:

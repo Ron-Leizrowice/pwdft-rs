@@ -1,73 +1,64 @@
-# Proposal 27: Mathematical Documentation in Code Docstrings
+# Proposal 26: Mathematical Documentation — Reference Docs, Audit, and Docstrings
+
+**Status:** Partially done. `docs/theory.md` and `docs/math-audit.md` are written (uncommitted). All docstring changes and the `(-1)^l` comment fix are still outstanding.
 
 ## Problem
 
-The codebase implements ~50 physics-critical functions across 12 modules. While some have excellent docstrings (e.g., `add_atomic_density_from_pp` shows the full Bessel transform formula, `ScfResult` fields document the Mermin functional), many functions that implement non-trivial mathematics lack formula documentation, unit specifications, or both. This makes the code harder to audit, debug, and extend — the Fe NLCC bug (Proposal 25) might have been caught earlier if the XC evaluation docstring had explicitly stated what density it operates on.
+The codebase implements ~50 physics-critical functions across 12 modules but lacks:
 
-A full audit was performed across every physics function in the codebase. The findings are organized by severity.
+1. **Reference documentation** — no single document collecting the canonical formulas and references (Payne 1992, Martin textbook, PZ 1981, etc.) for debugging and onboarding.
+2. **Formula verification** — no record of which formulas were audited against references. The Fe NLCC bug (Proposal 25) might have been caught earlier with a systematic audit.
+3. **Docstrings on core functions** — many functions implementing non-trivial math lack formula documentation, unit specifications, or both.
+4. **One incorrect comment** — `nonlocal.rs:50-52` claims `i^l × (i*)^l = (-1)^l` when the correct identity is `|i|^{2l} = 1`. The code is correct (does NOT apply the factor); only the comment is wrong.
 
-## Audit Results
+## Part A: Reference Documentation
 
-### Functions With No Docstring on Non-Trivial Math
+### `docs/theory.md` (~18 KB, already drafted)
 
-| Function | File | Line | What it computes |
-|----------|------|------|-----------------|
-| `fermi_dirac_01` | `scf/smearing.rs` | 107 | f(ε) = 1/(1 + exp((ε-E_F)/σ)) |
-| `gaussian_01` | `scf/smearing.rs` | 117 | f(ε) = erfc((ε-E_F)/σ)/2 |
-| `methfessel_paxton_01` | `scf/smearing.rs` | 127 | f(ε) = erfc(x)/2 - x exp(-x²)/(2√π) |
-| `cold_01` | `scf/smearing.rs` | 139 | f(ε) = erfc(x+1/√2)/2 + exp(-(x+1/√2)²)/√(2π) |
-| `ScfParams` (struct) | `scf/mod.rs` | 31 | SCF iteration parameters |
-| `ScfResult` (struct) | `scf/mod.rs` | 81 | Converged SCF output |
-| `AndersonMixer` (struct) | `scf/mixing.rs` | 24 | Pulay/DIIS density mixer |
-| `InitialDensityConfig` (struct) | `scf/initial_density.rs` | 31 | SAD configuration |
+Comprehensive reference covering all formulas used in the code:
 
-### Functions With Docstrings But Missing Math Formulas
+1. **Total energy** — KS decomposition, double-counting correction `E = E_band - E_H + E_xc - E_vxc + E_ewald`, NLCC modification (`E_xc` uses `ρ_val + ρ_core`, `E_vxc` uses `ρ_val` only)
+2. **Reciprocal-space formulation** — Bloch waves, PW expansion, KS matrix equation `H_{G,G'} c = ε c`, FFT convention (1/N on forward)
+3. **Potentials** — Local PP with G=0 convention, Hartree `V_H(G) = 4πe²ρ(G)/|G|²`, LDA XC (Slater + PZ with all 7 parameters), NLCC
+4. **Non-local pseudopotential** — KB separable form, PW matrix elements with angular sum `(2l+1)/(4π) P_l(cos θ)`, Bessel transform form factor, D_ij for UPF/PSP8
+5. **Ewald summation** — All four terms with formulas, screening parameter `η = (Nπ/Ω)^{1/3}`
+6. **Electron density** — From wavefunctions `ρ = Σ f w |ψ|²`, SAD initial density
+7. **SCF convergence** — Linear mixing, Anderson/Pulay DIIS with overlap matrix, Kerker preconditioning `P(G) = |G|²/(|G|² + q_TF²)`
+8. **Smearing and entropy** — FD, Gaussian, MP, Cold occupation and entropy formulas, Mermin free energy `F = E - TS`, sigma→0 extrapolation `E₀ = (E+F)/2`
+9. **Units convention** — eV/Å table with all conversion factors
+10. **Common pitfalls** — NLCC omission, V_local(G=0), FFT normalization, PSP8 D_ij, spin factor
 
-| Function | File | Line | What's missing |
-|----------|------|------|---------------|
-| `run_scf` | `scf/mod.rs` | 180 | SCF algorithm overview (steps, convergence criteria) |
-| `AndersonMixer::mix` | `scf/mixing.rs` | 82 | Anderson/Pulay mixing formula |
-| `entropy_ts` | `scf/smearing.rs` | 158 | TS = σ × spin_factor × Σ w_k s(x_nk) |
-| `entropy_weight` | `scf/smearing.rs` | 182 | Per-scheme entropy formulas |
-| `lda_xc_spin` | `potential/xc.rs` | 166 | Spin-polarized XC formula |
-| `ewald_energy` | `ewald.rs` | 21 | Individual component formulas (real, recip, self, bg) |
-| `diagonalize_hermitian` | `eigensolver/dense.rs` | 18 | Algorithm and complexity |
-| `FFT3D::forward` | `fft.rs` | 48 | FFT definition f̃(G) = Σ f(r) e^{-iG·r} |
-| `FFT3D::inverse` | `fft.rs` | 64 | IFFT definition and normalization |
-| `fft_grid_size` | `fft.rs` | 91 | Nyquist criterion: n ≥ 2n_max + 1 |
-| `BasisSet::new` | `basis.rs` | 19 | Cutoff: (ħ²/2m)\|k+G\|² ≤ E_cut |
-| `build_hamiltonian` | `hamiltonian.rs` | 33 | V_eff indexing convention |
+Each section cites canonical references and links to code locations.
 
-### Functions With Docstrings But Missing Unit Conventions
+### `docs/math-audit.md` (~11 KB, already drafted)
 
-| Function | File | What's missing |
-|----------|------|---------------|
-| `compute_density` | `scf/density.rs` | Output units (e/ų) |
-| `generate_initial_density` | `scf/initial_density.rs` | Output units (e/ų) |
-| `precondition_residual` | `scf/mixing.rs` | FFT normalization convention |
-| `slater_exchange` | `potential/xc.rs` | Input/output unit conversion chain |
-| `pz_correlation_spin` | `potential/xc.rs` | ζ clamp behavior |
-| `Lattice::volume` | `crystal.rs` | Sign convention (can be negative) |
+Line-by-line verification of 17 formulas against the code. All verified **CORRECT**:
 
-### Misaligned Docstring
+| # | Formula | Code location |
+|---|---------|---------------|
+| 1 | Total energy | `scf/energy.rs` |
+| 2 | Band energy | `scf/energy.rs` |
+| 3 | Hartree energy | `scf/energy.rs` |
+| 4 | Hartree potential | `scf/potentials.rs` |
+| 5 | XC energy | `potential/xc.rs` |
+| 6 | Slater exchange | `potential/xc.rs` |
+| 7 | PZ correlation (7 params) | `potential/xc.rs` |
+| 8 | Kinetic energy | `scf/potentials.rs` |
+| 9 | Local pseudopotential | `scf/potentials.rs` |
+| 10 | Non-local KB | `potential/nonlocal.rs` |
+| 11 | Ewald (4 terms) | `ewald.rs` |
+| 12 | Density | `scf/density.rs` |
+| 13 | Fermi energy search | `scf/smearing.rs` |
+| 14 | Smearing (4 schemes) | `scf/smearing.rs` |
+| 15 | Sigma→0 extrapolation | `scf/mod.rs` |
+| 16 | NLCC | `scf/mod.rs` |
+| 17 | Spin-polarized LSDA | `potential/xc.rs` |
 
-| Function | File | Line | Issue |
-|----------|------|------|-------|
-| `run_scf_spin` | `scf/mod.rs` | 456 | First line says "Compute local pseudopotential" — should say "Spin-polarized SCF loop" |
+## Part B: Docstring Improvements
 
-### Incorrect Comment (from Proposal 26)
+### B1. Functions with no docstring on non-trivial math
 
-| Location | File | Line | Issue |
-|----------|------|------|-------|
-| KB phase factor | `potential/nonlocal.rs` | 50-52 | Claims `(-1)^l`, should be `1` |
-
-## Implementation
-
-The changes are documentation-only — no logic changes. Each section below shows the exact docstring to add or modify.
-
-### 1. Smearing functions (`scf/smearing.rs`)
-
-Add docstrings with formulas and references to each private occupation function:
+**`scf/smearing.rs` — 4 occupation functions (lines 107-149):**
 
 ```rust
 /// Fermi-Dirac occupation (before spin factor).
@@ -103,7 +94,7 @@ fn methfessel_paxton_01(...) -> f64 {
 fn cold_01(...) -> f64 {
 ```
 
-Add formulas to entropy functions:
+**`scf/smearing.rs` — entropy functions:**
 
 ```rust
 /// Per-state entropy weight s(x) for reduced variable x = (ε - E_F)/σ.
@@ -118,7 +109,9 @@ Add formulas to entropy functions:
 fn entropy_weight(...) -> f64 {
 ```
 
-### 2. Structs (`scf/mod.rs`)
+### B2. Struct docstrings
+
+**`scf/mod.rs` — `ScfParams`:**
 
 ```rust
 /// Parameters controlling the self-consistent field iteration.
@@ -133,7 +126,11 @@ fn entropy_weight(...) -> f64 {
 /// Convergence requires both density (Δρ < conv_threshold) and
 /// energy (ΔE < energy_threshold) criteria to be met.
 pub struct ScfParams {
+```
 
+**`scf/mod.rs` — `ScfResult`:**
+
+```rust
 /// Output of a converged SCF calculation.
 ///
 /// All energies are in eV. The three energy quantities are:
@@ -143,7 +140,7 @@ pub struct ScfParams {
 pub struct ScfResult {
 ```
 
-### 3. Anderson mixer (`scf/mixing.rs`)
+**`scf/mixing.rs` — `AndersonMixer`:**
 
 ```rust
 /// Anderson/Pulay (DIIS) density mixer with optional Kerker preconditioning.
@@ -164,9 +161,9 @@ pub struct ScfResult {
 pub struct AndersonMixer {
 ```
 
-### 4. Ewald summation (`ewald.rs`)
+### B3. Functions with docstrings missing formulas
 
-Expand the existing docstring on `ewald_energy`:
+**`ewald.rs` — `ewald_energy`:**
 
 ```rust
 /// Compute the Ewald ion-ion energy for a crystal. Returns energy in eV.
@@ -186,7 +183,7 @@ Expand the existing docstring on `ewald_energy`:
 pub fn ewald_energy(...) -> f64 {
 ```
 
-### 5. FFT (`fft.rs`)
+**`fft.rs` — `FFT3D` struct:**
 
 ```rust
 /// 3D FFT via batched 1D transforms (z → y → x).
@@ -201,7 +198,7 @@ pub fn ewald_energy(...) -> f64 {
 pub struct FFT3D {
 ```
 
-Add to `fft_grid_size`:
+**`fft.rs` — `fft_grid_size`:**
 
 ```rust
 /// Find the smallest FFT-friendly grid size n ≥ 2·n_max + 1.
@@ -215,7 +212,7 @@ Add to `fft_grid_size`:
 pub fn fft_grid_size(n_max: usize) -> usize {
 ```
 
-### 6. Eigensolver (`eigensolver/dense.rs`)
+**`eigensolver/dense.rs` — `diagonalize_hermitian`:**
 
 ```rust
 /// Full Hermitian eigendecomposition of H via faer.
@@ -228,9 +225,7 @@ pub fn fft_grid_size(n_max: usize) -> usize {
 pub fn diagonalize_hermitian(h: &faer::Mat<Complex64>) -> EigenResult {
 ```
 
-### 7. XC spin-polarized (`potential/xc.rs`)
-
-Add formula to `lda_xc_spin`:
+**`potential/xc.rs` — `lda_xc_spin`:**
 
 ```rust
 /// Evaluate spin-polarized LDA XC at a single point.
@@ -245,7 +240,7 @@ Add formula to `lda_xc_spin`:
 pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> SpinXcPoint {
 ```
 
-### 8. Basis set (`basis.rs`)
+**`basis.rs` — `BasisSet::new`:**
 
 ```rust
 /// Construct the plane-wave basis set for a given energy cutoff.
@@ -259,9 +254,39 @@ pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> SpinXcPoint {
 pub fn new(lattice: &Lattice, ecut: f64) -> Self {
 ```
 
-### 9. Nonlocal comment fix (from Proposal 26)
+### B4. Unit conventions
 
-In `potential/nonlocal.rs`, lines 49-52:
+**`scf/density.rs` — `compute_density`:** Add `Output density is in e/ų.`
+
+**`crystal.rs` — `Lattice::volume`:**
+
+```rust
+/// Cell volume Ω = a · (b × c).
+///
+/// Returns the signed scalar triple product. Positive for right-handed
+/// lattice vectors, negative for left-handed. Use `.abs()` when a
+/// positive volume is needed (e.g., normalization).
+pub fn volume(&self) -> f64 {
+```
+
+**`potential/nonlocal.rs` — `bessel_transform_projector`:**
+
+```rust
+/// Spherical Bessel transform of a projector:
+///   F(q) = 4π ∫₀^∞ [r·β(r)] j_l(qr) r dr
+///
+/// `r_grid`: radial grid points in Å.
+/// `rab`: integration weights dr (spacing between grid points) in Å.
+///        For logarithmic grids, rab[i] = r[i] × log_step.
+/// `r_beta`: r·β(r) in Å^{-1/2} (UPF convention: projectors stored as r×β).
+/// `l`: angular momentum quantum number.
+/// `q`: wavevector magnitude |k+G| in Å⁻¹.
+fn bessel_transform_projector(...) -> f64 {
+```
+
+### B5. Comment and docstring fixes
+
+**`potential/nonlocal.rs` lines 49-52** — fix incorrect `(-1)^l` comment:
 
 ```rust
 // Before:
@@ -275,57 +300,12 @@ In `potential/nonlocal.rs`, lines 49-52:
 /// (Phase factors i^l from bra and (i*)^l from ket give |i|^{2l} = 1.)
 ```
 
-### 10. Nonlocal `rab` explanation
+The code correctly does NOT apply `(-1)^l`. Proof: `i^l × (i*)^l = |i|^{2l} = 1` for all `l`. Si (l=0,1 projectors) matches QE, confirming the code is correct.
 
-In `bessel_transform_projector` docstring, add:
-
-```rust
-/// Spherical Bessel transform of a projector:
-///   F(q) = 4π ∫₀^∞ [r·β(r)] j_l(qr) r dr
-///
-/// `r_grid`: radial grid points in Å.
-/// `rab`: integration weights dr/di (spacing between consecutive grid points) in Å.
-///        For logarithmic grids, rab[i] = r[i] × log_step.
-/// `r_beta`: r·β(r) in Å^{-1/2} (UPF convention: projectors stored as r×β).
-/// `l`: angular momentum quantum number.
-/// `q`: wavevector magnitude |k+G| in Å⁻¹.
-fn bessel_transform_projector(...) -> f64 {
-```
-
-### 11. Crystal volume sign (`crystal.rs`)
+**`scf/mod.rs` — `run_scf_spin` misaligned first line:**
 
 ```rust
-/// Cell volume Ω = a · (b × c).
-///
-/// Returns the signed scalar triple product. Positive for right-handed
-/// lattice vectors, negative for left-handed. Use `.abs()` when a
-/// positive volume is needed (e.g., normalization).
-pub fn volume(&self) -> f64 {
-```
-
-### 12. Density output units (`scf/density.rs`)
-
-```rust
-/// Compute the charge density on the real-space FFT grid from wavefunctions.
-///
-/// ρ(r) = Σ_{n,k} f_{n,k} w_k |ψ_{n,k}(r)|²
-///
-/// Steps per (k-point, band):
-/// 1. Place PW coefficients c_{n,k}(G) onto FFT grid
-/// 2. Inverse FFT → ψ_{n,k}(r) (unnormalized)
-/// 3. Accumulate f × w × |ψ|²
-///
-/// The result is normalized so that ∫ρ(r)dr = N_electrons.
-/// Output density is in e/ų (electrons per cubic Ångström).
-///
-/// K-point contributions are computed in parallel via rayon fold/reduce.
-pub fn compute_density(...) -> Vec<f64> {
-```
-
-### 13. `run_scf_spin` misaligned docstring fix
-
-```rust
-// Before (line 456):
+// Before:
 /// Compute local pseudopotential V_local(G) on the FULL FFT grid.
 /// Spin-polarized SCF loop (nspin=2).
 
@@ -342,13 +322,15 @@ pub fn compute_density(...) -> Vec<f64> {
 
 | File | Changes |
 |------|---------|
-| `src/scf/smearing.rs` | Docstrings on 4 occupation functions + 2 entropy functions |
-| `src/scf/mod.rs` | Docstrings on `ScfParams`, `ScfResult`, `run_scf_spin` fix |
+| `docs/theory.md` | New — comprehensive theory reference (~18 KB) |
+| `docs/math-audit.md` | New — formula-by-formula verification (~11 KB) |
+| `src/scf/smearing.rs` | Docstrings on 4 occupation fns + 2 entropy fns |
+| `src/scf/mod.rs` | Docstrings on `ScfParams`, `ScfResult`; `run_scf_spin` fix |
 | `src/scf/mixing.rs` | Docstring on `AndersonMixer` struct |
 | `src/scf/density.rs` | Unit specification on `compute_density` |
 | `src/scf/initial_density.rs` | Docstring on `InitialDensityConfig` |
 | `src/potential/xc.rs` | Formula on `lda_xc_spin` |
-| `src/potential/nonlocal.rs` | Comment fix ((-1)^l → 1), `rab` docs |
+| `src/potential/nonlocal.rs` | `(-1)^l` comment fix, `rab` parameter docs |
 | `src/ewald.rs` | Expanded formulas on `ewald_energy` |
 | `src/fft.rs` | FFT convention on `FFT3D`, Nyquist on `fft_grid_size` |
 | `src/eigensolver/dense.rs` | Algorithm and complexity on `diagonalize_hermitian` |
@@ -358,10 +340,12 @@ pub fn compute_density(...) -> Vec<f64> {
 
 ## Acceptance Criteria
 
-1. **Every function implementing a physics formula** has the formula in its docstring.
-2. **Every function with dimensional inputs/outputs** states units (eV, Å, e/ų, etc.).
-3. **Key algorithms** (Anderson mixing, Ewald, FFT convention) are described at the struct or function level, not just in scattered inline comments.
-4. **References cited** where non-obvious: Perdew-Zunger (1981), Methfessel-Paxton (1989), Marzari-Vanderbilt (1999).
-5. **No code changes** — documentation only, so `cargo test` passes unchanged.
-6. **Incorrect comment fixed** — `(-1)^l` removed from nonlocal.rs.
-7. **Misaligned docstring fixed** — `run_scf_spin` title corrected.
+1. **`docs/theory.md`** exists with all 10 sections citing canonical references.
+2. **`docs/math-audit.md`** exists with all 17 formula verifications.
+3. **Every function implementing a physics formula** has the formula in its docstring.
+4. **Every function with dimensional inputs/outputs** states units (eV, Å, e/ų).
+5. **Key algorithms** (Anderson mixing, Ewald, FFT) described at struct/function level.
+6. **References cited** where non-obvious: PZ (1981), MP (1989), MV (1999).
+7. **`(-1)^l` comment fixed** in `nonlocal.rs`.
+8. **`run_scf_spin` docstring fixed** — no longer says "Compute local pseudopotential".
+9. **No code logic changes** — documentation only, `cargo test` passes unchanged.

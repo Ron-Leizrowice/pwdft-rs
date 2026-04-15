@@ -1,5 +1,7 @@
 # Proposal 25: Ewald Structure Factor Cleanup and Numerical Hardening
 
+**Status:** Still needed. Self-interaction comment added, but `Complex64::cis()` refactor and edge case tests not done.
+
 ## Problem
 
 The Ewald summation (`src/ewald.rs`) has several code quality issues that, while not producing wrong results for typical inputs, reduce clarity and robustness:
