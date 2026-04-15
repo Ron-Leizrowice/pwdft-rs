@@ -259,6 +259,12 @@ pub fn run_scf(
 
     // Cache Ewald energy (constant across iterations)
     let e_ewald = crate::ewald::ewald_energy(crystal, pseudopotentials);
+
+    // Precompute non-local projectors per k-point (depends only on k+G, not density)
+    let vnl_cache: Vec<NonlocalPotential> = kpoints
+        .par_iter()
+        .map(|kp| NonlocalPotential::new(crystal, basis, &kp.k, pseudopotentials))
+        .collect();
     let mut e_prev: Option<f64> = None;
 
     // Precompute NLCC core density on real-space grid (constant across iterations).
@@ -315,13 +321,10 @@ pub fn run_scf(
         // 4. Solve eigenvalue problem at each k-point (parallel over k-points)
         let kpoint_results: Vec<_> = kpoints
             .par_iter()
-            .map(|kp| {
+            .enumerate()
+            .map(|(ik, kp)| {
                 let mut h = build_hamiltonian_with_v_eff(basis, &kp.k, &v_eff_fft, grid.dims);
-
-                // Add non-local pseudopotential
-                let vnl = NonlocalPotential::new(crystal, basis, &kp.k, pseudopotentials);
-                vnl.add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
-
+                vnl_cache[ik].add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
                 dense::diagonalize_lowest(&h, params.n_bands)
             })
             .collect();
@@ -522,6 +525,12 @@ fn run_scf_spin(
     let kpt_weights: Vec<f64> = kpoints.iter().map(|kp| kp.weight).collect();
     let _n_kpts = kpoints.len();
 
+    // Precompute non-local projectors per k-point
+    let vnl_cache: Vec<NonlocalPotential> = kpoints
+        .par_iter()
+        .map(|kp| NonlocalPotential::new(crystal, basis, &kp.k, pseudopotentials))
+        .collect();
+
     // Two mixers (one per spin channel)
     let mut mixer_up = mixing::AndersonMixer::new(
         params.mixing_beta, params.mixing_ndim, &params.mixing_mode,
@@ -561,17 +570,15 @@ fn run_scf_spin(
 
         // 4. Diagonalize both spins at each k-point
         let grid_dims = grid.dims;
-        let kpoint_results_up: Vec<_> = kpoints.par_iter().map(|kp| {
+        let kpoint_results_up: Vec<_> = kpoints.par_iter().enumerate().map(|(ik, kp)| {
             let mut h = build_hamiltonian_with_v_eff(basis, &kp.k, &v_eff_up, grid_dims);
-            let vnl = NonlocalPotential::new(crystal, basis, &kp.k, pseudopotentials);
-            vnl.add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
+            vnl_cache[ik].add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
             dense::diagonalize_lowest(&h, params.n_bands)
         }).collect();
 
-        let kpoint_results_down: Vec<_> = kpoints.par_iter().map(|kp| {
+        let kpoint_results_down: Vec<_> = kpoints.par_iter().enumerate().map(|(ik, kp)| {
             let mut h = build_hamiltonian_with_v_eff(basis, &kp.k, &v_eff_down, grid_dims);
-            let vnl = NonlocalPotential::new(crystal, basis, &kp.k, pseudopotentials);
-            vnl.add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
+            vnl_cache[ik].add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
             dense::diagonalize_lowest(&h, params.n_bands)
         }).collect();
 
