@@ -211,9 +211,17 @@ mod tests {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Fe.UPF");
         let pp = load(&path).unwrap();
         assert_eq!(pp.element, "Fe");
-        assert!(pp.z_valence > 7.0); // Fe has 8 or 16 valence electrons depending on PP
-        assert!(pp.n_projectors > 0);
-        assert!(pp.r_grid.len() > 100);
+        assert!((pp.z_valence - 8.0).abs() < 1e-10);
+        assert_eq!(pp.n_projectors, 2);
+        assert_eq!(pp.beta_projectors.len(), 2);
+        assert_eq!(pp.beta_projectors[0].l, 1); // p-projector
+        assert_eq!(pp.beta_projectors[1].l, 2); // d-projector
+        // D_ij should be 2×2 with non-zero diagonal
+        assert_eq!(pp.dij.len(), 4);
+        eprintln!("Fe D_ij (eV): {:?}", pp.dij);
+        // D_11 (p) should be small positive, D_22 (d) should be large negative
+        assert!(pp.dij[0].abs() > 0.01, "D_11 should be nonzero: {}", pp.dij[0]);
+        assert!(pp.dij[3] < -10.0, "D_22 should be large negative: {}", pp.dij[3]);
     }
 
     #[test]
@@ -229,6 +237,58 @@ mod tests {
                 eprintln!("C.UPF parse failed (may be v1 format): {e}");
             }
         }
+    }
+
+    #[test]
+    fn test_rho_atom_integrates_to_z_valence() {
+        // ∫ rho_atom(r) × dr should give z_valence
+        // rho_atom stores 4πr²ρ(r) in converted units; rab stores dr
+        let pp = load(&si_pp_path()).unwrap();
+        if !pp.has_rho_atom() {
+            eprintln!("Si PP has no rho_atom data (HGH) — skipping integral test");
+            return;
+        }
+        let integral: f64 = pp
+            .rho_atom
+            .iter()
+            .zip(pp.rab.iter())
+            .map(|(&rho, &dr)| rho * dr)
+            .sum();
+        eprintln!(
+            "Si rho_atom integral = {integral:.6}, z_valence = {}",
+            pp.z_valence
+        );
+        assert!(
+            (integral - pp.z_valence).abs() < 0.1,
+            "rho_atom integral {integral} != z_valence {}",
+            pp.z_valence
+        );
+    }
+
+    #[test]
+    fn test_fe_rho_atom_integrates_to_z_valence() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Fe.UPF");
+        let pp = load(&path).unwrap();
+        if !pp.has_rho_atom() {
+            eprintln!("Fe PP has no rho_atom data — skipping");
+            return;
+        }
+        let integral: f64 = pp
+            .rho_atom
+            .iter()
+            .zip(pp.rab.iter())
+            .map(|(&rho, &dr)| rho * dr)
+            .sum();
+        eprintln!(
+            "Fe rho_atom integral = {integral:.6}, z_valence = {}",
+            pp.z_valence
+        );
+        // This test will FAIL if the unit conversion is wrong
+        assert!(
+            (integral - pp.z_valence).abs() < 0.5,
+            "Fe rho_atom integral {integral} != z_valence {}",
+            pp.z_valence
+        );
     }
 
     #[test]

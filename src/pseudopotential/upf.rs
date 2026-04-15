@@ -78,16 +78,14 @@ pub fn parse(content: &str) -> Result<PseudopotentialData> {
     let dij: Vec<f64> = dij_ry.iter().map(|&d| d * RY_TO_EV).collect();
 
     // Parse atomic charge density (optional — may be all zeros for HGH)
-    // UPF stores 4π r² ρ(r) in e/Bohr units on the radial grid.
+    // UPF stores 4πr²ρ(r) in e/Bohr on the radial grid.
+    // The Bessel transform ∫ [4πr²ρ(r)] j₀(Gr) dr needs consistent units:
+    // r_grid is in Å, rab is in Å, G is in 1/Å, so 4πr²ρ(r) must be in e/Å.
+    // Convert e/Bohr → e/Å by dividing by BOHR_TO_ANG.
     let rho_atom = if let Ok(rho_raw) = extract_data_block(content, "PP_RHOATOM", mesh_size) {
-        // Convert: 4πr²ρ(r) [e/Bohr] → ρ(r) [e/ų]
-        // ρ(r) = rho_raw / (4π r²) / Bohr_to_Å³
-        // But for the SCF initial guess we'll use the raw 4πr²ρ(r) form in the
-        // spherical Bessel transform, so just convert length units.
         rho_raw
             .iter()
-            .zip(r_grid_bohr.iter())
-            .map(|(&rho, &_r)| rho / BOHR_TO_ANG.powi(3))
+            .map(|&rho| rho / BOHR_TO_ANG)
             .collect()
     } else {
         vec![0.0; mesh_size]
