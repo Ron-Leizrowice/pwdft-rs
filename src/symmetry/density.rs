@@ -5,6 +5,16 @@
 
 use super::SymmetryInfo;
 
+/// Map a fractional coordinate to the nearest grid index in [0, n).
+///
+/// Uses nearest-integer (round) mapping, matching QE's `nint()` convention.
+/// Handles negative coordinates and periodic wrapping via double-modulo.
+fn frac_to_grid_idx(frac: f64, n: usize) -> usize {
+    let ni = n as i64;
+    let idx = (frac * n as f64).round() as i64;
+    ((idx % ni) + ni) as usize % n
+}
+
 /// Symmetrize a real-space charge density on the FFT grid.
 ///
 /// For each symmetry operation S = {R|τ}, the inverse S⁻¹ = {R⁻¹|-R⁻¹τ}
@@ -62,12 +72,9 @@ pub fn symmetrize_density(rho: &mut [f64], dims: [usize; 3], symmetry: &Symmetry
                     ];
 
                     // Map to grid indices with periodic boundary conditions
-                    let jx = ((fp[0] * nx as f64).round() as i64 % nx as i64 + nx as i64) as usize
-                        % nx;
-                    let jy = ((fp[1] * ny as f64).round() as i64 % ny as i64 + ny as i64) as usize
-                        % ny;
-                    let jz = ((fp[2] * nz as f64).round() as i64 % nz as i64 + nz as i64) as usize
-                        % nz;
+                    let jx = frac_to_grid_idx(fp[0], nx);
+                    let jy = frac_to_grid_idx(fp[1], ny);
+                    let jz = frac_to_grid_idx(fp[2], nz);
 
                     let src_idx = jx * ny * nz + jy * nz + jz;
                     let dst_idx = ix * ny * nz + iy * nz + iz;
@@ -108,10 +115,7 @@ pub fn check_grid_compatibility(dims: [usize; 3], symmetry: &SymmetryInfo) -> bo
 ///
 /// Starts from the given minimum dimensions and increases until compatibility
 /// is achieved. Returns adjusted dimensions.
-pub fn compatible_grid_dims(
-    min_dims: [usize; 3],
-    symmetry: &SymmetryInfo,
-) -> [usize; 3] {
+pub fn compatible_grid_dims(min_dims: [usize; 3], symmetry: &SymmetryInfo) -> [usize; 3] {
     // For cubic symmetry, making all dimensions equal is usually sufficient
     let max_dim = *min_dims.iter().max().unwrap();
     let mut dims = [max_dim; 3];
@@ -159,13 +163,39 @@ mod tests {
     }
 
     #[test]
+    fn test_frac_to_grid_idx_basics() {
+        assert_eq!(frac_to_grid_idx(0.0, 10), 0);
+        assert_eq!(frac_to_grid_idx(0.5, 10), 5);
+        assert_eq!(frac_to_grid_idx(1.0, 10), 0); // wraps
+        assert_eq!(frac_to_grid_idx(0.3, 10), 3);
+        assert_eq!(frac_to_grid_idx(0.95, 10), 10 % 10); // rounds to 10, wraps to 0
+    }
+
+    #[test]
+    fn test_frac_to_grid_idx_negative() {
+        assert_eq!(frac_to_grid_idx(-0.1, 10), 9); // -1 + 10 = 9
+        assert_eq!(frac_to_grid_idx(-0.5, 10), 5); // -5 + 10 = 5
+        assert_eq!(frac_to_grid_idx(-1.0, 10), 0); // -10 + 10 = 0
+        // -0.05 * 10 = -0.5: round(-0.5) is implementation-defined
+        let idx = frac_to_grid_idx(-0.05, 10);
+        assert!(idx == 0 || idx == 9, "round(-0.5) should give 0 or 9, got {idx}");
+    }
+
+    #[test]
+    fn test_frac_to_grid_idx_boundary() {
+        // At half-integer: round(0.5) = 0 or 1 depending on banker's rounding
+        // Either is acceptable as long as it's consistent
+        let idx = frac_to_grid_idx(0.05, 10); // 0.05 * 10 = 0.5
+        assert!(idx == 0 || idx == 1, "half-integer should map to 0 or 1, got {idx}");
+    }
+
+    #[test]
     fn test_symmetrize_preserves_integral() {
         let crystal = si_fcc();
         let symmetry = crate::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
-        let dims = [12, 12, 12]; // compatible with O_h
+        let dims = [12, 12, 12];
         let n = dims[0] * dims[1] * dims[2];
 
-        // Random-ish density
         let mut rho: Vec<f64> = (0..n).map(|i| (i as f64 * 0.37).sin().abs() + 0.1).collect();
         let integral_before: f64 = rho.iter().sum();
 
@@ -185,7 +215,6 @@ mod tests {
         let dims = [12, 12, 12];
         let n = dims[0] * dims[1] * dims[2];
 
-        // Uniform density should be unchanged
         let mut rho = vec![1.0; n];
         symmetrize_density(&mut rho, dims, &symmetry);
         for &v in &rho {
@@ -203,19 +232,14 @@ mod tests {
         let dims = [12, 12, 12];
         let n = dims[0] * dims[1] * dims[2];
 
-        // Set density at a single non-special point
         let mut rho = vec![0.0; n];
         let test_idx = dims[1] * dims[2] + 2 * dims[2] + 3; // (1,2,3)
-        rho[test_idx] = 48.0; // put n_ops worth of charge so average = 1.0 per orbit point
+        rho[test_idx] = 48.0;
 
         symmetrize_density(&mut rho, dims, &symmetry);
 
-        // After symmetrization, all orbit points should have equal density
         let nonzero: Vec<f64> = rho.iter().filter(|&&v| v > 1e-10).cloned().collect();
-        assert!(
-            !nonzero.is_empty(),
-            "symmetrized density has no nonzero points"
-        );
+        assert!(!nonzero.is_empty());
         let ref_val = nonzero[0];
         for &v in &nonzero {
             assert!(
@@ -230,12 +254,9 @@ mod tests {
         let crystal = si_fcc();
         let symmetry = crate::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
 
-        // Equal cubic grid should be compatible with O_h
         assert!(check_grid_compatibility([12, 12, 12], &symmetry));
         assert!(check_grid_compatibility([18, 18, 18], &symmetry));
         assert!(check_grid_compatibility([20, 20, 20], &symmetry));
-
-        // Unequal grid is not compatible with full cubic symmetry
         assert!(!check_grid_compatibility([12, 12, 15], &symmetry));
     }
 
@@ -252,7 +273,6 @@ mod tests {
         let rho_once = rho.clone();
         symmetrize_density(&mut rho, dims, &symmetry);
 
-        // Applying symmetrization twice should give the same result
         for (a, b) in rho.iter().zip(rho_once.iter()) {
             assert!(
                 (a - b).abs() < 1e-12,
