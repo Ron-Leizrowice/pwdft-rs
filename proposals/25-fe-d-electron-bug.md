@@ -1,40 +1,64 @@
-# Proposal 25: Investigate Fe BCC 210 eV Energy Discrepancy
+# Proposal 25: Fe BCC Energy Discrepancy — Missing NLCC
+
+**Status: ROOT CAUSE IDENTIFIED**
 
 ## Problem
 
-BCC Fe (non-magnetic, NC PP, 15 Ry cutoff) produces a total energy of -391.16 eV, while QE gives -600.93 eV — a 210 eV discrepancy. The Gamma eigenvalues are qualitatively wrong:
+BCC Fe total energy is ~210 eV off QE. Diagnostic tests show every eigenvalue is shifted by a constant ~15.2 eV.
 
-| Band | QE (eV) | pwdft-rs (eV) |
-|------|---------|---------------|
-| 1 | 5.16 | 18.09 |
-| 2 | 26.26 | 18.09 |
-| 3 | 26.26 | 19.49 |
-| 4 | 27.15 | 31.49 |
-| 5 | 27.15 | 31.49 |
-| 6 | 27.15 | 33.22 |
+## Root Cause
 
-## What works
+The Fe pseudopotential (`Fe.pz-n-nc.UPF`) has **nonlinear core correction (NLCC)** enabled:
+```
+nlcc=.true.
+core_correction="T"
+<PP_NLCC> ... 1191 radial values ... </PP_NLCC>
+```
 
-- PP parsing is correct: D_ij = [0.152, 0, 0, -135.85] eV, projectors at l=1 (p) and l=2 (d)
-- Spherical Bessel j_l and Legendre P_l work for arbitrary l (verified in unit tests)
-- Si (l=0,1 projectors) works to within multi-minimum tolerance
+Our code completely ignores the `PP_NLCC` data. NLCC adds the frozen core charge density to the valence density when evaluating exchange-correlation. Without it, the XC potential is evaluated on ρ_valence alone instead of ρ_valence + ρ_core, producing a systematic shift in all eigenvalues.
 
-## Suspected causes (in order of likelihood)
+Si has `core_correction="F"` — no NLCC — which is why it works fine.
 
-1. **V_local Bessel transform for Fe PP**: The V_local radial function may have different characteristics than Si's HGH PP. The Coulomb subtraction in `v_local_of_g` assumes a specific form — verify the integral converges for Fe.
+## Evidence
 
-2. **Structure factor convention for BCC**: BCC has 1 atom at origin. The structure factor S(G) = exp(-iG·τ) = 1 for all G when τ=0. This is trivial but verify it's not introducing a factor-of-2 error (the primitive BCC cell has 1 atom, not 2).
+Diagnostic test (`tests/fe_debug.rs`) shows:
+- Basis size matches QE (79 PWs) ✓
+- Kinetic eigenvalues correct ✓  
+- V_NL Hermitian, D_ij correct ✓
+- Every eigenvalue shifted by ~15.2 eV (constant offset = V_local or XC error)
+- V_local(G=0) = 21.16 eV (matches manual calculation from PP data)
 
-3. **Non-local potential angular terms**: With l=2 (d-projectors), the angular factor is (2l+1)/(4π) × P_2(cos θ) = 5/(4π) × (3cos²θ-1)/2. The P_2 recurrence was just added — verify against explicit formula.
+The constant offset rules out basis set, kinetic, or V_NL bugs. It's the XC potential that's wrong because it doesn't include the core charge.
 
-4. **Ewald energy for BCC**: Single-atom primitive cell has trivial Ewald sum. Verify the Z_val=8 for Fe is used correctly.
+## Fix
 
-5. **Basis set for BCC**: The G-vector enumeration for the BCC reciprocal lattice (FCC in reciprocal space) may have issues at the BZ boundary.
+### Step 1: Parse PP_NLCC in UPF parser
 
-## Investigation plan
+Add `core_charge: Vec<f64>` to `PseudopotentialData`. Parse `PP_NLCC` block (same radial grid as V_local). Convert from e/Bohr³ to e/ų.
 
-1. Compare V_local(G=0) between QE and pwdft-rs for Fe
-2. Compare eigenvalues of kinetic-only Hamiltonian (should match exactly)
-3. Add V_local, compare eigenvalues
-4. Add V_NL, compare eigenvalues — isolate which component introduces the error
-5. Compare Ewald energy
+### Step 2: Add core density to XC evaluation
+
+In the SCF loop, before computing XC:
+```rust
+// Add core density for NLCC
+let rho_for_xc: Vec<f64> = if has_nlcc {
+    rho_r.iter().zip(rho_core_r.iter()).map(|(v, c)| v + c).collect()
+} else {
+    rho_r.to_vec()
+};
+let (exc_r, vxc_r) = xc::lda_xc_grid(&rho_for_xc);
+```
+
+The core density needs to be computed on the FFT grid via Bessel transform, similar to the SAD initial density.
+
+### Step 3: Core energy correction
+
+The XC energy has a correction term:
+```
+E_xc[ρ_val + ρ_core] - E_xc[ρ_val]
+```
+This is handled automatically by passing the augmented density to `lda_xc_grid`.
+
+## Impact
+
+Fixes any pseudopotential with NLCC — common for transition metals (Fe, Ni, Co, Cu), some main-group elements, and most production PPs from PseudoDojo/SSSP.

@@ -39,10 +39,7 @@ Properties we don't currently use but would benefit from in future proposals:
 elements_rs = ">=0.2"
 ```
 
-**License check:** The crate's Cargo.toml lists GPL-3.0. If pwdft-rs uses a more permissive license (MIT, Apache-2.0), this may be incompatible. Verify before proceeding. If GPL is a blocker, consider:
-- Contacting the maintainers (README badge says MIT, may be a metadata error)
-- Using the crate behind an optional feature flag
-- Cherry-picking only the `Element` enum via a thinner wrapper
+**License:** The crate is GPL-3.0. All existing pwdft-rs dependencies are permissive (MIT, Apache-2.0, BSD) and GPL-3 compatible. Adding this dependency means pwdft-rs must be distributed under GPL-3 terms, which is fine for this project.
 
 ### Step 2: Replace internal Element type
 
@@ -142,8 +139,7 @@ The current `from_z` uses `unsafe { std::mem::transmute }`. With `elements_rs`, 
 
 ## Acceptance Criteria
 
-1. **License verified:** GPL-3.0 compatibility confirmed or resolved before merge.
-2. **All existing tests pass:** Element lookups by symbol and Z produce identical results for Z=1-92.
+1. **All existing tests pass:** Element lookups by symbol and Z produce identical results for Z=1-92.
 3. **`unsafe` removed:** No `transmute` in the codebase for element conversion.
 4. **`atoms.rs` simplified:** The file is either deleted or reduced to a re-export + extension trait.
 5. **Extended range:** Elements Z=93-118 are now recognized (no panic on Np, Pu, etc.).
