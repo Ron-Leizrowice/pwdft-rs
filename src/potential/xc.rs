@@ -146,6 +146,195 @@ fn perdew_zunger_correlation(rho: f64) -> (f64, f64) {
     (ec_ha * HA_TO_EV, vc_ha * HA_TO_EV)
 }
 
+// ---------------------------------------------------------------------------
+// Spin-polarized LSDA (collinear)
+// ---------------------------------------------------------------------------
+
+/// Result of spin-polarized XC evaluation at a single point.
+pub struct XcSpinPoint {
+    /// Exchange-correlation energy density ε_xc (eV per electron).
+    pub exc: f64,
+    /// XC potential for spin up (eV).
+    pub vxc_up: f64,
+    /// XC potential for spin down (eV).
+    pub vxc_down: f64,
+}
+
+/// Spin-polarized LDA XC at a single point.
+///
+/// `rho_up`, `rho_down` in e/ų. Returns energy density and potentials in eV.
+pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> XcSpinPoint {
+    let rho = rho_up + rho_down;
+    if rho < 1e-30 {
+        return XcSpinPoint { exc: 0.0, vxc_up: 0.0, vxc_down: 0.0 };
+    }
+
+    let (ex, vx_up, vx_down) = slater_exchange_spin(rho_up, rho_down);
+    let (ec, vc_up, vc_down) = pz_correlation_spin(rho_up, rho_down);
+
+    XcSpinPoint {
+        exc: ex + ec,
+        vxc_up: vx_up + vc_up,
+        vxc_down: vx_down + vc_down,
+    }
+}
+
+/// Spin-polarized XC on a real-space grid.
+///
+/// Returns (exc_r, vxc_up_r, vxc_down_r) in eV.
+pub fn lda_xc_spin_grid(
+    rho_up_r: &[f64],
+    rho_down_r: &[f64],
+) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let n = rho_up_r.len();
+    let mut exc = Vec::with_capacity(n);
+    let mut vxc_up = Vec::with_capacity(n);
+    let mut vxc_down = Vec::with_capacity(n);
+
+    for (&ru, &rd) in rho_up_r.iter().zip(rho_down_r.iter()) {
+        let xc = lda_xc_spin(ru, rd);
+        exc.push(xc.exc);
+        vxc_up.push(xc.vxc_up);
+        vxc_down.push(xc.vxc_down);
+    }
+
+    (exc, vxc_up, vxc_down)
+}
+
+/// Spin-polarized Slater exchange.
+///
+/// ε_x = (1/2)[(1+ζ)·ε_x(2ρ_up) + (1-ζ)·ε_x(2ρ_down)]
+/// where ε_x(ρ) = -(3/4)(3ρ/π)^{1/3} is the unpolarized exchange per electron.
+///
+/// V_x_σ = (4/3)·ε_x(2ρ_σ)·2^{1/3}  [derivative of the spin-scaled exchange]
+///
+/// Returns (ε_x, V_x_up, V_x_down) in eV.
+fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
+    const HA_TO_EV: f64 = 27.211386245988;
+    let bohr3 = 0.529177210903_f64.powi(3);
+
+    let rho = rho_up + rho_down;
+    if rho < 1e-30 {
+        return (0.0, 0.0, 0.0);
+    }
+
+    let rho_up_bohr = rho_up * bohr3;
+    let rho_down_bohr = rho_down * bohr3;
+
+    // Exchange energy per electron for each spin channel (fully polarized formula)
+    // ε_x(ρ_σ) for a single spin channel = -(3/4)(6ρ_σ/π)^{1/3}
+    // This is the exchange of a fully-polarized gas with density ρ_σ
+    let ex_up_ha = if rho_up_bohr > 1e-30 {
+        -0.75 * (6.0 * rho_up_bohr / PI).powf(1.0 / 3.0)
+    } else {
+        0.0
+    };
+    let ex_down_ha = if rho_down_bohr > 1e-30 {
+        -0.75 * (6.0 * rho_down_bohr / PI).powf(1.0 / 3.0)
+    } else {
+        0.0
+    };
+
+    // Total exchange energy density: ε_x = (ρ_up·ε_x_up + ρ_down·ε_x_down) / ρ
+    let rho_bohr = rho * bohr3;
+    let ex_ha = (rho_up_bohr * ex_up_ha + rho_down_bohr * ex_down_ha) / rho_bohr;
+
+    // Potentials: V_x_σ = d(ρ·ε_x)/dρ_σ = (4/3)·ε_x(ρ_σ)
+    let vx_up_ha = (4.0 / 3.0) * ex_up_ha;
+    let vx_down_ha = (4.0 / 3.0) * ex_down_ha;
+
+    (ex_ha * HA_TO_EV, vx_up_ha * HA_TO_EV, vx_down_ha * HA_TO_EV)
+}
+
+/// Spin-polarized Perdew-Zunger correlation via spin interpolation.
+///
+/// ε_c(rs, ζ) = ε_c^unpol(rs) + f(ζ)·[ε_c^pol(rs) - ε_c^unpol(rs)]
+/// where f(ζ) = [(1+ζ)^{4/3} + (1-ζ)^{4/3} - 2] / [2^{4/3} - 2]
+///
+/// Returns (ε_c, V_c_up, V_c_down) in eV.
+fn pz_correlation_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
+    const HA_TO_EV: f64 = 27.211386245988;
+    let bohr3 = 0.529177210903_f64.powi(3);
+
+    let rho = rho_up + rho_down;
+    if rho < 1e-30 {
+        return (0.0, 0.0, 0.0);
+    }
+
+    let rho_bohr = rho * bohr3;
+    let rs = (3.0 / (4.0 * PI * rho_bohr)).powf(1.0 / 3.0);
+    let zeta = ((rho_up - rho_down) / rho).clamp(-1.0, 1.0);
+
+    // Unpolarized correlation
+    let (ec_unpol, vc_unpol) = pz_correlation_rs(rs, false);
+    // Fully polarized correlation
+    let (ec_pol, vc_pol) = pz_correlation_rs(rs, true);
+
+    // Spin interpolation function f(ζ) and its derivative
+    let two_4_3 = 2.0_f64.powf(4.0 / 3.0); // 2^(4/3)
+    let f_denom = two_4_3 - 2.0;
+
+    let op_zeta = (1.0 + zeta).max(0.0).powf(4.0 / 3.0);
+    let om_zeta = (1.0 - zeta).max(0.0).powf(4.0 / 3.0);
+    let fz = (op_zeta + om_zeta - 2.0) / f_denom;
+
+    // df/dζ = (4/3) [(1+ζ)^{1/3} - (1-ζ)^{1/3}] / (2^{4/3} - 2)
+    let dfz = (4.0 / 3.0)
+        * ((1.0 + zeta).max(0.0).powf(1.0 / 3.0)
+            - (1.0 - zeta).max(0.0).powf(1.0 / 3.0))
+        / f_denom;
+
+    // Energy density
+    let ec_ha = ec_unpol + fz * (ec_pol - ec_unpol);
+
+    // Potentials (chain rule via rs and ζ)
+    // V_c_σ = ε_c - (rs/3)·dε_c/drs + (±1 - ζ)·dε_c/dζ
+    // where dε_c/drs = dε_c^u/drs + fz·(dε_c^p/drs - dε_c^u/drs)
+    // and dε_c/dζ = dfz·(ε_c^p - ε_c^u)
+    let vc_rs_ha = vc_unpol + fz * (vc_pol - vc_unpol); // this is ε_c - (rs/3)·dε_c/drs
+    let dec_dzeta = dfz * (ec_pol - ec_unpol);
+
+    let vc_up_ha = vc_rs_ha + (1.0 - zeta) * dec_dzeta;
+    let vc_down_ha = vc_rs_ha - (1.0 + zeta) * dec_dzeta;
+
+    (ec_ha * HA_TO_EV, vc_up_ha * HA_TO_EV, vc_down_ha * HA_TO_EV)
+}
+
+/// PZ correlation at given rs for unpolarized (polarized=false) or
+/// fully polarized (polarized=true) electron gas.
+///
+/// Returns (ε_c, V_c) where V_c = ε_c - (rs/3)·dε_c/drs, in Hartree.
+fn pz_correlation_rs(rs: f64, polarized: bool) -> (f64, f64) {
+    let (ec_ha, vc_ha);
+
+    if rs >= 1.0 {
+        let (gamma, beta1, beta2) = if polarized {
+            (-0.0843, 1.3981, 0.2611) // PZ fully polarized parameters
+        } else {
+            (-0.1423, 1.0529, 0.3334) // PZ unpolarized parameters
+        };
+
+        let sqrt_rs = rs.sqrt();
+        let denom = 1.0 + beta1 * sqrt_rs + beta2 * rs;
+        ec_ha = gamma / denom;
+        let d_ec = -gamma * (beta1 / (2.0 * sqrt_rs) + beta2) / (denom * denom);
+        vc_ha = ec_ha - rs / 3.0 * d_ec;
+    } else {
+        let (a, b, c, d) = if polarized {
+            (0.01555, -0.0269, 0.0007, -0.0048) // PZ fully polarized
+        } else {
+            (0.0311, -0.048, 0.0020, -0.0116) // PZ unpolarized
+        };
+
+        let ln_rs = rs.ln();
+        ec_ha = a * ln_rs + b + c * rs * ln_rs + d * rs;
+        let d_ec = a / rs + c * (ln_rs + 1.0) + d;
+        vc_ha = ec_ha - rs / 3.0 * d_ec;
+    }
+
+    (ec_ha, vc_ha)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +384,70 @@ mod tests {
             xc_avg.exc > -10.0 && xc_avg.exc < -5.0,
             "ε_xc at avg Si density: expected ~ -7.5 eV, got {}",
             xc_avg.exc
+        );
+    }
+
+    #[test]
+    fn test_lsda_unpolarized_limit() {
+        // lda_xc_spin(ρ/2, ρ/2) must equal lda_xc(ρ) — the ζ=0 limit
+        for &rho in &[0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0] {
+            let unpol = lda_xc(rho);
+            let spin = lda_xc_spin(rho / 2.0, rho / 2.0);
+
+            assert!(
+                (unpol.exc - spin.exc).abs() < 1e-10,
+                "ε_xc mismatch at ρ={rho}: unpol={}, spin={}",
+                unpol.exc, spin.exc
+            );
+            // V_xc should be equal for both spins and match unpolarized
+            assert!(
+                (unpol.vxc - spin.vxc_up).abs() < 1e-10,
+                "V_xc_up mismatch at ρ={rho}: unpol={}, spin={}",
+                unpol.vxc, spin.vxc_up
+            );
+            assert!(
+                (spin.vxc_up - spin.vxc_down).abs() < 1e-10,
+                "V_xc_up != V_xc_down at ρ={rho}: up={}, down={}",
+                spin.vxc_up, spin.vxc_down
+            );
+        }
+    }
+
+    #[test]
+    fn test_lsda_fully_polarized() {
+        // Fully polarized: all spin up (ζ=1)
+        let rho = 0.1;
+        let xc = lda_xc_spin(rho, 0.0);
+        assert!(xc.exc < 0.0, "ε_xc should be negative");
+        // Exchange should be more negative for polarized than unpolarized
+        // (Pauli exclusion reduces exchange hole)
+        let unpol = lda_xc(rho);
+        assert!(
+            xc.exc < unpol.exc,
+            "Polarized ε_xc ({}) should be more negative than unpolarized ({})",
+            xc.exc, unpol.exc
+        );
+    }
+
+    #[test]
+    fn test_lsda_symmetry() {
+        // Swapping up/down should swap potentials but keep exc the same
+        let rho_up = 0.15;
+        let rho_down = 0.05;
+        let xc1 = lda_xc_spin(rho_up, rho_down);
+        let xc2 = lda_xc_spin(rho_down, rho_up);
+
+        assert!(
+            (xc1.exc - xc2.exc).abs() < 1e-12,
+            "ε_xc not symmetric: {} vs {}", xc1.exc, xc2.exc
+        );
+        assert!(
+            (xc1.vxc_up - xc2.vxc_down).abs() < 1e-12,
+            "V_xc swap failed: up1={}, down2={}", xc1.vxc_up, xc2.vxc_down
+        );
+        assert!(
+            (xc1.vxc_down - xc2.vxc_up).abs() < 1e-12,
+            "V_xc swap failed: down1={}, up2={}", xc1.vxc_down, xc2.vxc_up
         );
     }
 
