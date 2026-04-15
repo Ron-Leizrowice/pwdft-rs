@@ -96,7 +96,7 @@ pub fn find_for_atom<'a>(z: u32, pseudopotentials: &[&'a PseudopotentialData]) -
     pseudopotentials
         .iter()
         .find(|pp| {
-            crate::atoms::Element::from_symbol(&pp.element)
+            crate::atoms::from_symbol(&pp.element)
                 .is_some_and(|e| e.atomic_number() == z)
         })
         .expect("no pseudopotential found for atom")

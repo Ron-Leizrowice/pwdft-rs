@@ -121,7 +121,7 @@ impl InputFile {
             .atoms
             .iter()
             .map(|ai| {
-                let elem = crate::atoms::Element::from_symbol(&ai.symbol)
+                let elem = crate::atoms::from_symbol(&ai.symbol)
                     .unwrap_or_else(|| panic!("unknown element: {}", ai.symbol));
                 Atom::new(elem.atomic_number(), ai.position)
             })

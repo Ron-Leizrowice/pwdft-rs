@@ -13,6 +13,7 @@ nalgebra = { version = ">=0.34", features = ["serde-serialize"] }
 faer = ">=0.24"
 ndarray = ">=0.16"
 ndrustfft = ">=0.5"
+mendeleev = { version = ">=0.8", default-features = false, features = ["atomic_number", "symbol", "element_list"] }
 num-complex = ">=0.4"
 puruspe = ">=0.4"
 rayon = ">=1.11"

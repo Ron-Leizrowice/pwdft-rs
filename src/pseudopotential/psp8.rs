@@ -145,7 +145,7 @@ pub fn parse(content: &str) -> Result<PseudopotentialData> {
 
     // Derive element symbol from atomic number
     let z_int = zatom.round() as u32;
-    let element = crate::atoms::Element::from_z(z_int)
+    let element = crate::atoms::from_z(z_int)
         .map(|e| e.symbol().to_string())
         .unwrap_or_else(|| format!("Z{z_int}"));
 
