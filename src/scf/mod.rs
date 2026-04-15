@@ -119,7 +119,9 @@ pub fn run_scf(
         return run_scf_spin(crystal, basis, kpoints, pseudopotentials, params, symmetry);
     }
 
-    let mut ctx = context::ScfContext::new(crystal, basis, kpoints, pseudopotentials, params, symmetry);
+    let mut ctx = context::ScfContext::new(
+        crystal, basis, kpoints, pseudopotentials, params, symmetry,
+    );
 
     // Try to initialize GPU if compiled with gpu feature
     #[cfg(feature = "gpu")]
@@ -135,18 +137,18 @@ pub fn run_scf(
     }
 
     // Initial density: superposition of atomic densities (SAD)
-    let init_config = initial_density::InitialDensityConfig::non_magnetic(crystal.atoms.len());
+    let init_config = initial_density::InitialDensityConfig::non_magnetic(ctx.crystal.atoms.len());
     let mut rho_r = initial_density::generate_initial_density(
-        crystal, &mut ctx.grid, pseudopotentials, ctx.n_electrons, &init_config,
+        ctx.crystal, &mut ctx.grid, ctx.pseudopotentials, ctx.n_electrons, &init_config,
     );
     let mut rho_g = vec![Complex64::new(0.0, 0.0); ctx.n_grid];
     density_r_to_g(&mut ctx.grid.fft, &rho_r, &mut rho_g);
     info!("Initial density: superposition of atomic densities (Gaussian model)");
 
     let mut mixer = mixing::AndersonMixer::new(
-        params.mixing_beta,
-        params.mixing_ndim,
-        &params.mixing_mode,
+        ctx.params.mixing_beta,
+        ctx.params.mixing_ndim,
+        &ctx.params.mixing_mode,
         Some(&ctx.g_squared),
         ctx.n_electrons,
         ctx.omega,
@@ -155,7 +157,7 @@ pub fn run_scf(
     let mut fermi_energy;
     let mut e_prev: Option<f64> = None;
 
-    for iter in 0..params.max_iter {
+    for iter in 0..ctx.params.max_iter {
         // Steps 1-3: Hartree, XC, V_eff assembly.
         // GPU path uses f32 for Hartree, XC, and V_eff; CPU path uses f64 + rayon.
         // XC FFT normalization is shared between both paths.
@@ -196,13 +198,13 @@ pub fn run_scf(
         let v_eff_fft = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_g);
 
         // 4. Solve eigenvalue problem at each k-point (parallel over k-points)
-        let kpoint_results: Vec<_> = kpoints
+        let kpoint_results: Vec<_> = ctx.kpoints
             .par_iter()
             .enumerate()
             .map(|(ik, kp)| {
-                let mut h = build_hamiltonian_with_v_eff(basis, &kp.k, &v_eff_fft, ctx.grid.dims);
-                ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
-                dense::diagonalize_lowest(&h, params.n_bands)
+                let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_fft, ctx.grid.dims);
+                ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
+                dense::diagonalize_lowest(&h, ctx.params.n_bands)
             })
             .collect();
 
@@ -214,27 +216,30 @@ pub fn run_scf(
             &eigenvalues_all,
             &ctx.kpt_weights,
             ctx.n_electrons,
-            params.smearing_sigma,
-            params.smearing_scheme,
+            ctx.params.smearing_sigma,
+            ctx.params.smearing_scheme,
             ctx.spin_factor,
         );
         let occupations: Vec<Vec<f64>> = eigenvalues_all
             .iter()
             .map(|evs| {
                 evs.iter()
-                    .map(|&e| smearing::occupation(params.smearing_scheme, e, fermi_energy, params.smearing_sigma, ctx.spin_factor))
+                    .map(|&e| smearing::occupation(ctx.params.smearing_scheme, e, fermi_energy, ctx.params.smearing_sigma, ctx.spin_factor))
                     .collect()
             })
             .collect();
 
         // 6. New density
         let mut rho_r_new = density::compute_density(
-            basis, kpoints, &all_kpoint_wavefns, &occupations, &ctx.g_to_fft, &mut ctx.grid.fft,
-            ctx.n_electrons, ctx.omega,
+            &mut density::DensityGrid {
+                basis: ctx.basis, g_to_fft: &ctx.g_to_fft, fft: &mut ctx.grid.fft,
+                n_electrons: ctx.n_electrons, omega: ctx.omega,
+            },
+            ctx.kpoints, &all_kpoint_wavefns, &occupations,
         );
 
         // 6b. Symmetrize density if symmetry info is available
-        if let Some(symm) = symmetry {
+        if let Some(symm) = ctx.symmetry {
             crate::symmetry::density::symmetrize_density(&mut rho_r_new, ctx.grid.dims, symm);
         }
 
@@ -265,8 +270,8 @@ pub fn run_scf(
         let de = e_prev.map(|ep| (e_total - ep).abs());
         e_prev = Some(e_total);
 
-        let rho_converged = delta < params.conv_threshold;
-        let energy_converged = de.is_some_and(|de| de < params.energy_threshold);
+        let rho_converged = delta < ctx.params.conv_threshold;
+        let energy_converged = de.is_some_and(|de| de < ctx.params.energy_threshold);
 
         info!(
             "SCF iter {:>3}: E={:.6} eV  dE={:>10}  Δρ={:.2e}",
@@ -283,7 +288,7 @@ pub fn run_scf(
             // Entropy and free energy
             let ts = smearing::entropy_ts(
                 &eigenvalues_all, &ctx.kpt_weights, fermi_energy,
-                params.smearing_sigma, params.smearing_scheme, ctx.spin_factor,
+                ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
             );
             let free_energy = e_total - ts;
             let energy_sigma0 = (e_total + free_energy) / 2.0;
@@ -294,7 +299,7 @@ pub fn run_scf(
             if ts.abs() > 1e-8 {
                 info!(
                     "Entropy (-TS):   {:.6} eV ({:.3} meV/atom)",
-                    -ts, -ts * 1000.0 / crystal.atoms.len() as f64
+                    -ts, -ts * 1000.0 / ctx.crystal.atoms.len() as f64
                 );
             }
 
@@ -318,7 +323,7 @@ pub fn run_scf(
     }
 
     Err(PwdftError::ConvergenceFailure {
-        iterations: params.max_iter,
+        iterations: ctx.params.max_iter,
         delta: density_diff(&rho_r, &rho_r, ctx.omega, ctx.n_grid),
     })
 }
@@ -338,13 +343,13 @@ fn run_scf_spin(
     let mut ctx = context::ScfContext::new(crystal, basis, kpoints, pseudopotentials, params, symmetry);
 
     // Determine initial spin split from starting_magnetization
-    let per_atom_mag: Vec<f64> = crystal.atoms.iter().map(|a| {
+    let per_atom_mag: Vec<f64> = ctx.crystal.atoms.iter().map(|a| {
         let sym = crate::atoms::from_z(a.z).map(|e| e.symbol().to_string()).unwrap_or_default();
-        *params.starting_magnetization.get(&sym).unwrap_or(&0.0)
+        *ctx.params.starting_magnetization.get(&sym).unwrap_or(&0.0)
     }).collect();
 
     // Determine n_up, n_down
-    let (n_up, n_down) = if let Some(tot_mag) = params.tot_magnetization {
+    let (n_up, n_down) = if let Some(tot_mag) = ctx.params.tot_magnetization {
         let n_up = (ctx.n_electrons + tot_mag) / 2.0;
         let n_down = (ctx.n_electrons - tot_mag) / 2.0;
         info!("Fixed magnetization: n_up={n_up:.2}, n_down={n_down:.2}");
@@ -360,7 +365,7 @@ fn run_scf_spin(
     };
     // Generate total density then split
     let rho_total = initial_density::generate_initial_density(
-        crystal, &mut ctx.grid, pseudopotentials, ctx.n_electrons, &init_config,
+        ctx.crystal, &mut ctx.grid, ctx.pseudopotentials, ctx.n_electrons, &init_config,
     );
     // Split: rho_up = (1+m)/2 * rho, rho_down = (1-m)/2 * rho
     // For a uniform initial split, m=0 -> equal channels
@@ -370,17 +375,17 @@ fn run_scf_spin(
 
     // Two mixers (one per spin channel)
     let mut mixer_up = mixing::AndersonMixer::new(
-        params.mixing_beta, params.mixing_ndim, &params.mixing_mode,
+        ctx.params.mixing_beta, ctx.params.mixing_ndim, &ctx.params.mixing_mode,
         Some(&ctx.g_squared), n_up, ctx.omega,
     );
     let mut mixer_down = mixing::AndersonMixer::new(
-        params.mixing_beta, params.mixing_ndim, &params.mixing_mode,
+        ctx.params.mixing_beta, ctx.params.mixing_ndim, &ctx.params.mixing_mode,
         Some(&ctx.g_squared), n_down, ctx.omega,
     );
 
     let mut e_prev: Option<f64> = None;
 
-    for iter in 0..params.max_iter {
+    for iter in 0..ctx.params.max_iter {
         // Total density for Hartree (spin-independent)
         let rho_total_r: Vec<f64> = rho_up_r.iter().zip(rho_down_r.iter())
             .map(|(&u, &d)| u + d).collect();
@@ -405,16 +410,16 @@ fn run_scf_spin(
             .map(|((&vl, &vh), &vxc)| vl + vh + vxc).collect();
 
         // 4. Diagonalize both spins at each k-point
-        let kpoint_results_up: Vec<_> = kpoints.par_iter().enumerate().map(|(ik, kp)| {
-            let mut h = build_hamiltonian_with_v_eff(basis, &kp.k, &v_eff_up, ctx.grid.dims);
-            ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
-            dense::diagonalize_lowest(&h, params.n_bands)
+        let kpoint_results_up: Vec<_> = ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
+            let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_up, ctx.grid.dims);
+            ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
+            dense::diagonalize_lowest(&h, ctx.params.n_bands)
         }).collect();
 
-        let kpoint_results_down: Vec<_> = kpoints.par_iter().enumerate().map(|(ik, kp)| {
-            let mut h = build_hamiltonian_with_v_eff(basis, &kp.k, &v_eff_down, ctx.grid.dims);
-            ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, crystal, basis, &kp.k);
-            dense::diagonalize_lowest(&h, params.n_bands)
+        let kpoint_results_down: Vec<_> = ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
+            let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_down, ctx.grid.dims);
+            ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
+            dense::diagonalize_lowest(&h, ctx.params.n_bands)
         }).collect();
 
         // Flatten eigenvalues: [up_k0, up_k1, ..., down_k0, down_k1, ...]
@@ -427,25 +432,25 @@ fn run_scf_spin(
         let wfn_down: Vec<_> = kpoint_results_down.into_iter().map(|r| r.eigenvectors).collect();
 
         // 5. Fermi energy and occupations
-        let (fermi_energy, occ_up, occ_down) = if let Some(tot_mag) = params.tot_magnetization {
+        let (fermi_energy, occ_up, occ_down) = if let Some(tot_mag) = ctx.params.tot_magnetization {
             // Fixed magnetization: separate Fermi energies per spin
             let n_up_target = (ctx.n_electrons + tot_mag) / 2.0;
             let n_down_target = (ctx.n_electrons - tot_mag) / 2.0;
 
             let ef_up = smearing::find_fermi_energy(
                 &eig_up, &ctx.kpt_weights, n_up_target,
-                params.smearing_sigma, params.smearing_scheme, ctx.spin_factor,
+                ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
             );
             let ef_down = smearing::find_fermi_energy(
                 &eig_down, &ctx.kpt_weights, n_down_target,
-                params.smearing_sigma, params.smearing_scheme, ctx.spin_factor,
+                ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
             );
 
             let occ_up: Vec<Vec<f64>> = eig_up.iter().map(|evs| {
-                evs.iter().map(|&e| smearing::occupation(params.smearing_scheme, e, ef_up, params.smearing_sigma, ctx.spin_factor)).collect()
+                evs.iter().map(|&e| smearing::occupation(ctx.params.smearing_scheme, e, ef_up, ctx.params.smearing_sigma, ctx.spin_factor)).collect()
             }).collect();
             let occ_down: Vec<Vec<f64>> = eig_down.iter().map(|evs| {
-                evs.iter().map(|&e| smearing::occupation(params.smearing_scheme, e, ef_down, params.smearing_sigma, ctx.spin_factor)).collect()
+                evs.iter().map(|&e| smearing::occupation(ctx.params.smearing_scheme, e, ef_down, ctx.params.smearing_sigma, ctx.spin_factor)).collect()
             }).collect();
 
             // Report average Fermi energy
@@ -454,14 +459,14 @@ fn run_scf_spin(
             // Free magnetization: single Fermi energy for both spins
             let fermi_energy = smearing::find_fermi_energy(
                 &eigenvalues_all, &weights_all, ctx.n_electrons,
-                params.smearing_sigma, params.smearing_scheme, ctx.spin_factor,
+                ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
             );
 
             let occ_up: Vec<Vec<f64>> = eig_up.iter().map(|evs| {
-                evs.iter().map(|&e| smearing::occupation(params.smearing_scheme, e, fermi_energy, params.smearing_sigma, ctx.spin_factor)).collect()
+                evs.iter().map(|&e| smearing::occupation(ctx.params.smearing_scheme, e, fermi_energy, ctx.params.smearing_sigma, ctx.spin_factor)).collect()
             }).collect();
             let occ_down: Vec<Vec<f64>> = eig_down.iter().map(|evs| {
-                evs.iter().map(|&e| smearing::occupation(params.smearing_scheme, e, fermi_energy, params.smearing_sigma, ctx.spin_factor)).collect()
+                evs.iter().map(|&e| smearing::occupation(ctx.params.smearing_scheme, e, fermi_energy, ctx.params.smearing_sigma, ctx.spin_factor)).collect()
             }).collect();
 
             (fermi_energy, occ_up, occ_down)
@@ -476,16 +481,24 @@ fn run_scf_spin(
             .sum();
 
         let rho_up_new = density::compute_density(
-            basis, kpoints, &wfn_up, &occ_up, &ctx.g_to_fft, &mut ctx.grid.fft, n_el_up, ctx.omega,
+            &mut density::DensityGrid {
+                basis: ctx.basis, g_to_fft: &ctx.g_to_fft, fft: &mut ctx.grid.fft,
+                n_electrons: n_el_up, omega: ctx.omega,
+            },
+            ctx.kpoints, &wfn_up, &occ_up,
         );
         let rho_down_new = density::compute_density(
-            basis, kpoints, &wfn_down, &occ_down, &ctx.g_to_fft, &mut ctx.grid.fft, n_el_down, ctx.omega,
+            &mut density::DensityGrid {
+                basis: ctx.basis, g_to_fft: &ctx.g_to_fft, fft: &mut ctx.grid.fft,
+                n_electrons: n_el_down, omega: ctx.omega,
+            },
+            ctx.kpoints, &wfn_down, &occ_down,
         );
 
         // Symmetrize each channel
         let mut rho_up_sym = rho_up_new;
         let mut rho_down_sym = rho_down_new;
-        if let Some(symm) = symmetry {
+        if let Some(symm) = ctx.symmetry {
             crate::symmetry::density::symmetrize_density(&mut rho_up_sym, ctx.grid.dims, symm);
             crate::symmetry::density::symmetrize_density(&mut rho_down_sym, ctx.grid.dims, symm);
         }
@@ -521,8 +534,8 @@ fn run_scf_spin(
         let de = e_prev.map(|ep| (e_total - ep).abs());
         e_prev = Some(e_total);
 
-        let rho_converged = delta < params.conv_threshold;
-        let energy_converged = de.is_some_and(|de| de < params.energy_threshold);
+        let rho_converged = delta < ctx.params.conv_threshold;
+        let energy_converged = de.is_some_and(|de| de < ctx.params.energy_threshold);
 
         let mag = (n_el_up - n_el_down).abs();
         info!(
@@ -540,7 +553,7 @@ fn run_scf_spin(
 
             let ts = smearing::entropy_ts(
                 &eigenvalues_all, &weights_all, fermi_energy,
-                params.smearing_sigma, params.smearing_scheme, ctx.spin_factor,
+                ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
             );
             let free_energy = e_total - ts;
             let energy_sigma0 = (e_total + free_energy) / 2.0;
@@ -565,7 +578,7 @@ fn run_scf_spin(
     }
 
     Err(PwdftError::ConvergenceFailure {
-        iterations: params.max_iter,
+        iterations: ctx.params.max_iter,
         delta: 0.0,
     })
 }

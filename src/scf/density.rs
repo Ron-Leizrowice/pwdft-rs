@@ -7,6 +7,15 @@ use rayon::prelude::*;
 
 use crate::{basis::BasisSet, fft::FFT3D, kpoints::KPoint};
 
+/// Grid-level parameters needed for density construction.
+pub struct DensityGrid<'a> {
+    pub basis: &'a BasisSet,
+    pub g_to_fft: &'a [usize],
+    pub fft: &'a mut FFT3D,
+    pub n_electrons: f64,
+    pub omega: f64,
+}
+
 /// Compute the charge density on the real-space FFT grid from wavefunctions.
 ///
 /// For each (k-point, band):
@@ -17,17 +26,17 @@ use crate::{basis::BasisSet, fft::FFT3D, kpoints::KPoint};
 /// The result is normalized so that ∫ρ(r)dr = N_electrons.
 ///
 /// K-point contributions are computed in parallel and reduced.
-#[allow(clippy::too_many_arguments)]
 pub fn compute_density(
-    basis: &BasisSet,
+    grid: &mut DensityGrid<'_>,
     kpoints: &[KPoint],
     wavefunctions: &[faer::Mat<Complex64>],
     occupations: &[Vec<f64>],
-    g_to_fft: &[usize],
-    fft: &mut FFT3D,
-    n_electrons: f64,
-    omega: f64,
 ) -> Vec<f64> {
+    let basis = grid.basis;
+    let g_to_fft = grid.g_to_fft;
+    let fft = &mut grid.fft;
+    let n_electrons = grid.n_electrons;
+    let omega = grid.omega;
     let n_grid = fft.total_size();
     let n_pw = basis.len();
 

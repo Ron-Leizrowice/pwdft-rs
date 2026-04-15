@@ -203,15 +203,6 @@ fn entropy_weight(scheme: SmearingScheme, x: f64) -> f64 {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Legacy API: backward-compatible wrappers for existing callers
-// ---------------------------------------------------------------------------
-
-/// Legacy Fermi-Dirac with spin factor 2 built in (nspin=1 convention).
-pub fn fermi_dirac(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
-    occupation(SmearingScheme::FermiDirac, energy, fermi_energy, sigma, 2.0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,15 +387,4 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Legacy API
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_legacy_fermi_dirac() {
-        // fermi_dirac() should behave exactly as before (spin_factor=2)
-        assert!((fermi_dirac(-1.0, 0.0, 0.01) - 2.0).abs() < 1e-10);
-        assert!(fermi_dirac(1.0, 0.0, 0.01).abs() < 1e-10);
-        assert!((fermi_dirac(0.0, 0.0, 0.01) - 1.0).abs() < 1e-10);
-    }
 }

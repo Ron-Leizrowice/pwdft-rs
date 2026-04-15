@@ -151,19 +151,6 @@ impl PseudopotentialData {
         }
     }
 
-    /// Generate a simple model atomic charge density if none is provided.
-    ///
-    /// Uses a Gaussian: ρ(r) = Z_val / (2π σ²)^{3/2} exp(-r²/(2σ²))
-    /// with σ chosen so the charge is concentrated near the atom.
-    pub fn rho_atom_or_model(&self) -> &[f64] {
-        if self.rho_atom.iter().any(|&v| v.abs() > 1e-20) {
-            &self.rho_atom
-        } else {
-            // Caller should use generate_model_density instead
-            &self.rho_atom
-        }
-    }
-
     /// Check if atomic charge density is available (non-zero).
     pub fn has_rho_atom(&self) -> bool {
         self.rho_atom.iter().any(|&v| v.abs() > 1e-20)

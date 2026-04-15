@@ -27,7 +27,6 @@ fn load_pp(name: &str) -> pwdft_rs::pseudopotential::PseudopotentialData {
     .unwrap()
 }
 
-#[allow(clippy::too_many_arguments)]
 fn run_scf_for_validation(
     crystal: &Crystal,
     pp: &pwdft_rs::pseudopotential::PseudopotentialData,
