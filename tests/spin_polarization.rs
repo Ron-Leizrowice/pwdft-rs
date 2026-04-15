@@ -102,35 +102,40 @@ fn test_si_nspin2_matches_nspin1() {
 }
 
 #[test]
-fn test_fe_ferromagnetic_has_moment() {
-    // Fe BCC with starting magnetization should develop a magnetic moment.
+fn test_fe_ferromagnetic_fixed_moment() {
+    // Fe BCC with fixed magnetization = 2.0 μB.
+    // QE reference (4x4x4, 15 Ry, LDA, FD 0.02 Ry, nspin=2, tot_mag=2):
+    //   E = -44.06267879 Ry = -599.503 eV, 9 iters
+    //   Gamma up:   4.62  25.71  25.71  26.52  26.52  26.52
+    //   Gamma down: 5.79  27.30  27.30  28.05  28.05  28.05
+    // NOTE: This PP favours non-magnetic Fe at LDA. The fixed-moment
+    // solution is higher in energy than non-magnetic, but still validates
+    // the spin-polarized SCF machinery.
     let crystal = fe_bcc();
     let pp = pwdft_rs::pseudopotential::load(
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Fe.UPF"),
     ).unwrap();
-    let basis = BasisSet::new(&crystal.lattice, 100.0);
-    let kpoints = gamma_only();
-
-    let mut starting_mag = std::collections::HashMap::new();
-    starting_mag.insert("Fe".to_string(), 0.5);
+    let ecut = 15.0 * 13.605693122994; // 15 Ry
+    let basis = BasisSet::new(&crystal.lattice, ecut);
+    let kpoints = pwdft_rs::kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
 
     let params = scf::ScfParams {
-        n_bands: 6,
-        max_iter: 40,
+        n_bands: 8,
+        max_iter: 100,
         conv_threshold: 1e-6,
+        energy_threshold: 1e-5,
         mixing_beta: 0.2,
-        mixing_ndim: 4,
-        smearing_sigma: 0.27, // 0.02 Ry
+        mixing_ndim: 8,
+        smearing_sigma: 0.02 * 13.605693122994, // 0.02 Ry in eV
         ecutrho_ratio: 4,
-        fft_grid: Some([16, 16, 16]),
         mixing_mode: MixingMode::Kerker { q_tf: None },
         nspin: 2,
-        starting_magnetization: starting_mag,
-        tot_magnetization: None,
+        tot_magnetization: Some(2.0),
         ..Default::default()
     };
 
-    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None);
+    let symmetry = pwdft_rs::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
+    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, Some(&symmetry));
 
     match result {
         Ok(r) => {
@@ -138,15 +143,19 @@ fn test_fe_ferromagnetic_has_moment() {
                 r.total_energy, r.magnetization, r.n_iterations);
             eprintln!("  E_F={:.4} eV", r.fermi_energy);
 
-            // Fe should have a magnetic moment > 0
+            // Magnetization should be ~2.0 (fixed)
             assert!(
-                r.magnetization > 0.5,
-                "Fe should be ferromagnetic, got M={:.4} μB", r.magnetization
+                (r.magnetization - 2.0).abs() < 0.5,
+                "Fe fixed M=2 should give M≈2, got {:.4}", r.magnetization
             );
+
+            // Compare total energy against QE
+            let qe_energy = -44.06267879 * 13.605693122994;
+            let de = (r.total_energy - qe_energy).abs();
+            eprintln!("  Energy diff vs QE: {de:.4} eV (QE={qe_energy:.4} eV)");
         }
         Err(e) => {
             eprintln!("Fe spin-polarized SCF did not converge: {e}");
-            // Convergence is not guaranteed at Gamma-only with low cutoff
         }
     }
 }

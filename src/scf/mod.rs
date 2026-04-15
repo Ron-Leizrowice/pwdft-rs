@@ -584,19 +584,46 @@ fn run_scf_spin(
         let wfn_up: Vec<_> = kpoint_results_up.into_iter().map(|r| r.eigenvectors).collect();
         let wfn_down: Vec<_> = kpoint_results_down.into_iter().map(|r| r.eigenvectors).collect();
 
-        // 5. Single Fermi energy from both spins
-        let fermi_energy = smearing::find_fermi_energy(
-            &eigenvalues_all, &weights_all, n_electrons,
-            params.smearing_sigma, params.smearing_scheme, spin_factor,
-        );
+        // 5. Fermi energy and occupations
+        let (fermi_energy, occ_up, occ_down) = if let Some(tot_mag) = params.tot_magnetization {
+            // Fixed magnetization: separate Fermi energies per spin
+            let n_up_target = (n_electrons + tot_mag) / 2.0;
+            let n_down_target = (n_electrons - tot_mag) / 2.0;
 
-        // Occupations per spin channel
-        let occ_up: Vec<Vec<f64>> = eig_up.iter().map(|evs| {
-            evs.iter().map(|&e| smearing::occupation(params.smearing_scheme, e, fermi_energy, params.smearing_sigma, spin_factor)).collect()
-        }).collect();
-        let occ_down: Vec<Vec<f64>> = eig_down.iter().map(|evs| {
-            evs.iter().map(|&e| smearing::occupation(params.smearing_scheme, e, fermi_energy, params.smearing_sigma, spin_factor)).collect()
-        }).collect();
+            let ef_up = smearing::find_fermi_energy(
+                &eig_up, &kpt_weights, n_up_target,
+                params.smearing_sigma, params.smearing_scheme, spin_factor,
+            );
+            let ef_down = smearing::find_fermi_energy(
+                &eig_down, &kpt_weights, n_down_target,
+                params.smearing_sigma, params.smearing_scheme, spin_factor,
+            );
+
+            let occ_up: Vec<Vec<f64>> = eig_up.iter().map(|evs| {
+                evs.iter().map(|&e| smearing::occupation(params.smearing_scheme, e, ef_up, params.smearing_sigma, spin_factor)).collect()
+            }).collect();
+            let occ_down: Vec<Vec<f64>> = eig_down.iter().map(|evs| {
+                evs.iter().map(|&e| smearing::occupation(params.smearing_scheme, e, ef_down, params.smearing_sigma, spin_factor)).collect()
+            }).collect();
+
+            // Report average Fermi energy
+            ((ef_up + ef_down) / 2.0, occ_up, occ_down)
+        } else {
+            // Free magnetization: single Fermi energy for both spins
+            let fermi_energy = smearing::find_fermi_energy(
+                &eigenvalues_all, &weights_all, n_electrons,
+                params.smearing_sigma, params.smearing_scheme, spin_factor,
+            );
+
+            let occ_up: Vec<Vec<f64>> = eig_up.iter().map(|evs| {
+                evs.iter().map(|&e| smearing::occupation(params.smearing_scheme, e, fermi_energy, params.smearing_sigma, spin_factor)).collect()
+            }).collect();
+            let occ_down: Vec<Vec<f64>> = eig_down.iter().map(|evs| {
+                evs.iter().map(|&e| smearing::occupation(params.smearing_scheme, e, fermi_energy, params.smearing_sigma, spin_factor)).collect()
+            }).collect();
+
+            (fermi_energy, occ_up, occ_down)
+        };
 
         // 6. Reconstruct spin densities
         let n_el_up: f64 = occ_up.iter().zip(kpt_weights.iter())
