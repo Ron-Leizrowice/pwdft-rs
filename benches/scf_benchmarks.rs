@@ -9,7 +9,8 @@
 //!   ecut=400 → n_pw≈893, high-accuracy
 //!   ecut=600 → n_pw≈1639, stress test
 
-use criterion::{Criterion, criterion_group, criterion_main};\nuse std::hint::black_box;
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 use nalgebra::Vector3;
 use num_complex::Complex64;
 

@@ -193,8 +193,8 @@ fn test_01_inspect_projector_data() {
 
         // First 5 values
         eprint!("  first 5 chi(r): ");
-        for i in 0..5.min(n) {
-            eprint!("{:.6e}  ", chi[i]);
+        for v in chi.iter().take(5.min(n)) {
+            eprint!("{v:.6e}  ");
         }
         eprintln!();
 
@@ -204,9 +204,9 @@ fn test_01_inspect_projector_data() {
             .rposition(|&v| v.abs() > 1e-30)
             .unwrap_or(n - 1);
         let start = last_nonzero.saturating_sub(4);
-        eprint!("  last 5 nonzero chi(r) [idx {}-{}]: ", start, last_nonzero);
-        for i in start..=last_nonzero {
-            eprint!("{:.6e}  ", chi[i]);
+        eprint!("  last 5 nonzero chi(r) [idx {start}-{last_nonzero}]: ");
+        for v in chi.iter().take(last_nonzero + 1).skip(start) {
+            eprint!("{v:.6e}  ");
         }
         eprintln!();
 
@@ -297,8 +297,8 @@ fn test_03_f_at_q_zero_analytic() {
         if l == 0 {
             // Analytic: F(0) = 4*pi * integral chi(r) * r * dr
             let mut integral_analytic = 0.0;
-            for i in 0..pp.r_grid.len() {
-                integral_analytic += chi[i] * pp.r_grid[i] * pp.rab[i];
+            for ((&c, &r), &dr) in chi.iter().zip(pp.r_grid.iter()).zip(pp.rab.iter()) {
+                integral_analytic += c * r * dr;
             }
             let f_analytic = 4.0 * PI * integral_analytic;
 

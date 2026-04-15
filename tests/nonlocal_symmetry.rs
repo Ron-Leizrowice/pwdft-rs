@@ -280,8 +280,8 @@ fn test_kinetic_plus_vlocal_via_fft_grid() {
     // Precompute V_local on full FFT grid
     let n_grid = grid_dims[0] * grid_dims[1] * grid_dims[2];
     let mut v_local_fft = vec![Complex64::new(0.0, 0.0); n_grid];
-    for idx in 0..n_grid {
-        let [nx, ny, nz] = grid_dims;
+    let [nx, ny, nz] = grid_dims;
+    for (idx, v_local_val) in v_local_fft.iter_mut().enumerate() {
         let i1 = idx / (ny * nz);
         let i2 = (idx / nz) % ny;
         let i3 = idx % nz;
@@ -296,7 +296,7 @@ fn test_kinetic_plus_vlocal_via_fft_grid() {
             let phase = -g.dot(&tau);
             let sf = Complex64::new(phase.cos(), phase.sin());
             let v_form = pp.v_local_of_g(g_norm, omega);
-            v_local_fft[idx] += sf * v_form;
+            *v_local_val += sf * v_form;
         }
     }
 

@@ -536,6 +536,7 @@ fn density_diff(rho_old: &[f64], rho_new: &[f64], omega: f64, n_grid: usize) -> 
 
 /// Compute total energy reusing pre-computed XC and cached Ewald.
 /// Called every SCF iteration for energy convergence monitoring.
+#[allow(clippy::too_many_arguments)]
 fn compute_total_energy_from_components(
     eigenvalues: &[Vec<f64>],
     occupations: &[Vec<f64>],

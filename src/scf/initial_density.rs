@@ -125,13 +125,13 @@ fn add_gaussian_density(
     let half_sigma2 = 0.5 * sigma * sigma;
     let prefactor = z_val / omega;
 
-    for idx in 0..n_grid {
+    for (idx, rho_g_val) in rho_g.iter_mut().enumerate().take(n_grid) {
         let g = grid.g_vector_at(idx);
         let g2 = g.norm_squared();
         let gauss = (-g2 * half_sigma2).exp();
         let phase = -g.dot(tau);
         let sf = Complex64::new(phase.cos(), phase.sin());
-        rho_g[idx] += sf * (prefactor * gauss);
+        *rho_g_val += sf * (prefactor * gauss);
     }
 }
 
@@ -155,17 +155,13 @@ fn add_atomic_density_from_pp(
     let rab = &pp.rab;
     let rho_at = &pp.rho_atom;
 
-    for idx in 0..n_grid {
+    for (idx, rho_g_val) in rho_g.iter_mut().enumerate().take(n_grid) {
         let g = grid.g_vector_at(idx);
         let g_norm = g.norm();
 
         // Bessel transform of radial atomic density
         let mut integral = 0.0;
-        for i in 0..r_grid.len() {
-            let r = r_grid[i];
-            let dr = rab[i];
-            let rho_r = rho_at[i]; // 4πr²ρ(r) (in our converted units)
-
+        for (r, (&dr, &rho_r_at)) in r_grid.iter().zip(rab.iter().zip(rho_at.iter())) {
             let gr = g_norm * r;
             let j0 = if gr < 1e-10 {
                 1.0 - gr * gr / 6.0
@@ -173,14 +169,12 @@ fn add_atomic_density_from_pp(
                 gr.sin() / gr
             };
 
-            integral += rho_r * j0 * dr;
+            integral += rho_r_at * j0 * dr;
         }
 
-        // Normalize: ρ(G) = (1/Ω) × integral × S(G)
-        // The integral of rho_at should give Z_val, so we scale
         let phase = -g.dot(tau);
         let sf = Complex64::new(phase.cos(), phase.sin());
-        rho_g[idx] += sf * (integral / omega);
+        *rho_g_val += sf * (integral / omega);
     }
 }
 

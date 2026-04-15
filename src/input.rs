@@ -94,14 +94,18 @@ pub struct PathPoint {
     pub frac: [f64; 3],
 }
 
-impl InputFile {
-    pub fn from_str(s: &str) -> Result<Self> {
+impl std::str::FromStr for InputFile {
+    type Err = PwdftError;
+
+    fn from_str(s: &str) -> Result<Self> {
         toml::from_str(s).map_err(|e| PwdftError::Parse(e.to_string()))
     }
+}
 
+impl InputFile {
     pub fn from_file(path: &std::path::Path) -> Result<Self> {
         let contents = std::fs::read_to_string(path)?;
-        Self::from_str(&contents)
+        contents.parse()
     }
 
     pub fn to_crystal(&self) -> Crystal {
@@ -193,7 +197,7 @@ frac = [0.0, 0.0, 0.0]
 label = "L"
 frac = [0.5, 0.5, 0.5]
 "#;
-        let config = InputFile::from_str(input).unwrap();
+        let config: InputFile = input.parse().unwrap();
         assert_eq!(config.system.ecut, 200.0);
         assert_eq!(config.system.atoms.len(), 2);
         assert_eq!(config.system.n_bands, Some(8));

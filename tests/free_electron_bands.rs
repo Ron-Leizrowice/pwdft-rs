@@ -509,8 +509,8 @@ fn test_bcc_fe_band_continuity() {
         let result = dense::diagonalize_lowest(&h, n_bands);
 
         if let Some(ref prev) = prev_eigenvalues {
-            for ib in 0..n_bands {
-                let jump = (result.eigenvalues[ib] - prev[ib]).abs();
+            for (ib, (&ev_cur, &ev_prev)) in result.eigenvalues.iter().zip(prev.iter()).enumerate().take(n_bands) {
+                let jump = (ev_cur - ev_prev).abs();
                 // Adjacent k-points should have smooth dispersion
                 // For free electrons, max jump ≈ (2ℏ²/2m) * |Δk| * |G_max|
                 let dk = 1.0 / (n_kpts - 1) as f64 * k_end.norm();

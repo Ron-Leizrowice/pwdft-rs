@@ -17,6 +17,7 @@ use crate::{basis::BasisSet, fft::FFT3D, kpoints::KPoint};
 /// The result is normalized so that ∫ρ(r)dr = N_electrons.
 ///
 /// K-point contributions are computed in parallel and reduced.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_density(
     basis: &BasisSet,
     kpoints: &[KPoint],
