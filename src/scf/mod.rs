@@ -306,18 +306,21 @@ pub fn run_scf(
         let all_kpoint_wavefns: Vec<_> = kpoint_results.into_iter().map(|r| r.eigenvectors).collect();
 
         // 5. Occupations (configurable smearing scheme)
+        let spin_factor = 2.0; // nspin=1: each state holds 2 electrons
+        let kpt_weights: Vec<f64> = kpoints.iter().map(|kp| kp.weight).collect();
         fermi_energy = smearing::find_fermi_energy(
             &eigenvalues_all,
-            kpoints,
+            &kpt_weights,
             n_electrons,
             params.smearing_sigma,
             params.smearing_scheme,
+            spin_factor,
         );
         let occupations: Vec<Vec<f64>> = eigenvalues_all
             .iter()
             .map(|evs| {
                 evs.iter()
-                    .map(|&e| smearing::occupation(params.smearing_scheme, e, fermi_energy, params.smearing_sigma))
+                    .map(|&e| smearing::occupation(params.smearing_scheme, e, fermi_energy, params.smearing_sigma, spin_factor))
                     .collect()
             })
             .collect();
@@ -377,8 +380,8 @@ pub fn run_scf(
 
             // Entropy and free energy
             let ts = smearing::entropy_ts(
-                &eigenvalues_all, kpoints, fermi_energy,
-                params.smearing_sigma, params.smearing_scheme,
+                &eigenvalues_all, &kpt_weights, fermi_energy,
+                params.smearing_sigma, params.smearing_scheme, spin_factor,
             );
             let free_energy = e_total - ts;
             let energy_sigma0 = (e_total + free_energy) / 2.0;
