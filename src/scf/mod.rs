@@ -182,7 +182,15 @@ pub fn run_scf(
     let g_to_fft = grid.basis_to_fft(basis);
 
     // Precompute local pseudopotential on the FULL FFT grid
-    let v_local_fft = compute_v_local_on_fft_grid(crystal, &grid, pseudopotentials, omega);
+    let mut v_local_fft = compute_v_local_on_fft_grid(crystal, &grid, pseudopotentials, omega);
+
+    // Store V_local(G=0) separately and zero it in the FFT grid.
+    // V_local(G=0) is an arbitrary constant (depends on PP construction) that shifts
+    // all eigenvalues equally. QE excludes it from the Hamiltonian and adds it to the
+    // total energy as v_of_0 * n_electrons. We follow the same convention.
+    let v_local_g0 = v_local_fft[0].re;
+    v_local_fft[0] = Complex64::new(0.0, 0.0);
+    info!("V_local(G=0) = {v_local_g0:.6} eV (excluded from Hamiltonian)");
 
     // Try to initialize GPU if compiled with gpu feature
     #[cfg(feature = "gpu")]
@@ -229,6 +237,10 @@ pub fn run_scf(
     let e_ewald = crate::ewald::ewald_energy(crystal, pseudopotentials);
     let mut e_prev: Option<f64> = None;
 
+    // Precompute NLCC core density on real-space grid (constant across iterations).
+    // ρ_core(r) is added to ρ_valence(r) before XC evaluation.
+    let rho_core_r = compute_core_density(crystal, &mut grid, pseudopotentials);
+
     for iter in 0..params.max_iter {
         // Steps 1-3: Hartree, XC, V_eff assembly.
         // GPU path uses f32 for Hartree, XC, and V_eff; CPU path uses f64 + rayon.
@@ -246,14 +258,16 @@ pub fn run_scf(
         let v_h_fft = hartree_on_fft_grid(&rho_g, &g_squared);
 
         // 2. XC potential: compute in real space, FFT to G-space
+        // NLCC: add core density to valence density for XC evaluation
+        let rho_for_xc = add_core_density(&rho_r, &rho_core_r);
         #[cfg(feature = "gpu")]
         let (_exc_r, vxc_r) = if let Some(ref gpu) = gpu {
-            gpu.lda_xc(&rho_r)
+            gpu.lda_xc(&rho_for_xc)
         } else {
-            xc::lda_xc_grid(&rho_r)
+            xc::lda_xc_grid(&rho_for_xc)
         };
         #[cfg(not(feature = "gpu"))]
-        let (_exc_r, vxc_r) = xc::lda_xc_grid(&rho_r);
+        let (_exc_r, vxc_r) = xc::lda_xc_grid(&rho_for_xc);
 
         let vxc_g = real_to_g_space(&vxc_r, &mut grid.fft);
 
@@ -326,11 +340,12 @@ pub fn run_scf(
             *v *= fft_norm;
         }
 
-        let (exc_r, vxc_r_energy) = xc::lda_xc_grid(&rho_r_new);
+        let rho_new_for_xc = add_core_density(&rho_r_new, &rho_core_r);
+        let (exc_r, vxc_r_energy) = xc::lda_xc_grid(&rho_new_for_xc);
         let e_total = compute_total_energy_from_components(
             &eigenvalues_all, &occupations, kpoints, &rho_r_new, &rho_g_new,
             &g_squared, &exc_r, &vxc_r_energy, omega, e_ewald,
-        );
+        ) + v_local_g0 * n_electrons;
 
         let de = e_prev.map(|ep| (e_total - ep).abs());
         e_prev = Some(e_total);
@@ -532,6 +547,84 @@ fn density_diff(rho_old: &[f64], rho_new: &[f64], omega: f64, n_grid: usize) -> 
         .map(|(&a, &b)| (a - b).powi(2) * dvol)
         .sum();
     (sum_sq / omega).sqrt()
+}
+
+/// Add NLCC core density to valence density for XC evaluation.
+/// Returns rho_val if no core density is present (empty vec).
+fn add_core_density(rho_val: &[f64], rho_core: &[f64]) -> Vec<f64> {
+    if rho_core.is_empty() {
+        rho_val.to_vec()
+    } else {
+        rho_val
+            .iter()
+            .zip(rho_core.iter())
+            .map(|(&v, &c)| v + c)
+            .collect()
+    }
+}
+
+/// Compute NLCC core density on the real-space FFT grid.
+///
+/// For each atom with NLCC, computes ρ_core(G) via spherical Bessel
+/// transform of PP_NLCC, accumulates with structure factors, then
+/// inverse FFTs to real space. Returns empty vec if no PP has NLCC.
+fn compute_core_density(
+    crystal: &Crystal,
+    grid: &mut FftGrid,
+    pseudopotentials: &[&PseudopotentialData],
+) -> Vec<f64> {
+    // Check if any PP has NLCC
+    let any_nlcc = pseudopotentials.iter().any(|pp| pp.has_nlcc);
+    if !any_nlcc {
+        return vec![];
+    }
+
+    let n_grid = grid.total_size();
+    let omega = crystal.lattice.volume().abs();
+    let mut rho_core_g = vec![Complex64::new(0.0, 0.0); n_grid];
+
+    for atom in &crystal.atoms {
+        let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
+        if !pp.has_nlcc || pp.core_charge.is_empty() {
+            continue;
+        }
+
+        let tau = atom.cart_position(&crystal.lattice);
+
+        // Bessel transform of core charge at each G-vector
+        for (idx, rho_g_val) in rho_core_g.iter_mut().enumerate() {
+            let g = grid.g_vector_at(idx);
+            let g_norm = g.norm();
+
+            // ∫ [4πr²ρ_core(r)] j₀(|G|r) dr
+            let mut integral = 0.0;
+            for ((&rho_c, &r), &dr) in pp
+                .core_charge
+                .iter()
+                .zip(pp.r_grid.iter())
+                .zip(pp.rab.iter())
+            {
+                let gr = g_norm * r;
+                let j0 = if gr < 1e-10 {
+                    1.0 - gr * gr / 6.0
+                } else {
+                    gr.sin() / gr
+                };
+                integral += rho_c * j0 * dr;
+            }
+
+            // Structure factor and normalization
+            let phase = -g.dot(&tau);
+            let sf = Complex64::new(phase.cos(), phase.sin());
+            *rho_g_val += sf * (integral / omega);
+        }
+    }
+
+    // Inverse FFT to real space
+    grid.fft.inverse(&mut rho_core_g);
+
+    // Extract real part (imaginary should be negligible)
+    rho_core_g.iter().map(|c| c.re).collect()
 }
 
 /// Compute total energy reusing pre-computed XC and cached Ewald.

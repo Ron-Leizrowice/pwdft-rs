@@ -182,6 +182,8 @@ mod tests {
             dij: vec![],
             n_projectors: 0,
             rho_atom: vec![],
+            core_charge: vec![],
+            has_nlcc: false,
         };
         let pp_cl = PseudopotentialData {
             element: "Cl".into(),
@@ -194,6 +196,8 @@ mod tests {
             dij: vec![],
             n_projectors: 0,
             rho_atom: vec![],
+            core_charge: vec![],
+            has_nlcc: false,
         };
 
         let e = ewald_energy(&crystal, &[&pp_na, &pp_cl]);

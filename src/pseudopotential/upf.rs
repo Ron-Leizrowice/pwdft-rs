@@ -91,6 +91,25 @@ pub fn parse(content: &str) -> Result<PseudopotentialData> {
         vec![0.0; mesh_size]
     };
 
+    // Parse nonlinear core correction (NLCC) charge density.
+    // PP_NLCC stores 4πr²ρ_core(r) in e/Bohr on the radial grid.
+    // Same unit conversion as rho_atom: e/Bohr → e/Å.
+    let has_nlcc = content.contains("core_correction=\"T\"")
+        || content.contains("core_correction=\"t\"")
+        || content.contains("nlcc=.true.");
+    let core_charge = if has_nlcc {
+        if let Ok(nlcc_raw) = extract_data_block(content, "PP_NLCC", mesh_size) {
+            nlcc_raw
+                .iter()
+                .map(|&rho| rho / BOHR_TO_ANG)
+                .collect()
+        } else {
+            vec![0.0; mesh_size]
+        }
+    } else {
+        vec![]
+    };
+
     Ok(PseudopotentialData {
         element,
         z_valence,
@@ -102,6 +121,8 @@ pub fn parse(content: &str) -> Result<PseudopotentialData> {
         dij,
         n_projectors: n_proj,
         rho_atom,
+        core_charge,
+        has_nlcc,
     })
 }
 

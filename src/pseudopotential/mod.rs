@@ -33,9 +33,14 @@ pub struct PseudopotentialData {
     pub dij: Vec<f64>,
     /// Number of non-local projectors.
     pub n_projectors: usize,
-    /// Atomic charge density on radial grid (e/ų).
+    /// Atomic charge density on radial grid (e/Å, stores 4πr²ρ(r)).
     /// May be empty if not provided by the pseudopotential.
     pub rho_atom: Vec<f64>,
+    /// Nonlinear core correction (NLCC) charge density on radial grid.
+    /// Stores 4πr²ρ_core(r) in e/Å. Empty if `has_nlcc` is false.
+    pub core_charge: Vec<f64>,
+    /// Whether this PP has nonlinear core correction.
+    pub has_nlcc: bool,
 }
 
 /// A single non-local beta projector.

@@ -160,6 +160,8 @@ pub fn parse(content: &str) -> Result<PseudopotentialData> {
         dij,
         n_projectors,
         rho_atom,
+        core_charge: vec![],
+        has_nlcc: false,
     })
 }
 
