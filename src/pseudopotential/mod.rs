@@ -53,8 +53,7 @@ pub struct BetaProjector {
 }
 
 // Unit conversion constants (Rydberg a.u. → internal eV/Å)
-const RY_TO_EV: f64 = 13.605693122994; // 1 Ry = 13.6057 eV
-const BOHR_TO_ANG: f64 = 0.529177210903; // 1 Bohr = 0.5292 Å
+use crate::consts::{RY_TO_EV, BOHR_TO_ANG};
 
 /// Detect pseudopotential format and parse.
 ///

@@ -1,5 +1,23 @@
 pub const PI: f64 = std::f64::consts::PI;
 
+// Atomic unit conversions
+/// Hartree to electronvolt.
+pub const HA_TO_EV: f64 = 27.211386245988;
+/// Rydberg to electronvolt.
+pub const RY_TO_EV: f64 = 13.605693122994;
+/// Bohr radius in Ångströms.
+pub const BOHR_TO_ANG: f64 = 0.529177210903;
+/// Bohr³ in ų (volume conversion).
+pub const BOHR3_TO_ANG3: f64 = BOHR_TO_ANG * BOHR_TO_ANG * BOHR_TO_ANG;
+/// Coulomb constant e² in eV·Å (Gaussian units).
+pub const E2_COULOMB: f64 = 14.399645351950548;
+
+// Numerical thresholds
+/// Threshold for treating |G|² as zero (skip G=0 in Coulomb sums).
+pub const G2_ZERO_THRESHOLD: f64 = 1e-12;
+/// Minimum electron density for XC evaluation (e/ų).
+pub const RHO_FLOOR: f64 = 1e-20;
+
 // SI constants
 pub const H_SI: f64 = 6.62607015e-34; // J·s (exact, SI definition)
 pub const HBAR_SI: f64 = H_SI / (2.0 * PI); // J·s

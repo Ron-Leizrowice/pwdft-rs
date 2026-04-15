@@ -501,7 +501,7 @@ mod tests {
             .iter()
             .zip(g_squared.iter())
             .map(|(&rho, &g2)| {
-                if g2 > 1e-20 {
+                if g2 > crate::consts::G2_ZERO_THRESHOLD {
                     rho * fourpi_e2 / g2
                 } else {
                     Complex64::new(0.0, 0.0)

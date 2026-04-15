@@ -145,7 +145,7 @@ impl NonlocalPotential {
                         .iter()
                         .map(|g| {
                             let phase = -g.dot(&tau);
-                            Complex64::new(phase.cos(), phase.sin())
+                            Complex64::cis(phase)
                         })
                         .collect()
                 })

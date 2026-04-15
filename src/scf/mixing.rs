@@ -52,7 +52,7 @@ impl AndersonMixer {
                 let weights: Vec<f64> = g2
                     .iter()
                     .map(|&g2_val| {
-                        if g2_val < 1e-20 {
+                        if g2_val < crate::consts::G2_ZERO_THRESHOLD {
                             0.0 // Suppress G=0 completely
                         } else {
                             g2_val / (g2_val + q_tf_sq)
@@ -174,7 +174,7 @@ fn precondition_residual(residual_r: &[f64], weights: &[f64], fft: &mut FFT3D) -
 ///
 /// q_TF² = 4 (3π²ρ)^{1/3} / π  (in a.u., then convert from Bohr⁻² to Å⁻²)
 fn auto_q_tf_squared(n_electrons: f64, omega: f64) -> f64 {
-    const BOHR_TO_ANG: f64 = 0.529177210903;
+    use crate::consts::BOHR_TO_ANG;
     let rho_avg = n_electrons / omega; // e/ų
     let rho_bohr = rho_avg * BOHR_TO_ANG.powi(3); // e/Bohr³
     let q_tf_bohr_sq =

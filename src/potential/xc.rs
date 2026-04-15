@@ -79,11 +79,11 @@ pub fn lda_xc_energy(rho_r: &[f64], exc_r: &[f64], omega: f64) -> f64 {
 /// Returns (ε_x, V_x) in Hartree. We convert to eV at the end.
 fn slater_exchange(rho: f64) -> (f64, f64) {
     // ε_x in Hartree: -(3/4)(3ρ/π)^{1/3}
-    // In eV: multiply by HA_TO_EV = 27.2114
-    const HA_TO_EV: f64 = 27.211386245988;
+    // In eV: multiply by crate::consts::HA_TO_EV = 27.2114
+    
 
     // rho [e/ų] → rho [e/Bohr³] = rho × Bohr_to_Å³ = rho × 0.529177³
-    let bohr3 = 0.529177210903_f64.powi(3);
+    let bohr3 = crate::consts::BOHR3_TO_ANG3;
     let rho_bohr = rho * bohr3;
 
     // ε_x = -(3/4)(3ρ/π)^{1/3} in Hartree
@@ -92,7 +92,7 @@ fn slater_exchange(rho: f64) -> (f64, f64) {
     // V_x = d(ρ·ε_x)/dρ = (4/3) ε_x
     let vx_ha = (4.0 / 3.0) * ex_ha;
 
-    (ex_ha * HA_TO_EV, vx_ha * HA_TO_EV)
+    (ex_ha * crate::consts::HA_TO_EV, vx_ha * crate::consts::HA_TO_EV)
 }
 
 /// Perdew-Zunger parametrization of the Ceperley-Alder correlation energy.
@@ -103,8 +103,8 @@ fn slater_exchange(rho: f64) -> (f64, f64) {
 ///
 /// Returns (ε_c, V_c) in eV.
 fn perdew_zunger_correlation(rho: f64) -> (f64, f64) {
-    const HA_TO_EV: f64 = 27.211386245988;
-    let bohr3 = 0.529177210903_f64.powi(3);
+    
+    let bohr3 = crate::consts::BOHR3_TO_ANG3;
     let rho_bohr = rho * bohr3;
 
     // Wigner-Seitz radius in Bohr
@@ -143,7 +143,7 @@ fn perdew_zunger_correlation(rho: f64) -> (f64, f64) {
         vc_ha = ec_ha - rs / 3.0 * d_ec;
     }
 
-    (ec_ha * HA_TO_EV, vc_ha * HA_TO_EV)
+    (ec_ha * crate::consts::HA_TO_EV, vc_ha * crate::consts::HA_TO_EV)
 }
 
 // ---------------------------------------------------------------------------
@@ -210,8 +210,8 @@ pub fn lda_xc_spin_grid(
 ///
 /// Returns (ε_x, V_x_up, V_x_down) in eV.
 fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
-    const HA_TO_EV: f64 = 27.211386245988;
-    let bohr3 = 0.529177210903_f64.powi(3);
+    
+    let bohr3 = crate::consts::BOHR3_TO_ANG3;
 
     let rho = rho_up + rho_down;
     if rho < 1e-30 {
@@ -243,7 +243,7 @@ fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     let vx_up_ha = (4.0 / 3.0) * ex_up_ha;
     let vx_down_ha = (4.0 / 3.0) * ex_down_ha;
 
-    (ex_ha * HA_TO_EV, vx_up_ha * HA_TO_EV, vx_down_ha * HA_TO_EV)
+    (ex_ha * crate::consts::HA_TO_EV, vx_up_ha * crate::consts::HA_TO_EV, vx_down_ha * crate::consts::HA_TO_EV)
 }
 
 /// Spin-polarized Perdew-Zunger correlation via spin interpolation.
@@ -253,8 +253,8 @@ fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
 ///
 /// Returns (ε_c, V_c_up, V_c_down) in eV.
 fn pz_correlation_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
-    const HA_TO_EV: f64 = 27.211386245988;
-    let bohr3 = 0.529177210903_f64.powi(3);
+    
+    let bohr3 = crate::consts::BOHR3_TO_ANG3;
 
     let rho = rho_up + rho_down;
     if rho < 1e-30 {
@@ -297,7 +297,7 @@ fn pz_correlation_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     let vc_up_ha = vc_rs_ha + (1.0 - zeta) * dec_dzeta;
     let vc_down_ha = vc_rs_ha - (1.0 + zeta) * dec_dzeta;
 
-    (ec_ha * HA_TO_EV, vc_up_ha * HA_TO_EV, vc_down_ha * HA_TO_EV)
+    (ec_ha * crate::consts::HA_TO_EV, vc_up_ha * crate::consts::HA_TO_EV, vc_down_ha * crate::consts::HA_TO_EV)
 }
 
 /// PZ correlation at given rs for unpolarized (polarized=false) or

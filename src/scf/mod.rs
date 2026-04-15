@@ -765,7 +765,7 @@ fn compute_v_local_on_fft_grid(
 
             for &(ref tau, pp) in &atom_data {
                 let phase = -g.dot(tau);
-                let sf = Complex64::new(phase.cos(), phase.sin());
+                let sf = Complex64::cis(phase);
                 let v_form = pp.v_local_of_g(g_norm, omega);
                 v += sf * v_form;
             }
@@ -782,7 +782,7 @@ fn hartree_on_fft_grid(rho_g: &[Complex64], g_squared: &[f64]) -> Vec<Complex64>
         .par_iter()
         .zip(g_squared.par_iter())
         .map(|(&rho, &g2)| {
-            if g2 > 1e-20 {
+            if g2 > crate::consts::G2_ZERO_THRESHOLD {
                 rho * fourpi_e2 / g2
             } else {
                 Complex64::new(0.0, 0.0)
@@ -946,7 +946,7 @@ fn compute_core_density(
 
             // Structure factor and normalization
             let phase = -g.dot(&tau);
-            let sf = Complex64::new(phase.cos(), phase.sin());
+            let sf = Complex64::cis(phase);
             *rho_g_val += sf * (integral / omega);
         }
     }
@@ -993,7 +993,7 @@ fn compute_total_energy_from_components(
         .iter()
         .zip(g_squared.iter())
         .map(|(rho, &g2)| {
-            if g2 > 1e-20 { rho.norm_sqr() * fourpi_e2 / g2 } else { 0.0 }
+            if g2 > crate::consts::G2_ZERO_THRESHOLD { rho.norm_sqr() * fourpi_e2 / g2 } else { 0.0 }
         })
         .sum::<f64>()
         * 0.5

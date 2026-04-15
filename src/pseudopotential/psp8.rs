@@ -14,9 +14,9 @@
 
 use crate::error::{PwdftError, Result};
 
-use super::{BetaProjector, PseudopotentialData, BOHR_TO_ANG, RY_TO_EV};
+use super::{BetaProjector, PseudopotentialData, BOHR_TO_ANG};
 
-const HA_TO_EV: f64 = 2.0 * RY_TO_EV; // 1 Hartree = 27.2114 eV
+use crate::consts::HA_TO_EV;
 
 /// Parse a PSP8 file from its text content.
 pub fn parse(content: &str) -> Result<PseudopotentialData> {

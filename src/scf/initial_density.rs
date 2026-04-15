@@ -130,7 +130,7 @@ fn add_gaussian_density(
         let g2 = g.norm_squared();
         let gauss = (-g2 * half_sigma2).exp();
         let phase = -g.dot(tau);
-        let sf = Complex64::new(phase.cos(), phase.sin());
+        let sf = Complex64::cis(phase);
         *rho_g_val += sf * (prefactor * gauss);
     }
 }
@@ -173,7 +173,7 @@ fn add_atomic_density_from_pp(
         }
 
         let phase = -g.dot(tau);
-        let sf = Complex64::new(phase.cos(), phase.sin());
+        let sf = Complex64::cis(phase);
         *rho_g_val += sf * (integral / omega);
     }
 }

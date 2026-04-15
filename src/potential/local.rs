@@ -46,7 +46,7 @@ impl LocalPotential {
                 // Structure factor: S(G) = exp(-i G · τ)
                 let tau = atom.cart_position(&crystal.lattice);
                 let phase = -g.dot(&tau);
-                let structure_factor = Complex64::new(phase.cos(), phase.sin());
+                let structure_factor = Complex64::cis(phase);
 
                 // Form factor: v_local(|G|)
                 let v_form = pp.v_local_of_g(g_norm, omega);
@@ -95,7 +95,7 @@ pub fn v_local_matrix_element(
 
         let tau = atom.cart_position(&crystal.lattice);
         let phase = -g_diff.dot(&tau);
-        let sf = Complex64::new(phase.cos(), phase.sin());
+        let sf = Complex64::cis(phase);
         let v_form = pp.v_local_of_g(g_norm, omega);
 
         result += sf * v_form;

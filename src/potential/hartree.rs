@@ -30,7 +30,7 @@ pub fn hartree_potential(
         .zip(g_vectors.iter())
         .map(|(&rho, g)| {
             let g2 = g.norm_squared();
-            if g2 < 1e-20 {
+            if g2 < crate::consts::G2_ZERO_THRESHOLD {
                 Complex64::new(0.0, 0.0) // G=0: neutralizing background
             } else {
                 rho * fourpi_e2 / g2
@@ -56,7 +56,7 @@ pub fn hartree_energy(
         .zip(g_vectors.iter())
         .map(|(&rho, g)| {
             let g2 = g.norm_squared();
-            if g2 < 1e-20 {
+            if g2 < crate::consts::G2_ZERO_THRESHOLD {
                 0.0
             } else {
                 rho.norm_sqr() * fourpi_e2 / g2
