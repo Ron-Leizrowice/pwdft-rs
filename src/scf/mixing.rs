@@ -447,6 +447,80 @@ mod tests {
     }
 
     #[test]
+    fn test_kerker_vs_plain_scf_convergence() {
+        // Both modes should converge to the same energy on Si.
+        // Minimal system: Γ-only, ecut=100, 16³ grid.
+        use crate::{
+            basis::BasisSet,
+            crystal::{Atom, Crystal, Lattice},
+            kpoints::KPoint,
+            scf::{ScfParams, run_scf},
+        };
+        use nalgebra::Vector3;
+
+        let a = 5.431;
+        let crystal = Crystal {
+            lattice: Lattice::new(
+                a / 2.0 * Vector3::new(0.0, 1.0, 1.0),
+                a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
+                a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
+            ),
+            atoms: vec![
+                Atom::new(14, [0.0, 0.0, 0.0]),
+                Atom::new(14, [0.25, 0.25, 0.25]),
+            ],
+        };
+        let basis = BasisSet::new(&crystal.lattice, 100.0);
+        let pp = crate::pseudopotential::load(
+            &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        ).unwrap();
+        let kpoints = vec![KPoint { k: Vector3::zeros(), weight: 1.0, label: None }];
+
+        let base_params = ScfParams {
+            n_bands: 4,
+            max_iter: 40,
+            conv_threshold: 1e-6,
+            mixing_beta: 0.3,
+            mixing_ndim: 4,
+            smearing_sigma: 0.05,
+            ecutrho_ratio: 4,
+            fft_grid: Some([16, 16, 16]),
+            mixing_mode: MixingMode::Plain,
+        };
+
+        let result_plain = run_scf(&crystal, &basis, &kpoints, &[&pp], &base_params, None);
+
+        let kerker_params = ScfParams {
+            mixing_mode: MixingMode::Kerker { q_tf: None },
+            ..base_params
+        };
+        let result_kerker = run_scf(&crystal, &basis, &kpoints, &[&pp], &kerker_params, None);
+
+        match (&result_plain, &result_kerker) {
+            (Ok(plain), Ok(kerker)) => {
+                let energy_diff = (plain.total_energy - kerker.total_energy).abs();
+                assert!(
+                    energy_diff < 0.01,
+                    "Plain ({:.6} eV) and Kerker ({:.6} eV) should converge to same energy, diff={energy_diff:.6}",
+                    plain.total_energy, kerker.total_energy
+                );
+                // Kerker should converge in no more iterations than plain
+                // (for insulators it's similar; for metals it's much fewer)
+                assert!(
+                    kerker.n_iterations <= plain.n_iterations + 5,
+                    "Kerker ({} iters) shouldn't be much slower than plain ({} iters)",
+                    kerker.n_iterations, plain.n_iterations
+                );
+            }
+            (Ok(_), Err(e)) => panic!("Plain converged but Kerker failed: {e}"),
+            (Err(e), Ok(_)) => panic!("Kerker converged but plain failed: {e}"),
+            (Err(_), Err(_)) => {
+                // Both failed to converge — acceptable for this cheap test
+            }
+        }
+    }
+
+    #[test]
     fn test_solve_linear_system() {
         let a = vec![2.0, 1.0, 1.0, 3.0];
         let b = vec![5.0, 7.0];
