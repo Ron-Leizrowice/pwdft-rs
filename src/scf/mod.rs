@@ -24,12 +24,16 @@ use crate::{
 pub struct ScfParams {
     pub n_bands: usize,
     pub max_iter: usize,
+    /// Density convergence threshold (RMS, e/ų).
     pub conv_threshold: f64,
+    /// Energy convergence threshold (eV). Both density AND energy must converge.
+    pub energy_threshold: f64,
     pub mixing_beta: f64,
     pub mixing_ndim: usize,
     pub smearing_sigma: f64,
+    /// Smearing scheme for occupation numbers.
+    pub smearing_scheme: smearing::SmearingScheme,
     /// Charge density cutoff as multiple of wavefunction cutoff.
-    /// Controls FFT grid density. QE default is 4 for NC PPs.
     pub ecutrho_ratio: u32,
     /// Explicit FFT grid dimensions. If set, overrides ecutrho_ratio.
     pub fft_grid: Option<[usize; 3]>,
@@ -43,9 +47,11 @@ impl Default for ScfParams {
             n_bands: 8,
             max_iter: 100,
             conv_threshold: 1e-6,
+            energy_threshold: 1e-5,
             mixing_beta: 0.3,
             mixing_ndim: 8,
             smearing_sigma: 0.01,
+            smearing_scheme: smearing::SmearingScheme::FermiDirac,
             ecutrho_ratio: 4,
             fft_grid: None,
             mixing_mode: mixing::MixingMode::Plain,
@@ -55,7 +61,14 @@ impl Default for ScfParams {
 
 /// Result of an SCF calculation.
 pub struct ScfResult {
+    /// Kohn-Sham total energy (no entropy).
     pub total_energy: f64,
+    /// Free energy F = E - TS (Mermin functional, variational quantity).
+    pub free_energy: f64,
+    /// Sigma→0 extrapolated energy E₀ = (E + F) / 2.
+    pub energy_sigma0: f64,
+    /// Entropy contribution T*S in eV.
+    pub entropy_ts: f64,
     pub eigenvalues: Vec<Vec<f64>>,
     pub fermi_energy: f64,
     pub n_iterations: usize,
@@ -212,6 +225,10 @@ pub fn run_scf(
     let mut eigenvalues_all: Vec<Vec<f64>>;
     let mut fermi_energy;
 
+    // Cache Ewald energy (constant across iterations)
+    let e_ewald = crate::ewald::ewald_energy(crystal, pseudopotentials);
+    let mut e_prev: Option<f64> = None;
+
     for iter in 0..params.max_iter {
         // Steps 1-3: Hartree, XC, V_eff assembly.
         // GPU path uses f32 for Hartree, XC, and V_eff; CPU path uses f64 + rayon.
@@ -267,18 +284,19 @@ pub fn run_scf(
         eigenvalues_all = kpoint_results.iter().map(|r| r.eigenvalues.clone()).collect();
         let all_kpoint_wavefns: Vec<_> = kpoint_results.into_iter().map(|r| r.eigenvectors).collect();
 
-        // 5. Occupations
+        // 5. Occupations (configurable smearing scheme)
         fermi_energy = smearing::find_fermi_energy(
             &eigenvalues_all,
             kpoints,
             n_electrons,
             params.smearing_sigma,
+            params.smearing_scheme,
         );
         let occupations: Vec<Vec<f64>> = eigenvalues_all
             .iter()
             .map(|evs| {
                 evs.iter()
-                    .map(|&e| smearing::fermi_dirac(e, fermi_energy, params.smearing_sigma))
+                    .map(|&e| smearing::occupation(params.smearing_scheme, e, fermi_energy, params.smearing_sigma))
                     .collect()
             })
             .collect();
@@ -294,34 +312,68 @@ pub fn run_scf(
             crate::symmetry::density::symmetrize_density(&mut rho_r_new, grid.dims, symm);
         }
 
-        // 7. Convergence check
+        // 7. Convergence check (dual criterion: density AND energy)
         let delta = density_diff(&rho_r, &rho_r_new, omega, n_grid);
-        info!("SCF iter {}: E_fermi = {:.6} eV, delta_rho = {:.2e}", iter + 1, fermi_energy, delta);
 
-        if delta < params.conv_threshold {
+        // Compute energy every iteration for convergence monitoring
+        let mut rho_g_new = vec![Complex64::new(0.0, 0.0); n_grid];
+        for (i, &r) in rho_r_new.iter().enumerate() {
+            rho_g_new[i] = Complex64::new(r, 0.0);
+        }
+        grid.fft.forward(&mut rho_g_new);
+        let fft_norm = 1.0 / n_grid as f64;
+        for v in &mut rho_g_new {
+            *v *= fft_norm;
+        }
+
+        let (exc_r, vxc_r_energy) = xc::lda_xc_grid(&rho_r_new);
+        let e_total = compute_total_energy_from_components(
+            &eigenvalues_all, &occupations, kpoints, &rho_r_new, &rho_g_new,
+            &g_squared, &exc_r, &vxc_r_energy, omega, e_ewald,
+        );
+
+        let de = e_prev.map(|ep| (e_total - ep).abs());
+        e_prev = Some(e_total);
+
+        let rho_converged = delta < params.conv_threshold;
+        let energy_converged = de.is_some_and(|de| de < params.energy_threshold);
+
+        info!(
+            "SCF iter {:>3}: E={:.6} eV  dE={:>10}  Δρ={:.2e}",
+            iter + 1, e_total,
+            de.map_or("N/A".to_string(), |de| format!("{de:.2e}")),
+            delta
+        );
+
+        if rho_converged && energy_converged {
             info!("SCF converged after {} iterations", iter + 1);
             rho_r = rho_r_new;
-            density_r_to_g(&mut grid.fft, &rho_r, &mut rho_g);
+            rho_g = rho_g_new;
             let rho_g_basis: Vec<Complex64> = g_to_fft.iter().map(|&idx| rho_g[idx]).collect();
 
-            // Diagnostics: print V_eff at key G-vectors for comparison with QE
-            for &[n1, n2, n3] in &[[0,0,0], [1,0,0], [1,1,0], [1,1,1], [2,0,0]] {
-                let fft_idx = grid.miller_to_idx(n1, n2, n3);
+            // Entropy and free energy
+            let ts = smearing::entropy_ts(
+                &eigenvalues_all, kpoints, fermi_energy,
+                params.smearing_sigma, params.smearing_scheme,
+            );
+            let free_energy = e_total - ts;
+            let energy_sigma0 = (e_total + free_energy) / 2.0;
+
+            info!("Energy (E):      {e_total:.6} eV");
+            info!("Free energy (F): {free_energy:.6} eV");
+            info!("E sigma→0 (E₀):  {energy_sigma0:.6} eV");
+            if ts.abs() > 1e-8 {
                 info!(
-                    "V_eff(G=({},{},{})) = {:+.6} {:+.6}i eV  (loc={:+.6} H={:+.6} xc={:+.6})",
-                    n1, n2, n3,
-                    v_eff_fft[fft_idx].re, v_eff_fft[fft_idx].im,
-                    v_local_fft[fft_idx].re, v_h_fft[fft_idx].re, vxc_g[fft_idx].re
+                    "Entropy (-TS):   {:.6} eV ({:.3} meV/atom)",
+                    -ts, -ts * 1000.0 / crystal.atoms.len() as f64
                 );
             }
 
-            let total_energy = compute_total_energy(
-                &eigenvalues_all, &occupations, kpoints, &rho_r, &rho_g,
-                &g_squared, crystal, pseudopotentials, omega,
-            );
-
             return Ok(ScfResult {
-                total_energy,
+                total_energy: e_total,
+                free_energy,
+                energy_sigma0,
+                entropy_ts: ts,
                 eigenvalues: eigenvalues_all,
                 fermi_energy,
                 n_iterations: iter + 1,
@@ -537,6 +589,53 @@ fn compute_total_energy(
     info!("Total energy: {e_total:.6} eV");
 
     e_total
+}
+
+/// Compute total energy reusing pre-computed XC and cached Ewald.
+/// Called every SCF iteration for energy convergence monitoring.
+fn compute_total_energy_from_components(
+    eigenvalues: &[Vec<f64>],
+    occupations: &[Vec<f64>],
+    kpoints: &[KPoint],
+    rho_r: &[f64],
+    rho_g: &[Complex64],
+    g_squared: &[f64],
+    exc_r: &[f64],
+    vxc_r: &[f64],
+    omega: f64,
+    e_ewald: f64,
+) -> f64 {
+    let n_grid = rho_g.len();
+
+    let e_band: f64 = eigenvalues
+        .iter()
+        .zip(occupations.iter())
+        .zip(kpoints.iter())
+        .map(|((evs, occs), kp)| {
+            evs.iter().zip(occs.iter()).map(|(&e, &f)| f * kp.weight * e).sum::<f64>()
+        })
+        .sum();
+
+    let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
+    let e_hartree: f64 = rho_g
+        .iter()
+        .zip(g_squared.iter())
+        .map(|(rho, &g2)| {
+            if g2 > 1e-20 { rho.norm_sqr() * fourpi_e2 / g2 } else { 0.0 }
+        })
+        .sum::<f64>()
+        * 0.5
+        * omega;
+
+    let e_xc = xc::lda_xc_energy(rho_r, exc_r, omega);
+    let dvol = omega / n_grid as f64;
+    let e_vxc: f64 = rho_r
+        .iter()
+        .zip(vxc_r.iter())
+        .map(|(&rho, &vxc)| rho * vxc * dvol)
+        .sum();
+
+    e_band - e_hartree + e_xc - e_vxc + e_ewald
 }
 
 #[cfg(test)]

@@ -221,6 +221,7 @@ fn test_scf_kerker_serial_vs_parallel() {
         ecutrho_ratio: 4,
         fft_grid: Some([16, 16, 16]),
         mixing_mode: pwdft_rs::scf::mixing::MixingMode::Kerker { q_tf: None },
+        ..Default::default()
     };
 
     let result_s = rayon::ThreadPoolBuilder::new()
