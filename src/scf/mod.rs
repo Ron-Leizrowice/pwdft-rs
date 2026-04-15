@@ -347,7 +347,6 @@ pub fn run_scf(
 
         if rho_converged && energy_converged {
             info!("SCF converged after {} iterations", iter + 1);
-            rho_r = rho_r_new;
             rho_g = rho_g_new;
             let rho_g_basis: Vec<Complex64> = g_to_fft.iter().map(|&idx| rho_g[idx]).collect();
 
@@ -533,62 +532,6 @@ fn density_diff(rho_old: &[f64], rho_new: &[f64], omega: f64, n_grid: usize) -> 
         .map(|(&a, &b)| (a - b).powi(2) * dvol)
         .sum();
     (sum_sq / omega).sqrt()
-}
-
-/// Compute total energy with proper double-counting corrections.
-fn compute_total_energy(
-    eigenvalues: &[Vec<f64>],
-    occupations: &[Vec<f64>],
-    kpoints: &[KPoint],
-    rho_r: &[f64],
-    rho_g: &[Complex64],
-    g_squared: &[f64],
-    crystal: &Crystal,
-    pseudopotentials: &[&PseudopotentialData],
-    omega: f64,
-) -> f64 {
-    let n_grid = rho_g.len();
-
-    // Band energy
-    let e_band: f64 = eigenvalues
-        .iter()
-        .zip(occupations.iter())
-        .zip(kpoints.iter())
-        .map(|((evs, occs), kp)| {
-            evs.iter().zip(occs.iter()).map(|(&e, &f)| f * kp.weight * e).sum::<f64>()
-        })
-        .sum();
-
-    // Hartree energy on full FFT grid
-    let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
-    let e_hartree: f64 = rho_g
-        .iter()
-        .zip(g_squared.iter())
-        .map(|(rho, &g2)| {
-            if g2 > 1e-20 { rho.norm_sqr() * fourpi_e2 / g2 } else { 0.0 }
-        })
-        .sum::<f64>()
-        * 0.5
-        * omega;
-
-    // XC energy and potential integral
-    let (exc_r, vxc_r) = xc::lda_xc_grid(rho_r);
-    let e_xc = xc::lda_xc_energy(rho_r, &exc_r, omega);
-    let dvol = omega / n_grid as f64;
-    let e_vxc: f64 = rho_r
-        .iter()
-        .zip(vxc_r.iter())
-        .map(|(&rho, &vxc)| rho * vxc * dvol)
-        .sum();
-
-    let e_ewald = crate::ewald::ewald_energy(crystal, pseudopotentials);
-
-    let e_total = e_band - e_hartree + e_xc - e_vxc + e_ewald;
-
-    info!("Energy: band={e_band:.6} H={e_hartree:.6} xc={e_xc:.6} vxc={e_vxc:.6} ewald={e_ewald:.6}");
-    info!("Total energy: {e_total:.6} eV");
-
-    e_total
 }
 
 /// Compute total energy reusing pre-computed XC and cached Ewald.
