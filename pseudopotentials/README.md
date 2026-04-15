@@ -6,24 +6,21 @@ Norm-conserving pseudopotentials for plane-wave DFT calculations.
 
 ```
 pseudopotentials/
-├── nc/                     # Norm-conserving
-│   ├── lda/                # LDA exchange-correlation (PZ parametrization)
-│   │   ├── Al.upf          # PseudoDojo ONCV standard accuracy
-│   │   ├── Si.upf          # PseudoDojo ONCV standard accuracy
-│   │   ├── Si_hgh.upf      # Hartwigsen-Goedecker-Hutter (QE distribution)
-│   │   ├── Fe_dalcorso.upf # Dal Corso NC (QE distribution)
-│   │   ├── Ga_oncv.upf     # ONCV (QE GaN example)
-│   │   ├── N_oncv.upf      # ONCV (QE GaN example)
-│   │   └── ...             # 74 files total, 70 elements
-│   └── pbe/                # PBE exchange-correlation
+├── nc/                         # Norm-conserving
+│   ├── lda/                    # LDA exchange-correlation (PZ parametrization)
+│   │   ├── Al.upf              # PseudoDojo ONCV standard accuracy
+│   │   ├── Si.upf              # PseudoDojo ONCV standard accuracy
+│   │   ├── ...                 # 70 elements from PseudoDojo
+│   │   └── legacy/             # PPs from initial development/validation
+│   │       ├── Si_hgh.UPF      # Hartwigsen-Goedecker-Hutter (QE distribution)
+│   │       ├── Fe_dalcorso.UPF # Dal Corso NC (QE distribution)
+│   │       ├── C_fhi_v1.UPF    # Fritz-Haber-Institute (UPF v1 format)
+│   │       ├── Ga_oncv.UPF     # ONCV (QE GaN example)
+│   │       └── N_oncv.UPF      # ONCV (QE GaN example)
+│   └── pbe/                    # PBE exchange-correlation
 │       ├── Al.upf
-│       └── ...             # 72 files total
-├── Si.UPF                  # Legacy: HGH PP used in original Si validation
-├── Fe.UPF                  # Legacy: Dal Corso NC used in Fe debugging
-├── C.UPF                   # Legacy: FHI PP (UPF v1 format, not fully supported)
-├── Ga.UPF                  # Legacy: ONCV LDA from QE GaN example
-├── N.UPF                   # Legacy: ONCV LDA from QE GaN example
-└── README.md               # This file
+│       └── ...                 # 72 elements from PseudoDojo
+└── README.md                   # This file
 ```
 
 ## Sources and Attribution
@@ -52,18 +49,18 @@ scalar-relativistic, standard accuracy.
 > *Physical Review B* **88**, 085117 (2013).
 > DOI: [10.1103/PhysRevB.88.085117](https://doi.org/10.1103/PhysRevB.88.085117)
 
-### Legacy pseudopotentials (flat directory)
+### Legacy pseudopotentials (`nc/lda/legacy/`)
 
-These were used during initial development and validation. They remain
-for backward compatibility with existing tests.
+Used during initial development and validation. Referenced by existing
+tests. These may differ from the PseudoDojo versions of the same elements.
 
 | File | Type | XC | Source |
 |------|------|-----|--------|
-| `Si.UPF` | HGH separable | LDA (PZ) | QE distribution (`Si.pz-hgh.UPF`) |
-| `Fe.UPF` | NC | LDA (PZ) | QE distribution (`Fe.pz-n-nc.UPF`), Dal Corso |
-| `C.UPF` | NC | LDA (PZ) | QE distribution, Fritz-Haber-Institute (UPF v1) |
-| `Ga.UPF` | ONCV | LDA | QE EPW GaN example (`Ga_ONCV_LDA-1.0.upf`) |
-| `N.UPF` | ONCV | LDA | QE EPW GaN example (`N_ONCV_LDA-1.0.upf`) |
+| `Si_hgh.UPF` | HGH separable | LDA (PZ) | QE distribution (`Si.pz-hgh.UPF`) |
+| `Fe_dalcorso.UPF` | NC | LDA (PZ) | QE distribution (`Fe.pz-n-nc.UPF`), Dal Corso |
+| `C_fhi_v1.UPF` | NC | LDA (PZ) | QE distribution, Fritz-Haber-Institute (UPF v1) |
+| `Ga_oncv.UPF` | ONCV | LDA | QE EPW GaN example (`Ga_ONCV_LDA-1.0.upf`) |
+| `N_oncv.UPF` | ONCV | LDA | QE EPW GaN example (`N_ONCV_LDA-1.0.upf`) |
 
 ## Supported formats
 

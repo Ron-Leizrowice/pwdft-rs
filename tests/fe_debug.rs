@@ -27,7 +27,7 @@ fn fe_bcc() -> Crystal {
 
 fn fe_pp() -> pwdft_rs::pseudopotential::PseudopotentialData {
     pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Fe.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Fe_dalcorso.UPF"),
     )
     .unwrap()
 }

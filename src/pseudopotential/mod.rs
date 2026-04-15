@@ -176,7 +176,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn si_pp_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF")
     }
 
     #[test]
@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_load_fe_upf() {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Fe.UPF");
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Fe_dalcorso.UPF");
         let pp = load(&path).unwrap();
         assert_eq!(pp.element, "Fe");
         assert!((pp.z_valence - 8.0).abs() < 1e-10);
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_load_c_upf() {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/C.UPF");
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/C_fhi_v1.UPF");
         match load(&path) {
             Ok(pp) => {
                 assert_eq!(pp.element, "C");
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_fe_rho_atom_integrates_to_z_valence() {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Fe.UPF");
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Fe_dalcorso.UPF");
         let pp = load(&path).unwrap();
         if !pp.has_rho_atom() {
             eprintln!("Fe PP has no rho_atom data — skipping");

@@ -130,7 +130,7 @@ mod tests {
         let crystal = si_crystal();
         let basis = BasisSet::new(&crystal.lattice, 100.0);
         let pp = crate::pseudopotential::load(
-            &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+            &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
         )
         .unwrap();
 
@@ -144,7 +144,7 @@ mod tests {
         let crystal = si_crystal();
         let basis = BasisSet::new(&crystal.lattice, 100.0);
         let pp = crate::pseudopotential::load(
-            &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+            &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
         )
         .unwrap();
 

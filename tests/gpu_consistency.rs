@@ -212,7 +212,7 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
     )
     .unwrap();
     let kpoints = vec![pwdft_rs::kpoints::KPoint {
@@ -332,7 +332,7 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
     )
     .unwrap();
     let kpoints = vec![pwdft_rs::kpoints::KPoint {
@@ -428,7 +428,7 @@ fn test_gpu_scf_kerker_converges() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
     )
     .unwrap();
     let kpoints = vec![pwdft_rs::kpoints::KPoint {

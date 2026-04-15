@@ -190,7 +190,7 @@ mod tests {
 
     fn si_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
         )
         .unwrap()
     }

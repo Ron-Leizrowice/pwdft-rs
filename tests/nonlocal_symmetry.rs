@@ -32,7 +32,7 @@ fn test_vnl_hermitian_at_gamma() {
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let k: Vector3<f64> = Vector3::zeros();
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
     )
     .unwrap();
 
@@ -61,7 +61,7 @@ fn test_vnl_diagonal_same_for_symmetry_related_g() {
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let k: Vector3<f64> = Vector3::zeros();
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
     )
     .unwrap();
 
@@ -107,7 +107,7 @@ fn test_full_hamiltonian_degeneracy_at_gamma() {
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let k: Vector3<f64> = Vector3::zeros();
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
     )
     .unwrap();
 
@@ -143,7 +143,7 @@ fn test_local_potential_symmetry() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
     )
     .unwrap();
     let omega = crystal.lattice.volume().abs();
@@ -200,7 +200,7 @@ fn test_kinetic_plus_vlocal_degeneracy() {
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let _k: Vector3<f64> = Vector3::zeros();
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
     )
     .unwrap();
     let omega = crystal.lattice.volume().abs();
@@ -255,7 +255,7 @@ fn test_kinetic_plus_vlocal_via_fft_grid() {
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let _k: Vector3<f64> = Vector3::zeros();
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
     )
     .unwrap();
     let omega = crystal.lattice.volume().abs();

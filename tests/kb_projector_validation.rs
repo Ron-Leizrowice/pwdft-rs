@@ -36,7 +36,7 @@ const RY_TO_EV: f64 = 13.605693122994;
 //  Helper: load Si pseudopotential
 // ---------------------------------------------------------------------------
 fn load_si_pp() -> PseudopotentialData {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF");
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF");
     pwdft_rs::pseudopotential::load(&path).unwrap()
 }
 
@@ -333,7 +333,7 @@ fn test_04_unit_conversion_chain() {
     eprintln!("\n=== TEST 4: Unit conversion chain verification ===");
 
     // Read the raw UPF file to get Bohr-unit data
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF");
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF");
     let content = std::fs::read_to_string(&path).unwrap();
 
     // Parse r_grid in Bohr

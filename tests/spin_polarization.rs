@@ -48,7 +48,7 @@ fn test_si_nspin2_matches_nspin1() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Si_hgh.UPF"),
     ).unwrap();
     let kpoints = gamma_only();
 
@@ -113,7 +113,7 @@ fn test_fe_ferromagnetic_fixed_moment() {
     // the spin-polarized SCF machinery.
     let crystal = fe_bcc();
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Fe.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/legacy/Fe_dalcorso.UPF"),
     ).unwrap();
     let ecut = 15.0 * 13.605693122994; // 15 Ry
     let basis = BasisSet::new(&crystal.lattice, ecut);
