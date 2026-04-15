@@ -257,7 +257,7 @@ inaccurate because XC is nonlinear in ρ (Ref. 5).
 
 The fix: evaluate XC on the augmented density `ρ_val + ρ_core`, where `ρ_core`
 is the frozen core charge density from the pseudopotential file (PP_NLCC in UPF
-format, or the core charge block in PSP8).
+format).
 
 ```
 V_xc[ρ_val + ρ_core]  replaces  V_xc[ρ_val]
@@ -313,9 +313,6 @@ where:
 
 For norm-conserving pseudopotentials:
 - **UPF format:** D_ij is stored in the PP_DIJ block (in Ry, converted to eV)
-- **PSP8 format:** D_ij is diagonal with `D_ii = ekb_i` (the KB energies from
-  each projector block header). **Note:** Off-diagonal D_ij requires ONCVPSP
-  formalism with multiple projectors per angular momentum channel.
 
 ---
 
@@ -507,7 +504,7 @@ Conversions:
 - `1 Bohr = 0.529177 Å`
 - `1 Bohr³ = 0.148185 ų`
 
-Pseudopotential files (UPF: Ry/Bohr, PSP8: Ha/Bohr) are converted at parse time.
+Pseudopotential files (UPF: Ry/Bohr) are converted to eV/Å at parse time.
 
 ---
 
@@ -533,10 +530,6 @@ and energy formulas.
 **Convention:** Our forward FFT includes 1/N normalization, so `ρ̃(G=0)` is the
 spatial average density. Hartree energy includes explicit `× Ω` factor.
 
-### 10.4 PSP8 D_ij
-**Symptom:** Zero non-local energy with PSP8 pseudopotentials.
-**Cause:** D_ij matrix not populated from `ekb` values in PSP8 format.
-**Fix:** See Proposal 18.
 
 ### 10.5 Spin Factor in Occupations
 **Symptom:** Wrong electron count or doubled energies in spin-polarized.

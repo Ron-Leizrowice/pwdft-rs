@@ -74,8 +74,6 @@ pwdft-rs currently supports:
 - **UPF v2** (XML-like): Full support for norm-conserving PPs with
   local potential, KB non-local projectors, D_ij matrix, PP_RHOATOM,
   and PP_NLCC (nonlinear core correction).
-- **UPF v1** (plain text): Not yet supported. C.UPF is v1 format.
-- **PSP8** (ABINIT): Partial support (D_ij always zero — see proposal 18).
 
 ## Notes
 

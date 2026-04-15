@@ -60,7 +60,7 @@ Fix auto-fixable warnings, address remaining ones where practical. Known accepta
 **Module groups:**
 
 - **Crystal & basis:** `crystal.rs` (lattice + atoms), `basis.rs` (G-vectors up to ecut), `kpoints.rs` (Monkhorst-Pack, band paths), `atoms.rs` (elements 1-92)
-- **Pseudopotentials:** `pseudopotential/upf.rs` (QE UPF v2), `pseudopotential/psp8.rs` (ABINIT/PseudoDojo). Both parse into `PseudopotentialData` with local potential, beta projectors, D_ij matrix.
+- **Pseudopotentials:** `pseudopotential/upf.rs` (QE UPF v2). Parses into `PseudopotentialData` with local potential, beta projectors, D_ij matrix.
 - **Potentials:** `potential/hartree.rs`, `potential/xc.rs` (Perdew-Zunger LDA), `potential/local.rs`, `potential/nonlocal.rs` (Kleinman-Bylander separable form, arbitrary l via recurrence)
 - **SCF internals:** `scf/density.rs`, `scf/initial_density.rs` (SAD), `scf/mixing.rs` (Anderson/Pulay + Kerker preconditioning), `scf/smearing.rs` (Fermi-Dirac)
 - **Numerics:** `fft.rs` (3D FFT via ndrustfft, zero unsafe), `eigensolver/dense.rs` (faer Hermitian eigendecomposition), `ewald.rs` (ion-ion energy, erfc via puruspe)

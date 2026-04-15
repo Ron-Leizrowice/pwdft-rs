@@ -1,4 +1,3 @@
-pub mod psp8;
 pub mod upf;
 
 use std::path::Path;
@@ -7,7 +6,7 @@ use crate::error::{PwdftError, Result};
 
 /// Unit-converted pseudopotential data in internal units (eV, Å).
 ///
-/// All formats (UPF, PSP8, HGH) parse into this common representation.
+/// Parsed from UPF v2 format (Quantum ESPRESSO).
 #[derive(Debug, Clone)]
 pub struct PseudopotentialData {
     /// Element symbol (e.g. "Si").
@@ -55,33 +54,15 @@ pub struct BetaProjector {
 // Unit conversion constants (Rydberg a.u. → internal eV/Å)
 use crate::consts::{RY_TO_EV, BOHR_TO_ANG};
 
-/// Detect pseudopotential format and parse.
-///
-/// Supported formats:
-/// - `.UPF` / `.upf`: UPF v2 (Quantum ESPRESSO)
-/// - `.psp8`: PSP8 (ABINIT / PseudoDojo)
+/// Load and parse a UPF v2 pseudopotential file.
 pub fn load(path: &Path) -> Result<PseudopotentialData> {
     let content = std::fs::read_to_string(path)?;
 
-    // Detect format from content (more robust than extension)
     if content.contains("<UPF") || content.contains("<PP_HEADER") {
         upf::parse(&content)
-    } else if content.trim_start().starts_with(|c: char| c.is_alphanumeric()) {
-        // PSP8 starts with a title line; check for pspcod=8 on line 3
-        let lines: Vec<&str> = content.lines().collect();
-        if lines.len() > 2 {
-            let fields: Vec<&str> = lines[2].split_whitespace().collect();
-            if fields.first().is_some_and(|&f| f == "8") {
-                return psp8::parse(&content);
-            }
-        }
-        Err(PwdftError::Parse(format!(
-            "unrecognized pseudopotential format in {}",
-            path.display()
-        )))
     } else {
         Err(PwdftError::Parse(format!(
-            "unrecognized pseudopotential format in {}",
+            "unrecognized pseudopotential format in {} (only UPF v2 is supported)",
             path.display()
         )))
     }

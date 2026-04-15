@@ -402,6 +402,5 @@ frozen core is unpolarized).
 | 17 | Spin-polarized LSDA | CORRECT |
 
 **Known issues** (not formula bugs, but implementation gaps):
-- PSP8 `D_ij` not populated from `ekb` values (Proposal 18)
-- UPF `rho_atom` unit conversion needs verification (Proposal 18)
+- UPF `rho_atom` unit conversion was fixed (commit d8f9687)
 - No GGA infrastructure yet (only LDA)
