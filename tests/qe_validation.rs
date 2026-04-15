@@ -171,7 +171,7 @@ fn test_c_diamond_pp_loading() {
     // C.UPF is v1 format (Fritz-Haber-Institute). Our parser only handles v2.
     // This test documents the limitation.
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("pseudopotentials/nc/lda/legacy/C_fhi_v1.UPF");
+        .join("pseudopotentials/nc/lda/C.upf");
     let result = pwdft_rs::pseudopotential::load(&path);
     match result {
         Ok(pp) => {

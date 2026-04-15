@@ -49,18 +49,23 @@ scalar-relativistic, standard accuracy.
 > *Physical Review B* **88**, 085117 (2013).
 > DOI: [10.1103/PhysRevB.88.085117](https://doi.org/10.1103/PhysRevB.88.085117)
 
-### Legacy pseudopotentials (`nc/lda/legacy/`)
+### SSSP — Standard Solid-State Pseudopotentials (`uspp/pbe/`, `paw/pbe/`)
 
-Used during initial development and validation. Referenced by existing
-tests. These may differ from the PseudoDojo versions of the same elements.
+Curated library from the SSSP project, selecting the best-performing
+PP for each element from multiple sources (PseudoDojo, GBRV, etc.).
+The "efficiency" set balances accuracy and computational cost.
 
-| File | Type | XC | Source |
-|------|------|-----|--------|
-| `Si_hgh.UPF` | HGH separable | LDA (PZ) | QE distribution (`Si.pz-hgh.UPF`) |
-| `Fe_dalcorso.UPF` | NC | LDA (PZ) | QE distribution (`Fe.pz-n-nc.UPF`), Dal Corso |
-| `C_fhi_v1.UPF` | NC | LDA (PZ) | QE distribution, Fritz-Haber-Institute (UPF v1) |
-| `Ga_oncv.UPF` | ONCV | LDA | QE EPW GaN example (`Ga_ONCV_LDA-1.0.upf`) |
-| `N_oncv.UPF` | ONCV | LDA | QE EPW GaN example (`N_ONCV_LDA-1.0.upf`) |
+- **Website**: <https://www.materialscloud.org/discover/sssp>
+- **Version**: 1.3.0
+- **Note**: SSSP is primarily USPP and PAW — not yet supported by pwdft-rs.
+  Included for future use when ultrasoft/PAW support is added.
+
+**Citation**:
+
+> G. Prandini, A. Marrazzo, I.E. Castelli, N. Mounet, N. Marzari,
+> "Precision and efficiency in solid-state pseudopotential calculations",
+> *npj Computational Materials* **4**, 72 (2018).
+> DOI: [10.1038/s41524-018-0127-2](https://doi.org/10.1038/s41524-018-0127-2)
 
 ## Supported formats
 
