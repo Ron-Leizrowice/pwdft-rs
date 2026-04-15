@@ -1,24 +1,32 @@
 pub mod density;
+pub(crate) mod energy;
+pub(crate) mod grid;
 pub mod initial_density;
 pub mod mixing;
+pub(crate) mod potentials;
 pub mod smearing;
 
 use log::info;
-use nalgebra::Vector3;
 use num_complex::Complex64;
 use rayon::prelude::*;
 
 use crate::{
     basis::BasisSet,
-    consts::HBAR2_OVER_2M,
     crystal::Crystal,
     eigensolver::dense,
     error::{PwdftError, Result},
-    fft::{fft_grid_size, FFT3D},
     kpoints::KPoint,
-    potential::{hartree, nonlocal::NonlocalPotential, xc},
+    potential::{nonlocal::NonlocalPotential, xc},
     pseudopotential::PseudopotentialData,
 };
+
+use self::energy::{
+    add_core_density, assemble_v_eff, band_energy, density_diff,
+    density_r_to_g, hartree_energy, hartree_on_fft_grid, real_to_g_space,
+    total_energy, xc_energy_corrected,
+};
+use self::grid::{FftGrid, g_vector_at_dims};
+use self::potentials::{build_hamiltonian_with_v_eff, compute_core_density, compute_v_local};
 
 /// Parameters for an SCF calculation.
 #[derive(Clone)]
@@ -95,88 +103,9 @@ pub struct ScfResult {
     pub nspin: usize,
 }
 
-/// Describes the FFT grid and provides index mapping.
-struct FftGrid {
-    dims: [usize; 3],
-    fft: FFT3D,
-    /// Reciprocal lattice vectors for computing G from Miller indices.
-    recip: crate::crystal::Lattice,
-}
-
-impl FftGrid {
-    /// Create an FFT grid sized for the charge density.
-    ///
-    /// `ecutrho_ratio`: multiplier for the wavefunction cutoff (default 4, matching
-    /// QE's ecutrho = 4*ecutwfc for NC PPs). The grid must accommodate G-vectors
-    /// up to sqrt(ecutrho_ratio) × G_max in each direction. Higher ratio = more
-    /// accurate V_xc (nonlinear function of ρ) but larger grid.
-    fn new(
-        basis: &BasisSet,
-        lattice: &crate::crystal::Lattice,
-        ecutrho_ratio: u32,
-        explicit_dims: Option<[usize; 3]>,
-    ) -> Self {
-        let dims = if let Some(d) = explicit_dims {
-            d
-        } else {
-            let miller = basis.miller_indices();
-            let n_max: Vec<i32> = (0..3)
-                .map(|dim| miller.iter().map(|m| m[dim].abs()).max().unwrap_or(0))
-                .collect();
-            // Grid must accommodate G-vectors up to sqrt(ratio) × G_max.
-            // For ratio=4 (QE default), this is 2× G_max in each direction.
-            let scale = (ecutrho_ratio as f64).sqrt().ceil() as i32;
-            [
-                fft_grid_size(scale * n_max[0]),
-                fft_grid_size(scale * n_max[1]),
-                fft_grid_size(scale * n_max[2]),
-            ]
-        };
-        let fft = FFT3D::new(dims[0], dims[1], dims[2]);
-        let recip = lattice.reciprocal();
-        Self { dims, fft, recip }
-    }
-
-    fn total_size(&self) -> usize {
-        self.dims[0] * self.dims[1] * self.dims[2]
-    }
-
-    fn miller_to_idx(&self, n1: i32, n2: i32, n3: i32) -> usize {
-        miller_to_idx(self.dims, n1, n2, n3)
-    }
-
-    /// Compute the Cartesian G-vector for FFT grid index.
-    fn g_vector_at(&self, idx: usize) -> Vector3<f64> {
-        g_vector_at_dims(idx, self.dims, &self.recip)
-    }
-
-    /// Mapping from basis G-vectors to FFT grid indices.
-    fn basis_to_fft(&self, basis: &BasisSet) -> Vec<usize> {
-        basis
-            .miller_indices()
-            .iter()
-            .map(|&[n1, n2, n3]| self.miller_to_idx(n1, n2, n3))
-            .collect()
-    }
-}
-
 /// Run the self-consistent field loop.
 ///
-/// If `symmetry` is provided, the charge density is symmetrized after each
-/// SCF step to enforce crystal symmetry. K-point reduction should be done
-/// by the caller before passing `kpoints`.
-/// Compute G-vector from FFT grid index (standalone, safe to call from parallel contexts).
-fn g_vector_at_dims(idx: usize, dims: [usize; 3], recip: &crate::crystal::Lattice) -> Vector3<f64> {
-    let [nx, ny, nz] = dims;
-    let i1 = idx / (ny * nz);
-    let i2 = (idx / nz) % ny;
-    let i3 = idx % nz;
-    let n1 = if i1 > nx / 2 { i1 as i32 - nx as i32 } else { i1 as i32 };
-    let n2 = if i2 > ny / 2 { i2 as i32 - ny as i32 } else { i2 as i32 };
-    let n3 = if i3 > nz / 2 { i3 as i32 - nz as i32 } else { i3 as i32 };
-    n1 as f64 * recip.a + n2 as f64 * recip.b + n3 as f64 * recip.c
-}
-
+/// Dispatches to `run_scf_spin` for nspin=2.
 pub fn run_scf(
     crystal: &Crystal,
     basis: &BasisSet,
@@ -206,7 +135,7 @@ pub fn run_scf(
     let g_to_fft = grid.basis_to_fft(basis);
 
     // Precompute local pseudopotential on the FULL FFT grid
-    let mut v_local_fft = compute_v_local_on_fft_grid(crystal, &grid, pseudopotentials, omega);
+    let mut v_local_fft = compute_v_local(crystal, &grid, pseudopotentials, omega);
 
     // Store V_local(G=0) separately and zero it in the FFT grid.
     // V_local(G=0) is an arbitrary constant (depends on PP construction) that shifts
@@ -379,12 +308,12 @@ pub fn run_scf(
 
         let rho_new_for_xc = add_core_density(&rho_r_new, &rho_core_r);
         let (exc_r, vxc_r_energy) = xc::lda_xc_grid(&rho_new_for_xc);
-        // NLCC: E_xc uses total density (val+core), E_vxc uses valence only
-        let e_total = compute_total_energy_from_components(
-            &eigenvalues_all, &occupations, &kpt_weights,
-            &rho_new_for_xc, // total density for E_xc = ∫ ε_xc × (ρ_val+ρ_core) dr
-            &rho_r_new,       // valence density for E_vxc = ∫ V_xc × ρ_val dr
-            &rho_g_new, &g_squared, &exc_r, &vxc_r_energy, omega, e_ewald,
+
+        let e_total = total_energy(
+            band_energy(&eigenvalues_all, &occupations, &kpt_weights),
+            hartree_energy(&rho_g_new, &g_squared, omega),
+            xc_energy_corrected(&rho_new_for_xc, &rho_r_new, &exc_r, &vxc_r_energy, omega),
+            e_ewald,
         ) + v_local_g0 * n_electrons;
 
         let de = e_prev.map(|ep| (e_total - ep).abs());
@@ -476,7 +405,7 @@ fn run_scf_spin(
     info!("FFT grid: {nx}×{ny}×{nz} = {n_grid} points");
 
     let g_to_fft = grid.basis_to_fft(basis);
-    let mut v_local_fft = compute_v_local_on_fft_grid(crystal, &grid, pseudopotentials, omega);
+    let mut v_local_fft = compute_v_local(crystal, &grid, pseudopotentials, omega);
     let v_local_g0 = v_local_fft[0].re;
     v_local_fft[0] = Complex64::new(0.0, 0.0);
     info!("V_local(G=0) = {v_local_g0:.6} eV (excluded from Hamiltonian)");
@@ -667,28 +596,20 @@ fn run_scf_spin(
         let rho_xc_total: Vec<f64> = add_core_density(&rho_total_new, &rho_core_r);
         let occ_all: Vec<Vec<f64>> = occ_up.iter().chain(occ_down.iter()).cloned().collect();
 
-        // E_vxc for spin: ∫(V_xc_up ρ_up + V_xc_down ρ_down) dr
+        // Spin XC double-counting: E_vxc = ∫(V_xc_up ρ_up + V_xc_down ρ_down) dr
         let dvol = omega / n_grid as f64;
         let e_vxc_spin: f64 = rho_up_sym.iter().zip(vxc_up_r.iter())
             .zip(rho_down_sym.iter().zip(vxc_down_r.iter()))
             .map(|((&ru, &vu), (&rd, &vd))| (ru * vu + rd * vd) * dvol)
             .sum();
-        // Use a dummy vxc_r that gives the correct e_vxc when integrated with rho_total
-        // E_vxc_dummy = ∫ vxc_dummy × rho_total × dvol = e_vxc_spin
-        // vxc_dummy = e_vxc_spin / (sum(rho_total) × dvol)
-        let rho_total_sum: f64 = rho_total_new.iter().sum::<f64>() * dvol;
-        let vxc_eff = if rho_total_sum.abs() > 1e-20 {
-            e_vxc_spin / rho_total_sum
-        } else {
-            0.0
-        };
-        let vxc_uniform = vec![vxc_eff; n_grid];
+        let e_xc = xc::lda_xc_energy(&rho_xc_total, &exc_r, omega);
+        let e_xc_corrected = e_xc - e_vxc_spin;
 
-        let e_total = compute_total_energy_from_components(
-            &eigenvalues_all, &occ_all, &weights_all,
-            &rho_xc_total, &rho_total_new, &rho_total_new_g,
-            &g_squared, &exc_r, &vxc_uniform,
-            omega, e_ewald,
+        let e_total = total_energy(
+            band_energy(&eigenvalues_all, &occ_all, &weights_all),
+            hartree_energy(&rho_total_new_g, &g_squared, omega),
+            e_xc_corrected,
+            e_ewald,
         ) + v_local_g0 * n_electrons;
 
         let de = e_prev.map(|ep| (e_total - ep).abs());
@@ -743,287 +664,12 @@ fn run_scf_spin(
     })
 }
 
-fn compute_v_local_on_fft_grid(
-    crystal: &Crystal,
-    grid: &FftGrid,
-    pseudopotentials: &[&PseudopotentialData],
-    omega: f64,
-) -> Vec<Complex64> {
-    let n_grid = grid.total_size();
-
-    // Precompute per-atom data to avoid repeated lookups in the hot loop
-    let atom_data: Vec<(Vector3<f64>, &PseudopotentialData)> = crystal
-        .atoms
-        .iter()
-        .map(|atom| {
-            let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
-            (atom.cart_position(&crystal.lattice), pp)
-        })
-        .collect();
-
-    let dims = grid.dims;
-    let recip = grid.recip.clone();
-    (0..n_grid)
-        .into_par_iter()
-        .map(|idx| {
-            let g = g_vector_at_dims(idx, dims, &recip);
-            let g_norm = g.norm();
-            let mut v = Complex64::new(0.0, 0.0);
-
-            for &(ref tau, pp) in &atom_data {
-                let phase = -g.dot(tau);
-                let sf = Complex64::cis(phase);
-                let v_form = pp.v_local_of_g(g_norm, omega);
-                v += sf * v_form;
-            }
-            v
-        })
-        .collect()
-}
-
-/// Compute Hartree potential on the FULL FFT grid.
-fn hartree_on_fft_grid(rho_g: &[Complex64], g_squared: &[f64]) -> Vec<Complex64> {
-    let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
-
-    rho_g
-        .par_iter()
-        .zip(g_squared.par_iter())
-        .map(|(&rho, &g2)| {
-            if g2 > crate::consts::G2_ZERO_THRESHOLD {
-                rho * fourpi_e2 / g2
-            } else {
-                Complex64::new(0.0, 0.0)
-            }
-        })
-        .collect()
-}
-
-/// Convert real-space array to G-space with FFT normalization.
-fn real_to_g_space(data_r: &[f64], fft: &mut FFT3D) -> Vec<Complex64> {
-    let n = data_r.len();
-    let mut data_g: Vec<Complex64> = data_r.iter().map(|&v| Complex64::new(v, 0.0)).collect();
-    fft.forward(&mut data_g);
-    let norm = 1.0 / n as f64;
-    for v in &mut data_g {
-        *v *= norm;
-    }
-    data_g
-}
-
-/// Assemble V_eff = V_local + V_H + V_xc (CPU path).
-fn assemble_v_eff(
-    v_local: &[Complex64],
-    v_h: &[Complex64],
-    v_xc: &[Complex64],
-) -> Vec<Complex64> {
-    v_local
-        .par_iter()
-        .zip(v_h.par_iter())
-        .zip(v_xc.par_iter())
-        .map(|((&vl, &vh), &vxc)| vl + vh + vxc)
-        .collect()
-}
-
-/// Map Miller indices to a flat FFT grid index (standalone, for use in parallel contexts).
-fn miller_to_idx(dims: [usize; 3], n1: i32, n2: i32, n3: i32) -> usize {
-    let i1 = ((n1 % dims[0] as i32) + dims[0] as i32) as usize % dims[0];
-    let i2 = ((n2 % dims[1] as i32) + dims[1] as i32) as usize % dims[1];
-    let i3 = ((n3 % dims[2] as i32) + dims[2] as i32) as usize % dims[2];
-    i1 * dims[1] * dims[2] + i2 * dims[2] + i3
-}
-
-/// Build Hamiltonian: kinetic + V_eff(G-G') looked up from FFT grid.
-fn build_hamiltonian_with_v_eff(
-    basis: &BasisSet,
-    k: &Vector3<f64>,
-    v_eff_fft: &[Complex64],
-    grid_dims: [usize; 3],
-) -> faer::Mat<Complex64> {
-    let n = basis.len();
-    let mut h = faer::Mat::<Complex64>::zeros(n, n);
-
-    // Kinetic (diagonal)
-    for (i, g) in basis.g_vectors().iter().enumerate() {
-        let ke = HBAR2_OVER_2M * (k + g).norm_squared();
-        h[(i, i)] = Complex64::new(ke, 0.0);
-    }
-
-    // Potential: V_{G,G'} = V_eff(G-G') from FFT grid
-    let miller_idx = basis.miller_indices();
-    for i in 0..n {
-        for j in 0..n {
-            let dn1 = miller_idx[i][0] - miller_idx[j][0];
-            let dn2 = miller_idx[i][1] - miller_idx[j][1];
-            let dn3 = miller_idx[i][2] - miller_idx[j][2];
-            let fft_idx = miller_to_idx(grid_dims, dn1, dn2, dn3);
-            h[(i, j)] += v_eff_fft[fft_idx];
-        }
-    }
-
-    h
-}
-
-/// FFT density from real space to G-space (normalized).
-fn density_r_to_g(fft: &mut FFT3D, rho_r: &[f64], rho_g: &mut [Complex64]) {
-    for (i, &r) in rho_r.iter().enumerate() {
-        rho_g[i] = Complex64::new(r, 0.0);
-    }
-    fft.forward(rho_g);
-    let norm = 1.0 / fft.total_size() as f64;
-    for v in rho_g.iter_mut() {
-        *v *= norm;
-    }
-}
-
-fn density_diff(rho_old: &[f64], rho_new: &[f64], omega: f64, n_grid: usize) -> f64 {
-    let dvol = omega / n_grid as f64;
-    let sum_sq: f64 = rho_old
-        .iter()
-        .zip(rho_new.iter())
-        .map(|(&a, &b)| (a - b).powi(2) * dvol)
-        .sum();
-    (sum_sq / omega).sqrt()
-}
-
-/// Add NLCC core density to valence density for XC evaluation.
-/// Returns rho_val if no core density is present (empty vec).
-/// Clamps to non-negative to avoid NaN from XC evaluation on negative density
-/// (can occur due to Gibbs phenomenon in FFT of truncated core charge).
-fn add_core_density(rho_val: &[f64], rho_core: &[f64]) -> Vec<f64> {
-    if rho_core.is_empty() {
-        rho_val.to_vec()
-    } else {
-        rho_val
-            .iter()
-            .zip(rho_core.iter())
-            .map(|(&v, &c)| (v + c).max(0.0))
-            .collect()
-    }
-}
-
-/// Compute NLCC core density on the real-space FFT grid.
-///
-/// For each atom with NLCC, computes ρ_core(G) via spherical Bessel
-/// transform of PP_NLCC, accumulates with structure factors, then
-/// inverse FFTs to real space. Returns empty vec if no PP has NLCC.
-fn compute_core_density(
-    crystal: &Crystal,
-    grid: &mut FftGrid,
-    pseudopotentials: &[&PseudopotentialData],
-) -> Vec<f64> {
-    // Check if any PP has NLCC
-    let any_nlcc = pseudopotentials.iter().any(|pp| pp.has_nlcc);
-    if !any_nlcc {
-        return vec![];
-    }
-
-    let n_grid = grid.total_size();
-    let omega = crystal.lattice.volume().abs();
-    let mut rho_core_g = vec![Complex64::new(0.0, 0.0); n_grid];
-
-    for atom in &crystal.atoms {
-        let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
-        if !pp.has_nlcc || pp.core_charge.is_empty() {
-            continue;
-        }
-
-        let tau = atom.cart_position(&crystal.lattice);
-
-        // Bessel transform of core charge at each G-vector
-        for (idx, rho_g_val) in rho_core_g.iter_mut().enumerate() {
-            let g = grid.g_vector_at(idx);
-            let g_norm = g.norm();
-
-            // ∫ [4πr²ρ_core(r)] j₀(|G|r) dr
-            let mut integral = 0.0;
-            for ((&rho_c, &r), &dr) in pp
-                .core_charge
-                .iter()
-                .zip(pp.r_grid.iter())
-                .zip(pp.rab.iter())
-            {
-                let gr = g_norm * r;
-                let j0 = if gr < 1e-10 {
-                    1.0 - gr * gr / 6.0
-                } else {
-                    gr.sin() / gr
-                };
-                integral += rho_c * j0 * dr;
-            }
-
-            // Structure factor and normalization
-            let phase = -g.dot(&tau);
-            let sf = Complex64::cis(phase);
-            *rho_g_val += sf * (integral / omega);
-        }
-    }
-
-    // Inverse FFT to real space
-    grid.fft.inverse(&mut rho_core_g);
-
-    // Extract real part (imaginary should be negligible)
-    rho_core_g.iter().map(|c| c.re).collect()
-}
-
-/// Compute total energy reusing pre-computed XC and cached Ewald.
-/// Called every SCF iteration for energy convergence monitoring.
-///
-/// `rho_xc_r`: density for XC energy (ρ_val + ρ_core if NLCC, else ρ_val).
-/// `rho_val_r`: valence density only (for E_vxc double-counting correction).
-#[allow(clippy::too_many_arguments)]
-fn compute_total_energy_from_components(
-    eigenvalues: &[Vec<f64>],
-    occupations: &[Vec<f64>],
-    kpoint_weights: &[f64],
-    rho_xc_r: &[f64],
-    rho_val_r: &[f64],
-    rho_g: &[Complex64],
-    g_squared: &[f64],
-    exc_r: &[f64],
-    vxc_r: &[f64],
-    omega: f64,
-    e_ewald: f64,
-) -> f64 {
-    let n_grid = rho_g.len();
-
-    let e_band: f64 = eigenvalues
-        .iter()
-        .zip(occupations.iter())
-        .zip(kpoint_weights.iter())
-        .map(|((evs, occs), &w)| {
-            evs.iter().zip(occs.iter()).map(|(&e, &f)| f * w * e).sum::<f64>()
-        })
-        .sum();
-
-    let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
-    let e_hartree: f64 = rho_g
-        .iter()
-        .zip(g_squared.iter())
-        .map(|(rho, &g2)| {
-            if g2 > crate::consts::G2_ZERO_THRESHOLD { rho.norm_sqr() * fourpi_e2 / g2 } else { 0.0 }
-        })
-        .sum::<f64>()
-        * 0.5
-        * omega;
-
-    // E_xc = ∫ ε_xc(ρ_total) × ρ_total dr  (uses val+core for NLCC)
-    let e_xc = xc::lda_xc_energy(rho_xc_r, exc_r, omega);
-    let dvol = omega / n_grid as f64;
-    // E_vxc = ∫ V_xc(ρ_total) × ρ_val dr  (only valence for double-counting)
-    let e_vxc: f64 = rho_val_r
-        .iter()
-        .zip(vxc_r.iter())
-        .map(|(&rho, &vxc)| rho * vxc * dvol)
-        .sum();
-
-    
-    e_band - e_hartree + e_xc - e_vxc + e_ewald
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    
     use approx::relative_eq;
+    use crate::fft::FFT3D;
 
     #[test]
     fn test_real_to_g_space_dc_component() {

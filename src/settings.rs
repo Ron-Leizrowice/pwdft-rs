@@ -118,8 +118,8 @@ pub enum KPointSettings {
     BandPath {
         /// Ordered list of high-symmetry points defining the path.
         path: Vec<PathPointSetting>,
-        /// Number of k-points per segment.
-        #[serde(default = "default_band_npoints")]
+        /// Number of k-points per segment (default 50).
+        #[serde(default = "KPointSettings::default_band_npoints")]
         npoints: usize,
     },
 }
@@ -302,8 +302,8 @@ impl Default for OutputSettings {
 // level doesn't work — e.g. enum variants with non-Default values)
 // ---------------------------------------------------------------------------
 
-fn default_band_npoints() -> usize {
-    50
+impl KPointSettings {
+    fn default_band_npoints() -> usize { 50 }
 }
 
 // ---------------------------------------------------------------------------

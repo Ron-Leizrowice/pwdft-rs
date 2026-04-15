@@ -19,41 +19,40 @@ pub struct InputFile {
 
 /// SCF calculation parameters.
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct ScfConfig {
     /// Maximum SCF iterations.
-    #[serde(default = "default_max_iter")]
     pub max_iter: usize,
     /// Convergence threshold for density change (e/ų RMS).
-    #[serde(default = "default_conv_thr")]
     pub conv_threshold: f64,
     /// Density mixing parameter (0 < β ≤ 1). Lower = more conservative.
-    #[serde(default = "default_mixing_beta")]
     pub mixing_beta: f64,
     /// Number of density history vectors for Anderson/Pulay mixing.
-    #[serde(default = "default_mixing_ndim")]
     pub mixing_ndim: usize,
     /// Fermi-Dirac smearing width in eV.
-    #[serde(default = "default_smearing")]
     pub smearing_sigma: f64,
     /// Explicit FFT grid dimensions [nx, ny, nz]. Overrides ecutrho_ratio.
-    /// Use this to match QE's grid exactly for validation.
-    #[serde(default)]
     pub fft_grid: Option<[usize; 3]>,
     /// Charge density cutoff as a multiple of ecutwfc.
-    /// QE default for NC PPs is 4. Higher = more accurate V_xc but slower.
-    #[serde(default = "default_ecutrho_ratio")]
     pub ecutrho_ratio: u32,
     /// Paths to pseudopotential files, keyed by element symbol.
-    #[serde(default)]
     pub pseudopotentials: std::collections::HashMap<String, String>,
 }
 
-fn default_max_iter() -> usize { 100 }
-fn default_conv_thr() -> f64 { 1e-6 }
-fn default_mixing_beta() -> f64 { 0.3 }
-fn default_mixing_ndim() -> usize { 8 }
-fn default_smearing() -> f64 { 0.05 }
-fn default_ecutrho_ratio() -> u32 { 4 }
+impl Default for ScfConfig {
+    fn default() -> Self {
+        Self {
+            max_iter: 100,
+            conv_threshold: 1e-6,
+            mixing_beta: 0.3,
+            mixing_ndim: 8,
+            smearing_sigma: 0.05,
+            fft_grid: None,
+            ecutrho_ratio: 4,
+            pseudopotentials: std::collections::HashMap::new(),
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct SystemConfig {
