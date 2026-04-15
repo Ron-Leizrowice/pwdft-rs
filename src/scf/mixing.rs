@@ -135,9 +135,11 @@ impl AndersonMixer {
 
         // Construct mixed density: Σ α_i (ρ_in_i + β R_i)
         let mut rho_new = alpha_last * (&self.history_in[last] + &(self.beta * r_last));
-        for j in 0..mm {
-            rho_new +=
-                &(alpha_prev[j] * (&self.history_in[j] + &(self.beta * &self.history_res[j])));
+        for ((&alpha, rho_in_j), res_j) in alpha_prev.iter()
+            .zip(self.history_in.iter())
+            .zip(self.history_res.iter())
+        {
+            rho_new += &(alpha * (rho_in_j + &(self.beta * res_j)));
         }
 
         rho_new.to_vec()
@@ -407,7 +409,7 @@ mod tests {
     fn test_kerker_high_g_passes_through() {
         // A residual with only high-G components should pass through Kerker
         // nearly unchanged (P(G) → 1 for large |G|²)
-        let mut fft = FFT3D::new(4, 4, 4);
+        let _fft = FFT3D::new(4, 4, 4);
         let n = 64;
         // All G-vectors have large |G|² (>> q_TF²)
         let g_squared: Vec<f64> = (0..n).map(|i| 100.0 + i as f64).collect();

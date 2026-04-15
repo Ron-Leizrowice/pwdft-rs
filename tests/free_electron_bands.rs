@@ -493,7 +493,7 @@ fn test_bcc_fe_band_continuity() {
     // Γ → H path for BCC: Γ=(0,0,0), H=(1,0,0) in fractional reciprocal
     let recip = lattice.reciprocal();
     let gamma = Vector3::zeros();
-    let h_point = 0.5 * recip.a; // H = (1/2, 0, 0) × 2π/a in Cartesian? Actually H = (1,0,0) frac
+    let _h_point = 0.5 * recip.a; // H = (1/2, 0, 0) × 2π/a in Cartesian? Actually H = (1,0,0) frac
     // For BCC, H point in Cartesian = b1/2 where b1 = reciprocal lattice vector
     // Actually, let's just test along a generic direction
     let k_end = 0.5 * (recip.a + recip.b); // N point for BCC

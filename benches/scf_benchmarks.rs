@@ -9,7 +9,7 @@
 //!   ecut=400 → n_pw≈893, high-accuracy
 //!   ecut=600 → n_pw≈1639, stress test
 
-use criterion::{Criterion, criterion_group, criterion_main, black_box};
+use criterion::{Criterion, criterion_group, criterion_main};\nuse std::hint::black_box;
 use nalgebra::Vector3;
 use num_complex::Complex64;
 
@@ -101,7 +101,7 @@ fn bench_hamiltonian(c: &mut Criterion) {
             });
         });
 
-        let mut h = hamiltonian::build_kinetic(&basis, &k_gamma);
+        let h = hamiltonian::build_kinetic(&basis, &k_gamma);
         let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &[&pp]);
 
         group.bench_function(format!("vnl_apply_n{n}"), |b| {

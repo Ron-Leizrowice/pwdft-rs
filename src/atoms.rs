@@ -115,7 +115,7 @@ impl Element {
     pub fn from_z(z: u32) -> Option<Self> {
         if (1..=92).contains(&z) {
             // SAFETY: Element is repr(u32) with contiguous values 1..=92
-            Some(unsafe { std::mem::transmute(z) })
+            Some(unsafe { std::mem::transmute::<u32, Element>(z) })
         } else {
             None
         }
