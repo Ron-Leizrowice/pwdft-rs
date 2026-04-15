@@ -29,7 +29,17 @@ use self::energy::{
 use self::grid::FftGrid;
 use self::potentials::build_hamiltonian_with_v_eff;
 
-/// Parameters for an SCF calculation.
+/// Parameters controlling the self-consistent field iteration.
+///
+/// The SCF loop solves the Kohn-Sham equations iteratively:
+/// 1. Construct V_eff = V_local + V_Hartree[ρ] + V_xc[ρ]
+/// 2. Diagonalize H = T + V_eff + V_NL at each k-point
+/// 3. Compute occupations from eigenvalues (Fermi-Dirac or other smearing)
+/// 4. Reconstruct density ρ(r) = Σ_{n,k} f_{n,k} w_k |ψ_{n,k}(r)|²
+/// 5. Mix input and output densities (Anderson/Pulay) and repeat
+///
+/// Convergence requires both density (Δρ < conv_threshold) and
+/// energy (ΔE < energy_threshold) criteria to be met.
 #[derive(Clone)]
 pub struct ScfParams {
     pub n_bands: usize,
@@ -80,7 +90,12 @@ impl Default for ScfParams {
     }
 }
 
-/// Result of an SCF calculation.
+/// Output of a converged SCF calculation.
+///
+/// All energies are in eV. The three energy quantities are:
+/// - `total_energy`: E = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0)·N_el
+/// - `free_energy`: F = E - TS (Mermin functional, variational at finite σ)
+/// - `energy_sigma0`: E₀ = (E + F)/2 (best estimate of T=0 energy)
 pub struct ScfResult {
     /// Kohn-Sham total energy (no entropy).
     pub total_energy: f64,
@@ -330,8 +345,10 @@ pub fn run_scf(
 
 /// Spin-polarized SCF loop (nspin=2).
 ///
-/// Two spin channels with independent densities, XC potentials, and Hamiltonians.
-/// Hartree and V_local are spin-independent. V_xc is spin-dependent via LSDA.
+/// Two spin channels with independent densities, XC potentials, and
+/// Hamiltonians. Hartree and V_local are spin-independent (computed from
+/// total density ρ↑ + ρ↓). V_xc is spin-dependent via LSDA.
+/// NLCC core charge is split equally between channels: ρ_core/2 per spin.
 fn run_scf_spin(
     crystal: &Crystal,
     basis: &BasisSet,

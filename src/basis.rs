@@ -16,6 +16,14 @@ pub struct BasisSet {
 }
 
 impl BasisSet {
+    /// Construct the plane-wave basis set for a given energy cutoff.
+    ///
+    /// Includes all reciprocal lattice vectors G = n₁b₁ + n₂b₂ + n₃b₃
+    /// satisfying the kinetic energy cutoff:
+    ///   (ħ²/2m) |G|² ≤ E_cut
+    ///
+    /// where b_i are reciprocal lattice vectors (2π/V × a_j × a_k).
+    /// The number of basis functions scales as N_pw ∝ E_cut^{3/2} × Ω.
     pub fn new(lattice: &Lattice, ecut: f64) -> Self {
         let recip = lattice.reciprocal();
         let g_max_sq = ecut / HBAR2_OVER_2M;

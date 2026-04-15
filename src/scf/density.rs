@@ -24,6 +24,7 @@ pub struct DensityGrid<'a> {
 /// 3. Accumulate f_{n,k} × w_k × |ψ(r)|²
 ///
 /// The result is normalized so that ∫ρ(r)dr = N_electrons.
+/// Output density is in e/ų.
 ///
 /// K-point contributions are computed in parallel and reduced.
 pub fn compute_density(

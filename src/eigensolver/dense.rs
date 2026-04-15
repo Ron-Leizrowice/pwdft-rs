@@ -8,10 +8,13 @@ pub struct EigenResult {
     pub eigenvectors: faer::Mat<Complex64>,
 }
 
-/// Diagonalize a complex Hermitian matrix using faer.
+/// Full Hermitian eigendecomposition of H via faer.
 ///
-/// Returns eigenvalues (ascending) and eigenvectors. The lower triangle
-/// of `h` is referenced.
+/// Solves Hψ = εψ for all eigenvalues and eigenvectors.
+/// Returns eigenvalues in ascending order (ε₁ ≤ ε₂ ≤ ... ≤ εₙ).
+///
+/// Uses faer's `self_adjoint_eigen` (dense, O(n³) LAPACK-equivalent).
+/// Only the lower triangle of H is read.
 ///
 /// # Panics
 /// Panics if the matrix is not square or if the eigendecomposition fails.

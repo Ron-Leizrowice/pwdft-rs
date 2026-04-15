@@ -28,8 +28,8 @@ pub fn build_kinetic(basis: &BasisSet, k: &Vector3<f64>) -> faer::Mat<Complex64>
 /// where T is the kinetic energy (diagonal) and V_eff is the effective
 /// potential in reciprocal space (from Hartree + XC + pseudopotential).
 ///
-/// `v_eff` maps a G-vector difference to the potential value.
-/// For Phase 1 (free electrons), pass `None` to get kinetic-only.
+/// `v_eff` maps a pair of basis indices (i, j) to V_eff(G_i - G_j).
+/// Pass `None` for free-electron (kinetic-only) calculations.
 pub fn build_hamiltonian(
     basis: &BasisSet,
     k: &Vector3<f64>,

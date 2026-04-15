@@ -15,9 +15,20 @@ use crate::{
     pseudopotential::PseudopotentialData,
 };
 
-/// Compute the Ewald ion-ion energy for a crystal.
+/// Compute the Ewald ion-ion energy for a crystal. Returns energy in eV.
 ///
-/// Returns the energy in eV.
+/// Decomposes the Coulomb sum of periodic point charges into four terms:
+///
+///   E_real  = (e²/2) Σ'_{i,j,T} Z_i Z_j erfc(η|r_ij+T|) / |r_ij+T|
+///   E_recip = (2πe²/Ω) Σ_{G≠0} |S(G)|² exp(-|G|²/(4η²)) / |G|²
+///   E_self  = -(η/√π) e² Σ_i Z_i²
+///   E_bg    = -πe² (Σ Z_i)² / (2Ωη²)
+///
+/// where S(G) = Σ_i Z_i exp(iG·r_i) is the charge-weighted structure factor,
+/// η = (N_atoms π/Ω)^{1/3} balances real/reciprocal cost, and the primed sum
+/// excludes i=j when T=0 (self-interaction).
+///
+/// Cutoffs: g_max = 10η (reciprocal), r_max = 10/η (real).
 pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]) -> f64 {
     let omega = crystal.lattice.volume().abs();
 

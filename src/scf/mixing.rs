@@ -20,7 +20,21 @@ pub enum MixingMode {
     Kerker { q_tf: Option<f64> },
 }
 
-/// Anderson/Pulay density mixer with optional Kerker preconditioning.
+/// Anderson/Pulay (DIIS) density mixer with optional Kerker preconditioning.
+///
+/// Stores a history of input densities and residuals R^(n) = ρ_out^(n) - ρ_in^(n).
+/// At each step, finds coefficients c_i (summing to 1) that minimize |Σ c_i R^(i)|²
+/// by solving the DIIS linear system, then constructs the new density as:
+///
+///   ρ_in^{n+1} = Σ_i c_i [ρ_in^(i) + β R^(i)]
+///
+/// where β is the mixing parameter.
+///
+/// With Kerker preconditioning, the residual is modified in G-space before mixing:
+///   R̃(G) = [|G|² / (|G|² + q_TF²)] R(G)
+///
+/// This damps long-wavelength charge sloshing, which is the dominant source of
+/// SCF instability in metals and large-gap systems.
 pub struct AndersonMixer {
     beta: f64,
     max_history: usize,

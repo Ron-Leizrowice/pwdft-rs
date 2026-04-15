@@ -7,10 +7,15 @@ use ndarray::Array3;
 use ndrustfft::{FftHandler, Normalization, ndfft, ndifft};
 use num_complex::Complex64;
 
-/// 3D FFT on a regular grid.
+/// 3D FFT via batched 1D transforms (z → y → x).
 ///
-/// Performs forward and inverse complex-to-complex transforms using
-/// ndrustfft's safe ndarray-based 1D FFTs along each axis.
+/// Convention:
+///   Forward:  f̃(G) = Σ_r f(r) e^{-iG·r}     (unnormalized)
+///   Inverse:  f(r) = Σ_G f̃(G) e^{+iG·r}     (unnormalized)
+///
+/// The forward FFT is unnormalized; callers must divide by N = nx·ny·nz
+/// to get Fourier coefficients. Use `inverse_normalized()` for the
+/// convention f(r) = (1/N) Σ_G f̃(G) e^{+iG·r}.
 pub struct FFT3D {
     dims: [usize; 3],
     fwd_handlers: [FftHandler<f64>; 3],
@@ -88,6 +93,14 @@ impl FFT3D {
 /// Choose FFT-friendly grid dimensions for a given basis.
 ///
 /// Returns the smallest `n >= 2*n_max + 1` that is a product of small primes (2,3,5).
+/// Find the smallest FFT-friendly grid size n ≥ 2·n_max + 1.
+///
+/// The factor 2·n_max + 1 is the Nyquist criterion: G-vectors range from
+/// -n_max to +n_max, requiring at least 2·n_max + 1 grid points to avoid
+/// aliasing when computing products like V(G-G') in the Hamiltonian.
+///
+/// Grid sizes that are products of small primes (2, 3, 5) give optimal FFT
+/// performance; arbitrary sizes may be much slower.
 pub fn fft_grid_size(n_max: i32) -> usize {
     let min_n = (2 * n_max + 1) as usize;
     let mut n = min_n;

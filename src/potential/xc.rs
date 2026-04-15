@@ -163,6 +163,15 @@ pub struct XcSpinPoint {
 /// Spin-polarized LDA XC at a single point.
 ///
 /// `rho_up`, `rho_down` in e/ų. Returns energy density and potentials in eV.
+/// Evaluate spin-polarized LDA XC at a single point.
+///
+/// Exchange: ε_x^σ = -(3/4)(6ρ_σ/π)^{1/3} (fully polarized gas per channel).
+/// Correlation: interpolated between unpolarized (ζ=0) and fully polarized (ζ=1)
+/// using the von Barth-Hedin interpolation function:
+///   f(ζ) = [(1+ζ)^{4/3} + (1-ζ)^{4/3} - 2] / [2^{4/3} - 2]
+///   ε_c(r_s, ζ) = ε_c^unpol + f(ζ) [ε_c^pol - ε_c^unpol]
+///
+/// `rho_up`, `rho_down` in e/ų. Returns (ε_xc, V_xc↑, V_xc↓) in eV.
 pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> XcSpinPoint {
     let rho = rho_up + rho_down;
     if rho < 1e-30 {

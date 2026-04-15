@@ -39,6 +39,11 @@ impl Lattice {
         Self { a, b, c }
     }
 
+    /// Cell volume Ω = a · (b × c).
+    ///
+    /// Returns the signed scalar triple product. Positive for right-handed
+    /// lattice vectors, negative for left-handed. Use `.abs()` when a
+    /// positive volume is needed (e.g., normalization).
     pub fn volume(&self) -> f64 {
         self.a.cross(&self.b).dot(&self.c)
     }

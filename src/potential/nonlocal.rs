@@ -47,9 +47,9 @@ impl NonlocalPotential {
     /// where θ is the angle between q and q'.
     ///
     /// So: V_NL_{G,G'} = Σ_atom S(G-G') Σ_{i,j with same l}
-    ///     F_i(|k+G|) D_{ij} F_j(|k+G'|) × (2l+1)/(4π) P_l(cos θ) × (-1)^l
+    ///     F_i(|k+G|) D_{ij} F_j(|k+G'|) × (2l+1)/(4π) P_l(cos θ)
     ///
-    /// (The i^l × (i*)^l = (-1)^l factor)
+    /// (Phase factors i^l from bra and (i*)^l from ket give |i|^{2l} = 1.)
     pub fn new(
         crystal: &Crystal,
         basis: &BasisSet,
@@ -206,6 +206,14 @@ impl NonlocalPotential {
 /// F(q) = 4π ∫₀^∞ [r·β(r)] j_l(qr) r dr
 ///
 /// where `r_beta` stores r·β(r) (the UPF convention).
+/// Spherical Bessel transform of a projector:
+///   F(q) = 4π ∫₀^∞ [r·β(r)] j_l(qr) r dr
+///
+/// `r_grid`: radial grid points (Å).
+/// `rab`: integration weights dr (Å). For log grids, rab[i] = r[i] × log_step.
+/// `r_beta`: r·β(r) in Å^{-1/2} (UPF convention: projectors stored as r×β).
+/// `l`: angular momentum quantum number.
+/// `q`: wavevector magnitude |k+G| (Å⁻¹).
 fn bessel_transform_projector(
     r_grid: &[f64],
     rab: &[f64],

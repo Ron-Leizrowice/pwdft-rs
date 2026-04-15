@@ -104,6 +104,12 @@ fn occupation_01(scheme: SmearingScheme, energy: f64, fermi_energy: f64, sigma: 
     }
 }
 
+/// Fermi-Dirac occupation (before spin factor).
+///
+/// f(ε) = 1 / (1 + exp(x))  where x = (ε - E_F) / σ
+///
+/// At T=0 (σ→0): step function θ(E_F - ε), with f(E_F) = 1/2.
+/// Overflow-protected for |x| > 40.
 fn fermi_dirac_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     if sigma < 1e-15 {
         return if energy < fermi_energy { 1.0 }
@@ -114,6 +120,9 @@ fn fermi_dirac_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     if x > 40.0 { 0.0 } else if x < -40.0 { 1.0 } else { 1.0 / (1.0 + x.exp()) }
 }
 
+/// Gaussian smearing occupation (before spin factor).
+///
+/// f(ε) = erfc(x) / 2  where x = (ε - E_F) / σ
 fn gaussian_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     if sigma < 1e-15 {
         return if energy < fermi_energy { 1.0 }
@@ -124,6 +133,11 @@ fn gaussian_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     puruspe::erfc(x) / 2.0
 }
 
+/// Methfessel-Paxton order-1 occupation (before spin factor).
+///
+/// f(ε) = erfc(x)/2 - (x/2) exp(-x²) / √π
+///
+/// Reference: Methfessel & Paxton, Phys. Rev. B 40, 3616 (1989).
 fn methfessel_paxton_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     if sigma < 1e-15 {
         return if energy < fermi_energy { 1.0 }
@@ -136,6 +150,14 @@ fn methfessel_paxton_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     f0 - 0.5 * x * gauss
 }
 
+/// Marzari-Vanderbilt "cold" smearing occupation (before spin factor).
+///
+/// f(ε) = (1/2) erfc(x + 1/√2) + exp(-(x + 1/√2)²) / √(2π)
+///
+/// Designed to give positive-definite entropy. Argument shifted by 1/√2
+/// so that f(E_F) = 1/2 exactly.
+///
+/// Reference: Marzari, Vanderbilt, De Vita, Payne, Phys. Rev. Lett. 82, 3296 (1999).
 fn cold_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     if sigma < 1e-15 {
         return if energy < fermi_energy { 1.0 }
@@ -178,7 +200,15 @@ pub fn entropy_ts(
     s * sigma * spin_factor
 }
 
-/// Per-state entropy weight for a given scheme and reduced variable x = (ε-E_F)/σ.
+/// Per-state entropy weight s(x) for reduced variable x = (ε - E_F)/σ.
+///
+/// The total entropy is TS = σ × spin_factor × Σ_{n,k} w_k s(x_{n,k}).
+///
+/// Formulas by scheme:
+/// - Fermi-Dirac: s = -[f ln f + (1-f) ln(1-f)]
+/// - Gaussian:    s = exp(-x²) / √π
+/// - Methfessel-Paxton: s = (1/2 - x²) exp(-x²) / √π
+/// - Cold:        s = (x + 1/√2) exp(-(x + 1/√2)²) / √π
 fn entropy_weight(scheme: SmearingScheme, x: f64) -> f64 {
     match scheme {
         SmearingScheme::FermiDirac => {
