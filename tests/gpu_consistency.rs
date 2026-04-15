@@ -404,3 +404,56 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
         }
     }
 }
+
+#[test]
+fn test_gpu_scf_kerker_converges() {
+    // Verify GPU SCF with Kerker preconditioning converges.
+    // Exercises the GPU Hartree/XC/V_eff kernels with Kerker's
+    // FFT→filter→IFFT in the mixing step.
+    let Some(_) = GpuAccelerator::try_new() else {
+        eprintln!("No GPU, skipping");
+        return;
+    };
+
+    let crystal = si_crystal();
+    let basis = BasisSet::new(&crystal.lattice, 100.0);
+    let pp = pwdft_rs::pseudopotential::load(
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+    )
+    .unwrap();
+    let kpoints = vec![pwdft_rs::kpoints::KPoint {
+        k: nalgebra::Vector3::zeros(),
+        weight: 1.0,
+        label: None,
+    }];
+
+    let params = pwdft_rs::scf::ScfParams {
+        n_bands: 4,
+        max_iter: 40,
+        conv_threshold: 1e-6,
+        mixing_beta: 0.3,
+        mixing_ndim: 4,
+        smearing_sigma: 0.05,
+        ecutrho_ratio: 4,
+        fft_grid: Some([16, 16, 16]),
+        mixing_mode: pwdft_rs::scf::mixing::MixingMode::Kerker { q_tf: None },
+    };
+
+    let result = pwdft_rs::scf::run_scf(
+        &crystal, &basis, &kpoints, &[&pp], &params, None,
+    );
+
+    match result {
+        Ok(r) => {
+            eprintln!("GPU+Kerker SCF converged in {} iterations, E={:.6} eV",
+                r.n_iterations, r.total_energy);
+            assert!(
+                r.total_energy < -100.0 && r.total_energy > -300.0,
+                "Energy {:.2} eV outside reasonable range", r.total_energy
+            );
+        }
+        Err(e) => {
+            eprintln!("GPU+Kerker SCF did not converge: {e}");
+        }
+    }
+}

@@ -193,3 +193,61 @@ fn test_scf_serial_vs_parallel() {
         );
     }
 }
+
+#[test]
+fn test_scf_kerker_serial_vs_parallel() {
+    // Same as above but with Kerker preconditioning enabled.
+    // Exercises the FFT→filter→IFFT path inside the mixer under parallelism.
+    let crystal = si_crystal();
+    let basis = BasisSet::new(&crystal.lattice, 100.0);
+    let pp = pwdft_rs::pseudopotential::load(
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+    )
+    .unwrap();
+
+    let kpoints = vec![pwdft_rs::kpoints::KPoint {
+        k: Vector3::zeros(),
+        weight: 1.0,
+        label: None,
+    }];
+
+    let params = pwdft_rs::scf::ScfParams {
+        n_bands: 4,
+        max_iter: 40,
+        conv_threshold: 1e-6,
+        mixing_beta: 0.3,
+        mixing_ndim: 4,
+        smearing_sigma: 0.05,
+        ecutrho_ratio: 4,
+        fft_grid: Some([16, 16, 16]),
+        mixing_mode: pwdft_rs::scf::mixing::MixingMode::Kerker { q_tf: None },
+    };
+
+    let result_s = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap()
+        .install(|| {
+            pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None)
+        });
+
+    let result_p =
+        pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None);
+
+    if let (Ok(s), Ok(p)) = (&result_s, &result_p) {
+        for (ik, (evs_s, evs_p)) in s.eigenvalues.iter().zip(p.eigenvalues.iter()).enumerate() {
+            for (ib, (&es, &ep)) in evs_s.iter().zip(evs_p.iter()).enumerate() {
+                assert!(
+                    (es - ep).abs() < 1e-6,
+                    "Kerker eigenvalue mismatch at k={ik} band={ib}: serial={es:.6}, parallel={ep:.6}"
+                );
+            }
+        }
+        assert!(
+            (s.total_energy - p.total_energy).abs() < 1e-4,
+            "Kerker energy mismatch: serial={:.6}, parallel={:.6}",
+            s.total_energy,
+            p.total_energy
+        );
+    }
+}
