@@ -240,6 +240,13 @@ pub fn run_scf(
     // Precompute NLCC core density on real-space grid (constant across iterations).
     // ρ_core(r) is added to ρ_valence(r) before XC evaluation.
     let rho_core_r = compute_core_density(crystal, &mut grid, pseudopotentials);
+    if !rho_core_r.is_empty() {
+        let core_min = rho_core_r.iter().copied().fold(f64::INFINITY, f64::min);
+        let core_max = rho_core_r.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let core_sum: f64 = rho_core_r.iter().sum::<f64>() * omega / n_grid as f64;
+        let _has_nan = rho_core_r.iter().any(|v| v.is_nan());
+        info!("NLCC core density: min={core_min:.4e} max={core_max:.4e} integral={core_sum:.4}");
+    }
 
     for iter in 0..params.max_iter {
         // Steps 1-3: Hartree, XC, V_eff assembly.
@@ -554,6 +561,8 @@ fn density_diff(rho_old: &[f64], rho_new: &[f64], omega: f64, n_grid: usize) -> 
 
 /// Add NLCC core density to valence density for XC evaluation.
 /// Returns rho_val if no core density is present (empty vec).
+/// Clamps to non-negative to avoid NaN from XC evaluation on negative density
+/// (can occur due to Gibbs phenomenon in FFT of truncated core charge).
 fn add_core_density(rho_val: &[f64], rho_core: &[f64]) -> Vec<f64> {
     if rho_core.is_empty() {
         rho_val.to_vec()
@@ -561,7 +570,7 @@ fn add_core_density(rho_val: &[f64], rho_core: &[f64]) -> Vec<f64> {
         rho_val
             .iter()
             .zip(rho_core.iter())
-            .map(|(&v, &c)| v + c)
+            .map(|(&v, &c)| (v + c).max(0.0))
             .collect()
     }
 }
@@ -681,6 +690,7 @@ fn compute_total_energy_from_components(
         .map(|(&rho, &vxc)| rho * vxc * dvol)
         .sum();
 
+    
     e_band - e_hartree + e_xc - e_vxc + e_ewald
 }
 

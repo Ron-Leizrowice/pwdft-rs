@@ -147,6 +147,8 @@ fn test_fe_bcc_vs_qe() {
 
             let de = (r.total_energy - qe_energy).abs();
             eprintln!("Fe energy diff vs QE: {de:.4} eV");
+            eprintln!("Fe free energy: {:.4} eV", r.free_energy);
+            eprintln!("Fe entropy TS: {:.6} eV", r.entropy_ts);
 
             // Fe with NC PP at low cutoff — may have large discrepancy
             // Log the comparison but don't fail hard

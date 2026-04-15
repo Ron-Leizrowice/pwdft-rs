@@ -70,6 +70,32 @@ fn test_fe_kinetic_eigenvalues() {
 }
 
 #[test]
+fn test_fe_energy_decomposition() {
+    // Compare individual energy components against QE reference.
+    // QE at 15 Ry:
+    //   one-electron: 280.15 eV  (band energy = kinetic + V_local + V_NL from eigenvalues)
+    //   hartree:        3.35 eV
+    //   xc:          -299.90 eV
+    //   ewald:       -584.29 eV
+    //   total:       -600.93 eV (= one-electron + hartree + xc + ewald)
+    //
+    // QE's "total" = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0)*N_el
+    // But QE's "one-electron" = E_band (from eigenvalues, which EXCLUDE V_local(G=0))
+    // And "xc" = E_xc - E_vxc (double-counting corrected)
+    //
+    // So: total = one_electron + hartree + xc + ewald
+
+    let crystal = fe_bcc();
+    let pp = fe_pp();
+    let _omega = crystal.lattice.volume().abs();
+
+    // Ewald
+    let e_ewald = pwdft_rs::ewald::ewald_energy(&crystal, &[&pp]);
+    let qe_ewald = -42.94465594 * RY_TO_EV;
+    eprintln!("Ewald:  ours={e_ewald:.4}  QE={qe_ewald:.4}  diff={:.4}", e_ewald - qe_ewald);
+}
+
+#[test]
 fn test_fe_ewald_energy() {
     let crystal = fe_bcc();
     let pp = fe_pp();

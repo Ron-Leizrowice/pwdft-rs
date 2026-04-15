@@ -179,7 +179,11 @@ fn entropy_weight(scheme: SmearingScheme, x: f64) -> f64 {
     match scheme {
         SmearingScheme::FermiDirac => {
             // S = -2 [f/2 ln(f/2) + (1-f/2) ln(1-f/2)] where f = 2/(1+exp(x))
-            let f_half = 1.0 / (1.0 + x.exp()); // per-spin occupation
+            // Guard against overflow: for |x| > 40, entropy is negligible
+            if x.abs() > 30.0 {
+                return 0.0;
+            }
+            let f_half = 1.0 / (1.0 + x.exp());
             let f_half = f_half.clamp(1e-30, 1.0 - 1e-30);
             -2.0 * (f_half * f_half.ln() + (1.0 - f_half) * (1.0 - f_half).ln())
         }
