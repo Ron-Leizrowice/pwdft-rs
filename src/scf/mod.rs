@@ -342,9 +342,12 @@ pub fn run_scf(
 
         let rho_new_for_xc = add_core_density(&rho_r_new, &rho_core_r);
         let (exc_r, vxc_r_energy) = xc::lda_xc_grid(&rho_new_for_xc);
+        // NLCC: E_xc uses total density (val+core), E_vxc uses valence only
         let e_total = compute_total_energy_from_components(
-            &eigenvalues_all, &occupations, kpoints, &rho_r_new, &rho_g_new,
-            &g_squared, &exc_r, &vxc_r_energy, omega, e_ewald,
+            &eigenvalues_all, &occupations, kpoints,
+            &rho_new_for_xc, // total density for E_xc = ∫ ε_xc × (ρ_val+ρ_core) dr
+            &rho_r_new,       // valence density for E_vxc = ∫ V_xc × ρ_val dr
+            &rho_g_new, &g_squared, &exc_r, &vxc_r_energy, omega, e_ewald,
         ) + v_local_g0 * n_electrons;
 
         let de = e_prev.map(|ep| (e_total - ep).abs());
@@ -629,12 +632,16 @@ fn compute_core_density(
 
 /// Compute total energy reusing pre-computed XC and cached Ewald.
 /// Called every SCF iteration for energy convergence monitoring.
+///
+/// `rho_xc_r`: density for XC energy (ρ_val + ρ_core if NLCC, else ρ_val).
+/// `rho_val_r`: valence density only (for E_vxc double-counting correction).
 #[allow(clippy::too_many_arguments)]
 fn compute_total_energy_from_components(
     eigenvalues: &[Vec<f64>],
     occupations: &[Vec<f64>],
     kpoints: &[KPoint],
-    rho_r: &[f64],
+    rho_xc_r: &[f64],
+    rho_val_r: &[f64],
     rho_g: &[Complex64],
     g_squared: &[f64],
     exc_r: &[f64],
@@ -664,9 +671,11 @@ fn compute_total_energy_from_components(
         * 0.5
         * omega;
 
-    let e_xc = xc::lda_xc_energy(rho_r, exc_r, omega);
+    // E_xc = ∫ ε_xc(ρ_total) × ρ_total dr  (uses val+core for NLCC)
+    let e_xc = xc::lda_xc_energy(rho_xc_r, exc_r, omega);
     let dvol = omega / n_grid as f64;
-    let e_vxc: f64 = rho_r
+    // E_vxc = ∫ V_xc(ρ_total) × ρ_val dr  (only valence for double-counting)
+    let e_vxc: f64 = rho_val_r
         .iter()
         .zip(vxc_r.iter())
         .map(|(&rho, &vxc)| rho * vxc * dvol)
