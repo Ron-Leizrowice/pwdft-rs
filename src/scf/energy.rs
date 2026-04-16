@@ -72,7 +72,9 @@ pub(crate) fn xc_energy_corrected(
     e_xc - e_vxc
 }
 
-/// Total energy: E_band - E_H + (E_xc - E_vxc) + E_ewald.
+/// Kohn-Sham total energy: E_band - E_H[rho_out] + (E_xc[rho_out] - E_vxc[rho_out]) + E_ewald.
+///
+/// Uses the OUTPUT density (from new wavefunctions) for double-counting corrections.
 pub(crate) fn total_energy(
     e_band: f64,
     e_hartree: f64,
@@ -80,6 +82,23 @@ pub(crate) fn total_energy(
     e_ewald: f64,
 ) -> f64 {
     e_band - e_hartree + e_xc_corrected + e_ewald
+}
+
+/// Harris-Foulkes energy: E_band - E_H[rho_in] + (E_xc[rho_in] - E_vxc[rho_in]) + E_ewald.
+///
+/// Uses the INPUT density for all double-counting corrections but OUTPUT eigenvalues
+/// (from diagonalizing H[rho_in]). This is stationary at self-consistency: first-order
+/// density errors cancel, making E_HF converge quadratically to E_KS.
+///
+/// Reference: Harris, Phys. Rev. B 31, 1770 (1985);
+///            Foulkes & Haydock, Phys. Rev. B 39, 12520 (1989).
+pub(crate) fn harris_foulkes_energy(
+    e_band: f64,
+    e_hartree_in: f64,
+    e_xc_corrected_in: f64,
+    e_ewald: f64,
+) -> f64 {
+    e_band - e_hartree_in + e_xc_corrected_in + e_ewald
 }
 
 // ---------------------------------------------------------------------------

@@ -24,8 +24,8 @@ use crate::{
 
 use self::energy::{
     add_core_density, assemble_v_eff, band_energy, density_diff,
-    density_r_to_g, hartree_energy, hartree_on_fft_grid, real_to_g_space,
-    total_energy, xc_energy_corrected,
+    density_r_to_g, harris_foulkes_energy, hartree_energy, hartree_on_fft_grid,
+    real_to_g_space, total_energy, xc_energy_corrected,
 };
 use self::grid::FftGrid;
 use self::potentials::build_hamiltonian_with_v_eff;
@@ -131,6 +131,12 @@ impl Default for ScfParams {
 pub struct ScfResult {
     /// Kohn-Sham total energy (no entropy).
     pub total_energy: f64,
+    /// Harris-Foulkes energy (double-counting from input density).
+    ///
+    /// Uses the input density for Hartree/XC corrections but output eigenvalues.
+    /// Stationary at self-consistency: |E_HF - E_KS| -> 0 quadratically.
+    /// Serves as a convergence quality indicator.
+    pub harris_foulkes_energy: f64,
     /// Free energy F = E - TS (Mermin functional, variational quantity).
     pub free_energy: f64,
     /// Sigma→0 extrapolated energy E₀ = (E + F) / 2.
@@ -268,13 +274,13 @@ pub fn run_scf(
         // NLCC: add core density to valence density for XC evaluation
         let rho_for_xc = add_core_density(&rho_r, &ctx.rho_core_r);
         #[cfg(feature = "gpu")]
-        let (_exc_r, vxc_r) = if let Some(ref gpu) = gpu {
+        let (exc_r_in, vxc_r) = if let Some(ref gpu) = gpu {
             gpu.lda_xc(&rho_for_xc)
         } else {
             xc::lda_xc_grid(&rho_for_xc)
         };
         #[cfg(not(feature = "gpu"))]
-        let (_exc_r, vxc_r) = xc::lda_xc_grid(&rho_for_xc);
+        let (exc_r_in, vxc_r) = xc::lda_xc_grid(&rho_for_xc);
 
         let vxc_g = real_to_g_space(&vxc_r, &mut ctx.grid.fft);
 
@@ -341,12 +347,26 @@ pub fn run_scf(
         let rho_new_for_xc = add_core_density(&rho_r_new, &ctx.rho_core_r);
         let (exc_r, vxc_r_energy) = xc::lda_xc_grid(&rho_new_for_xc);
 
+        let e_band = band_energy(&eigenvalues_all, &occupations, &ctx.kpt_weights);
+
+        // Kohn-Sham energy: double-counting from OUTPUT density
         let e_total = total_energy(
-            band_energy(&eigenvalues_all, &occupations, &ctx.kpt_weights),
+            e_band,
             hartree_energy(&rho_g_new, &ctx.g_squared, ctx.omega),
             xc_energy_corrected(&rho_new_for_xc, &rho_r_new, &exc_r, &vxc_r_energy, ctx.omega),
             ctx.e_ewald,
         ) + ctx.v_local_g0 * ctx.n_electrons;
+
+        // Harris-Foulkes energy: double-counting from INPUT density
+        // rho_g, rho_for_xc, exc_r_in, vxc_r are all from the input density
+        let e_harris = harris_foulkes_energy(
+            e_band,
+            hartree_energy(&rho_g, &ctx.g_squared, ctx.omega),
+            xc_energy_corrected(&rho_for_xc, &rho_r, &exc_r_in, &vxc_r, ctx.omega),
+            ctx.e_ewald,
+        ) + ctx.v_local_g0 * ctx.n_electrons;
+
+        let hf_diff = (e_harris - e_total).abs();
 
         let de = e_prev.map(|ep| (e_total - ep).abs());
         e_prev = Some(e_total);
@@ -359,11 +379,19 @@ pub fn run_scf(
             "E={e_total:.4} eV  Δρ={delta:.1e}"
         ));
         info!(
-            "SCF iter {:>3}: E={:.6} eV  dE={:>10}  Δρ={:.2e}",
-            iter + 1, e_total,
+            "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e}",
+            iter + 1, e_total, e_harris, hf_diff,
             de.map_or("N/A".to_string(), |de| format!("{de:.2e}")),
             delta
         );
+
+        // Warn if density converged but Harris-Foulkes difference is large
+        if rho_converged && energy_converged && hf_diff > 0.01 {
+            log::warn!(
+                "Density converged but |E_HF - E_KS| = {hf_diff:.2e} eV — \
+                 energy may not be reliable. Consider tightening conv_threshold."
+            );
+        }
 
         if rho_converged && energy_converged {
             pb.finish_and_clear();
@@ -379,7 +407,8 @@ pub fn run_scf(
             let free_energy = e_total - ts;
             let energy_sigma0 = (e_total + free_energy) / 2.0;
 
-            info!("Energy (E):      {e_total:.6} eV");
+            info!("Energy (E_KS):   {e_total:.6} eV");
+            info!("Harris-Foulkes:  {e_harris:.6} eV  (|HF-KS|={hf_diff:.2e})");
             info!("Free energy (F): {free_energy:.6} eV");
             info!("E sigma→0 (E₀):  {energy_sigma0:.6} eV");
             if ts.abs() > 1e-8 {
@@ -391,6 +420,7 @@ pub fn run_scf(
 
             return Ok(ScfResult {
                 total_energy: e_total,
+                harris_foulkes_energy: e_harris,
                 free_energy,
                 energy_sigma0,
                 entropy_ts: ts,
@@ -612,21 +642,47 @@ fn run_scf_spin(
         let rho_xc_total: Vec<f64> = add_core_density(&rho_total_new, &ctx.rho_core_r);
         let occ_all: Vec<Vec<f64>> = occ_up.iter().chain(occ_down.iter()).cloned().collect();
 
-        // Spin XC double-counting: E_vxc = integral(V_xc_up rho_up + V_xc_down rho_down) dr
+        // Spin XC double-counting (OUTPUT density): E_vxc = integral(V_xc_up rho_up_out + V_xc_down rho_down_out) dr
+        // Note: vxc_up_r and vxc_down_r are from the INPUT density (step 2),
+        //       rho_up_sym/rho_down_sym are the OUTPUT density.
+        //       This matches QE's convention for E_KS.
         let dvol = ctx.omega / ctx.n_grid as f64;
-        let e_vxc_spin: f64 = rho_up_sym.iter().zip(vxc_up_r.iter())
+        let e_vxc_spin_out: f64 = rho_up_sym.iter().zip(vxc_up_r.iter())
             .zip(rho_down_sym.iter().zip(vxc_down_r.iter()))
             .map(|((&ru, &vu), (&rd, &vd))| (ru * vu + rd * vd) * dvol)
             .sum();
-        let e_xc = xc::lda_xc_energy(&rho_xc_total, &exc_r, ctx.omega);
-        let e_xc_corrected = e_xc - e_vxc_spin;
+        let e_xc_out = xc::lda_xc_energy(&rho_xc_total, &exc_r, ctx.omega);
+        let e_xc_corrected_out = e_xc_out - e_vxc_spin_out;
 
+        let e_band = band_energy(&eigenvalues_all, &occ_all, &weights_all);
+
+        // Kohn-Sham energy: double-counting from OUTPUT density
         let e_total = total_energy(
-            band_energy(&eigenvalues_all, &occ_all, &weights_all),
+            e_band,
             hartree_energy(&rho_total_new_g, &ctx.g_squared, ctx.omega),
-            e_xc_corrected,
+            e_xc_corrected_out,
             ctx.e_ewald,
         ) + ctx.v_local_g0 * ctx.n_electrons;
+
+        // Harris-Foulkes energy: double-counting from INPUT density
+        // rho_total_g, rho_up_xc, rho_down_xc, exc_r, vxc_up_r, vxc_down_r
+        // are all from the input density
+        let rho_xc_total_in: Vec<f64> = add_core_density(&rho_total_r, &ctx.rho_core_r);
+        let e_xc_in = xc::lda_xc_energy(&rho_xc_total_in, &exc_r, ctx.omega);
+        let e_vxc_spin_in: f64 = rho_up_r.iter().zip(vxc_up_r.iter())
+            .zip(rho_down_r.iter().zip(vxc_down_r.iter()))
+            .map(|((&ru, &vu), (&rd, &vd))| (ru * vu + rd * vd) * dvol)
+            .sum();
+        let e_xc_corrected_in = e_xc_in - e_vxc_spin_in;
+
+        let e_harris = harris_foulkes_energy(
+            e_band,
+            hartree_energy(&rho_total_g, &ctx.g_squared, ctx.omega),
+            e_xc_corrected_in,
+            ctx.e_ewald,
+        ) + ctx.v_local_g0 * ctx.n_electrons;
+
+        let hf_diff = (e_harris - e_total).abs();
 
         let de = e_prev.map(|ep| (e_total - ep).abs());
         e_prev = Some(e_total);
@@ -640,11 +696,19 @@ fn run_scf_spin(
             "E={e_total:.4} eV  Δρ={delta:.1e}  M={mag:.2} μB"
         ));
         info!(
-            "SCF iter {:>3}: E={:.6} eV  dE={:>10}  Δρ={:.2e}  M={:.3} μB",
-            iter + 1, e_total,
+            "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e}  M={:.3} μB",
+            iter + 1, e_total, e_harris, hf_diff,
             de.map_or("N/A".to_string(), |de| format!("{de:.2e}")),
             delta, mag
         );
+
+        // Warn if density converged but Harris-Foulkes difference is large
+        if rho_converged && energy_converged && hf_diff > 0.01 {
+            log::warn!(
+                "Density converged but |E_HF - E_KS| = {hf_diff:.2e} eV — \
+                 energy may not be reliable. Consider tightening conv_threshold."
+            );
+        }
 
         if rho_converged && energy_converged {
             pb.finish_and_clear();
@@ -660,8 +724,14 @@ fn run_scf_spin(
             let free_energy = e_total - ts;
             let energy_sigma0 = (e_total + free_energy) / 2.0;
 
+            info!("Energy (E_KS):   {e_total:.6} eV");
+            info!("Harris-Foulkes:  {e_harris:.6} eV  (|HF-KS|={hf_diff:.2e})");
+            info!("Free energy (F): {free_energy:.6} eV");
+            info!("E sigma→0 (E₀):  {energy_sigma0:.6} eV");
+
             return Ok(ScfResult {
                 total_energy: e_total,
+                harris_foulkes_energy: e_harris,
                 free_energy,
                 energy_sigma0,
                 entropy_ts: ts,
