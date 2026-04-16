@@ -215,6 +215,11 @@ pub enum OccupationType {
 }
 
 /// Mixing preconditioning mode for SCF density mixing.
+///
+/// This is the serde-friendly adapter for [`crate::scf::mixing::MixingMode`].
+/// The SCF-internal `MixingMode::Kerker` carries an optional `q_tf` parameter
+/// that is auto-estimated at runtime, so we keep this flat enum for YAML parsing
+/// and convert via `From`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MixingModeType {
@@ -223,6 +228,15 @@ pub enum MixingModeType {
     Plain,
     /// Kerker preconditioning.
     Kerker,
+}
+
+impl From<MixingModeType> for crate::scf::mixing::MixingMode {
+    fn from(mode: MixingModeType) -> Self {
+        match mode {
+            MixingModeType::Plain => Self::Plain,
+            MixingModeType::Kerker => Self::Kerker { q_tf: None },
+        }
+    }
 }
 
 /// Exchange-correlation functional specification.
@@ -378,12 +392,7 @@ impl Settings {
             smearing_scheme: self.electrons.smearing,
             ecutrho_ratio: self.basis.ecutrho_ratio,
             fft_grid: self.basis.fft_grid,
-            mixing_mode: match self.electrons.mixing_mode {
-                MixingModeType::Plain => crate::scf::mixing::MixingMode::Plain,
-                MixingModeType::Kerker => {
-                    crate::scf::mixing::MixingMode::Kerker { q_tf: None }
-                }
-            },
+            mixing_mode: self.electrons.mixing_mode.into(),
             nspin: self.electrons.nspin,
             starting_magnetization: self.electrons.starting_magnetization.clone(),
             tot_magnetization: self.electrons.tot_magnetization,
@@ -737,6 +746,18 @@ kpoints:
             let parsed: MixingModeType = serde_yaml_ng::from_str(&yaml).unwrap();
             assert_eq!(parsed, variant);
         }
+    }
+
+    #[test]
+    fn mixing_mode_type_converts_to_scf_mixing_mode() {
+        use crate::scf::mixing::MixingMode;
+
+        let plain: MixingMode = MixingModeType::Plain.into();
+        assert!(matches!(plain, MixingMode::Plain));
+
+        let kerker: MixingMode = MixingModeType::Kerker.into();
+        // Kerker conversion should default q_tf to None (auto-estimated at runtime)
+        assert!(matches!(kerker, MixingMode::Kerker { q_tf: None }));
     }
 
     #[test]
