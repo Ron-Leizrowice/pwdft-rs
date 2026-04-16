@@ -1,6 +1,6 @@
 ---
 id: KBTF
-status: active
+status: completed
 priority: critical
 complexity: small
 risk: low

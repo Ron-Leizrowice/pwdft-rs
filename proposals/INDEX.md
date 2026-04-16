@@ -8,8 +8,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| KBTF | Investigate KB Projector Test Failures (3 tests) | small | low | — | SIMP |
-| SIMP | Simpson's Rule for Radial Integrals | medium | medium | KBTF | VERF, QEVL |
+| SIMP | Simpson's Rule for Radial Integrals | medium | medium | — | VERF, QEVL |
 | VERF | V_local erf Coulomb Subtraction | small | medium | SIMP | QEVL |
 | QEDX | Systematic Energy Discrepancy vs QE | large | high | SIMP, VERF | QEVL |
 
@@ -17,21 +16,19 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| DDUP | SCF Code Deduplication | small | low | — | CFGN |
 | QEVL | QE Validation Test Suite | medium | medium | SIMP | — |
 
 ### Medium — Enhancements & Performance
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| CLEN | Minor Code Quality Cleanups (5 items, #2 done) | small | low | — | — |
 | SDED | Deduplicate Settings Enums (MixingModeType + OccupationType) | small | low | — | — |
 | HRFK | Harris-Foulkes Energy | small | low | — | — |
 | FFTB | FFT Buffer Reuse | small | low | — | — |
 | XCPR | XC and Spin Diagonalization Parallelization | small | low | — | — |
 | ERRH | Error Handling Cleanup (16 production unwrap/panic/expect) | medium | medium | — | — |
 | BROY | Broyden Mixing and Adaptive Beta | medium | medium | — | — |
-| CFGN | Expose Hardcoded Numerics as Settings | large | medium | DDUP, SIMP | — |
+| CFGN | Expose Hardcoded Numerics as Settings | large | medium | SIMP | — |
 
 ### Low / Deferred
 
@@ -77,14 +74,15 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | GITC | Git repo cleanup (legacy #28) |
 | MSTR | Math docstring gaps (legacy #29) |
 | YAML | YAML input migration (legacy #32) |
+| KBTF | Investigate KB Projector Test Failures |
+| CLEN | Minor Code Quality Cleanups |
+| DDUP | SCF Code Deduplication |
 
 ## Notes
 
 - **QEDX** is a tracking proposal — actual fixes are SIMP + VERF. Archive when those land.
-- **CLEN item #2** (Ewald cis) is done. 5 items remain.
 - **ERRH** counts refreshed: 11 unwrap + 2 panic + 3 expect in production code (was 25).
 - **SDED** scope reduced: SmearingType dedup done, MixingModeType + OccupationType remain.
-- **CFGN** dependency on CNST satisfied (archived). DDUP + SIMP still pending.
+- **CFGN** dependency on CNST satisfied (archived). DDUP done, SIMP still pending.
 - **HD5I** references deleted `src/input.rs` — update to YAML Settings when implementing.
-- **KBTF** covers the 3 failing kb_projector_validation tests. Must complete before SIMP.
-- SIMP now depends on KBTF (was previously unblocked).
+- **SIMP** is now unblocked (KBTF completed). Critical path item.
