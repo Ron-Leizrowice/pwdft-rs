@@ -8,27 +8,25 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| SIMP | Simpson's Rule for Radial Integrals | medium | medium | — | VERF, QEVL |
-| VERF | V_local erf Coulomb Subtraction | small | medium | SIMP | QEVL |
-| QEDX | Systematic Energy Discrepancy vs QE | large | high | SIMP, VERF | QEVL |
+| VERF | V_local erf Coulomb Subtraction | small | medium | — | QEVL |
+| QEDX | Systematic Energy Discrepancy vs QE | large | high | VERF | QEVL |
 
 ### High — Foundation & Code Quality
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| QEVL | QE Validation Test Suite | medium | medium | SIMP | — |
+| QEVL | QE Validation Test Suite | medium | medium | — | — |
 
 ### Medium — Enhancements & Performance
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| SDED | Deduplicate Settings Enums (MixingModeType + OccupationType) | small | low | — | — |
-| HRFK | Harris-Foulkes Energy | small | low | — | — |
 | FFTB | FFT Buffer Reuse | small | low | — | — |
 | XCPR | XC and Spin Diagonalization Parallelization | small | low | — | — |
 | ERRH | Error Handling Cleanup (16 production unwrap/panic/expect) | medium | medium | — | — |
 | BROY | Broyden Mixing and Adaptive Beta | medium | medium | — | — |
-| CFGN | Expose Hardcoded Numerics as Settings | large | medium | SIMP | — |
+| SPXC | Fix Spin-Polarized E_xc Density Consistency | small | medium | — | — |
+| CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
 
 ### Low / Deferred
 
@@ -77,12 +75,16 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | KBTF | Investigate KB Projector Test Failures |
 | CLEN | Minor Code Quality Cleanups |
 | DDUP | SCF Code Deduplication |
+| SIMP | Simpson's Rule for Radial Integrals |
+| HRFK | Harris-Foulkes Energy |
+| SDED | Deduplicate Settings Enums |
 
 ## Notes
 
-- **QEDX** is a tracking proposal — actual fixes are SIMP + VERF. Archive when those land.
+- **QEDX** is a tracking proposal — actual fixes are SIMP (done) + VERF. Archive QEDX when VERF lands.
+- **VERF** is now unblocked (SIMP completed). Next critical path item — expected to close the remaining 13.4 eV Si discrepancy.
+- **SIMP** result: Fe BCC validation passes. Si still 13.4 eV off (needs VERF's erf subtraction).
 - **ERRH** counts refreshed: 11 unwrap + 2 panic + 3 expect in production code (was 25).
-- **SDED** scope reduced: SmearingType dedup done, MixingModeType + OccupationType remain.
-- **CFGN** dependency on CNST satisfied (archived). DDUP done, SIMP still pending.
+- **SPXC** found during HRFK: spin-polarized E_KS mixes input exc_r with output rho_xc_total.
+- **CFGN** all dependencies satisfied (DDUP + SIMP done).
 - **HD5I** references deleted `src/input.rs` — update to YAML Settings when implementing.
-- **SIMP** is now unblocked (KBTF completed). Critical path item.
