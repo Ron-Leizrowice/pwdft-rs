@@ -103,33 +103,33 @@ impl PseudopotentialData {
     /// Units: returns eV (potential in reciprocal space per unit cell).
     pub fn v_local_of_g(&self, g_norm: f64, omega: f64) -> f64 {
         use crate::consts::E2_COULOMB as E2;
-
-        let n = self.r_grid.len();
-        let mut integral = 0.0;
+        use crate::numerics::simpson_integrate;
 
         if g_norm < 1e-12 {
             // G = 0 case: ∫ r² [V_loc(r) + Z e²/r] dr
-            for i in 0..n {
-                let r = self.r_grid[i];
-                let dr = self.rab[i];
-                let v_short = self.v_local[i] + self.z_valence * E2 / r.max(1e-20);
-                integral += r * r * v_short * dr;
-            }
+            let integrand: Vec<f64> = self.r_grid.iter().zip(self.v_local.iter())
+                .map(|(&r, &v)| {
+                    let v_short = v + self.z_valence * E2 / r.max(1e-20);
+                    r * r * v_short
+                })
+                .collect();
+            let integral = simpson_integrate(&integrand, &self.rab);
             4.0 * std::f64::consts::PI / omega * integral
         } else {
             // G ≠ 0: ∫ r² [V_loc(r) + Z e²/r] sin(Gr)/(Gr) dr - 4π Z e² / (Ω G²)
-            for i in 0..n {
-                let r = self.r_grid[i];
-                let dr = self.rab[i];
-                let gr = g_norm * r;
-                let v_short = self.v_local[i] + self.z_valence * E2 / r.max(1e-20);
-                let sinc = if gr < 1e-10 {
-                    1.0 - gr * gr / 6.0
-                } else {
-                    gr.sin() / gr
-                };
-                integral += r * r * v_short * sinc * dr;
-            }
+            let integrand: Vec<f64> = self.r_grid.iter().zip(self.v_local.iter())
+                .map(|(&r, &v)| {
+                    let gr = g_norm * r;
+                    let v_short = v + self.z_valence * E2 / r.max(1e-20);
+                    let sinc = if gr < 1e-10 {
+                        1.0 - gr * gr / 6.0
+                    } else {
+                        gr.sin() / gr
+                    };
+                    r * r * v_short * sinc
+                })
+                .collect();
+            let integral = simpson_integrate(&integrand, &self.rab);
             4.0 * std::f64::consts::PI / omega * integral
                 - 4.0 * std::f64::consts::PI * self.z_valence * E2
                     / (omega * g_norm * g_norm)

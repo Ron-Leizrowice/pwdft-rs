@@ -158,18 +158,20 @@ fn add_atomic_density_from_pp(
         let g = grid.g_vector_at(idx);
         let g_norm = g.norm();
 
-        // Bessel transform of radial atomic density
-        let mut integral = 0.0;
-        for (r, (&dr, &rho_r_at)) in r_grid.iter().zip(rab.iter().zip(rho_at.iter())) {
+        // Bessel transform of radial atomic density (Simpson's rule)
+        let n = r_grid.len();
+        let mut integrand = vec![0.0; n];
+        for i in 0..n {
+            let r = r_grid[i];
             let gr = g_norm * r;
             let j0 = if gr < 1e-10 {
                 1.0 - gr * gr / 6.0
             } else {
                 gr.sin() / gr
             };
-
-            integral += rho_r_at * j0 * dr;
+            integrand[i] = rho_at[i] * j0;
         }
+        let integral = crate::numerics::simpson_integrate(&integrand, rab);
 
         let phase = -g.dot(tau);
         let sf = Complex64::cis(phase);
