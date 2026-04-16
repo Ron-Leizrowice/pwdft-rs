@@ -7,6 +7,7 @@ pub mod mixing;
 pub(crate) mod potentials;
 pub mod smearing;
 
+use indicatif::{ProgressBar, ProgressStyle};
 use log::info;
 use num_complex::Complex64;
 use rayon::prelude::*;
@@ -119,6 +120,18 @@ pub struct ScfResult {
     pub nspin: usize,
 }
 
+fn scf_progress_bar(max_iter: usize) -> ProgressBar {
+    let pb = ProgressBar::new(max_iter as u64);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "SCF [{bar:30}] {pos}/{len}  {msg}  [{elapsed_precise} elapsed]",
+        )
+        .unwrap()
+        .progress_chars("##-"),
+    );
+    pb
+}
+
 /// Run the self-consistent field loop.
 ///
 /// Dispatches to `run_scf_spin` for nspin=2.
@@ -171,6 +184,7 @@ pub fn run_scf(
     let mut eigenvalues_all: Vec<Vec<f64>>;
     let mut fermi_energy;
     let mut e_prev: Option<f64> = None;
+    let pb = scf_progress_bar(ctx.params.max_iter);
 
     for iter in 0..ctx.params.max_iter {
         // Steps 1-3: Hartree, XC, V_eff assembly.
@@ -288,6 +302,10 @@ pub fn run_scf(
         let rho_converged = delta < ctx.params.conv_threshold;
         let energy_converged = de.is_some_and(|de| de < ctx.params.energy_threshold);
 
+        pb.set_position((iter + 1) as u64);
+        pb.set_message(format!(
+            "E={e_total:.4} eV  Δρ={delta:.1e}"
+        ));
         info!(
             "SCF iter {:>3}: E={:.6} eV  dE={:>10}  Δρ={:.2e}",
             iter + 1, e_total,
@@ -296,6 +314,7 @@ pub fn run_scf(
         );
 
         if rho_converged && energy_converged {
+            pb.finish_and_clear();
             info!("SCF converged after {} iterations", iter + 1);
             rho_g = rho_g_new;
             let rho_g_basis: Vec<Complex64> = ctx.g_to_fft.iter().map(|&idx| rho_g[idx]).collect();
@@ -337,6 +356,7 @@ pub fn run_scf(
         density_r_to_g(&mut ctx.grid.fft, &rho_r, &mut rho_g);
     }
 
+    pb.abandon_with_message("did not converge");
     Err(PwdftError::ConvergenceFailure {
         iterations: ctx.params.max_iter,
         delta: density_diff(&rho_r, &rho_r, ctx.omega, ctx.n_grid),
@@ -401,6 +421,7 @@ fn run_scf_spin(
     );
 
     let mut e_prev: Option<f64> = None;
+    let pb = scf_progress_bar(ctx.params.max_iter);
 
     for iter in 0..ctx.params.max_iter {
         // Total density for Hartree (spin-independent)
@@ -555,6 +576,10 @@ fn run_scf_spin(
         let energy_converged = de.is_some_and(|de| de < ctx.params.energy_threshold);
 
         let mag = (n_el_up - n_el_down).abs();
+        pb.set_position((iter + 1) as u64);
+        pb.set_message(format!(
+            "E={e_total:.4} eV  Δρ={delta:.1e}  M={mag:.2} μB"
+        ));
         info!(
             "SCF iter {:>3}: E={:.6} eV  dE={:>10}  Δρ={:.2e}  M={:.3} μB",
             iter + 1, e_total,
@@ -563,6 +588,7 @@ fn run_scf_spin(
         );
 
         if rho_converged && energy_converged {
+            pb.finish_and_clear();
             info!("SCF converged after {} iterations", iter + 1);
             info!("Magnetization: {mag:.4} μB ({n_el_up:.4} up, {n_el_down:.4} down)");
 
@@ -594,6 +620,7 @@ fn run_scf_spin(
         rho_down_r = mixer_down.mix(&rho_down_r, &rho_down_sym, &mut ctx.grid.fft);
     }
 
+    pb.abandon_with_message("did not converge");
     Err(PwdftError::ConvergenceFailure {
         iterations: ctx.params.max_iter,
         delta: 0.0,
