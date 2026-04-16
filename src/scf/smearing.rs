@@ -11,15 +11,20 @@
 
 use std::f64::consts::PI;
 
+use serde::{Deserialize, Serialize};
 
 /// Available smearing schemes for occupation numbers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SmearingScheme {
     #[default]
     FermiDirac,
     Gaussian,
     MethfesselPaxton,
     Cold,
+    /// Fixed occupations (no smearing, insulator mode).
+    /// Behaves like Fermi-Dirac when passed through occupation functions.
+    Fixed,
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +102,9 @@ pub fn find_fermi_energy(
 /// Occupation in [0, 1] for any scheme (before spin factor).
 fn occupation_01(scheme: SmearingScheme, energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     match scheme {
-        SmearingScheme::FermiDirac => fermi_dirac_01(energy, fermi_energy, sigma),
+        SmearingScheme::FermiDirac | SmearingScheme::Fixed => {
+            fermi_dirac_01(energy, fermi_energy, sigma)
+        }
         SmearingScheme::Gaussian => gaussian_01(energy, fermi_energy, sigma),
         SmearingScheme::MethfesselPaxton => methfessel_paxton_01(energy, fermi_energy, sigma),
         SmearingScheme::Cold => cold_01(energy, fermi_energy, sigma),
@@ -211,7 +218,7 @@ pub fn entropy_ts(
 /// - Cold:        s = (x + 1/√2) exp(-(x + 1/√2)²) / √π
 fn entropy_weight(scheme: SmearingScheme, x: f64) -> f64 {
     match scheme {
-        SmearingScheme::FermiDirac => {
+        SmearingScheme::FermiDirac | SmearingScheme::Fixed => {
             if x.abs() > 30.0 {
                 return 0.0;
             }

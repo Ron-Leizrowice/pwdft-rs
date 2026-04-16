@@ -4,7 +4,7 @@ use num_complex::Complex64;
 
 use crate::{
     fft::FFT3D,
-    potential::{hartree, xc},
+    potential::xc,
 };
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ pub(crate) fn band_energy(
 
 /// Hartree energy: E_H = (ω/2) Σ_G |ρ(G)|² 4πe²/|G|²
 pub(crate) fn hartree_energy(rho_g: &[Complex64], g_squared: &[f64], omega: f64) -> f64 {
-    let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
+    let fourpi_e2 = 4.0 * std::f64::consts::PI * crate::consts::E2_COULOMB;
     rho_g
         .iter()
         .zip(g_squared.iter())
@@ -153,7 +153,7 @@ pub(crate) fn add_core_density(rho_val: &[f64], rho_core: &[f64]) -> Vec<f64> {
 /// Compute Hartree potential on the full FFT grid.
 pub(crate) fn hartree_on_fft_grid(rho_g: &[Complex64], g_squared: &[f64]) -> Vec<Complex64> {
     use rayon::prelude::*;
-    let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
+    let fourpi_e2 = 4.0 * std::f64::consts::PI * crate::consts::E2_COULOMB;
 
     rho_g
         .par_iter()

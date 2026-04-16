@@ -227,6 +227,7 @@ pub fn run_scf(
     let mut eigenvalues_all: Vec<Vec<f64>>;
     let mut fermi_energy;
     let mut e_prev: Option<f64> = None;
+    let mut last_delta = f64::INFINITY;
     let pb = scf_progress_bar(ctx.params.max_iter);
 
     for iter in 0..ctx.params.max_iter {
@@ -237,7 +238,7 @@ pub fn run_scf(
         // 1. Hartree potential
         #[cfg(feature = "gpu")]
         let v_h_fft = if let Some(ref gpu) = gpu {
-            let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
+            let fourpi_e2 = 4.0 * std::f64::consts::PI * crate::consts::E2_COULOMB;
             gpu.hartree_potential(&rho_g, &ctx.g_squared, fourpi_e2)
         } else {
             hartree_on_fft_grid(&rho_g, &ctx.g_squared)
@@ -317,6 +318,7 @@ pub fn run_scf(
 
         // 7. Convergence check (dual criterion: density AND energy)
         let delta = density_diff(&rho_r, &rho_r_new, ctx.omega, ctx.n_grid);
+        last_delta = delta;
 
         // Compute energy every iteration for convergence monitoring
         let mut rho_g_new = vec![Complex64::new(0.0, 0.0); ctx.n_grid];
@@ -402,7 +404,7 @@ pub fn run_scf(
     pb.abandon_with_message("did not converge");
     Err(PwdftError::ConvergenceFailure {
         iterations: ctx.params.max_iter,
-        delta: density_diff(&rho_r, &rho_r, ctx.omega, ctx.n_grid),
+        delta: last_delta,
     })
 }
 
@@ -464,6 +466,7 @@ fn run_scf_spin(
     );
 
     let mut e_prev: Option<f64> = None;
+    let mut last_delta = f64::INFINITY;
     let pb = scf_progress_bar(ctx.params.max_iter);
 
     for iter in 0..ctx.params.max_iter {
@@ -588,6 +591,7 @@ fn run_scf_spin(
         let rho_total_new: Vec<f64> = rho_up_sym.iter().zip(rho_down_sym.iter())
             .map(|(&u, &d)| u + d).collect();
         let delta = density_diff(&rho_total_r, &rho_total_new, ctx.omega, ctx.n_grid);
+        last_delta = delta;
 
         // Energy from new density
         let mut rho_total_new_g = vec![Complex64::new(0.0, 0.0); ctx.n_grid];
@@ -666,7 +670,7 @@ fn run_scf_spin(
     pb.abandon_with_message("did not converge");
     Err(PwdftError::ConvergenceFailure {
         iterations: ctx.params.max_iter,
-        delta: 0.0,
+        delta: last_delta,
     })
 }
 

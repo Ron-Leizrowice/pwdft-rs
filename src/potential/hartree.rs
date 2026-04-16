@@ -7,8 +7,7 @@
 
 use num_complex::Complex64;
 
-/// Coulomb constant e² in eV·Å (= e²/(4πε₀) in Gaussian units).
-pub const E2: f64 = 14.399_645_351_950_548;
+use crate::consts::E2_COULOMB;
 
 /// Compute Hartree potential V_H(G) from charge density ρ(G).
 ///
@@ -23,7 +22,7 @@ pub fn hartree_potential(
     rho_g: &[Complex64],
     g_vectors: &[nalgebra::Vector3<f64>],
 ) -> Vec<Complex64> {
-    let fourpi_e2 = 4.0 * std::f64::consts::PI * E2;
+    let fourpi_e2 = 4.0 * std::f64::consts::PI * E2_COULOMB;
 
     rho_g
         .iter()
@@ -49,7 +48,7 @@ pub fn hartree_energy(
     g_vectors: &[nalgebra::Vector3<f64>],
     omega: f64,
 ) -> f64 {
-    let fourpi_e2 = 4.0 * std::f64::consts::PI * E2;
+    let fourpi_e2 = 4.0 * std::f64::consts::PI * E2_COULOMB;
 
     let sum: f64 = rho_g
         .iter()

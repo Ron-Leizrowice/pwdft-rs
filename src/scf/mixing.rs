@@ -192,7 +192,7 @@ fn auto_q_tf_squared(n_electrons: f64, omega: f64) -> f64 {
     let rho_avg = n_electrons / omega; // e/ų
     let rho_bohr = rho_avg * BOHR_TO_ANG.powi(3); // e/Bohr³
     let q_tf_bohr_sq =
-        4.0 * (3.0 * std::f64::consts::PI * std::f64::consts::PI * rho_bohr).powf(1.0 / 3.0)
+        4.0 * (3.0 * std::f64::consts::PI * std::f64::consts::PI * rho_bohr).cbrt()
             / std::f64::consts::PI;
     // Convert Bohr⁻² to ų
     q_tf_bohr_sq / (BOHR_TO_ANG * BOHR_TO_ANG)

@@ -6,7 +6,7 @@ use criterion::{Criterion, criterion_group, criterion_main, black_box};
 use num_complex::Complex64;
 
 use pwdft_rs::gpu::GpuAccelerator;
-use pwdft_rs::potential::{hartree, xc};
+use pwdft_rs::potential::xc;
 
 fn make_complex_data(n: usize, seed: f64) -> Vec<Complex64> {
     (0..n)
@@ -31,7 +31,7 @@ fn bench_hartree(c: &mut Criterion) {
         return;
     };
 
-    let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
+    let fourpi_e2 = 4.0 * std::f64::consts::PI * pwdft_rs::consts::E2_COULOMB;
 
     let mut group = c.benchmark_group("hartree");
     for &n in &[8_000, 64_000, 512_000] {

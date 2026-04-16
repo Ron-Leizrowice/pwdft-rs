@@ -15,7 +15,7 @@ use crate::{
     crystal::{Atom, Crystal, Lattice},
     error::{PwdftError, Result},
     kpoints::HighSymPoint,
-    scf::ScfParams,
+    scf::{smearing::SmearingScheme, ScfParams},
 };
 
 // ---------------------------------------------------------------------------
@@ -170,7 +170,7 @@ pub struct ElectronSettings {
     /// Number of past densities kept for Anderson/Pulay mixing. QE: mixing_ndim.
     pub mixing_ndim: usize,
     /// Smearing scheme for partial occupations.
-    pub smearing: SmearingType,
+    pub smearing: SmearingScheme,
     /// Smearing width in eV (QE: degauss, but QE uses Ry internally).
     pub smearing_width: f64,
     /// Occupation scheme.
@@ -192,7 +192,7 @@ impl Default for ElectronSettings {
         Self {
             mixing_beta: 0.3,
             mixing_ndim: 8,
-            smearing: SmearingType::default(),
+            smearing: SmearingScheme::default(),
             smearing_width: 0.05,
             occupations: OccupationType::default(),
             mixing_mode: MixingModeType::default(),
@@ -201,23 +201,6 @@ impl Default for ElectronSettings {
             tot_magnetization: None,
         }
     }
-}
-
-/// Smearing function for partial occupation numbers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum SmearingType {
-    /// Fermi-Dirac (finite-temperature) smearing. QE: 'fermi-dirac' / 'f-d'.
-    #[default]
-    FermiDirac,
-    /// Gaussian smearing. QE: 'gaussian' / 'gauss'.
-    Gaussian,
-    /// Methfessel-Paxton first-order smearing. QE: 'methfessel-paxton' / 'm-p'.
-    MethfesselPaxton,
-    /// Marzari-Vanderbilt-DeVita-Payne cold smearing. QE: 'cold' / 'm-v'.
-    Cold,
-    /// Fixed occupations (no smearing, insulator mode).
-    Fixed,
 }
 
 /// How occupation numbers are determined.
@@ -392,16 +375,7 @@ impl Settings {
             mixing_beta: self.electrons.mixing_beta,
             mixing_ndim: self.electrons.mixing_ndim,
             smearing_sigma: self.electrons.smearing_width,
-            smearing_scheme: match self.electrons.smearing {
-                SmearingType::FermiDirac => crate::scf::smearing::SmearingScheme::FermiDirac,
-                SmearingType::Gaussian => crate::scf::smearing::SmearingScheme::Gaussian,
-                SmearingType::MethfesselPaxton => {
-                    crate::scf::smearing::SmearingScheme::MethfesselPaxton
-                }
-                SmearingType::Cold => crate::scf::smearing::SmearingScheme::Cold,
-                // Fixed occupations don't use smearing; fall back to FermiDirac
-                SmearingType::Fixed => crate::scf::smearing::SmearingScheme::FermiDirac,
-            },
+            smearing_scheme: self.electrons.smearing,
             ecutrho_ratio: self.basis.ecutrho_ratio,
             fft_grid: self.basis.fft_grid,
             mixing_mode: match self.electrons.mixing_mode {
@@ -601,7 +575,7 @@ kpoints:
         assert_eq!(s.basis.fft_grid, Some([24, 24, 24]));
         assert!((s.electrons.mixing_beta - 0.3).abs() < f64::EPSILON);
         assert_eq!(s.electrons.mixing_ndim, 8);
-        assert_eq!(s.electrons.smearing, SmearingType::FermiDirac);
+        assert_eq!(s.electrons.smearing, SmearingScheme::FermiDirac);
         assert!((s.electrons.smearing_width - 0.05).abs() < 1e-15);
         assert_eq!(s.electrons.occupations, OccupationType::Smearing);
         assert_eq!(s.electrons.mixing_mode, MixingModeType::Plain);
@@ -643,7 +617,7 @@ kpoints:
         assert!(s.scf.n_bands.is_none());
         assert!((s.electrons.mixing_beta - 0.3).abs() < 1e-15);
         assert_eq!(s.electrons.mixing_ndim, 8);
-        assert_eq!(s.electrons.smearing, SmearingType::FermiDirac);
+        assert_eq!(s.electrons.smearing, SmearingScheme::FermiDirac);
         assert!((s.electrons.smearing_width - 0.05).abs() < 1e-15);
         assert_eq!(s.electrons.occupations, OccupationType::Smearing);
         assert_eq!(s.electrons.mixing_mode, MixingModeType::Plain);
@@ -717,14 +691,14 @@ kpoints:
     #[test]
     fn smearing_types_roundtrip() {
         for variant in [
-            SmearingType::FermiDirac,
-            SmearingType::Gaussian,
-            SmearingType::MethfesselPaxton,
-            SmearingType::Cold,
-            SmearingType::Fixed,
+            SmearingScheme::FermiDirac,
+            SmearingScheme::Gaussian,
+            SmearingScheme::MethfesselPaxton,
+            SmearingScheme::Cold,
+            SmearingScheme::Fixed,
         ] {
             let yaml = serde_yaml_ng::to_string(&variant).unwrap();
-            let parsed: SmearingType = serde_yaml_ng::from_str(&yaml).unwrap();
+            let parsed: SmearingScheme = serde_yaml_ng::from_str(&yaml).unwrap();
             assert_eq!(parsed, variant);
         }
     }
@@ -834,7 +808,7 @@ electrons:
         let s = Settings::from_yaml_str(yaml).unwrap();
         assert!((s.electrons.mixing_beta - 0.7).abs() < 1e-15);
         assert_eq!(s.electrons.mixing_ndim, 8);
-        assert_eq!(s.electrons.smearing, SmearingType::FermiDirac);
+        assert_eq!(s.electrons.smearing, SmearingScheme::FermiDirac);
     }
 
     #[test]
@@ -850,7 +824,7 @@ electrons:
   smearing_width: 0.1
 "#;
         let s = Settings::from_yaml_str(yaml).unwrap();
-        assert_eq!(s.electrons.smearing, SmearingType::Gaussian);
+        assert_eq!(s.electrons.smearing, SmearingScheme::Gaussian);
         assert!((s.electrons.smearing_width - 0.1).abs() < 1e-15);
     }
 
@@ -899,7 +873,7 @@ electrons:
   occupations: fixed
 "#;
         let s = Settings::from_yaml_str(yaml).unwrap();
-        assert_eq!(s.electrons.smearing, SmearingType::Fixed);
+        assert_eq!(s.electrons.smearing, SmearingScheme::Fixed);
         assert_eq!(s.electrons.occupations, OccupationType::Fixed);
     }
 }

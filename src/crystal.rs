@@ -1,7 +1,7 @@
 use nalgebra::{Matrix3, Vector3};
 use serde::{Deserialize, Serialize};
 
-use crate::consts::PI;
+use std::f64::consts::PI;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Crystal {

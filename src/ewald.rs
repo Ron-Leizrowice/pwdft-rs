@@ -11,8 +11,8 @@ use nalgebra::Vector3;
 use num_complex::Complex64;
 
 use crate::{
+    consts::E2_COULOMB as E2,
     crystal::Crystal,
-    potential::hartree::E2,
     pseudopotential::PseudopotentialData,
 };
 
@@ -50,7 +50,7 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
 
     // Choose Ewald parameter η (controls real/reciprocal space partition)
     // η ∝ (N_atoms / Ω)^{1/3}
-    let eta = (n_atoms as f64 * PI / omega).powf(1.0 / 3.0);
+    let eta = (n_atoms as f64 * PI / omega).cbrt();
     let eta2 = eta * eta;
 
     // Reciprocal space sum

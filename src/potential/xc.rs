@@ -24,7 +24,7 @@ pub struct XcPoint {
 ///
 /// Returns ε_xc (energy per electron, eV) and V_xc (potential, eV).
 pub fn lda_xc(rho: f64) -> XcPoint {
-    if rho < 1e-30 {
+    if rho < crate::consts::RHO_FLOOR {
         return XcPoint {
             exc: 0.0,
             vxc: 0.0,
@@ -87,7 +87,7 @@ fn slater_exchange(rho: f64) -> (f64, f64) {
     let rho_bohr = rho * bohr3;
 
     // ε_x = -(3/4)(3ρ/π)^{1/3} in Hartree
-    let cbrt = (3.0 * rho_bohr / PI).powf(1.0 / 3.0);
+    let cbrt = (3.0 * rho_bohr / PI).cbrt();
     let ex_ha = -0.75 * cbrt;
     // V_x = d(ρ·ε_x)/dρ = (4/3) ε_x
     let vx_ha = (4.0 / 3.0) * ex_ha;
@@ -108,7 +108,7 @@ fn perdew_zunger_correlation(rho: f64) -> (f64, f64) {
     let rho_bohr = rho * bohr3;
 
     // Wigner-Seitz radius in Bohr
-    let rs = (3.0 / (4.0 * PI * rho_bohr)).powf(1.0 / 3.0);
+    let rs = (3.0 / (4.0 * PI * rho_bohr)).cbrt();
 
     let (ec_ha, vc_ha);
 
@@ -174,7 +174,7 @@ pub struct XcSpinPoint {
 /// `rho_up`, `rho_down` in e/ų. Returns (ε_xc, V_xc↑, V_xc↓) in eV.
 pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> XcSpinPoint {
     let rho = rho_up + rho_down;
-    if rho < 1e-30 {
+    if rho < crate::consts::RHO_FLOOR {
         return XcSpinPoint { exc: 0.0, vxc_up: 0.0, vxc_down: 0.0 };
     }
 
@@ -223,7 +223,7 @@ fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
 
     let rho = rho_up + rho_down;
-    if rho < 1e-30 {
+    if rho < crate::consts::RHO_FLOOR {
         return (0.0, 0.0, 0.0);
     }
 
@@ -233,13 +233,13 @@ fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     // Exchange energy per electron for each spin channel (fully polarized formula)
     // ε_x(ρ_σ) for a single spin channel = -(3/4)(6ρ_σ/π)^{1/3}
     // This is the exchange of a fully-polarized gas with density ρ_σ
-    let ex_up_ha = if rho_up_bohr > 1e-30 {
-        -0.75 * (6.0 * rho_up_bohr / PI).powf(1.0 / 3.0)
+    let ex_up_ha = if rho_up_bohr > crate::consts::RHO_FLOOR {
+        -0.75 * (6.0 * rho_up_bohr / PI).cbrt()
     } else {
         0.0
     };
-    let ex_down_ha = if rho_down_bohr > 1e-30 {
-        -0.75 * (6.0 * rho_down_bohr / PI).powf(1.0 / 3.0)
+    let ex_down_ha = if rho_down_bohr > crate::consts::RHO_FLOOR {
+        -0.75 * (6.0 * rho_down_bohr / PI).cbrt()
     } else {
         0.0
     };
@@ -266,12 +266,12 @@ fn pz_correlation_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
 
     let rho = rho_up + rho_down;
-    if rho < 1e-30 {
+    if rho < crate::consts::RHO_FLOOR {
         return (0.0, 0.0, 0.0);
     }
 
     let rho_bohr = rho * bohr3;
-    let rs = (3.0 / (4.0 * PI * rho_bohr)).powf(1.0 / 3.0);
+    let rs = (3.0 / (4.0 * PI * rho_bohr)).cbrt();
     let zeta = ((rho_up - rho_down) / rho).clamp(-1.0, 1.0);
 
     // Unpolarized correlation
@@ -280,18 +280,16 @@ fn pz_correlation_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     let (ec_pol, vc_pol) = pz_correlation_rs(rs, true);
 
     // Spin interpolation function f(ζ) and its derivative
-    let two_4_3 = 2.0_f64.powf(4.0 / 3.0); // 2^(4/3)
-    let f_denom = two_4_3 - 2.0;
+    let f_denom = 2.0_f64.cbrt() * 2.0 - 2.0; // 2^{4/3} - 2
 
-    let op_zeta = (1.0 + zeta).max(0.0).powf(4.0 / 3.0);
-    let om_zeta = (1.0 - zeta).max(0.0).powf(4.0 / 3.0);
-    let fz = (op_zeta + om_zeta - 2.0) / f_denom;
+    let op = (1.0 + zeta).max(0.0);
+    let om = (1.0 - zeta).max(0.0);
+    let cbrt_op = op.cbrt();
+    let cbrt_om = om.cbrt();
+    let fz = (cbrt_op * op + cbrt_om * om - 2.0) / f_denom; // (1+ζ)^{4/3} + (1-ζ)^{4/3} - 2
 
     // df/dζ = (4/3) [(1+ζ)^{1/3} - (1-ζ)^{1/3}] / (2^{4/3} - 2)
-    let dfz = (4.0 / 3.0)
-        * ((1.0 + zeta).max(0.0).powf(1.0 / 3.0)
-            - (1.0 - zeta).max(0.0).powf(1.0 / 3.0))
-        / f_denom;
+    let dfz = (4.0 / 3.0) * (cbrt_op - cbrt_om) / f_denom;
 
     // Energy density
     let ec_ha = ec_unpol + fz * (ec_pol - ec_unpol);

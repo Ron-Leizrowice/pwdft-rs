@@ -483,7 +483,7 @@ fn f32_pairs_to_complex(data: &[f32]) -> Vec<Complex64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::potential::{hartree, xc};
+    use crate::potential::xc;
 
     fn try_gpu() -> Option<GpuAccelerator> {
         GpuAccelerator::try_new()
@@ -497,7 +497,7 @@ mod tests {
         };
 
         let n = 1000;
-        let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
+        let fourpi_e2 = 4.0 * std::f64::consts::PI * crate::consts::E2_COULOMB;
 
         // Generate test data
         let rho_g: Vec<Complex64> = (0..n)

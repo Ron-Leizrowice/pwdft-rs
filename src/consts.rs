@@ -1,5 +1,3 @@
-pub const PI: f64 = std::f64::consts::PI;
-
 // Atomic unit conversions
 /// Hartree to electronvolt.
 pub const HA_TO_EV: f64 = 27.211_386_245_988;
@@ -16,11 +14,11 @@ pub const E2_COULOMB: f64 = 14.399_645_351_950_548;
 /// Threshold for treating |G|² as zero (skip G=0 in Coulomb sums).
 pub const G2_ZERO_THRESHOLD: f64 = 1e-12;
 /// Minimum electron density for XC evaluation (e/ų).
-pub const RHO_FLOOR: f64 = 1e-20;
+pub const RHO_FLOOR: f64 = 1e-30;
 
 // SI constants
 pub const H_SI: f64 = 6.626_070_15e-34; // J·s (exact, SI definition)
-pub const HBAR_SI: f64 = H_SI / (2.0 * PI); // J·s
+pub const HBAR_SI: f64 = H_SI / (2.0 * std::f64::consts::PI); // J·s
 pub const M_E: f64 = 9.109_383_701_5e-31; // kg
 
 // Conversion factors

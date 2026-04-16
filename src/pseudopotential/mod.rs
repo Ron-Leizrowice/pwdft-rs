@@ -96,9 +96,7 @@ impl PseudopotentialData {
     ///
     /// Units: returns eV (potential in reciprocal space per unit cell).
     pub fn v_local_of_g(&self, g_norm: f64, omega: f64) -> f64 {
-        // e² in eV·Å (Coulomb constant × e²)
-        // In Gaussian units: e²/(4πε₀) = 14.3996 eV·Å
-        const E2: f64 = 14.399_645_351_950_548; // eV·Å
+        use crate::consts::E2_COULOMB as E2;
 
         let n = self.r_grid.len();
         let mut integral = 0.0;

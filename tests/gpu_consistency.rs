@@ -11,7 +11,7 @@ use pwdft_rs::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     gpu::GpuAccelerator,
-    potential::{hartree, xc},
+    potential::xc,
 };
 
 fn si_crystal() -> Crystal {
@@ -79,7 +79,7 @@ fn test_gpu_hartree_on_realistic_density() {
         })
         .collect();
 
-    let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
+    let fourpi_e2 = 4.0 * std::f64::consts::PI * pwdft_rs::consts::E2_COULOMB;
 
     let cpu: Vec<Complex64> = rho_g
         .iter()
@@ -169,7 +169,7 @@ fn test_gpu_buffer_pool_matches_fresh() {
     };
 
     let n = 8000;
-    let fourpi_e2 = 4.0 * std::f64::consts::PI * hartree::E2;
+    let fourpi_e2 = 4.0 * std::f64::consts::PI * pwdft_rs::consts::E2_COULOMB;
 
     let rho_g: Vec<Complex64> = (0..n)
         .map(|i| Complex64::new((i as f64 * 0.1).sin() * 0.01, (i as f64 * 0.2).cos() * 0.01))
