@@ -43,7 +43,7 @@ symmetry:
   tolerance: 1.0e-5
 
 pseudopotentials:
-  Si: "../pseudopotentials/Si.UPF"
+  Si: "../pseudopotentials/nc/lda/Si.upf"
 
 output:
   verbosity: normal        # low | normal | high

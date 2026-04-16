@@ -10,16 +10,13 @@ pseudopotentials/
 │   ├── lda/                    # LDA exchange-correlation (PZ parametrization)
 │   │   ├── Al.upf              # PseudoDojo ONCV standard accuracy
 │   │   ├── Si.upf              # PseudoDojo ONCV standard accuracy
-│   │   ├── ...                 # 70 elements from PseudoDojo
-│   │   └── legacy/             # PPs from initial development/validation
-│   │       ├── Si_hgh.UPF      # Hartwigsen-Goedecker-Hutter (QE distribution)
-│   │       ├── Fe_dalcorso.UPF # Dal Corso NC (QE distribution)
-│   │       ├── C_fhi_v1.UPF    # Fritz-Haber-Institute (UPF v1 format)
-│   │       ├── Ga_oncv.UPF     # ONCV (QE GaN example)
-│   │       └── N_oncv.UPF      # ONCV (QE GaN example)
+│   │   └── ...                 # 70 elements from PseudoDojo
 │   └── pbe/                    # PBE exchange-correlation
-│       ├── Al.upf
 │       └── ...                 # 72 elements from PseudoDojo
+├── uspp/                       # Ultrasoft (SSSP efficiency, for future use)
+│   └── pbe/
+├── paw/                        # PAW (SSSP efficiency, for future use)
+│   └── pbe/
 └── README.md                   # This file
 ```
 
@@ -49,7 +46,7 @@ scalar-relativistic, standard accuracy.
 > *Physical Review B* **88**, 085117 (2013).
 > DOI: [10.1103/PhysRevB.88.085117](https://doi.org/10.1103/PhysRevB.88.085117)
 
-### SSSP — Standard Solid-State Pseudopotentials (`uspp/pbe/`, `paw/pbe/`)
+### SSSP — Standard Solid-State Pseudopotentials (uspp/pbe/, paw/pbe/)
 
 Curated library from the SSSP project, selecting the best-performing
 PP for each element from multiple sources (PseudoDojo, GBRV, etc.).

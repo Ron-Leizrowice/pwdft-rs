@@ -493,7 +493,7 @@ symmetry:
   tolerance: 1.0e-5
 
 pseudopotentials:
-  Si: "../pseudopotentials/Si.UPF"
+  Si: "../pseudopotentials/nc/lda/Si.upf"
 
 output:
   verbosity: normal
@@ -552,7 +552,7 @@ kpoints:
         assert!((s.symmetry.tolerance - 1e-5).abs() < 1e-15);
         assert_eq!(
             s.pseudopotentials.files.get("Si").unwrap(),
-            "../pseudopotentials/Si.UPF"
+            "../pseudopotentials/nc/lda/Si.upf"
         );
         assert_eq!(s.output.verbosity, Verbosity::Normal);
         assert!(!s.output.write_density);
@@ -626,7 +626,7 @@ kpoints:
         let s = Settings::from_yaml_str(FULL_YAML).unwrap();
         assert_eq!(
             s.pseudopotential_path("Si"),
-            Some("../pseudopotentials/Si.UPF")
+            Some("../pseudopotentials/nc/lda/Si.upf")
         );
         assert_eq!(s.pseudopotential_path("Ge"), None);
     }

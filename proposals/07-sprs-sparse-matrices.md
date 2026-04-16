@@ -1,4 +1,6 @@
-# Proposal: Add sparse matrix support for large-system scaling
+# Proposal 07: Add sparse matrix support for large-system scaling
+
+> **Note:** Line numbers reference the pre-ScfContext codebase. Proposal 01 (faer) is now completed — faer's own `SparseColMat` may be preferable to adding sprs.
 
 ## Motivation
 

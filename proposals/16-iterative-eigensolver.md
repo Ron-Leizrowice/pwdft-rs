@@ -1,5 +1,7 @@
 # Proposal 16: Iterative Eigensolver (Davidson / LOBPCG)
 
+> **Note:** Line numbers reference the pre-ScfContext codebase. Proposal 01 (faer) is now completed. Verify locations before implementing.
+
 ## Problem
 
 The current eigensolver (`src/eigensolver/dense.rs`) performs full O(n^3) diagonalization via LAPACK `zheev` even though only the lowest `n_bands` eigenvalues are needed. For n_pw = 200 and n_bands = 8, 96% of the computed eigenvalues are discarded (line 95-106: `diagonalize_lowest` truncates the full result).

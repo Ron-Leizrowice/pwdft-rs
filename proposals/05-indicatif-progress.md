@@ -1,4 +1,6 @@
-# Proposal: Add indicatif for SCF progress display
+# Proposal 05: Add indicatif for SCF progress display
+
+> **Note:** Line numbers reference the pre-ScfContext codebase (src/scf/mod.rs was ~1127 lines, now ~709). Verify locations before implementing.
 
 ## Motivation
 

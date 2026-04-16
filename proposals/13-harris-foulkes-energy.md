@@ -1,5 +1,7 @@
 # Proposal 13: Harris-Foulkes Energy
 
+> **Note:** Line numbers reference the pre-ScfContext codebase (src/scf/mod.rs was ~1127 lines, now ~709). Verify locations before implementing.
+
 ## Problem
 
 The standard Kohn-Sham total energy uses the output density for double-counting corrections. Before self-consistency is reached, this introduces first-order errors in the density into the energy estimate, causing the reported energy to oscillate during early SCF iterations.

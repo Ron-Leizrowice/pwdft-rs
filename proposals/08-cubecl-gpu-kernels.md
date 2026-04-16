@@ -1,4 +1,6 @@
-# Proposal: Evaluate CubeCL for GPU kernel development
+# Proposal 08: Evaluate CubeCL for GPU kernel development
+
+> **Note:** Line numbers reference the pre-ScfContext codebase. Verify locations before implementing.
 
 ## Motivation
 

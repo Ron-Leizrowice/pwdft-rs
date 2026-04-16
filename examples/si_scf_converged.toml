@@ -29,4 +29,4 @@ smearing_sigma = 0.05
 ecutrho_ratio = 4
 
 [scf.pseudopotentials]
-Si = "../pseudopotentials/Si.UPF"
+Si = "../pseudopotentials/nc/lda/Si.upf"

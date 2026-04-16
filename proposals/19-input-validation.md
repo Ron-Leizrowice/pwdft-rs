@@ -1,5 +1,7 @@
 # Proposal 19: Input Validation and Defensive Checks
 
+> **Note:** Line numbers reference the pre-ScfContext codebase (src/scf/mod.rs was ~1127 lines, now ~709). Verify locations before implementing.
+
 ## Problem
 
 The codebase accepts invalid physics parameters without error, leading to silent wrong results or panics deep in computation. There is no validation at the boundary between user input and internal computation.

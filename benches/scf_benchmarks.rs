@@ -41,7 +41,7 @@ fn si_crystal() -> Crystal {
 
 fn si_pp() -> pwdft_rs::pseudopotential::PseudopotentialData {
     pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/Si.UPF"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap()
 }

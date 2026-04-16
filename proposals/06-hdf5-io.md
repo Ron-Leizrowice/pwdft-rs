@@ -1,4 +1,6 @@
-# Proposal: Add HDF5 support for restart files and structured output
+# Proposal 06: Add HDF5 support for restart files and structured output
+
+> **Note:** Line numbers reference the pre-ScfContext codebase (src/scf/mod.rs was ~1127 lines, now ~709). Verify locations before implementing.
 
 ## Motivation
 

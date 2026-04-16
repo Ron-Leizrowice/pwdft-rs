@@ -1,5 +1,7 @@
 # Proposal 14: Broyden Mixing and Adaptive Beta
 
+> **Note:** Line numbers reference the pre-ScfContext codebase. Verify locations before implementing.
+
 ## Problem
 
 Anderson/Pulay mixing is effective but not always optimal:

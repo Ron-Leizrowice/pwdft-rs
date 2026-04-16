@@ -1,5 +1,7 @@
 # Proposal 20: Comprehensive Error Handling Cleanup
 
+> **Note:** Line numbers reference the pre-ScfContext codebase. Verify locations and unwrap counts before implementing.
+
 ## Problem
 
 The codebase already uses `thiserror` (v>=2) and has a `PwdftError` enum with 5 variants (`src/error.rs`). However, 25 production-code `unwrap()`/`expect()`/`panic!()` calls remain, concentrated in:

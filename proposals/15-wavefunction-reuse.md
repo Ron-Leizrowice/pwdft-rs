@@ -1,5 +1,7 @@
 # Proposal 15: Wavefunction Reuse Between SCF Iterations
 
+> **Note:** Line numbers reference the pre-ScfContext codebase (src/scf/mod.rs was ~1127 lines, now ~709). Verify locations before implementing.
+
 ## Problem
 
 At every SCF iteration, the Hamiltonian is diagonalized from scratch via `dense::diagonalize_lowest` (`src/scf/mod.rs`, line 251). The eigensolver starts with no knowledge of the previous iteration's eigenvectors, even though the Hamiltonian changes incrementally between iterations (only V_H and V_xc are updated; the kinetic and local terms are fixed).

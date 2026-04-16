@@ -1,5 +1,7 @@
 # Pseudopotential approaches for a new plane-wave DFT code
 
+> **Status (April 2026):** UPF v2 parsing is implemented (`src/pseudopotential/upf.rs`). PSP8 parser was implemented and later removed — UPF is the sole format. PseudoDojo NC libraries (LDA + PBE) are bundled. SSSP metadata added for future use.
+
 **PAW remains the accuracy gold standard, but starting with ONCV norm-conserving pseudopotentials is the strategically optimal path for a new Rust-based plane-wave code.** Modern ONCV libraries (PseudoDojo, SG15, SPMS) now achieve accuracy within ~0.3–1.0 meV/atom of all-electron results while requiring dramatically simpler implementation than PAW — no augmentation charges, no generalized eigenvalue problem, no one-center corrections. A phased approach — ONCV first via UPF2 parsing, PAW second via PAW-XML — maximizes early capability while building toward VASP-competitive accuracy. For actinide systems like UO₂, the 2024 PseudoDojo actinide extension by Tantardini et al. provides the first comprehensive open ONCV library covering Z = 87–118, making norm-conserving calculations on uranium feasible without proprietary VASP potentials.
 
 ---
@@ -75,7 +77,7 @@ Five pseudopotential file formats matter. **UPF (Unified Pseudopotential Format)
 
 **PSML** (García et al., Comput. Phys. Commun. 227, 51, 2018) is the cleanest XML format with a formal RELAX-NG schema, supporting NC pseudopotentials for SIESTA and ABINIT. **POTCAR** (VASP) is proprietary and cannot be redistributed or officially documented. Despite this, VASP's PAW potentials are the most widely referenced in the literature and participate in all major benchmarks.
 
-**For a new Rust code**: implement UPF2 first (largest ecosystem), PSP8 second (simplest parsing, PseudoDojo native), and PAW-XML when adding PAW support. Rust's `quick-xml` or `roxmltree` crates handle the XML formats well.
+**For a new Rust code**: UPF2 is implemented and is the sole format. PSP8 was implemented and later removed in favor of consolidating on UPF (PseudoDojo distributes UPF as well as psp8). PAW-XML is the target format when adding PAW support. Rust's `quick-xml` or `roxmltree` crates handle the XML formats well.
 
 ---
 
@@ -119,7 +121,7 @@ A provocative 2025 preprint by Ji, Lin, Ren, and He (arXiv:2505.07269) proposes 
 
 ## Concrete implementation roadmap for the Rust code
 
-**Phase 1 (MVP, ~2–3 months): ONCV with UPF2.** Parse UPF2 files for NC pseudopotentials. Extract radial grid, local potential, beta projectors, D_ij matrix, NLCC density, pseudo-atomic wavefunctions. Interpolate radial functions to reciprocal space via Fourier-Bessel transform. Apply Kleinman-Bylander nonlocal PP. Target PseudoDojo NC (standard) as the primary library. Add PSP8 parsing for direct PseudoDojo access. Ship with element-to-PP mapping metadata for zero-configuration defaults. DFTK.jl's PspUpf.jl (~269 lines of Julia) and PseudoPotentialData.jl are excellent references.
+**Phase 1 (COMPLETE): ONCV with UPF2.** UPF v2 parsing is implemented in `src/pseudopotential/upf.rs`. Extracts radial grid, local potential, beta projectors, D_ij matrix, NLCC density, pseudo-atomic wavefunctions. Reciprocal-space interpolation via Fourier-Bessel transform and Kleinman-Bylander nonlocal PP are working. PseudoDojo NC libraries (LDA + PBE, standard + stringent) are bundled. SSSP metadata added for future element-to-PP auto-selection.
 
 **Phase 2 (~2–3 months): Expand NC + prepare PAW.** Add SG15 compatibility, automatic cutoff recommendations from PP metadata, spin-polarized calculations, and begin PAW-XML parsing. Design data structures to accommodate augmentation charges and one-center corrections from the start.
 
