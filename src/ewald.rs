@@ -8,6 +8,7 @@
 use std::f64::consts::PI;
 
 use nalgebra::Vector3;
+use num_complex::Complex64;
 
 use crate::{
     crystal::Crystal,
@@ -68,18 +69,16 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
                 }
                 let g = n1 as f64 * recip.a + n2 as f64 * recip.b + n3 as f64 * recip.c;
                 let g2 = g.norm_squared();
-
-                // Structure factor |S(G)|²
-                let mut s_re = 0.0;
-                let mut s_im = 0.0;
-                for (i, pos) in positions.iter().enumerate() {
-                    let phase = g.dot(pos);
-                    s_re += charges[i] * phase.cos();
-                    s_im += charges[i] * phase.sin();
+                if g2 < 1e-12 {
+                    continue; // guard against near-zero G² from floating-point noise
                 }
-                let s_sq = s_re * s_re + s_im * s_im;
 
-                e_recip += s_sq * (-g2 / (4.0 * eta2)).exp() / g2;
+                // Structure factor S(G) = Σ_i Z_i exp(iG·r_i)
+                let s: Complex64 = positions.iter().enumerate()
+                    .map(|(i, pos)| charges[i] * Complex64::cis(g.dot(pos)))
+                    .sum();
+
+                e_recip += s.norm_sqr() * (-g2 / (4.0 * eta2)).exp() / g2;
             }
         }
     }
@@ -180,36 +179,9 @@ mod tests {
             ],
         };
 
-        // Mock pseudopotentials with Z_val = 1 for Na+, Z_val = 1 for Cl-
-        // (for Madelung constant calculation, we use +1 and -1 charges)
-        let pp_na = PseudopotentialData {
-            element: "Na".into(),
-            z_valence: 1.0,
-            l_max: 0,
-            r_grid: vec![],
-            rab: vec![],
-            v_local: vec![],
-            beta_projectors: vec![],
-            dij: vec![],
-            n_projectors: 0,
-            rho_atom: vec![],
-            core_charge: vec![],
-            has_nlcc: false,
-        };
-        let pp_cl = PseudopotentialData {
-            element: "Cl".into(),
-            z_valence: -1.0, // negative charge for anion
-            l_max: 0,
-            r_grid: vec![],
-            rab: vec![],
-            v_local: vec![],
-            beta_projectors: vec![],
-            dij: vec![],
-            n_projectors: 0,
-            rho_atom: vec![],
-            core_charge: vec![],
-            has_nlcc: false,
-        };
+        // Mock pseudopotentials with Z_val = +1 (Na+) and -1 (Cl-)
+        let pp_na = mock_pp("Na", 1.0);
+        let pp_cl = mock_pp("Cl", -1.0);
 
         let e = ewald_energy(&crystal, &[&pp_na, &pp_cl]);
         // Expected: E = -M × e² × 4 (ion pairs) / (a/2)
@@ -220,5 +192,75 @@ mod tests {
             relative_err < 0.01,
             "Ewald energy: {e:.6} eV, expected {e_expected:.6} eV (err={relative_err:.4})"
         );
+    }
+
+    fn mock_pp(element: &str, z_valence: f64) -> PseudopotentialData {
+        PseudopotentialData {
+            element: element.into(),
+            z_valence,
+            l_max: 0,
+            r_grid: vec![],
+            rab: vec![],
+            v_local: vec![],
+            beta_projectors: vec![],
+            dij: vec![],
+            n_projectors: 0,
+            rho_atom: vec![],
+            core_charge: vec![],
+            has_nlcc: false,
+        }
+    }
+
+    #[test]
+    fn test_ewald_zero_charges() {
+        let a = 5.0;
+        let crystal = Crystal {
+            lattice: Lattice::new(
+                Vector3::new(a, 0.0, 0.0),
+                Vector3::new(0.0, a, 0.0),
+                Vector3::new(0.0, 0.0, a),
+            ),
+            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0])],
+        };
+        let pp = mock_pp("Si", 0.0);
+        let e = ewald_energy(&crystal, &[&pp]);
+        assert!(e.abs() < 1e-12, "Zero charges should give zero energy: {e}");
+    }
+
+    #[test]
+    fn test_ewald_single_atom() {
+        // Single atom: only self-energy and background, no real-space pairs
+        let a = 5.0;
+        let crystal = Crystal {
+            lattice: Lattice::new(
+                Vector3::new(a, 0.0, 0.0),
+                Vector3::new(0.0, a, 0.0),
+                Vector3::new(0.0, 0.0, a),
+            ),
+            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0])],
+        };
+        let pp = mock_pp("Si", 4.0);
+        let e = ewald_energy(&crystal, &[&pp]);
+        assert!(e.is_finite(), "Single atom Ewald should be finite: {e}");
+        assert!(e < 0.0, "Single atom Ewald should be negative: {e}");
+    }
+
+    #[test]
+    fn test_ewald_anisotropic_cell() {
+        // Slab-like geometry: very short c-axis
+        let crystal = Crystal {
+            lattice: Lattice::new(
+                Vector3::new(10.0, 0.0, 0.0),
+                Vector3::new(0.0, 10.0, 0.0),
+                Vector3::new(0.0, 0.0, 2.0),
+            ),
+            atoms: vec![
+                Atom::new(14, [0.0, 0.0, 0.0]),
+                Atom::new(14, [0.5, 0.5, 0.5]),
+            ],
+        };
+        let pp = mock_pp("Si", 4.0);
+        let e = ewald_energy(&crystal, &[&pp]);
+        assert!(e.is_finite(), "Anisotropic cell energy should be finite: {e}");
     }
 }
