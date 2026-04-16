@@ -73,7 +73,7 @@ pub(super) fn generate_initial_density(
 
         if pp.has_rho_atom() {
             // Use atomic density from pseudopotential
-            add_atomic_density_from_pp(pp, &tau, z_val, grid, omega, &mut rho_g);
+            add_atomic_density_from_pp(pp, &tau, grid, omega, &mut rho_g);
         } else {
             // Gaussian model: ρ_atom(G) = (Z_val/Ω) × exp(-|G|²σ²/2) × S(G)
             add_gaussian_density(&tau, z_val, sigma, grid, omega, &mut rho_g);
@@ -145,7 +145,6 @@ fn add_gaussian_density(
 fn add_atomic_density_from_pp(
     pp: &PseudopotentialData,
     tau: &nalgebra::Vector3<f64>,
-    _z_val: f64,
     grid: &FftGrid,
     omega: f64,
     rho_g: &mut [Complex64],

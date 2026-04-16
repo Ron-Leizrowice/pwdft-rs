@@ -90,7 +90,7 @@ impl NonlocalPotential {
 
             form_factors.push(type_ff);
             dij_all.push(pp.dij.clone());
-            n_proj_all.push(pp.n_projectors);
+            n_proj_all.push(pp.n_projectors());
             proj_l_all.push(type_l);
         }
 

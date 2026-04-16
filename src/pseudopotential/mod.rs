@@ -30,16 +30,12 @@ pub struct PseudopotentialData {
     /// D_ij coupling matrix for non-local projectors (eV).
     /// Stored as a flat n_proj × n_proj matrix in row-major order.
     pub dij: Vec<f64>,
-    /// Number of non-local projectors.
-    pub n_projectors: usize,
     /// Atomic charge density on radial grid (e/Å, stores 4πr²ρ(r)).
     /// May be empty if not provided by the pseudopotential.
     pub rho_atom: Vec<f64>,
     /// Nonlinear core correction (NLCC) charge density on radial grid.
-    /// Stores 4πr²ρ_core(r) in e/Å. Empty if `has_nlcc` is false.
+    /// Stores 4πr²ρ_core(r) in e/Å. Empty if NLCC is not present.
     pub core_charge: Vec<f64>,
-    /// Whether this PP has nonlinear core correction.
-    pub has_nlcc: bool,
 }
 
 /// A single non-local beta projector.
@@ -83,6 +79,16 @@ pub fn find_for_atom<'a>(z: u32, pseudopotentials: &[&'a PseudopotentialData]) -
 }
 
 impl PseudopotentialData {
+    /// Number of non-local beta projectors.
+    pub fn n_projectors(&self) -> usize {
+        self.beta_projectors.len()
+    }
+
+    /// Whether this PP has nonlinear core correction.
+    pub fn has_nlcc(&self) -> bool {
+        !self.core_charge.is_empty()
+    }
+
     /// Compute V_local(G) via spherical Bessel transform.
     ///
     /// V_local(G) = (4π/Ω) ∫₀^∞ r² [V_local(r) + Z_val e²/r] sin(Gr)/(Gr) dr
@@ -153,8 +159,7 @@ mod tests {
         assert!(pp.l_max >= 1, "Si should have l_max >= 1");
         assert!(pp.r_grid.len() > 100, "Radial grid too small");
         assert_eq!(pp.v_local.len(), pp.r_grid.len());
-        assert!(pp.n_projectors > 0, "Should have projectors");
-        assert_eq!(pp.beta_projectors.len(), pp.n_projectors);
+        assert!(pp.n_projectors() > 0, "Should have projectors");
     }
 
     #[test]
@@ -171,8 +176,7 @@ mod tests {
         let pp = load(&path).unwrap();
         assert_eq!(pp.element, "Fe");
         assert!(pp.z_valence >= 8.0, "Fe should have >= 8 valence electrons");
-        assert!(pp.n_projectors > 0, "Fe should have projectors");
-        assert_eq!(pp.beta_projectors.len(), pp.n_projectors);
+        assert!(pp.n_projectors() > 0, "Fe should have projectors");
         // D_ij should be non-trivial (nonzero diagonal)
         let dij_max: f64 = pp.dij.iter().map(|d| d.abs()).fold(0.0, f64::max);
         assert!(dij_max > 0.01, "D_ij should have nonzero entries, max={dij_max}");
@@ -184,7 +188,7 @@ mod tests {
         let pp = load(&path).unwrap();
         assert_eq!(pp.element, "C");
         assert!((pp.z_valence - 4.0).abs() < 1e-10);
-        assert!(pp.n_projectors > 0);
+        assert!(pp.n_projectors() > 0);
     }
 
     #[test]
