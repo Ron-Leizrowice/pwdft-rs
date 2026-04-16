@@ -229,6 +229,10 @@ fn solve_linear_system(a: &[f64], b: &[f64], n: usize) -> Vec<f64> {
 
         let pivot = aug[col * (n + 1) + col];
         if pivot.abs() < 1e-15 {
+            log::warn!(
+                "Anderson mixer: singular overlap matrix (pivot={pivot:.2e}), \
+                 falling back to uniform coefficients"
+            );
             return vec![1.0 / (n + 1) as f64; n];
         }
 

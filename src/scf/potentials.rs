@@ -65,7 +65,7 @@ pub(crate) fn compute_core_density(
     }
 
     let n_grid = grid.total_size();
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
     let mut rho_core_g = vec![Complex64::new(0.0, 0.0); n_grid];
 
     for atom in &crystal.atoms {

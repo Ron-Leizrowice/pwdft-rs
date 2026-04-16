@@ -60,7 +60,7 @@ impl<'a> ScfContext<'a> {
         params: &'a ScfParams,
         symmetry: Option<&'a crate::symmetry::SymmetryInfo>,
     ) -> Self {
-        let omega = crystal.lattice.volume().abs();
+        let omega = crystal.lattice.volume();
         let n_electrons: f64 = crystal
             .atoms
             .iter()

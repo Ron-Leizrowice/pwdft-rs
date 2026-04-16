@@ -58,7 +58,7 @@ pub(super) fn generate_initial_density(
     n_electrons: f64,
     config: &InitialDensityConfig,
 ) -> Vec<f64> {
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
     let n_grid = grid.total_size();
     let sigma = config.gaussian_sigma.unwrap_or(DEFAULT_GAUSSIAN_SIGMA);
 
@@ -218,7 +218,7 @@ mod tests {
         let config = InitialDensityConfig::non_magnetic(2);
         let rho = generate_initial_density(&crystal, &mut grid, &[&pp], 8.0, &config);
 
-        let omega = crystal.lattice.volume().abs();
+        let omega = crystal.lattice.volume();
         let dvol = omega / rho.len() as f64;
         let integral: f64 = rho.iter().sum::<f64>() * dvol;
         assert!(

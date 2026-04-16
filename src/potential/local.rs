@@ -33,7 +33,7 @@ impl LocalPotential {
         basis: &BasisSet,
         pseudopotentials: &[&PseudopotentialData],
     ) -> Self {
-        let omega = crystal.lattice.volume().abs();
+        let omega = crystal.lattice.volume();
         let n = basis.len();
         let mut v_g = vec![Complex64::new(0.0, 0.0); n];
 
@@ -86,7 +86,7 @@ pub fn v_local_matrix_element(
 ) -> Complex64 {
     let g_diff = g_i - g_j;
     let g_norm = g_diff.norm();
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
 
     let mut result = Complex64::new(0.0, 0.0);
 

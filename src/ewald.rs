@@ -31,7 +31,7 @@ use crate::{
 ///
 /// Cutoffs: g_max = 10η (reciprocal), r_max = 10/η (real).
 pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]) -> f64 {
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
 
     // Get charges
     let charges: Vec<f64> = crystal

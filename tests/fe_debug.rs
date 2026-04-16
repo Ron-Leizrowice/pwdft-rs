@@ -94,7 +94,7 @@ fn test_fe_v_local_at_g0() {
     // V_local(G=0) is a key diagnostic — it's the average potential
     let crystal = fe_bcc();
     let pp = fe_pp();
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
 
     let v_g0 = pp.v_local_of_g(0.0, omega);
     eprintln!("Fe V_local(G=0) = {v_g0:.6} eV");
@@ -149,7 +149,7 @@ fn test_fe_full_hamiltonian_eigenvalues() {
     let ecut = 15.0 * RY_TO_EV;
     let basis = BasisSet::new(&crystal.lattice, ecut);
     let k = Vector3::zeros();
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
 
     // Step 1: Kinetic only
     let h_kin = hamiltonian::build_kinetic(&basis, &k);

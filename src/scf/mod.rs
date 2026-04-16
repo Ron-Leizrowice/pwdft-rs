@@ -70,6 +70,37 @@ pub struct ScfParams {
     pub tot_magnetization: Option<f64>,
 }
 
+impl ScfParams {
+    /// Validate parameters before starting an SCF calculation.
+    pub fn validate(&self) -> Result<()> {
+        if self.n_bands == 0 {
+            return Err(PwdftError::InvalidInput("n_bands must be > 0".into()));
+        }
+        if self.conv_threshold <= 0.0 {
+            return Err(PwdftError::InvalidInput("conv_threshold must be positive".into()));
+        }
+        if self.mixing_beta <= 0.0 || self.mixing_beta > 1.0 {
+            return Err(PwdftError::InvalidInput(
+                format!("mixing_beta must be in (0, 1], got {}", self.mixing_beta),
+            ));
+        }
+        if self.smearing_sigma < 0.0 {
+            return Err(PwdftError::InvalidInput("smearing_sigma must be non-negative".into()));
+        }
+        if self.ecutrho_ratio < 1 {
+            return Err(PwdftError::InvalidInput(
+                format!("ecutrho_ratio must be >= 1, got {}", self.ecutrho_ratio),
+            ));
+        }
+        if self.nspin != 1 && self.nspin != 2 {
+            return Err(PwdftError::InvalidInput(
+                format!("nspin must be 1 or 2, got {}", self.nspin),
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for ScfParams {
     fn default() -> Self {
         Self {
@@ -143,6 +174,18 @@ pub fn run_scf(
     params: &ScfParams,
     symmetry: Option<&crate::symmetry::SymmetryInfo>,
 ) -> Result<ScfResult> {
+    params.validate()?;
+    if crystal.atoms.is_empty() {
+        return Err(PwdftError::InvalidInput("at least one atom is required".into()));
+    }
+    if kpoints.is_empty() {
+        return Err(PwdftError::InvalidInput("at least one k-point is required".into()));
+    }
+    let omega = crystal.lattice.volume();
+    if omega < 1e-10 {
+        return Err(PwdftError::InvalidInput("lattice has zero or near-zero volume".into()));
+    }
+
     if params.nspin == 2 {
         return run_scf_spin(crystal, basis, kpoints, pseudopotentials, params, symmetry);
     }

@@ -146,7 +146,7 @@ fn test_local_potential_symmetry() {
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
 
     // Compute V_local at each basis G-vector directly (not via FFT grid)
     let g_vecs = basis.g_vectors();
@@ -203,7 +203,7 @@ fn test_kinetic_plus_vlocal_degeneracy() {
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
 
     let n = basis.len();
     let g_vecs = basis.g_vectors();
@@ -258,7 +258,7 @@ fn test_kinetic_plus_vlocal_via_fft_grid() {
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
 
     let n = basis.len();
     let g_vecs = basis.g_vectors();

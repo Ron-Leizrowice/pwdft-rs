@@ -39,17 +39,17 @@ impl Lattice {
         Self { a, b, c }
     }
 
-    /// Cell volume Ω = a · (b × c).
+    /// Cell volume Ω = |a · (b × c)|.
     ///
-    /// Returns the signed scalar triple product. Positive for right-handed
-    /// lattice vectors, negative for left-handed. Use `.abs()` when a
-    /// positive volume is needed (e.g., normalization).
+    /// Always positive regardless of lattice vector handedness.
     pub fn volume(&self) -> f64 {
-        self.a.cross(&self.b).dot(&self.c)
+        self.a.cross(&self.b).dot(&self.c).abs()
     }
 
     pub fn reciprocal(&self) -> Self {
-        let factor = 2.0 * PI / self.volume();
+        // Use signed triple product to get correct reciprocal vector directions
+        let triple = self.a.cross(&self.b).dot(&self.c);
+        let factor = 2.0 * PI / triple;
         Self {
             a: self.b.cross(&self.c) * factor,
             b: self.c.cross(&self.a) * factor,

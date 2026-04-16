@@ -406,7 +406,7 @@ fn test_05_vnl_diagonal_at_gamma() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let k: Vector3<f64> = Vector3::zeros();
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
     let n_pw = basis.len();
 
     eprintln!("\n=== TEST 5: V_NL diagonal at Gamma ===");
@@ -520,7 +520,7 @@ fn test_05_vnl_diagonal_at_gamma() {
 fn test_06_vnl_g0_g0_analytic() {
     let pp = load_si_pp();
     let crystal = si_crystal();
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
 
     eprintln!("\n=== TEST 6: V_NL(G=0,G=0) analytic cross-check ===");
 
@@ -652,7 +652,7 @@ fn test_08_vnl_offdiagonal() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let k: Vector3<f64> = Vector3::zeros();
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
     let n_pw = basis.len();
 
     eprintln!("\n=== TEST 8: Off-diagonal V_NL matrix elements ===");
@@ -903,7 +903,7 @@ fn extract_beta_block(content: &str, tag: &str) -> Vec<f64> {
 fn test_vloc_comparison_with_qe() {
     let pp = load_si_pp();
     let crystal = si_crystal();
-    let omega = crystal.lattice.volume().abs();
+    let omega = crystal.lattice.volume();
     let recip = crystal.lattice.reciprocal();
 
     // Compute V_local(G) at specific G-vectors using our Bessel transform

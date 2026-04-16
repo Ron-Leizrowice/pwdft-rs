@@ -117,7 +117,7 @@ impl NonlocalPotential {
         k: &Vector3<f64>,
     ) {
         let n_pw = basis.len();
-        let omega = crystal.lattice.volume().abs();
+        let omega = crystal.lattice.volume();
         let inv_omega = 1.0 / omega;
 
         // Precompute q-vectors and norms (once, not per pair)
