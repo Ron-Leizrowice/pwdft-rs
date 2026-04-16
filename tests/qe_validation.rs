@@ -1,10 +1,10 @@
 //! Validate pwdft-rs SCF results against Quantum ESPRESSO 7.5 reference data.
 //!
-//! Each test runs a full SCF calculation with the same parameters as QE
-//! (same PP, same ecut, same k-grid, same smearing) and compares total energy,
-//! Fermi energy, and Gamma-point eigenvalues.
+//! All QE runs use PseudoDojo ONCV LDA pseudopotentials (same PPs as pwdft-rs),
+//! ecut=15 Ry (204 eV), 4x4x4 Monkhorst-Pack grid, Fermi-Dirac smearing σ=0.01 Ry.
 //!
-//! QE runs: ecut=15 Ry (204 eV), 4x4x4 MP grid, LDA, Fermi-Dirac smearing.
+//! QE version: 7.5, compiled with OpenBLAS, MPI.
+//! QE input files: qe-7.5/runs/{si,c,fe}_pseudodojo/
 
 use nalgebra::Vector3;
 use pwdft_rs::{
@@ -18,37 +18,36 @@ const ECUT_RY: f64 = 15.0;
 const RY_TO_EV: f64 = 13.605693122994;
 const ECUT_EV: f64 = ECUT_RY * RY_TO_EV;
 
-fn load_pp(name: &str) -> pwdft_rs::pseudopotential::PseudopotentialData {
+fn load_pp(element: &str) -> pwdft_rs::pseudopotential::PseudopotentialData {
     pwdft_rs::pseudopotential::load(
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("pseudopotentials")
-            .join(name),
+            .join("pseudopotentials/nc/lda")
+            .join(format!("{element}.upf")),
     )
     .unwrap()
 }
 
-fn run_scf_for_validation(
+fn run_scf_validation(
     crystal: &Crystal,
     pp: &pwdft_rs::pseudopotential::PseudopotentialData,
-    smearing_sigma_ry: f64,
     n_bands: usize,
+    mixing_mode: MixingMode,
 ) -> Result<scf::ScfResult, pwdft_rs::error::PwdftError> {
     let basis = BasisSet::new(&crystal.lattice, ECUT_EV);
     let kpts = kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
 
-    eprintln!("  basis size: {} PWs, {} k-points", basis.len(), kpts.len());
+    eprintln!("  basis: {} PWs, {} k-points", basis.len(), kpts.len());
 
     let params = scf::ScfParams {
         n_bands,
-        max_iter: 60,
+        max_iter: 80,
         conv_threshold: 1e-8,
         energy_threshold: 1e-6,
         mixing_beta: 0.3,
         mixing_ndim: 8,
-        smearing_sigma: smearing_sigma_ry * RY_TO_EV,
+        smearing_sigma: 0.01 * RY_TO_EV,
         ecutrho_ratio: 4,
-        fft_grid: None,
-        mixing_mode: MixingMode::Kerker { q_tf: None },
+        mixing_mode,
         ..Default::default()
     };
 
@@ -57,12 +56,14 @@ fn run_scf_for_validation(
 }
 
 // =========================================================================
-// Si diamond — our primary validation target
+// Si diamond (FCC, 2 atoms, insulator)
+// QE: -17.02298254 Ry, E_F=6.3435 eV, 7 iters
+// Gamma: -5.8909  6.0800  6.0800  6.0800  8.6090  8.6090  8.6090  9.3220
 // =========================================================================
 
 #[test]
 fn test_si_diamond_vs_qe() {
-    let a = 5.431;
+    let a = 5.431; // Å
     let crystal = Crystal {
         lattice: Lattice::new(
             a / 2.0 * Vector3::new(0.0, 1.0, 1.0),
@@ -74,14 +75,13 @@ fn test_si_diamond_vs_qe() {
             Atom::new(14, [0.25, 0.25, 0.25]),
         ],
     };
-    let pp = load_pp("Si.UPF");
+    let pp = load_pp("Si");
 
-    let result = run_scf_for_validation(&crystal, &pp, 0.01, 8);
+    // Plain mixing for insulator (Kerker can hurt convergence for gapped systems)
+    let result = run_scf_validation(&crystal, &pp, 8, MixingMode::Plain);
 
-    // QE reference at 15 Ry: -15.82451782 Ry, E_F=6.3625 eV, 14 iters
-    // Gamma: -5.8724  6.0890  6.0890  6.0890  8.6306  8.6306  8.6306  9.3134
-    let qe_energy = -15.82451782 * RY_TO_EV; // -215.304 eV
-    let qe_fermi = 6.3625;
+    let qe_energy = -17.02298254 * RY_TO_EV;
+    let qe_fermi = 6.3435;
 
     match result {
         Ok(r) => {
@@ -92,34 +92,78 @@ fn test_si_diamond_vs_qe() {
             }
 
             let de = (r.total_energy - qe_energy).abs();
-            eprintln!("Si energy diff vs QE: {de:.4} eV");
-
-            // Known: HGH PP can converge to different minimum.
-            // Accept if within 2 eV or if eigenvalue pattern is qualitatively right.
-            assert!(
-                de < 2.0,
-                "Si total energy {:.4} eV too far from QE {:.4} eV (diff={de:.4})",
-                r.total_energy, qe_energy
-            );
-
-            // Fermi energy should be in the gap
             let ef_diff = (r.fermi_energy - qe_fermi).abs();
-            eprintln!("Si Fermi energy diff vs QE: {ef_diff:.4} eV");
+            eprintln!("Si |ΔE| vs QE: {de:.4} eV");
+            eprintln!("Si |ΔE_F| vs QE: {ef_diff:.4} eV");
+
+            assert!(de < 2.0,
+                "Si energy {:.4} eV too far from QE {:.4} eV (diff={de:.4})",
+                r.total_energy, qe_energy);
         }
         Err(e) => {
-            eprintln!("Si SCF did not converge: {e}");
-            // Known issue with HGH PP — not a hard failure
+            panic!("Si SCF did not converge: {e}");
         }
     }
 }
 
 // =========================================================================
-// BCC Fe (non-magnetic) — tests d-electron PP handling
+// Diamond C (FCC, 2 atoms, wide-gap insulator)
+// QE: -22.97237389 Ry, E_F=17.3594 eV, 7 iters
+// Gamma: -7.8042  16.1238  16.1238  16.1238  21.1893  21.1893  21.1893  29.0506
+// =========================================================================
+
+#[test]
+fn test_c_diamond_vs_qe() {
+    let a = 3.567; // Å
+    let crystal = Crystal {
+        lattice: Lattice::new(
+            a / 2.0 * Vector3::new(0.0, 1.0, 1.0),
+            a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
+            a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
+        ),
+        atoms: vec![
+            Atom::new(6, [0.0, 0.0, 0.0]),
+            Atom::new(6, [0.25, 0.25, 0.25]),
+        ],
+    };
+    let pp = load_pp("C");
+
+    let result = run_scf_validation(&crystal, &pp, 8, MixingMode::Plain);
+
+    let qe_energy = -22.97237389 * RY_TO_EV;
+
+    match result {
+        Ok(r) => {
+            eprintln!("C: E={:.6} eV, E_F={:.4} eV, {} iters",
+                r.total_energy, r.fermi_energy, r.n_iterations);
+            if let Some(evs) = r.eigenvalues.first() {
+                eprintln!("C Gamma eigenvalues: {:?}", evs);
+            }
+
+            let de = (r.total_energy - qe_energy).abs();
+            eprintln!("C |ΔE| vs QE: {de:.4} eV");
+
+            assert!(de < 2.0,
+                "C energy {:.4} eV too far from QE {:.4} eV (diff={de:.4})",
+                r.total_energy, qe_energy);
+        }
+        Err(e) => {
+            panic!("C SCF did not converge: {e}");
+        }
+    }
+}
+
+// =========================================================================
+// BCC Fe (1 atom, metal, nspin=1)
+// QE: -224.86648537 Ry, E_F=26.0984 eV, 8 iters
+// Gamma: -122.6451 -46.5035 -46.5035 -46.5035 9.2505 23.7896 23.7896 24.4178
+// Note: nspin=1 Fe is unphysical (real Fe is ferromagnetic). This test
+// validates the code mechanics; physical Fe requires nspin=2.
 // =========================================================================
 
 #[test]
 fn test_fe_bcc_vs_qe() {
-    let a = 2.87;
+    let a = 2.87; // Å
     let crystal = Crystal {
         lattice: Lattice::new(
             a / 2.0 * Vector3::new(-1.0, 1.0, 1.0),
@@ -128,13 +172,12 @@ fn test_fe_bcc_vs_qe() {
         ),
         atoms: vec![Atom::new(26, [0.0, 0.0, 0.0])],
     };
-    let pp = load_pp("Fe.UPF");
+    let pp = load_pp("Fe");
 
-    let result = run_scf_for_validation(&crystal, &pp, 0.02, 8);
+    // Kerker helps metals converge
+    let result = run_scf_validation(&crystal, &pp, 12, MixingMode::Kerker { q_tf: None });
 
-    // QE reference at 15 Ry: -44.16788760 Ry, E_F=27.3976 eV, 13 iters
-    // Gamma: 5.1621  26.2555  26.2555  27.1502  27.1502  27.1502  40.1971  40.1971
-    let qe_energy = -44.16788760 * RY_TO_EV;
+    let qe_energy = -224.86648537 * RY_TO_EV;
 
     match result {
         Ok(r) => {
@@ -145,40 +188,14 @@ fn test_fe_bcc_vs_qe() {
             }
 
             let de = (r.total_energy - qe_energy).abs();
-            eprintln!("Fe energy diff vs QE: {de:.4} eV");
-            eprintln!("Fe free energy: {:.4} eV", r.free_energy);
-            eprintln!("Fe entropy TS: {:.6} eV", r.entropy_ts);
+            eprintln!("Fe |ΔE| vs QE: {de:.4} eV");
 
-            // Fe with NC PP at low cutoff — may have large discrepancy
-            // Log the comparison but don't fail hard
             if de > 5.0 {
-                eprintln!("WARNING: Fe energy differs from QE by {de:.2} eV — investigate PP handling");
+                eprintln!("WARNING: Fe energy differs from QE by {de:.2} eV — under investigation");
             }
         }
         Err(e) => {
             eprintln!("Fe SCF did not converge: {e}");
-        }
-    }
-}
-
-// =========================================================================
-// Diamond C — skipped until UPF v1 parser is implemented
-// =========================================================================
-
-#[test]
-fn test_c_diamond_pp_loading() {
-    // C.UPF is v1 format (Fritz-Haber-Institute). Our parser only handles v2.
-    // This test documents the limitation.
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("pseudopotentials/nc/lda/C.upf");
-    let result = pwdft_rs::pseudopotential::load(&path);
-    match result {
-        Ok(pp) => {
-            eprintln!("C PP loaded: element={}, z_val={}, n_proj={}", pp.element, pp.z_valence, pp.n_projectors);
-        }
-        Err(e) => {
-            eprintln!("C PP parse failed (expected — v1 format): {e}");
-            // Not a hard failure — documents known limitation
         }
     }
 }

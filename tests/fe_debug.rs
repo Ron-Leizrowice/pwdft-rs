@@ -70,37 +70,13 @@ fn test_fe_kinetic_eigenvalues() {
 }
 
 #[test]
-fn test_fe_energy_decomposition() {
-    // Compare individual energy components against QE reference.
-    // QE at 15 Ry:
-    //   one-electron: 280.15 eV  (band energy = kinetic + V_local + V_NL from eigenvalues)
-    //   hartree:        3.35 eV
-    //   xc:          -299.90 eV
-    //   ewald:       -584.29 eV
-    //   total:       -600.93 eV (= one-electron + hartree + xc + ewald)
-    //
-    // QE's "total" = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0)*N_el
-    // But QE's "one-electron" = E_band (from eigenvalues, which EXCLUDE V_local(G=0))
-    // And "xc" = E_xc - E_vxc (double-counting corrected)
-    //
-    // So: total = one_electron + hartree + xc + ewald
-
-    let crystal = fe_bcc();
-    let pp = fe_pp();
-    let _omega = crystal.lattice.volume().abs();
-
-    // Ewald
-    let e_ewald = pwdft_rs::ewald::ewald_energy(&crystal, &[&pp]);
-    let qe_ewald = -42.94465594 * RY_TO_EV;
-    eprintln!("Ewald:  ours={e_ewald:.4}  QE={qe_ewald:.4}  diff={:.4}", e_ewald - qe_ewald);
-}
-
-#[test]
 fn test_fe_ewald_energy() {
+    // QE reference: PseudoDojo Fe LDA (Z_val=16), BCC a=2.87 Å
+    // ewald contribution = -171.77906580 Ry
     let crystal = fe_bcc();
     let pp = fe_pp();
     let e_ewald = pwdft_rs::ewald::ewald_energy(&crystal, &[&pp]);
-    let qe_ewald = -42.94465594 * RY_TO_EV;
+    let qe_ewald = -171.77906580 * RY_TO_EV;
 
     eprintln!("Fe Ewald energy: {e_ewald:.6} eV");
     eprintln!("QE Ewald energy: {qe_ewald:.6} eV");
@@ -108,7 +84,7 @@ fn test_fe_ewald_energy() {
     eprintln!("Diff: {diff:.6} eV");
 
     assert!(
-        diff < 1.0,
+        diff < 0.01,
         "Ewald energy {e_ewald:.4} eV differs from QE {qe_ewald:.4} eV by {diff:.4}"
     );
 }
@@ -232,10 +208,13 @@ fn test_fe_full_hamiltonian_eigenvalues() {
     vnl.add_to_hamiltonian(&mut h_full, &crystal, &basis, &k);
     let eig_full = dense::diagonalize_lowest(&h_full, 8);
     eprintln!("Full H eigenvalues:           {:?}", eig_full.eigenvalues);
-    eprintln!("QE reference:                 [5.16, 26.26, 26.26, 27.15, 27.15, 27.15, 40.20, 40.20]");
+    eprintln!("QE reference (SCF, 15 Ry):    [-122.65, -46.50, -46.50, -46.50, 9.25, 23.79, 23.79, 24.42]");
+    eprintln!("NOTE: QE eigenvalues are from a converged SCF (includes V_H + V_xc).");
+    eprintln!("      Our eigenvalues are bare T + V_local + V_NL (no self-consistency).");
+    eprintln!("      Direct comparison is not meaningful — use full SCF for validation.");
 
-    // Check if the pattern is qualitatively right
-    let qe_eigs = [5.1621, 26.2555, 26.2555, 27.1502, 27.1502, 27.1502, 40.1971, 40.1971];
+    // QE SCF-converged eigenvalues at Gamma (PseudoDojo Fe Z=16, 15 Ry, nspin=1)
+    let qe_eigs = [-122.6451, -46.5035, -46.5035, -46.5035, 9.2505, 23.7896, 23.7896, 24.4178];
     eprintln!("\nBand-by-band comparison:");
     for (i, (&ours, &qe)) in eig_full.eigenvalues.iter().zip(qe_eigs.iter()).enumerate() {
         let diff = ours - qe;
