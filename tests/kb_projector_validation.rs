@@ -29,8 +29,8 @@ use pwdft_rs::{
 // ---------------------------------------------------------------------------
 //  Constants (must match the library exactly)
 // ---------------------------------------------------------------------------
-const BOHR_TO_ANG: f64 = 0.529177210903;
-const RY_TO_EV: f64 = 13.605693122994;
+const BOHR_TO_ANG: f64 = 0.529_177_210_903;
+const RY_TO_EV: f64 = 13.605_693_122_994;
 
 // ---------------------------------------------------------------------------
 //  Helper: load Si pseudopotential
@@ -213,15 +213,11 @@ fn test_01_inspect_projector_data() {
         // Check Gaussian-like shape: peak should be near r ~ 0.1--0.5 Ang for HGH Si
         assert!(
             peak_r < 2.0,
-            "Projector {} peak r={:.4} Ang is suspiciously large",
-            ip,
-            peak_r
+            "Projector {ip} peak r={peak_r:.4} Ang is suspiciously large"
         );
         assert!(
             peak_val.abs() > 1e-6,
-            "Projector {} peak value is too small: {:.6e}",
-            ip,
-            peak_val
+            "Projector {ip} peak value is too small: {peak_val:.6e}"
         );
     }
 }
@@ -304,8 +300,7 @@ fn test_03_f_at_q_zero_analytic() {
 
             let diff = (f_q0 - f_analytic).abs();
             eprintln!(
-                "Projector {} (l=0): F(0) = {:.10e},  analytic = {:.10e},  diff = {:.4e}",
-                ip, f_q0, f_analytic, diff
+                "Projector {ip} (l=0): F(0) = {f_q0:.10e},  analytic = {f_analytic:.10e},  diff = {diff:.4e}"
             );
             assert!(
                 diff < 1e-14 * f_q0.abs().max(1.0),
@@ -314,8 +309,7 @@ fn test_03_f_at_q_zero_analytic() {
         } else {
             // l > 0: must be exactly zero (j_l(0) = 0 for l > 0)
             eprintln!(
-                "Projector {} (l={}): F(0) = {:.10e}  (should be 0)",
-                ip, l, f_q0
+                "Projector {ip} (l={l}): F(0) = {f_q0:.10e}  (should be 0)"
             );
             assert!(
                 f_q0.abs() < 1e-20,
@@ -391,7 +385,7 @@ fn test_04_unit_conversion_chain() {
         0,
         1.0,
     );
-    eprintln!("  F_0(q=1 Ang^-1)   = {:.6e} Ang^{{3/2}}", f_test);
+    eprintln!("  F_0(q=1 Ang^-1)   = {f_test:.6e} Ang^{{3/2}}");
     eprintln!("  D_11               = {:.6e} eV", pp.dij[0]);
     eprintln!(
         "  F * D * F          = {:.6e} eV * Ang^3",
@@ -416,8 +410,8 @@ fn test_05_vnl_diagonal_at_gamma() {
     let n_pw = basis.len();
 
     eprintln!("\n=== TEST 5: V_NL diagonal at Gamma ===");
-    eprintln!("Cell volume: {:.6} Ang^3", omega);
-    eprintln!("Number of PWs: {}", n_pw);
+    eprintln!("Cell volume: {omega:.6} Ang^3");
+    eprintln!("Number of PWs: {n_pw}");
 
     // Build V_NL using the library
     let mut h_lib = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
@@ -568,7 +562,7 @@ fn test_06_vnl_g0_g0_analytic() {
     vnl_00_analytic *= 1.0 / (4.0 * PI);
     vnl_00_analytic *= n_atoms / omega;
 
-    eprintln!("  V_NL(G=0,G=0) analytic = {:.10} eV", vnl_00_analytic);
+    eprintln!("  V_NL(G=0,G=0) analytic = {vnl_00_analytic:.10} eV");
 
     // Compare with library value
     let basis = BasisSet::new(&crystal.lattice, 204.09);
@@ -581,16 +575,13 @@ fn test_06_vnl_g0_g0_analytic() {
     let g0_idx = basis.index_of(0, 0, 0).unwrap();
     let v_lib = h[(g0_idx, g0_idx)].re;
 
-    eprintln!("  V_NL(G=0,G=0) library  = {:.10} eV", v_lib);
+    eprintln!("  V_NL(G=0,G=0) library  = {v_lib:.10} eV");
     let diff = (v_lib - vnl_00_analytic).abs();
-    eprintln!("  difference             = {:.4e} eV", diff);
+    eprintln!("  difference             = {diff:.4e} eV");
 
     assert!(
         diff < 1e-8,
-        "V_NL(G=0,G=0) analytic vs library mismatch: {:.10} vs {:.10}, diff={:.4e}",
-        vnl_00_analytic,
-        v_lib,
-        diff
+        "V_NL(G=0,G=0) analytic vs library mismatch: {vnl_00_analytic:.10} vs {v_lib:.10}, diff={diff:.4e}"
     );
 }
 
@@ -610,15 +601,15 @@ fn test_07_form_factor_behavior() {
         let l = proj.l;
         let chi = &proj.values;
 
-        eprintln!("\nProjector {} (l={}):", ip, l);
+        eprintln!("\nProjector {ip} (l={l}):");
         eprintln!("  {:>8}  {:>16}", "q (1/Ang)", "F(q) (Ang^3/2)");
 
         let mut f_vals: Vec<f64> = Vec::new();
         for &q in &q_vals {
             let f = bessel_transform_trapezoidal(&pp.r_grid, &pp.rab, chi, l, q);
             f_vals.push(f);
-            if q <= 10.0 || q == *q_vals.last().unwrap() {
-                eprintln!("  {:8.3}  {:16.10e}", q, f);
+            if q <= 10.0 || (q - *q_vals.last().unwrap()).abs() < f64::EPSILON {
+                eprintln!("  {q:8.3}  {f:16.10e}");
             }
         }
 
@@ -682,13 +673,11 @@ fn test_08_vnl_offdiagonal() {
     ];
 
     for &(m1, m2) in &test_pairs {
-        let ig = match basis.index_of(m1.0, m1.1, m1.2) {
-            Some(i) => i,
-            None => continue,
+        let Some(ig) = basis.index_of(m1.0, m1.1, m1.2) else {
+            continue;
         };
-        let jg = match basis.index_of(m2.0, m2.1, m2.2) {
-            Some(j) => j,
-            None => continue,
+        let Some(jg) = basis.index_of(m2.0, m2.1, m2.2) else {
+            continue;
         };
 
         let qi = g_vecs[ig]; // at Gamma, k=0
@@ -761,8 +750,7 @@ fn test_08_vnl_offdiagonal() {
 
         assert!(
             diff < 1e-8,
-            "Off-diagonal V_NL mismatch: diff = {:.4e}",
-            diff
+            "Off-diagonal V_NL mismatch: diff = {diff:.4e}"
         );
     }
 }
@@ -800,10 +788,10 @@ fn test_09_hgh_parameter_crosscheck() {
     let d = &pp.dij;
 
     // Expected D_ij in eV
-    let h0_11_ry = 2.953464156;
-    let h0_12_ry = -0.630946985;
-    let h0_22_ry = 1.629098111;
-    let h1_11_ry = 1.363506728;
+    let h0_11_ry = 2.953_464_156;
+    let h0_12_ry = -0.630_946_985;
+    let h0_22_ry = 1.629_098_111;
+    let h1_11_ry = 1.363_506_728;
 
     let expected_dij_ev = [
         h0_11_ry * RY_TO_EV, h0_12_ry * RY_TO_EV, 0.0,
@@ -852,11 +840,10 @@ fn test_10_vnl_hermiticity_and_reality() {
     for i in 0..n_pw {
         max_imag = max_imag.max(h[(i, i)].im.abs());
     }
-    eprintln!("  Max |Im(V_NL(G,G))|  = {:.4e}", max_imag);
+    eprintln!("  Max |Im(V_NL(G,G))|  = {max_imag:.4e}");
     assert!(
         max_imag < 1e-10,
-        "V_NL diagonal has imaginary part: max = {:.4e}",
-        max_imag
+        "V_NL diagonal has imaginary part: max = {max_imag:.4e}"
     );
 
     // Off-diagonal: H_{ij} = H_{ji}^* (Hermitian)
@@ -867,11 +854,10 @@ fn test_10_vnl_hermiticity_and_reality() {
             max_herm_err = max_herm_err.max(err);
         }
     }
-    eprintln!("  Max |H(i,j) - H(j,i)*| = {:.4e}", max_herm_err);
+    eprintln!("  Max |H(i,j) - H(j,i)*| = {max_herm_err:.4e}");
     assert!(
         max_herm_err < 1e-10,
-        "V_NL not Hermitian: max = {:.4e}",
-        max_herm_err
+        "V_NL not Hermitian: max = {max_herm_err:.4e}"
     );
 }
 
@@ -909,7 +895,7 @@ fn extract_beta_block(content: &str, tag: &str) -> Vec<f64> {
 /// Compare our V_local(G) against QE's Cube file FFT at key G-vectors.
 ///
 /// QE reference (from pp.x plot_num=2 → Cube → FFT):
-///   G=(0,0,0):  -1.002741 eV
+///   G=(0,0,0):  -1.002_741 eV
 ///   G=(1,0,0):  (-4.9268, +4.9268)i eV  |V| = 6.9675 eV
 ///   G=(1,1,1):  (-4.9268, -4.9268)i eV  |V| = 6.9675 eV
 ///   G=(2,0,0):  ~0 eV
@@ -955,9 +941,9 @@ fn test_vloc_comparison_with_qe() {
     }
 
     // QE reference values (from Cube FFT, in eV)
-    let qe_vloc_g000 = -1.002741;
-    let qe_vloc_g100_abs = 6.967521;
-    let qe_vloc_g111_abs = 6.967521;
+    let qe_vloc_g000 = -1.002_741;
+    let qe_vloc_g100_abs = 6.967_521;
+    let qe_vloc_g111_abs = 6.967_521;
 
     // Compute our values
     let _g000: Vector3<f64> = Vector3::zeros();
@@ -996,8 +982,7 @@ fn test_vloc_comparison_with_qe() {
     // Check agreement — tolerance of 0.1 eV for now (FFT grid differences cause some discrepancy)
     assert!(
         (our_vloc_g000 - qe_vloc_g000).abs() < 0.5,
-        "V_local(G=0) disagrees: ours={:.6}, QE={:.6}",
-        our_vloc_g000, qe_vloc_g000
+        "V_local(G=0) disagrees: ours={our_vloc_g000:.6}, QE={qe_vloc_g000:.6}"
     );
     assert!(
         (our_vloc_g100.norm() - qe_vloc_g100_abs).abs() < 0.5,

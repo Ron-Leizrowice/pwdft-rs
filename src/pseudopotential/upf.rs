@@ -233,7 +233,7 @@ mod tests {
         let pp = parse(&si_content()).unwrap();
         // At large r, V_local should approach -Z_val e²/r
         // e² = 14.3997 eV·Å, Z_val = 4
-        let e2 = 14.399645351950548;
+        let e2 = 14.399_645_351_950_548;
         let n = pp.r_grid.len();
         let r_far = pp.r_grid[n - 10];
         let v_far = pp.v_local[n - 10];

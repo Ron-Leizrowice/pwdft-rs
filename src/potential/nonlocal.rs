@@ -335,21 +335,21 @@ mod tests {
         // j_4(3) ≈ 0.05615 (computed via recurrence from j_0, j_1)
         let j4_3 = spherical_bessel_j(4, 3.0);
         assert!(
-            relative_eq!(j4_3, 0.056149714328844, epsilon = 1e-10),
+            relative_eq!(j4_3, 0.056_149_714_328_844, epsilon = 1e-10),
             "j_4(3) = {j4_3}"
         );
 
         // j_5(5) ≈ 0.10681 (computed via recurrence)
         let j5_5 = spherical_bessel_j(5, 5.0);
         assert!(
-            relative_eq!(j5_5, 0.106811161456505, epsilon = 1e-10),
+            relative_eq!(j5_5, 0.106_811_161_456_505, epsilon = 1e-10),
             "j_5(5) = {j5_5}"
         );
 
         // j_4(5) ≈ 0.18702
         let j4_5 = spherical_bessel_j(4, 5.0);
         assert!(
-            relative_eq!(j4_5, 0.187017655344889, epsilon = 1e-10),
+            relative_eq!(j4_5, 0.187_017_655_344_889, epsilon = 1e-10),
             "j_4(5) = {j4_5}"
         );
 

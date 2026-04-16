@@ -349,6 +349,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::float_cmp)] // Zero-density XC returns exact 0.0
     fn test_lda_zero_density() {
         let xc = lda_xc(0.0);
         assert_eq!(xc.exc, 0.0);

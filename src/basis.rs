@@ -126,7 +126,7 @@ mod tests {
     fn test_kinetic_energy_contains_zero() {
         let basis = si_basis(200.0);
         let ke = basis.kinetic_energy();
-        let min_ke = ke.iter().cloned().fold(f64::INFINITY, f64::min);
+        let min_ke = ke.iter().copied().fold(f64::INFINITY, f64::min);
         assert!(
             min_ke.abs() < 1e-12,
             "G=0 should have zero kinetic energy, got {min_ke}"
@@ -138,7 +138,7 @@ mod tests {
         let ecut = 200.0;
         let basis = si_basis(ecut);
         let ke = basis.kinetic_energy();
-        let max_ke = ke.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let max_ke = ke.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         assert!(max_ke <= ecut + 1e-10, "max KE {max_ke} exceeds cutoff {ecut}");
     }
 

@@ -40,6 +40,18 @@ name = "gpu_benchmarks"
 harness = false
 required-features = ["gpu"]
 
+[lints.clippy]
+# Bug prevention
+float_cmp = "warn"
+# Performance
+needless_pass_by_value = "warn"
+cloned_instead_of_copied = "warn"
+# Code modernization
+uninlined_format_args = "warn"
+redundant_closure = "warn"
+unreadable_literal = "warn"
+manual_let_else = "warn"
+
 [profile.release]
 opt-level = 3
 lto = "thin"

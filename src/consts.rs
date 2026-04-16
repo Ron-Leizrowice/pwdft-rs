@@ -2,15 +2,15 @@ pub const PI: f64 = std::f64::consts::PI;
 
 // Atomic unit conversions
 /// Hartree to electronvolt.
-pub const HA_TO_EV: f64 = 27.211386245988;
+pub const HA_TO_EV: f64 = 27.211_386_245_988;
 /// Rydberg to electronvolt.
-pub const RY_TO_EV: f64 = 13.605693122994;
+pub const RY_TO_EV: f64 = 13.605_693_122_994;
 /// Bohr radius in Ångströms.
-pub const BOHR_TO_ANG: f64 = 0.529177210903;
+pub const BOHR_TO_ANG: f64 = 0.529_177_210_903;
 /// Bohr³ in ų (volume conversion).
 pub const BOHR3_TO_ANG3: f64 = BOHR_TO_ANG * BOHR_TO_ANG * BOHR_TO_ANG;
 /// Coulomb constant e² in eV·Å (Gaussian units).
-pub const E2_COULOMB: f64 = 14.399645351950548;
+pub const E2_COULOMB: f64 = 14.399_645_351_950_548;
 
 // Numerical thresholds
 /// Threshold for treating |G|² as zero (skip G=0 in Coulomb sums).
@@ -19,12 +19,12 @@ pub const G2_ZERO_THRESHOLD: f64 = 1e-12;
 pub const RHO_FLOOR: f64 = 1e-20;
 
 // SI constants
-pub const H_SI: f64 = 6.62607015e-34; // J·s (exact, SI definition)
+pub const H_SI: f64 = 6.626_070_15e-34; // J·s (exact, SI definition)
 pub const HBAR_SI: f64 = H_SI / (2.0 * PI); // J·s
-pub const M_E: f64 = 9.1093837015e-31; // kg
+pub const M_E: f64 = 9.109_383_701_5e-31; // kg
 
 // Conversion factors
-pub const EV_PER_J: f64 = 6.241509074e18; // 1 J = this many eV
+pub const EV_PER_J: f64 = 6.241_509_074e18; // 1 J = this many eV
 pub const ANG_PER_M: f64 = 1e10; // 1 m = 1e10 Å
 
 // Derived: ħ²/2m in eV·Å²

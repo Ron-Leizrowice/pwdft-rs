@@ -531,7 +531,7 @@ kpoints:
         let s = Settings::from_yaml_str(MINIMAL_YAML).unwrap();
         assert_eq!(s.system.atoms.len(), 2);
         assert_eq!(s.system.atoms[0].symbol, "Si");
-        assert_eq!(s.basis.ecutwfc, 204.09);
+        assert!((s.basis.ecutwfc - 204.09).abs() < f64::EPSILON);
         assert!(s.mp_grid().is_some());
         assert_eq!(s.mp_grid().unwrap(), [4, 4, 4]);
     }
@@ -541,7 +541,7 @@ kpoints:
         let s = Settings::from_yaml_str(FULL_YAML).unwrap();
         assert_eq!(s.scf.max_iter, 100);
         assert_eq!(s.scf.n_bands, Some(8));
-        assert_eq!(s.electrons.mixing_beta, 0.3);
+        assert!((s.electrons.mixing_beta - 0.3).abs() < f64::EPSILON);
         assert_eq!(s.electrons.mixing_ndim, 8);
         assert_eq!(s.electrons.smearing, SmearingType::FermiDirac);
         assert!((s.electrons.smearing_width - 0.05).abs() < 1e-15);
@@ -598,7 +598,9 @@ kpoints:
         assert_eq!(crystal.atoms.len(), 2);
         assert_eq!(crystal.atoms[0].z, 14);
         assert_eq!(crystal.atoms[1].z, 14);
-        assert_eq!(crystal.atoms[1].position, [0.25, 0.25, 0.25]);
+        for (&got, &want) in crystal.atoms[1].position.iter().zip([0.25, 0.25, 0.25].iter()) {
+            assert!((got - want).abs() < f64::EPSILON);
+        }
         let lat = &crystal.lattice;
         assert!((lat.a[0] - 0.0).abs() < 1e-10);
         assert!((lat.a[1] - 2.7155).abs() < 1e-10);
@@ -680,10 +682,10 @@ kpoints:
         let restored = Settings::from_yaml_str(&serialized).unwrap();
 
         assert_eq!(original.system.atoms.len(), restored.system.atoms.len());
-        assert_eq!(original.basis.ecutwfc, restored.basis.ecutwfc);
+        assert!((original.basis.ecutwfc - restored.basis.ecutwfc).abs() < f64::EPSILON);
         assert_eq!(original.scf.max_iter, restored.scf.max_iter);
         assert_eq!(original.scf.n_bands, restored.scf.n_bands);
-        assert_eq!(original.electrons.mixing_beta, restored.electrons.mixing_beta);
+        assert!((original.electrons.mixing_beta - restored.electrons.mixing_beta).abs() < f64::EPSILON);
         assert_eq!(original.xc.functional, restored.xc.functional);
         assert_eq!(original.symmetry.enabled, restored.symmetry.enabled);
         assert_eq!(original.output.verbosity, restored.output.verbosity);

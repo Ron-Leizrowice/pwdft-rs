@@ -144,9 +144,9 @@ mod tests {
         // erfc(0) = 1 exactly
         assert!(relative_eq!(erfc(0.0), 1.0, epsilon = 1e-12));
         // erfc(1) = 0.15729920705... (NIST DLMF)
-        assert!(relative_eq!(erfc(1.0), 0.15729920705028513, epsilon = 1e-7));
+        assert!(relative_eq!(erfc(1.0), 0.157_299_207_050_285_13, epsilon = 1e-7));
         // erfc(2) = 0.00467773498...
-        assert!(relative_eq!(erfc(2.0), 0.004677734981047266, epsilon = 1e-7));
+        assert!(relative_eq!(erfc(2.0), 0.004_677_734_981_047_266, epsilon = 1e-7));
         // erfc(5) ≈ 1.537e-12
         assert!(erfc(5.0) < 1e-10);
         // Symmetry: erfc(-x) = 2 - erfc(x)
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_ewald_nacl() {
-        // NaCl structure: Madelung constant M = 1.747565
+        // NaCl structure: Madelung constant M = 1.747_565
         // E_ewald = -M × e² / a₀ per ion pair
         // For a cubic cell with a = 5.64 Å (NaCl lattice constant)
         let a = 5.64;
@@ -213,8 +213,8 @@ mod tests {
 
         let e = ewald_energy(&crystal, &[&pp_na, &pp_cl]);
         // Expected: E = -M × e² × 4 (ion pairs) / (a/2)
-        // M = 1.747565, e² = 14.3997 eV·Å, nearest-neighbor distance = a/2
-        let e_expected = -1.747565 * E2 / (a / 2.0) * 4.0;
+        // M = 1.747_565, e² = 14.3997 eV·Å, nearest-neighbor distance = a/2
+        let e_expected = -1.747_565 * E2 / (a / 2.0) * 4.0;
         let relative_err = ((e - e_expected) / e_expected).abs();
         assert!(
             relative_err < 0.01,

@@ -197,7 +197,7 @@ label = "L"
 frac = [0.5, 0.5, 0.5]
 "#;
         let config: InputFile = input.parse().unwrap();
-        assert_eq!(config.system.ecut, 200.0);
+        assert!((config.system.ecut - 200.0).abs() < f64::EPSILON);
         assert_eq!(config.system.atoms.len(), 2);
         assert_eq!(config.system.n_bands, Some(8));
 

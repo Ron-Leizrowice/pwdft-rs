@@ -15,7 +15,7 @@ use pwdft_rs::{
 };
 
 const ECUT_RY: f64 = 15.0;
-const RY_TO_EV: f64 = 13.605693122994;
+const RY_TO_EV: f64 = 13.605_693_122_994;
 const ECUT_EV: f64 = ECUT_RY * RY_TO_EV;
 
 fn load_pp(element: &str) -> pwdft_rs::pseudopotential::PseudopotentialData {
@@ -57,7 +57,7 @@ fn run_scf_validation(
 
 // =========================================================================
 // Si diamond (FCC, 2 atoms, insulator)
-// QE: -17.02298254 Ry, E_F=6.3435 eV, 7 iters
+// QE: -17.022_982_54 Ry, E_F=6.3435 eV, 7 iters
 // Gamma: -5.8909  6.0800  6.0800  6.0800  8.6090  8.6090  8.6090  9.3220
 // =========================================================================
 
@@ -80,7 +80,7 @@ fn test_si_diamond_vs_qe() {
     // Plain mixing for insulator (Kerker can hurt convergence for gapped systems)
     let result = run_scf_validation(&crystal, &pp, 8, MixingMode::Plain);
 
-    let qe_energy = -17.02298254 * RY_TO_EV;
+    let qe_energy = -17.022_982_54 * RY_TO_EV;
     let qe_fermi = 6.3435;
 
     match result {
@@ -88,7 +88,7 @@ fn test_si_diamond_vs_qe() {
             eprintln!("Si: E={:.6} eV, E_F={:.4} eV, {} iters",
                 r.total_energy, r.fermi_energy, r.n_iterations);
             if let Some(evs) = r.eigenvalues.first() {
-                eprintln!("Si Gamma eigenvalues: {:?}", evs);
+                eprintln!("Si Gamma eigenvalues: {evs:?}");
             }
 
             let de = (r.total_energy - qe_energy).abs();
@@ -108,7 +108,7 @@ fn test_si_diamond_vs_qe() {
 
 // =========================================================================
 // Diamond C (FCC, 2 atoms, wide-gap insulator)
-// QE: -22.97237389 Ry, E_F=17.3594 eV, 7 iters
+// QE: -22.972_373_89 Ry, E_F=17.3594 eV, 7 iters
 // Gamma: -7.8042  16.1238  16.1238  16.1238  21.1893  21.1893  21.1893  29.0506
 // =========================================================================
 
@@ -130,14 +130,14 @@ fn test_c_diamond_vs_qe() {
 
     let result = run_scf_validation(&crystal, &pp, 8, MixingMode::Plain);
 
-    let qe_energy = -22.97237389 * RY_TO_EV;
+    let qe_energy = -22.972_373_89 * RY_TO_EV;
 
     match result {
         Ok(r) => {
             eprintln!("C: E={:.6} eV, E_F={:.4} eV, {} iters",
                 r.total_energy, r.fermi_energy, r.n_iterations);
             if let Some(evs) = r.eigenvalues.first() {
-                eprintln!("C Gamma eigenvalues: {:?}", evs);
+                eprintln!("C Gamma eigenvalues: {evs:?}");
             }
 
             let de = (r.total_energy - qe_energy).abs();
@@ -155,7 +155,7 @@ fn test_c_diamond_vs_qe() {
 
 // =========================================================================
 // BCC Fe (1 atom, metal, nspin=1)
-// QE: -224.86648537 Ry, E_F=26.0984 eV, 8 iters
+// QE: -224.866_485_37 Ry, E_F=26.0984 eV, 8 iters
 // Gamma: -122.6451 -46.5035 -46.5035 -46.5035 9.2505 23.7896 23.7896 24.4178
 // Note: nspin=1 Fe is unphysical (real Fe is ferromagnetic). This test
 // validates the code mechanics; physical Fe requires nspin=2.
@@ -177,14 +177,14 @@ fn test_fe_bcc_vs_qe() {
     // Kerker helps metals converge
     let result = run_scf_validation(&crystal, &pp, 12, MixingMode::Kerker { q_tf: None });
 
-    let qe_energy = -224.86648537 * RY_TO_EV;
+    let qe_energy = -224.866_485_37 * RY_TO_EV;
 
     match result {
         Ok(r) => {
             eprintln!("Fe: E={:.6} eV, E_F={:.4} eV, {} iters",
                 r.total_energy, r.fermi_energy, r.n_iterations);
             if let Some(evs) = r.eigenvalues.first() {
-                eprintln!("Fe Gamma eigenvalues: {:?}", evs);
+                eprintln!("Fe Gamma eigenvalues: {evs:?}");
             }
 
             let de = (r.total_energy - qe_energy).abs();

@@ -8,7 +8,7 @@
 use num_complex::Complex64;
 
 /// Coulomb constant e² in eV·Å (= e²/(4πε₀) in Gaussian units).
-pub const E2: f64 = 14.399645351950548;
+pub const E2: f64 = 14.399_645_351_950_548;
 
 /// Compute Hartree potential V_H(G) from charge density ρ(G).
 ///

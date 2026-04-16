@@ -105,7 +105,7 @@ fn test_si_nspin2_matches_nspin1() {
 fn test_fe_ferromagnetic_fixed_moment() {
     // Fe BCC with fixed magnetization = 2.0 μB.
     // QE reference (4x4x4, 15 Ry, LDA, FD 0.02 Ry, nspin=2, tot_mag=2):
-    //   E = -44.06267879 Ry = -599.503 eV, 9 iters
+    //   E = -44.062_678_79 Ry = -599.503 eV, 9 iters
     //   Gamma up:   4.62  25.71  25.71  26.52  26.52  26.52
     //   Gamma down: 5.79  27.30  27.30  28.05  28.05  28.05
     // NOTE: This PP favours non-magnetic Fe at LDA. The fixed-moment
@@ -115,7 +115,7 @@ fn test_fe_ferromagnetic_fixed_moment() {
     let pp = pwdft_rs::pseudopotential::load(
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Fe.upf"),
     ).unwrap();
-    let ecut = 15.0 * 13.605693122994; // 15 Ry
+    let ecut = 15.0 * 13.605_693_122_994; // 15 Ry
     let basis = BasisSet::new(&crystal.lattice, ecut);
     let kpoints = pwdft_rs::kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
 
@@ -126,7 +126,7 @@ fn test_fe_ferromagnetic_fixed_moment() {
         energy_threshold: 1e-5,
         mixing_beta: 0.2,
         mixing_ndim: 8,
-        smearing_sigma: 0.02 * 13.605693122994, // 0.02 Ry in eV
+        smearing_sigma: 0.02 * 13.605_693_122_994, // 0.02 Ry in eV
         ecutrho_ratio: 4,
         mixing_mode: MixingMode::Kerker { q_tf: None },
         nspin: 2,
@@ -150,7 +150,7 @@ fn test_fe_ferromagnetic_fixed_moment() {
             );
 
             // Compare total energy against QE
-            let qe_energy = -44.06267879 * 13.605693122994;
+            let qe_energy = -44.062_678_79 * 13.605_693_122_994;
             let de = (r.total_energy - qe_energy).abs();
             eprintln!("  Energy diff vs QE: {de:.4} eV (QE={qe_energy:.4} eV)");
         }

@@ -11,7 +11,7 @@ use pwdft_rs::{
     potential::nonlocal::NonlocalPotential,
 };
 
-const RY_TO_EV: f64 = 13.605693122994;
+const RY_TO_EV: f64 = 13.605_693_122_994;
 
 fn fe_bcc() -> Crystal {
     let a = 2.87;
@@ -72,11 +72,11 @@ fn test_fe_kinetic_eigenvalues() {
 #[test]
 fn test_fe_ewald_energy() {
     // QE reference: PseudoDojo Fe LDA (Z_val=16), BCC a=2.87 Å
-    // ewald contribution = -171.77906580 Ry
+    // ewald contribution = -171.779_065_80 Ry
     let crystal = fe_bcc();
     let pp = fe_pp();
     let e_ewald = pwdft_rs::ewald::ewald_energy(&crystal, &[&pp]);
-    let qe_ewald = -171.77906580 * RY_TO_EV;
+    let qe_ewald = -171.779_065_80 * RY_TO_EV;
 
     eprintln!("Fe Ewald energy: {e_ewald:.6} eV");
     eprintln!("QE Ewald energy: {qe_ewald:.6} eV");

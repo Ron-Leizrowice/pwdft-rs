@@ -98,7 +98,7 @@ impl PseudopotentialData {
     pub fn v_local_of_g(&self, g_norm: f64, omega: f64) -> f64 {
         // e² in eV·Å (Coulomb constant × e²)
         // In Gaussian units: e²/(4πε₀) = 14.3996 eV·Å
-        const E2: f64 = 14.399645351950548; // eV·Å
+        const E2: f64 = 14.399_645_351_950_548; // eV·Å
 
         let n = self.r_grid.len();
         let mut integral = 0.0;

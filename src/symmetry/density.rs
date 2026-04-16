@@ -238,7 +238,7 @@ mod tests {
 
         symmetrize_density(&mut rho, dims, &symmetry);
 
-        let nonzero: Vec<f64> = rho.iter().filter(|&&v| v > 1e-10).cloned().collect();
+        let nonzero: Vec<f64> = rho.iter().filter(|&&v| v > 1e-10).copied().collect();
         assert!(!nonzero.is_empty());
         let ref_val = nonzero[0];
         for &v in &nonzero {

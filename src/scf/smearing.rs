@@ -399,6 +399,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[allow(clippy::float_cmp)] // Zero-temp occupations return exact values by design
     fn test_zero_temp_all_schemes() {
         for scheme in [
             SmearingScheme::FermiDirac,
