@@ -1,4 +1,8 @@
 /target
+
+# Override global gitignore for project-specific .claude config
+!.claude/
+!.claude/**
 qe-7.5/
 scripts/
 *.tar.gz

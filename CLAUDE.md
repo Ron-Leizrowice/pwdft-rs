@@ -71,6 +71,26 @@ Fix auto-fixable warnings, address remaining ones. Do not suppress codesmell war
 
 **Key types:** `Crystal`, `BasisSet`, `KPoint`, `PseudopotentialData`, `ScfParams`/`ScfResult`, `NonlocalPotential`, `EigenResult`, `SymmetryInfo`/`SpaceGroupOp`.
 
+## Workflow
+
+This project uses a branch-and-PR workflow. Multiple agents may work concurrently.
+
+- **Never commit directly to main.** All work happens on feature branches.
+- **One proposal per branch.** Branch name: `<PROPOSAL-ID>/<slug>` (e.g., `SIMP/simpson-quadrature`).
+- **PRs against main.** Title format: `<PROPOSAL-ID>: <description>`. PR body must reference the proposal and include a summary and test plan.
+- **Quality gate before PR:** `cargo test` and `cargo clippy -q --all-targets` must pass.
+- **Commit messages:** `<PROPOSAL-ID>: <imperative description>`.
+- **Proposals drive work.** See `proposals/INDEX.md` for the backlog. Each proposal has a 4-letter ID (e.g., `SIMP`), frontmatter with priority/complexity/risk/dependencies, and an implementation plan.
+- **Propose first, implement after approval.** All roles draft proposals and wait for EM approval before starting work.
+- **Logbooks** at `.claude/logbooks/<role>.md` — every agent reads theirs at session start, appends findings at session end. Cross-read other roles' logbooks when relevant.
+- **Agent roles** (see `.claude/agents/` for full definitions):
+  - **Engineering Manager** — reviews PRs, manages proposals, merges to main. Never writes code.
+  - **Core Engineer** — implements proposals (refactors, features, bug fixes). Scientist-developer mindset.
+  - **Performance Engineer** — benchmarks and optimizes. Measure first, optimize second.
+  - **Researcher** — owns physics/math correctness. Proposes features, validates against QE and literature.
+  - **Code Reviewer** — owns code quality. Hunts dead code, enforces idioms, improves logging/tests.
+  - **Technical Writer** — owns documentation. README, CLAUDE.md, docstrings, code comments.
+
 ## Conventions
 
 - Cargo.toml uses `>=` version specifiers (not `^` or exact).
