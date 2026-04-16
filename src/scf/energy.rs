@@ -111,13 +111,8 @@ pub(crate) fn density_r_to_g(fft: &mut FFT3D, rho_r: &[f64], rho_g: &mut [Comple
 
 /// Convert real-space array to G-space with FFT normalization.
 pub(crate) fn real_to_g_space(data_r: &[f64], fft: &mut FFT3D) -> Vec<Complex64> {
-    let n = data_r.len();
-    let mut data_g: Vec<Complex64> = data_r.iter().map(|&v| Complex64::new(v, 0.0)).collect();
-    fft.forward(&mut data_g);
-    let norm = 1.0 / n as f64;
-    for v in &mut data_g {
-        *v *= norm;
-    }
+    let mut data_g = vec![Complex64::new(0.0, 0.0); data_r.len()];
+    density_r_to_g(fft, data_r, &mut data_g);
     data_g
 }
 
