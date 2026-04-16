@@ -154,7 +154,7 @@ fn test_01_inspect_projector_data() {
     eprintln!("Element:     {}", pp.element);
     eprintln!("Z_valence:   {}", pp.z_valence);
     eprintln!("l_max:       {}", pp.l_max);
-    eprintln!("n_proj:      {}", pp.n_projectors);
+    eprintln!("n_proj:      {}", pp.n_projectors());
     eprintln!("mesh_size:   {}", pp.r_grid.len());
     eprintln!(
         "r_grid range: [{:.6e}, {:.6e}] Ang",
@@ -164,7 +164,7 @@ fn test_01_inspect_projector_data() {
     eprintln!();
 
     // D_ij matrix (eV)
-    let np = pp.n_projectors;
+    let np = pp.n_projectors();
     eprintln!("D_ij matrix ({np}x{np}) in eV:");
     for i in 0..np {
         for j in 0..np {
@@ -454,7 +454,7 @@ fn test_05_vnl_diagonal_at_gamma() {
 
         // Manual diagonal V_NL(G,G)
         // = (1/Omega) * S(0) * sum_{i,j same l} F_i(|G|) D_{ij} F_j(|G|) * (2l+1)/(4*pi)
-        let n_proj = pp.n_projectors;
+        let n_proj = pp.n_projectors();
         let mut vnl_manual = 0.0;
 
         // Structure factor S(0) for diagonal: sum over all atoms
@@ -531,7 +531,7 @@ fn test_06_vnl_g0_g0_analytic() {
     // Therefore V_NL(G=0,G=0) only gets contributions from l=0 projectors:
     // V_NL(0,0) = (N_atoms/Omega) * sum_{i,j with l=0} F_i(0) D_{ij} F_j(0) * 1/(4*pi)
 
-    let n_proj = pp.n_projectors;
+    let n_proj = pp.n_projectors();
     let n_atoms = crystal.atoms.len() as f64;
 
     // Compute F_i(0) for each l=0 projector
@@ -664,7 +664,7 @@ fn test_08_vnl_offdiagonal() {
     vnl.add_to_hamiltonian(&mut h_lib, &crystal, &basis, &k);
 
     let g_vecs = basis.g_vectors();
-    let n_proj = pp.n_projectors;
+    let n_proj = pp.n_projectors();
 
     // Test a few off-diagonal pairs
     let test_pairs = [
@@ -778,7 +778,7 @@ fn test_09_hgh_parameter_crosscheck() {
     );
 
     // Si.upf has 6 projectors: 2 for l=0, 2 for l=1, 2 for l=2
-    let np = pp.n_projectors;
+    let np = pp.n_projectors();
     assert_eq!(np, 6, "Expected 6 projectors (2 per l=0,1,2), got {np}");
 
     let d = &pp.dij;

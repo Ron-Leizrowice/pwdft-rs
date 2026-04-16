@@ -59,7 +59,7 @@ pub(crate) fn compute_core_density(
     grid: &mut FftGrid,
     pseudopotentials: &[&PseudopotentialData],
 ) -> Vec<f64> {
-    let any_nlcc = pseudopotentials.iter().any(|pp| pp.has_nlcc);
+    let any_nlcc = pseudopotentials.iter().any(|pp| pp.has_nlcc());
     if !any_nlcc {
         return vec![];
     }
@@ -70,7 +70,7 @@ pub(crate) fn compute_core_density(
 
     for atom in &crystal.atoms {
         let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
-        if !pp.has_nlcc || pp.core_charge.is_empty() {
+        if !pp.has_nlcc() || pp.core_charge.is_empty() {
             continue;
         }
 
