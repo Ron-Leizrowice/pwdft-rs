@@ -28,7 +28,7 @@ fn main() -> pwdft_rs::error::Result<()> {
     let cli = Cli::parse();
 
     let settings = load_settings(&cli.input)?;
-    let crystal = settings.to_crystal();
+    let crystal = settings.to_crystal()?;
 
     info!(
         "Crystal: {} atoms, lattice volume = {:.3} ų",
@@ -44,7 +44,11 @@ fn main() -> pwdft_rs::error::Result<()> {
 
     match &settings.kpoints {
         KPointSettings::BandPath { npoints, .. } => {
-            let path_points = settings.to_high_sym_path().unwrap();
+            let path_points = settings.to_high_sym_path().ok_or_else(|| {
+                pwdft_rs::error::PwdftError::InvalidInput(
+                    "band_path mode requires a band path definition".into(),
+                )
+            })?;
             let (kpts, distances) =
                 kpoints::high_symmetry_path(&path_points, *npoints, &crystal.lattice);
 
@@ -52,7 +56,7 @@ fn main() -> pwdft_rs::error::Result<()> {
             info!("Band structure: {} k-points, {n_bands} bands", kpts.len());
 
             let bs =
-                bandstructure::compute_band_structure(&basis, &kpts, &distances, n_bands, None);
+                bandstructure::compute_band_structure(&basis, &kpts, &distances, n_bands, None)?;
 
             match &cli.output {
                 Some(path) => {
@@ -105,7 +109,7 @@ fn main() -> pwdft_rs::error::Result<()> {
                 }
                 let pp_path = settings
                     .pseudopotential_path(&sym)
-                    .unwrap_or_else(|| panic!("no pseudopotential path for element {sym}"));
+                    .ok_or_else(|| pwdft_rs::error::PwdftError::MissingPseudopotential(sym.clone()))?;
                 let pp_path = input_dir.join(pp_path);
                 info!("Loading pseudopotential for {sym}: {}", pp_path.display());
                 let pp = pwdft_rs::pseudopotential::load(&pp_path)?;

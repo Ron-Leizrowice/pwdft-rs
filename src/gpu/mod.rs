@@ -235,7 +235,10 @@ impl GpuAccelerator {
             if pool.n_grid == n_grid {
                 let rho_buf = &pool.complex_bufs[0];
                 let out_buf = &pool.complex_bufs[1];
-                let g2_buf = pool.g_squared_buf.as_ref().unwrap();
+                // SAFETY: g_squared_buf is always set by prepare_buffers(),
+                // which runs before any kernel call on the pooled path.
+                let g2_buf = pool.g_squared_buf.as_ref()
+                    .expect("BUG: g_squared buffer not allocated despite pool being ready");
 
                 self.queue.write_buffer(rho_buf, 0, bytemuck::cast_slice(&rho_f32));
 
@@ -447,10 +450,17 @@ impl GpuAccelerator {
         let slice = buffer.slice(..);
         let (sender, receiver) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
-            sender.send(result).unwrap();
+            // SAFETY: receiver.recv() is called immediately after device.poll(),
+            // so the receiver cannot be dropped before this callback fires.
+            sender.send(result)
+                .expect("BUG: GPU readback channel closed before callback fired");
         });
         let _ = self.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
-        receiver.recv().unwrap().unwrap();
+        // SAFETY: The callback above sends exactly one message after poll() completes,
+        // so recv() cannot fail. The inner Result is the GPU mapping result.
+        receiver.recv()
+            .expect("BUG: GPU readback channel closed unexpectedly")
+            .expect("BUG: GPU buffer mapping failed");
 
         let data = slice.get_mapped_range();
         let result = bytemuck::cast_slice(&data)[..n_floats].to_vec();

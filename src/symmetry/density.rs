@@ -117,7 +117,8 @@ pub fn check_grid_compatibility(dims: [usize; 3], symmetry: &SymmetryInfo) -> bo
 /// is achieved. Returns adjusted dimensions.
 pub fn compatible_grid_dims(min_dims: [usize; 3], symmetry: &SymmetryInfo) -> [usize; 3] {
     // For cubic symmetry, making all dimensions equal is usually sufficient
-    let max_dim = *min_dims.iter().max().unwrap();
+    // SAFETY: min_dims is [usize; 3], always has 3 elements -- max() cannot be None.
+    let max_dim = *min_dims.iter().max().expect("BUG: empty fixed-size array");
     let mut dims = [max_dim; 3];
 
     // Try increasing until compatible
@@ -128,7 +129,8 @@ pub fn compatible_grid_dims(min_dims: [usize; 3], symmetry: &SymmetryInfo) -> [u
             crate::fft::fft_grid_size(dims[2] as i32 / 2),
         ];
         // Make all equal to the max for safety
-        let m = *candidate.iter().max().unwrap();
+        // SAFETY: candidate is [usize; 3], always has 3 elements.
+        let m = *candidate.iter().max().expect("BUG: empty fixed-size array");
         let candidate = [m, m, m];
         if check_grid_compatibility(candidate, symmetry) {
             return candidate;

@@ -66,7 +66,10 @@ pub(super) fn generate_initial_density(
     let mut rho_g = vec![Complex64::new(0.0, 0.0); n_grid];
 
     for atom in &crystal.atoms {
-        let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
+        // SAFETY: ScfContext::new validates all atoms have matching PPs before
+        // this function is called. A missing PP here would be a programming error.
+        let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials)
+            .expect("BUG: atom has no matching pseudopotential (should have been validated at startup)");
 
         let tau = atom.cart_position(&crystal.lattice);
         let z_val = pp.z_valence;

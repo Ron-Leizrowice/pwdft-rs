@@ -355,7 +355,10 @@ impl Settings {
     // -----------------------------------------------------------------------
 
     /// Build a `Crystal` from the system settings.
-    pub fn to_crystal(&self) -> Crystal {
+    ///
+    /// # Errors
+    /// Returns `PwdftError::InvalidInput` if any atom has an unrecognized element symbol.
+    pub fn to_crystal(&self) -> Result<Crystal> {
         let [a, b, c] = self.system.lattice;
         let lattice = Lattice::new(
             Vector3::new(a[0], a[1], a[2]),
@@ -368,13 +371,14 @@ impl Settings {
             .atoms
             .iter()
             .map(|ai| {
-                let elem = crate::atoms::from_symbol(&ai.symbol)
-                    .unwrap_or_else(|| panic!("unknown element: {}", ai.symbol));
-                Atom::new(elem.atomic_number(), ai.position)
+                let elem = crate::atoms::from_symbol(&ai.symbol).ok_or_else(|| {
+                    PwdftError::InvalidInput(format!("unknown element: {}", ai.symbol))
+                })?;
+                Ok(Atom::new(elem.atomic_number(), ai.position))
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
 
-        Crystal { atoms, lattice }
+        Ok(Crystal { atoms, lattice })
     }
 
     /// Build `ScfParams` from the SCF + electron + basis settings.
@@ -645,7 +649,7 @@ kpoints:
     #[test]
     fn to_crystal_produces_correct_structure() {
         let s = Settings::from_yaml_str(FULL_YAML).unwrap();
-        let crystal = s.to_crystal();
+        let crystal = s.to_crystal().unwrap();
         assert_eq!(crystal.atoms.len(), 2);
         assert_eq!(crystal.atoms[0].z, 14);
         assert_eq!(crystal.atoms[1].z, 14);

@@ -58,7 +58,7 @@ fn test_fe_kinetic_eigenvalues() {
     let k = Vector3::zeros();
 
     let h = hamiltonian::build_kinetic(&basis, &k);
-    let result = dense::diagonalize_lowest(&h, 8);
+    let result = dense::diagonalize_lowest(&h, 8).unwrap();
 
     eprintln!("Fe kinetic-only eigenvalues at Gamma:");
     for (i, &e) in result.eigenvalues.iter().enumerate() {
@@ -115,7 +115,7 @@ fn test_fe_vnl_diagonal_at_gamma() {
 
     let n = basis.len();
     let mut h_nl = faer::Mat::<Complex64>::zeros(n, n);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
     vnl.add_to_hamiltonian(&mut h_nl, &crystal, &basis, &k);
 
     // Print diagonal V_NL elements (first 8)
@@ -153,7 +153,7 @@ fn test_fe_full_hamiltonian_eigenvalues() {
 
     // Step 1: Kinetic only
     let h_kin = hamiltonian::build_kinetic(&basis, &k);
-    let eig_kin = dense::diagonalize_lowest(&h_kin, 8);
+    let eig_kin = dense::diagonalize_lowest(&h_kin, 8).unwrap();
     eprintln!("Kinetic-only eigenvalues: {:?}", eig_kin.eigenvalues);
 
     // Step 2: Kinetic + V_local (via FFT grid)
@@ -199,14 +199,14 @@ fn test_fe_full_hamiltonian_eigenvalues() {
             h_loc[(i, j)] += v_local_fft[fft_idx];
         }
     }
-    let eig_loc = dense::diagonalize_lowest(&h_loc, 8);
+    let eig_loc = dense::diagonalize_lowest(&h_loc, 8).unwrap();
     eprintln!("Kinetic + V_local eigenvalues: {:?}", eig_loc.eigenvalues);
 
     // Step 3: Full H = T + V_local + V_NL
     let mut h_full = h_loc.clone();
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
     vnl.add_to_hamiltonian(&mut h_full, &crystal, &basis, &k);
-    let eig_full = dense::diagonalize_lowest(&h_full, 8);
+    let eig_full = dense::diagonalize_lowest(&h_full, 8).unwrap();
     eprintln!("Full H eigenvalues:           {:?}", eig_full.eigenvalues);
     eprintln!("QE reference (SCF, 15 Ry):    [-122.65, -46.50, -46.50, -46.50, 9.25, 23.79, 23.79, 24.42]");
     eprintln!("NOTE: QE eigenvalues are from a converged SCF (includes V_H + V_xc).");

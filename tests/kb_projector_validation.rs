@@ -415,7 +415,7 @@ fn test_05_vnl_diagonal_at_gamma() {
 
     // Build V_NL using the library
     let mut h_lib = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
     vnl.add_to_hamiltonian(&mut h_lib, &crystal, &basis, &k);
 
     // Also compute diagonal V_NL(G,G) manually for selected G-vectors
@@ -566,7 +566,7 @@ fn test_06_vnl_g0_g0_analytic() {
     let k = Vector3::zeros();
     let n_pw = basis.len();
     let mut h = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
     vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
     let g0_idx = basis.index_of(0, 0, 0).unwrap();
@@ -658,7 +658,7 @@ fn test_08_vnl_offdiagonal() {
 
     // Build V_NL using the library
     let mut h_lib = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
     vnl.add_to_hamiltonian(&mut h_lib, &crystal, &basis, &k);
 
     let g_vecs = basis.g_vectors();
@@ -863,7 +863,7 @@ fn test_10_vnl_hermiticity_and_reality() {
     eprintln!("\n=== TEST 10: V_NL Hermiticity and diagonal reality ===");
 
     let mut h = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
     vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
     // Diagonal must be real

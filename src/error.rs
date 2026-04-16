@@ -16,6 +16,12 @@ pub enum PwdftError {
 
     #[error("parse error: {0}")]
     Parse(String),
+
+    #[error("eigendecomposition failed for {size}x{size} matrix: {detail}")]
+    Eigensolver { size: usize, detail: String },
+
+    #[error("GPU error: {0}")]
+    Gpu(String),
 }
 
 pub type Result<T> = std::result::Result<T, PwdftError>;

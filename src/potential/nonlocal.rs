@@ -17,6 +17,7 @@ use std::f64::consts::PI;
 use crate::{
     basis::BasisSet,
     crystal::Crystal,
+    error::{PwdftError, Result},
     pseudopotential::PseudopotentialData,
 };
 
@@ -50,12 +51,14 @@ impl NonlocalPotential {
     ///     F_i(|k+G|) D_{ij} F_j(|k+G'|) × (2l+1)/(4π) P_l(cos θ)
     ///
     /// (Phase factors i^l from bra and (i*)^l from ket give |i|^{2l} = 1.)
+    /// # Errors
+    /// Returns `PwdftError::MissingPseudopotential` if any atom type lacks a loaded PP.
     pub fn new(
         crystal: &Crystal,
         basis: &BasisSet,
         k: &Vector3<f64>,
         pseudopotentials: &[&PseudopotentialData],
-    ) -> Self {
+    ) -> Result<Self> {
         // Identify unique atom types
         let mut atom_types: Vec<u32> = crystal.atoms.iter().map(|a| a.z).collect();
         atom_types.sort();
@@ -68,7 +71,10 @@ impl NonlocalPotential {
         let mut proj_l_all = Vec::new();
 
         for &z in &atom_types {
-            let pp = crate::pseudopotential::find_for_atom(z, pseudopotentials);
+            let pp = crate::pseudopotential::find_for_atom(z, pseudopotentials)
+                .ok_or_else(|| PwdftError::MissingPseudopotential(
+                    format!("Z={z} not found in loaded pseudopotentials")
+                ))?;
 
             let mut type_ff = Vec::new();
             let mut type_l = Vec::new();
@@ -94,12 +100,12 @@ impl NonlocalPotential {
             proj_l_all.push(type_l);
         }
 
-        Self {
+        Ok(Self {
             form_factors,
             dij: dij_all,
             n_proj: n_proj_all,
             proj_l: proj_l_all,
-        }
+        })
     }
 
     /// Add V_NL to the Hamiltonian matrix at a given k-point.

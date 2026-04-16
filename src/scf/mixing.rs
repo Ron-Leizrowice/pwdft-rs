@@ -58,7 +58,11 @@ impl AndersonMixer {
         let kerker_weights = match mode {
             MixingMode::Plain => None,
             MixingMode::Kerker { q_tf } => {
-                let g2 = g_squared.expect("Kerker mode requires g_squared");
+                // SAFETY: Callers must pass g_squared when using Kerker mode.
+                // AndersonMixer::new is called from ScfContext which always provides
+                // g_squared when mixing_mode is Kerker.
+                let g2 = g_squared
+                    .expect("BUG: Kerker mode requires g_squared to be provided by caller");
                 let q_tf_sq = match q_tf {
                     Some(q) => q * q,
                     None => auto_q_tf_squared(n_electrons, omega),

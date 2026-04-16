@@ -181,7 +181,8 @@ fn scf_progress_bar(max_iter: usize) -> ProgressBar {
         ProgressStyle::with_template(
             "SCF [{bar:30}] {pos}/{len}  {msg}  [{elapsed_precise} elapsed]",
         )
-        .unwrap()
+        // SAFETY: This is a static, valid template string -- with_template cannot fail.
+        .expect("BUG: invalid progress bar template")
         .progress_chars("##-"),
     );
     pb
@@ -216,7 +217,7 @@ pub fn run_scf(
 
     let mut ctx = context::ScfContext::new(
         crystal, basis, kpoints, pseudopotentials, params, symmetry,
-    );
+    )?;
 
     // Try to initialize GPU if compiled with gpu feature
     #[cfg(feature = "gpu")]
@@ -295,7 +296,7 @@ pub fn run_scf(
         let v_eff_fft = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_g);
 
         // 4. Solve eigenvalue problem at each k-point (parallel over k-points)
-        let kpoint_results: Vec<_> = ctx.kpoints
+        let kpoint_results: Result<Vec<_>> = ctx.kpoints
             .par_iter()
             .enumerate()
             .map(|(ik, kp)| {
@@ -304,6 +305,7 @@ pub fn run_scf(
                 dense::diagonalize_lowest(&h, ctx.params.n_bands)
             })
             .collect();
+        let kpoint_results = kpoint_results?;
 
         eigenvalues_all = kpoint_results.iter().map(|r| r.eigenvalues.clone()).collect();
         let all_kpoint_wavefns: Vec<_> = kpoint_results.into_iter().map(|r| r.eigenvectors).collect();
@@ -459,7 +461,7 @@ fn run_scf_spin(
     params: &ScfParams,
     symmetry: Option<&crate::symmetry::SymmetryInfo>,
 ) -> Result<ScfResult> {
-    let mut ctx = context::ScfContext::new(crystal, basis, kpoints, pseudopotentials, params, symmetry);
+    let mut ctx = context::ScfContext::new(crystal, basis, kpoints, pseudopotentials, params, symmetry)?;
 
     // Determine initial spin split from starting_magnetization
     let per_atom_mag: Vec<f64> = ctx.crystal.atoms.iter().map(|a| {
@@ -532,17 +534,19 @@ fn run_scf_spin(
         let v_eff_down = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_down_g);
 
         // 4. Diagonalize both spins at each k-point
-        let kpoint_results_up: Vec<_> = ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
+        let kpoint_results_up: Result<Vec<_>> = ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
             let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_up, ctx.grid.dims);
             ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
             dense::diagonalize_lowest(&h, ctx.params.n_bands)
         }).collect();
+        let kpoint_results_up = kpoint_results_up?;
 
-        let kpoint_results_down: Vec<_> = ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
+        let kpoint_results_down: Result<Vec<_>> = ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
             let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_down, ctx.grid.dims);
             ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
             dense::diagonalize_lowest(&h, ctx.params.n_bands)
         }).collect();
+        let kpoint_results_down = kpoint_results_down?;
 
         // Flatten eigenvalues: [up_k0, up_k1, ..., down_k0, down_k1, ...]
         let eig_up: Vec<Vec<f64>> = kpoint_results_up.iter().map(|r| r.eigenvalues.clone()).collect();

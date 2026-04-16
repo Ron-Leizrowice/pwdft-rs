@@ -34,10 +34,16 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
     let omega = crystal.lattice.volume();
 
     // Get charges
+    // SAFETY: ScfContext::new validates all atoms have matching PPs before
+    // ewald_energy is called. A missing PP here would be a programming error.
     let charges: Vec<f64> = crystal
         .atoms
         .iter()
-        .map(|a| crate::pseudopotential::find_for_atom(a.z, pseudopotentials).z_valence)
+        .map(|a| {
+            crate::pseudopotential::find_for_atom(a.z, pseudopotentials)
+                .expect("BUG: atom has no matching pseudopotential (should have been validated at startup)")
+                .z_valence
+        })
         .collect();
 
     let positions: Vec<Vector3<f64>> = crystal

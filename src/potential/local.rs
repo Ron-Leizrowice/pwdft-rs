@@ -11,6 +11,7 @@ use num_complex::Complex64;
 use crate::{
     basis::BasisSet,
     crystal::Crystal,
+    error::{PwdftError, Result},
     pseudopotential::PseudopotentialData,
 };
 
@@ -28,11 +29,14 @@ impl LocalPotential {
     ///
     /// where S_atom(G) = exp(-i G · τ_atom) and v_local(|G|) comes from
     /// the pseudopotential's spherical Bessel transform.
+    ///
+    /// # Errors
+    /// Returns `PwdftError::MissingPseudopotential` if any atom lacks a loaded PP.
     pub fn new(
         crystal: &Crystal,
         basis: &BasisSet,
         pseudopotentials: &[&PseudopotentialData],
-    ) -> Self {
+    ) -> Result<Self> {
         let omega = crystal.lattice.volume();
         let n = basis.len();
         let mut v_g = vec![Complex64::new(0.0, 0.0); n];
@@ -41,7 +45,10 @@ impl LocalPotential {
             let g_norm = g.norm();
 
             for atom in &crystal.atoms {
-                let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
+                let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials)
+                    .ok_or_else(|| PwdftError::MissingPseudopotential(
+                        format!("Z={} not found in loaded pseudopotentials", atom.z)
+                    ))?;
 
                 // Structure factor: S(G) = exp(-i G · τ)
                 let tau = atom.cart_position(&crystal.lattice);
@@ -55,7 +62,7 @@ impl LocalPotential {
             }
         }
 
-        Self { v_g }
+        Ok(Self { v_g })
     }
 
     /// Get V_local(G) for a given G-vector index.
@@ -78,12 +85,15 @@ impl LocalPotential {
 /// For a proper implementation, we need V_local defined on the FFT grid
 /// (which is denser than the wavefunction basis). For now, we use the
 /// direct structure-factor approach.
+///
+/// # Errors
+/// Returns `PwdftError::MissingPseudopotential` if any atom lacks a loaded PP.
 pub fn v_local_matrix_element(
     crystal: &Crystal,
     pseudopotentials: &[&PseudopotentialData],
     g_i: &Vector3<f64>,
     g_j: &Vector3<f64>,
-) -> Complex64 {
+) -> Result<Complex64> {
     let g_diff = g_i - g_j;
     let g_norm = g_diff.norm();
     let omega = crystal.lattice.volume();
@@ -91,7 +101,10 @@ pub fn v_local_matrix_element(
     let mut result = Complex64::new(0.0, 0.0);
 
     for atom in &crystal.atoms {
-        let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
+        let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials)
+            .ok_or_else(|| PwdftError::MissingPseudopotential(
+                format!("Z={} not found in loaded pseudopotentials", atom.z)
+            ))?;
 
         let tau = atom.cart_position(&crystal.lattice);
         let phase = -g_diff.dot(&tau);
@@ -101,7 +114,7 @@ pub fn v_local_matrix_element(
         result += sf * v_form;
     }
 
-    result
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -134,7 +147,7 @@ mod tests {
         )
         .unwrap();
 
-        let v_loc = LocalPotential::new(&crystal, &basis, &[&pp]);
+        let v_loc = LocalPotential::new(&crystal, &basis, &[&pp]).unwrap();
         assert_eq!(v_loc.as_slice().len(), basis.len());
     }
 
@@ -148,7 +161,7 @@ mod tests {
         )
         .unwrap();
 
-        let v_loc = LocalPotential::new(&crystal, &basis, &[&pp]);
+        let v_loc = LocalPotential::new(&crystal, &basis, &[&pp]).unwrap();
         let g0_idx = basis.index_of(0, 0, 0).unwrap();
         let v_g0 = v_loc.v_of_g(g0_idx);
         // With 2 atoms at (0,0,0) and (1/4,1/4,1/4), the structure factor

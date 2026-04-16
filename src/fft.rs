@@ -54,14 +54,19 @@ impl FFT3D {
         let [nx, ny, nz] = self.dims;
         assert_eq!(data.len(), nx * ny * nz);
 
-        let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec()).unwrap();
+        // SAFETY: The assert above guarantees data.len() == nx*ny*nz,
+        // so from_shape_vec cannot fail.
+        let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec())
+            .expect("BUG: FFT data length mismatch despite assertion");
         let mut b = Array3::zeros((nx, ny, nz));
 
         ndfft(&a, &mut b, &self.fwd_handlers[0], 0);
         ndfft(&b, &mut a, &self.fwd_handlers[1], 1);
         ndfft(&a, &mut b, &self.fwd_handlers[2], 2);
 
-        data.copy_from_slice(b.as_slice().unwrap());
+        // SAFETY: Array3 with default (row-major) layout is always contiguous.
+        data.copy_from_slice(b.as_slice()
+            .expect("BUG: Array3 should be contiguous"));
     }
 
     /// Inverse FFT: reciprocal-space → real-space (unnormalized).
@@ -70,14 +75,19 @@ impl FFT3D {
         let [nx, ny, nz] = self.dims;
         assert_eq!(data.len(), nx * ny * nz);
 
-        let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec()).unwrap();
+        // SAFETY: The assert above guarantees data.len() == nx*ny*nz,
+        // so from_shape_vec cannot fail.
+        let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec())
+            .expect("BUG: FFT data length mismatch despite assertion");
         let mut b = Array3::zeros((nx, ny, nz));
 
         ndifft(&a, &mut b, &self.inv_handlers[0], 0);
         ndifft(&b, &mut a, &self.inv_handlers[1], 1);
         ndifft(&a, &mut b, &self.inv_handlers[2], 2);
 
-        data.copy_from_slice(b.as_slice().unwrap());
+        // SAFETY: Array3 with default (row-major) layout is always contiguous.
+        data.copy_from_slice(b.as_slice()
+            .expect("BUG: Array3 should be contiguous"));
     }
 
     /// Inverse FFT with normalization (divides by N).

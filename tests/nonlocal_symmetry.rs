@@ -38,7 +38,7 @@ fn test_vnl_hermitian_at_gamma() {
 
     let n = basis.len();
     let mut h = faer::Mat::<Complex64>::zeros(n, n);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
     vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
     // Check Hermiticity: H(i,j) = H(j,i)*
@@ -67,7 +67,7 @@ fn test_vnl_diagonal_same_for_symmetry_related_g() {
 
     let n = basis.len();
     let mut h_nl = faer::Mat::<Complex64>::zeros(n, n);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
     vnl.add_to_hamiltonian(&mut h_nl, &crystal, &basis, &k);
 
     // At Γ, G-vectors with the same |G| should have the same diagonal V_NL
@@ -120,10 +120,10 @@ fn test_full_hamiltonian_degeneracy_at_gamma() {
     }
 
     // Non-local only
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
     vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
-    let result = pwdft_rs::eigensolver::dense::diagonalize_lowest(&h, 8);
+    let result = pwdft_rs::eigensolver::dense::diagonalize_lowest(&h, 8).unwrap();
     eprintln!("T + V_NL eigenvalues at Γ: {:?}", result.eigenvalues);
 
     // Bands 2-4 should be degenerate (p-like states, O_h symmetry)
@@ -232,7 +232,7 @@ fn test_kinetic_plus_vlocal_degeneracy() {
         }
     }
 
-    let result = pwdft_rs::eigensolver::dense::diagonalize_lowest(&h, 8);
+    let result = pwdft_rs::eigensolver::dense::diagonalize_lowest(&h, 8).unwrap();
     eprintln!("T + V_local (direct) eigenvalues at Γ: {:?}", result.eigenvalues);
 
     // With only T + V_local, the 3-fold degeneracy is bands 3-5 (p-like),
@@ -320,7 +320,7 @@ fn test_kinetic_plus_vlocal_via_fft_grid() {
         }
     }
 
-    let result = pwdft_rs::eigensolver::dense::diagonalize_lowest(&h, 8);
+    let result = pwdft_rs::eigensolver::dense::diagonalize_lowest(&h, 8).unwrap();
     eprintln!("T + V_local (FFT grid) eigenvalues at Γ: {:?}", result.eigenvalues);
 
     let spread_345 = result.eigenvalues[4] - result.eigenvalues[2];
