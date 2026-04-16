@@ -45,7 +45,7 @@ cargo clippy -q --fix --allow-dirty --allow-staged --all-targets
 cargo clippy -q --all-targets  # check remaining warnings
 cargo test                     # verify nothing broke
 ```
-Fix auto-fixable warnings, address remaining ones where practical. Known acceptable warnings: `too_many_arguments` on `compute_density`/`compute_total_energy` (future refactor), `should_implement_trait` on `Input::from_str` (naming issue).
+Fix auto-fixable warnings, address remaining ones. Do not suppress codesmell warnings like `too_many_arguments` — refactor the code instead.
 
 ## Architecture
 
