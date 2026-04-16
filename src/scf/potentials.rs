@@ -80,21 +80,18 @@ pub(crate) fn compute_core_density(
             let g = grid.g_vector_at(idx);
             let g_norm = g.norm();
 
-            let mut integral = 0.0;
-            for ((&rho_c, &r), &dr) in pp
-                .core_charge
-                .iter()
-                .zip(pp.r_grid.iter())
-                .zip(pp.rab.iter())
-            {
-                let gr = g_norm * r;
-                let j0 = if gr < 1e-10 {
-                    1.0 - gr * gr / 6.0
-                } else {
-                    gr.sin() / gr
-                };
-                integral += rho_c * j0 * dr;
-            }
+            let integrand: Vec<f64> = pp.core_charge.iter().zip(pp.r_grid.iter())
+                .map(|(&rho_c, &r)| {
+                    let gr = g_norm * r;
+                    let j0 = if gr < 1e-10 {
+                        1.0 - gr * gr / 6.0
+                    } else {
+                        gr.sin() / gr
+                    };
+                    rho_c * j0
+                })
+                .collect();
+            let integral = crate::numerics::simpson_integrate(&integrand, &pp.rab);
 
             let phase = -g.dot(&tau);
             let sf = Complex64::cis(phase);
