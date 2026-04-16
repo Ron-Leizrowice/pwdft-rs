@@ -1,7 +1,7 @@
 //! Comprehensive settings/configuration for plane-wave DFT calculations.
 //!
-//! Parsed from YAML files via `serde_yaml_ng`. This is a parallel configuration path
-//! alongside the existing TOML-based `input.rs` -- both remain fully functional.
+//! Parsed from YAML files via `serde_yaml_ng`. This is the primary (and only)
+//! input configuration path, wired into `main.rs`.
 //!
 //! Defaults follow Quantum ESPRESSO conventions where applicable.
 
@@ -91,6 +91,8 @@ pub struct BasisSettings {
     /// Charge-density cutoff ratio: ecutrho = ecutrho_ratio * ecutwfc.
     /// QE default for norm-conserving PPs is 4.
     pub ecutrho_ratio: u32,
+    /// Explicit FFT grid dimensions [n1, n2, n3]. If set, overrides ecutrho_ratio.
+    pub fft_grid: Option<[usize; 3]>,
 }
 
 impl Default for BasisSettings {
@@ -98,6 +100,7 @@ impl Default for BasisSettings {
         Self {
             ecutwfc: 204.09,
             ecutrho_ratio: 4,
+            fft_grid: None,
         }
     }
 }
@@ -141,6 +144,8 @@ pub struct ScfSettings {
     pub max_iter: usize,
     /// Convergence threshold: RMS density change (e/Å³).
     pub conv_threshold: f64,
+    /// Energy convergence threshold (eV). Both density AND energy must converge.
+    pub energy_threshold: f64,
     /// Number of Kohn-Sham bands. `None` = automatic from n_electrons/2 + padding.
     pub n_bands: Option<usize>,
 }
@@ -150,6 +155,7 @@ impl Default for ScfSettings {
         Self {
             max_iter: 100,
             conv_threshold: 1e-6,
+            energy_threshold: 1e-5,
             n_bands: None,
         }
     }
@@ -169,6 +175,16 @@ pub struct ElectronSettings {
     pub smearing_width: f64,
     /// Occupation scheme.
     pub occupations: OccupationType,
+    /// Mixing preconditioning mode: plain Anderson or Kerker-preconditioned.
+    pub mixing_mode: MixingModeType,
+    /// Number of spin channels: 1 (unpolarized) or 2 (collinear spin-polarized).
+    pub nspin: usize,
+    /// Starting magnetization per atom type (fractional, -1 to 1).
+    /// Maps from element symbol to magnetization. Empty = non-magnetic.
+    pub starting_magnetization: HashMap<String, f64>,
+    /// Fixed total magnetization (n_up - n_down) in electrons.
+    /// If None, magnetization is determined self-consistently.
+    pub tot_magnetization: Option<f64>,
 }
 
 impl Default for ElectronSettings {
@@ -179,6 +195,10 @@ impl Default for ElectronSettings {
             smearing: SmearingType::default(),
             smearing_width: 0.05,
             occupations: OccupationType::default(),
+            mixing_mode: MixingModeType::default(),
+            nspin: 1,
+            starting_magnetization: HashMap::new(),
+            tot_magnetization: None,
         }
     }
 }
@@ -209,6 +229,17 @@ pub enum OccupationType {
     Smearing,
     /// Fixed integer occupations (insulators at T=0).
     Fixed,
+}
+
+/// Mixing preconditioning mode for SCF density mixing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MixingModeType {
+    /// Standard Anderson mixing (no preconditioning).
+    #[default]
+    Plain,
+    /// Kerker preconditioning.
+    Kerker,
 }
 
 /// Exchange-correlation functional specification.
@@ -357,12 +388,31 @@ impl Settings {
             n_bands: self.scf.n_bands.unwrap_or(n_bands_fallback),
             max_iter: self.scf.max_iter,
             conv_threshold: self.scf.conv_threshold,
+            energy_threshold: self.scf.energy_threshold,
             mixing_beta: self.electrons.mixing_beta,
             mixing_ndim: self.electrons.mixing_ndim,
             smearing_sigma: self.electrons.smearing_width,
+            smearing_scheme: match self.electrons.smearing {
+                SmearingType::FermiDirac => crate::scf::smearing::SmearingScheme::FermiDirac,
+                SmearingType::Gaussian => crate::scf::smearing::SmearingScheme::Gaussian,
+                SmearingType::MethfesselPaxton => {
+                    crate::scf::smearing::SmearingScheme::MethfesselPaxton
+                }
+                SmearingType::Cold => crate::scf::smearing::SmearingScheme::Cold,
+                // Fixed occupations don't use smearing; fall back to FermiDirac
+                SmearingType::Fixed => crate::scf::smearing::SmearingScheme::FermiDirac,
+            },
             ecutrho_ratio: self.basis.ecutrho_ratio,
-            fft_grid: None,
-            ..Default::default()
+            fft_grid: self.basis.fft_grid,
+            mixing_mode: match self.electrons.mixing_mode {
+                MixingModeType::Plain => crate::scf::mixing::MixingMode::Plain,
+                MixingModeType::Kerker => {
+                    crate::scf::mixing::MixingMode::Kerker { q_tf: None }
+                }
+            },
+            nspin: self.electrons.nspin,
+            starting_magnetization: self.electrons.starting_magnetization.clone(),
+            tot_magnetization: self.electrons.tot_magnetization,
         }
     }
 
@@ -467,6 +517,7 @@ system:
 basis:
   ecutwfc: 204.09
   ecutrho_ratio: 4
+  fft_grid: [24, 24, 24]
 
 kpoints:
   type: monkhorst_pack
@@ -475,6 +526,7 @@ kpoints:
 scf:
   max_iter: 100
   conv_threshold: 1.0e-6
+  energy_threshold: 1.0e-5
   n_bands: 8
 
 electrons:
@@ -483,6 +535,10 @@ electrons:
   smearing: fermi_dirac
   smearing_width: 0.05
   occupations: smearing
+  mixing_mode: plain
+  nspin: 1
+  starting_magnetization: {}
+  tot_magnetization: null
 
 xc:
   functional: pz
@@ -541,11 +597,17 @@ kpoints:
         let s = Settings::from_yaml_str(FULL_YAML).unwrap();
         assert_eq!(s.scf.max_iter, 100);
         assert_eq!(s.scf.n_bands, Some(8));
+        assert!((s.scf.energy_threshold - 1e-5).abs() < 1e-15);
+        assert_eq!(s.basis.fft_grid, Some([24, 24, 24]));
         assert!((s.electrons.mixing_beta - 0.3).abs() < f64::EPSILON);
         assert_eq!(s.electrons.mixing_ndim, 8);
         assert_eq!(s.electrons.smearing, SmearingType::FermiDirac);
         assert!((s.electrons.smearing_width - 0.05).abs() < 1e-15);
         assert_eq!(s.electrons.occupations, OccupationType::Smearing);
+        assert_eq!(s.electrons.mixing_mode, MixingModeType::Plain);
+        assert_eq!(s.electrons.nspin, 1);
+        assert!(s.electrons.starting_magnetization.is_empty());
+        assert!(s.electrons.tot_magnetization.is_none());
         assert_eq!(s.xc.functional, XcFunctional::Pz);
         assert!(s.symmetry.enabled);
         assert!(s.symmetry.time_reversal);
@@ -574,14 +636,20 @@ kpoints:
         let s = Settings::from_yaml_str(MINIMAL_YAML).unwrap();
 
         assert_eq!(s.basis.ecutrho_ratio, 4);
+        assert!(s.basis.fft_grid.is_none());
         assert_eq!(s.scf.max_iter, 100);
         assert!((s.scf.conv_threshold - 1e-6).abs() < 1e-15);
+        assert!((s.scf.energy_threshold - 1e-5).abs() < 1e-15);
         assert!(s.scf.n_bands.is_none());
         assert!((s.electrons.mixing_beta - 0.3).abs() < 1e-15);
         assert_eq!(s.electrons.mixing_ndim, 8);
         assert_eq!(s.electrons.smearing, SmearingType::FermiDirac);
         assert!((s.electrons.smearing_width - 0.05).abs() < 1e-15);
         assert_eq!(s.electrons.occupations, OccupationType::Smearing);
+        assert_eq!(s.electrons.mixing_mode, MixingModeType::Plain);
+        assert_eq!(s.electrons.nspin, 1);
+        assert!(s.electrons.starting_magnetization.is_empty());
+        assert!(s.electrons.tot_magnetization.is_none());
         assert_eq!(s.xc.functional, XcFunctional::Pz);
         assert!(s.symmetry.enabled);
         assert!(s.symmetry.time_reversal);
@@ -614,6 +682,19 @@ kpoints:
         assert_eq!(params.max_iter, 100);
         assert!((params.mixing_beta - 0.3).abs() < 1e-15);
         assert_eq!(params.ecutrho_ratio, 4);
+        assert!((params.energy_threshold - 1e-5).abs() < 1e-15);
+        assert_eq!(params.fft_grid, Some([24, 24, 24]));
+        assert_eq!(
+            params.smearing_scheme,
+            crate::scf::smearing::SmearingScheme::FermiDirac
+        );
+        assert!(matches!(
+            params.mixing_mode,
+            crate::scf::mixing::MixingMode::Plain
+        ));
+        assert_eq!(params.nspin, 1);
+        assert!(params.starting_magnetization.is_empty());
+        assert!(params.tot_magnetization.is_none());
     }
 
     #[test]
@@ -671,6 +752,15 @@ kpoints:
         for variant in [OccupationType::Smearing, OccupationType::Fixed] {
             let yaml = serde_yaml_ng::to_string(&variant).unwrap();
             let parsed: OccupationType = serde_yaml_ng::from_str(&yaml).unwrap();
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn mixing_mode_type_roundtrip() {
+        for variant in [MixingModeType::Plain, MixingModeType::Kerker] {
+            let yaml = serde_yaml_ng::to_string(&variant).unwrap();
+            let parsed: MixingModeType = serde_yaml_ng::from_str(&yaml).unwrap();
             assert_eq!(parsed, variant);
         }
     }

@@ -404,3 +404,40 @@ frozen core is unpolarized).
 **Known issues** (not formula bugs, but implementation gaps):
 - UPF `rho_atom` unit conversion was fixed (commit d8f9687)
 - No GGA infrastructure yet (only LDA)
+
+---
+
+## April 2026 Deep Audit: QE Source Comparison
+
+A line-by-line comparison against QE 7.5 source code expanded the audit from
+formula verification to numerical implementation details. All 17 formulas above
+were re-confirmed. Additional items verified:
+
+| # | Component | QE reference file | Status |
+|---|-----------|-------------------|--------|
+| 18 | UPF unit conversions (r, V, β, D, ρ) | `upflib/read_upf_v2.f90` | CORRECT |
+| 19 | KB form factor integrand r·χ·j_l·r | `upflib/beta_mod.f90:112-113` | CORRECT |
+| 20 | V_local Coulomb subtraction formula | `upflib/vloc_mod.f90:138,301` | CORRECT (formula) |
+| 21 | V_local(G=0) handling | `PW/src/setlocal.f90:92` | CORRECT |
+| 22 | Hamiltonian V_eff(G-G') lookup | `PW/src/h_psi.f90` | CORRECT |
+| 23 | FFT normalization convention | (throughout) | CORRECT |
+
+### Numerical issue found: radial quadrature quality
+
+All formulas are symbolically correct, but the radial integrals use a plain
+sum `integral += f(r_i) * rab[i]` (O(h²) accuracy), while QE uses Simpson's
+rule (O(h⁴), `upflib/simpsn.f90`). Combined with a near-origin singularity
+in the V_local integrand (`Ze²/r` diverges at r=0, whereas QE uses a smooth
+`erf(r)/r` subtraction), this produces G-dependent errors in V_local(G) and
+the beta form factors.
+
+This is the identified root cause of the 13–45 eV energy discrepancy and
+eigenvalue degeneracy breaking documented in Proposal 30.
+
+**Fix:** Proposals 38 (Simpson's rule) and 39 (erf subtraction).
+
+**Files affected:**
+- `src/pseudopotential/mod.rs:104-132` — V_local form factor
+- `src/potential/nonlocal.rs:224-238` — beta projector form factors
+- `src/scf/potentials.rs:83-97` — NLCC core density
+- `src/scf/initial_density.rs:162-173` — atomic density

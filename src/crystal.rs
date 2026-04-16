@@ -118,8 +118,8 @@ mod tests {
                 Atom::new(14, [0.25, 0.25, 0.25]),
             ],
         };
-        let serialized = toml::to_string(&crystal).unwrap();
-        let deserialized: Crystal = toml::from_str(&serialized).unwrap();
+        let serialized = serde_yaml_ng::to_string(&crystal).unwrap();
+        let deserialized: Crystal = serde_yaml_ng::from_str(&serialized).unwrap();
         assert_eq!(deserialized.atoms.len(), 2);
         assert_eq!(deserialized.atoms[0].z, 14);
     }

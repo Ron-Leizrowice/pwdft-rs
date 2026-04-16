@@ -1,0 +1,31 @@
+# Self-consistent field calculation for bulk Si (FCC, 2 atoms)
+# PseudoDojo ONCV LDA pseudopotential
+
+system:
+  lattice:
+    - [0.0, 2.7155, 2.7155]
+    - [2.7155, 0.0, 2.7155]
+    - [2.7155, 2.7155, 0.0]
+  atoms:
+    - { symbol: Si, position: [0.0, 0.0, 0.0] }
+    - { symbol: Si, position: [0.25, 0.25, 0.25] }
+
+basis:
+  ecutwfc: 100.0
+
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+
+scf:
+  max_iter: 50
+  conv_threshold: 1.0e-5
+  n_bands: 8
+
+electrons:
+  mixing_beta: 0.3
+  mixing_ndim: 8
+  smearing_width: 0.1
+
+pseudopotentials:
+  Si: "../pseudopotentials/nc/lda/Si.upf"

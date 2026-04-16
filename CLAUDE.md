@@ -16,10 +16,10 @@ cargo build --release
 cargo build --release --features gpu
 
 # Run SCF calculation
-cargo run --release -- --input examples/si_scf.toml
+cargo run --release -- --input examples/si_scf.yaml
 
 # Run band structure
-cargo run --release -- --input examples/si_free_electron.toml -o bands.tsv
+cargo run --release -- --input examples/si_free_electron.yaml -o bands.tsv
 ```
 
 ## Tests & Benchmarks
@@ -49,7 +49,7 @@ Fix auto-fixable warnings, address remaining ones. Do not suppress codesmell war
 
 ## Architecture
 
-**Entry point:** `src/main.rs` parses CLI args and TOML input, then either computes a free-electron band structure or runs SCF.
+**Entry point:** `src/main.rs` parses CLI args and YAML input (`src/settings.rs`), then either computes a free-electron band structure or runs SCF.
 
 **SCF loop** (`src/scf/mod.rs` — `run_scf()`): the central computation pipeline:
 1. Build local pseudopotential V_local on FFT grid (spherical Bessel transform)
@@ -77,7 +77,7 @@ Fix auto-fixable warnings, address remaining ones. Do not suppress codesmell war
 - Rust edition 2024. Release profile: opt-level 3, thin LTO.
 - Floating-point comparisons use `approx::relative_eq!` in tests.
 - Physical constants in `consts.rs` (Hartree atomic units: energies in Ry, lengths in Bohr).
-- Input files are TOML (see `examples/`). Settings/config also supports YAML via serde_yaml_ng.
+- Input files are YAML (see `examples/`), parsed via serde_yaml_ng into `Settings`.
 - Pure Rust stack: faer (eigensolver), ndrustfft (FFT), nalgebra (geometry), ndarray (grid ops).
 - No system dependencies required for default build. GPU requires wgpu feature flag.
 - Validation scripts in `scripts/` use Python (uv environment).

@@ -1,0 +1,33 @@
+# Si SCF matching QE parameters exactly
+# ecutwfc = 15 Ry = 204.09 eV, celldm(1) = 10.2612 Bohr = 5.431 A
+
+system:
+  lattice:
+    - [0.0, 2.7155, 2.7155]
+    - [2.7155, 0.0, 2.7155]
+    - [2.7155, 2.7155, 0.0]
+  atoms:
+    - { symbol: Si, position: [0.0, 0.0, 0.0] }
+    - { symbol: Si, position: [0.25, 0.25, 0.25] }
+
+basis:
+  ecutwfc: 204.09
+  ecutrho_ratio: 4
+  fft_grid: [20, 20, 20]    # Match QE's FFT grid exactly
+
+kpoints:
+  type: monkhorst_pack
+  grid: [4, 4, 4]
+
+scf:
+  max_iter: 60
+  conv_threshold: 1.0e-7
+  n_bands: 8
+
+electrons:
+  mixing_beta: 0.3
+  mixing_ndim: 8
+  smearing_width: 0.05
+
+pseudopotentials:
+  Si: "../pseudopotentials/nc/lda/Si.upf"

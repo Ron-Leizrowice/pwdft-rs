@@ -545,3 +545,23 @@ uses the same function. Density accumulates `f × w_k × |ψ|²`.
 **Fix:** `E_xc = ∫ ε_xc × ρ_total dr` but `E_vxc = ∫ V_xc × ρ_val dr`.
 The double-counting correction uses valence-only because that's what the
 eigenvalues contain.
+
+### 10.7 Radial Quadrature Accuracy
+**Symptom:** 13–45 eV total energy discrepancy vs QE, broken eigenvalue
+degeneracies at high-symmetry points. Error scales with Z_valence
+(Si: 1.66 eV/el, Fe: 2.84 eV/el).
+**Cause:** Two compounding issues in the radial integrals for V_local(G)
+and beta projector form factors:
+1. Plain sum `integral += f * dr` (O(h²)) vs QE's Simpson's rule (O(h⁴)).
+2. V_local Coulomb subtraction adds `Ze²/r` which diverges at r=0. QE uses
+   `Ze²·erf(r)/r` which stays finite (→ 2Z·e²/√π as r→0). The singular
+   integrand amplifies the lower-order quadrature error.
+
+The G-dependent nature of the error (different |G| sample different parts of
+the radial integrand) breaks crystal symmetry numerically, splitting
+eigenvalues that should be degenerate.
+
+**Fix:** Use Simpson's rule for all radial integrals (Proposal 38), and
+optionally adopt the erf subtraction for V_local (Proposal 39).
+**QE reference:** `upflib/simpsn.f90` (Simpson), `upflib/vloc_mod.f90:138`
+(erf subtraction).

@@ -18,7 +18,6 @@ num-complex = ">=0.4"
 puruspe = ">=0.4"
 rayon = ">=1.11"
 serde = { version = ">=1", features = ["derive"] }
-toml = ">=0.8"
 serde_yaml_ng = ">=0.10"
 thiserror = ">=2"
 clap = { version = ">=4", features = ["derive"] }

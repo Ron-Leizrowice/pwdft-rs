@@ -1,0 +1,27 @@
+# Free-electron band structure of Si FCC (a = 5.431 A)
+# Band path: L-G-X-K-G
+
+system:
+  lattice:
+    - [0.0, 2.7155, 2.7155]
+    - [2.7155, 0.0, 2.7155]
+    - [2.7155, 2.7155, 0.0]
+  atoms:
+    - { symbol: Si, position: [0.0, 0.0, 0.0] }
+    - { symbol: Si, position: [0.25, 0.25, 0.25] }
+
+basis:
+  ecutwfc: 200.0
+
+scf:
+  n_bands: 10
+
+kpoints:
+  type: band_path
+  npoints: 50
+  path:
+    - { label: "L", frac: [0.5, 0.5, 0.5] }
+    - { label: "G", frac: [0.0, 0.0, 0.0] }
+    - { label: "X", frac: [0.5, 0.0, 0.5] }
+    - { label: "K", frac: [0.375, 0.375, 0.75] }
+    - { label: "G", frac: [0.0, 0.0, 0.0] }

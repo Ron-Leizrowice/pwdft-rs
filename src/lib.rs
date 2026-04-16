@@ -10,7 +10,6 @@ pub mod fft;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 pub mod hamiltonian;
-pub mod input;
 pub mod kpoints;
 pub mod potential;
 pub mod pseudopotential;
