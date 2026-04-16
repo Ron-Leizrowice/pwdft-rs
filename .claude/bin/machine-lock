@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# machine-lock — coordinate shared-machine access between agents
+#
+# Usage:
+#   machine-lock acquire <agent-role> "<description>"  # grab exclusive lock
+#   machine-lock release                               # release lock
+#   machine-lock status                                # check lock state
+#   machine-lock run <agent-role> "<description>" -- <command...>  # acquire, run, release
+#
+# Lock files are stored in .claude/locks/machine.lock
+# Stale locks (>30 min old) are auto-cleared on next acquire.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$(cd "$(dirname "$0")/../.." && pwd)")"
+LOCKDIR="$REPO_ROOT/.claude/locks"
+LOCKFILE="$LOCKDIR/machine.lock"
+STALE_SECONDS=1800  # 30 minutes
+
+_read_lock() {
+    # Lock format: 3 lines — agent, description, epoch timestamp
+    if [ ! -f "$LOCKFILE" ]; then return 1; fi
+    LOCK_AGENT=$(sed -n '1p' "$LOCKFILE")
+    LOCK_DESC=$(sed -n '2p' "$LOCKFILE")
+    LOCK_TS=$(sed -n '3p' "$LOCKFILE")
+    LOCK_AGE=$(( $(date +%s) - LOCK_TS ))
+}
+
+_is_stale() {
+    [ "$LOCK_AGE" -ge "$STALE_SECONDS" ]
+}
+
+cmd_acquire() {
+    local agent="${1:?Usage: machine-lock acquire <agent-role> <description>}"
+    local desc="${2:-unspecified}"
+
+    mkdir -p "$LOCKDIR"
+
+    if _read_lock; then
+        if _is_stale; then
+            echo "Clearing stale lock (was: $LOCK_AGENT, ${LOCK_AGE}s ago)"
+            rm -f "$LOCKFILE"
+        else
+            echo "BLOCKED — machine locked by $LOCK_AGENT (${LOCK_AGE}s ago)"
+            echo "  Reason: $LOCK_DESC"
+            echo "  Wait for release, or force with: machine-lock release"
+            return 1
+        fi
+    fi
+
+    printf '%s\n' "$agent" "$desc" "$(date +%s)" > "$LOCKFILE"
+    echo "ACQUIRED by $agent — $desc"
+}
+
+cmd_release() {
+    if [ -f "$LOCKFILE" ]; then
+        if _read_lock; then
+            echo "Released lock held by $LOCK_AGENT (${LOCK_AGE}s)"
+        fi
+        rm -f "$LOCKFILE"
+    else
+        echo "No lock to release"
+    fi
+}
+
+cmd_status() {
+    if ! _read_lock; then
+        echo "FREE — no lock held"
+        return 0
+    fi
+
+    if _is_stale; then
+        echo "STALE — was held by $LOCK_AGENT (${LOCK_AGE}s ago)"
+        echo "  Reason: $LOCK_DESC"
+        echo "  Run: machine-lock release"
+    else
+        echo "LOCKED by $LOCK_AGENT (${LOCK_AGE}s ago)"
+        echo "  Reason: $LOCK_DESC"
+    fi
+}
+
+cmd_run() {
+    local agent="${1:?Usage: machine-lock run <agent-role> <description> -- <command...>}"
+    local desc="${2:?}"
+    shift 2
+
+    # Skip the -- separator
+    if [ "${1:-}" = "--" ]; then shift; fi
+
+    cmd_acquire "$agent" "$desc"
+    local rc=0
+    "$@" || rc=$?
+    cmd_release
+    return $rc
+}
+
+case "${1:-status}" in
+    acquire) cmd_acquire "${@:2}" ;;
+    release) cmd_release ;;
+    status)  cmd_status ;;
+    run)     cmd_run "${@:2}" ;;
+    *)       echo "Usage: machine-lock {acquire|release|status|run}" >&2; exit 1 ;;
+esac

@@ -75,6 +75,7 @@ Fix auto-fixable warnings, address remaining ones. Do not suppress codesmell war
 
 This project uses a branch-and-PR workflow. Multiple agents may work concurrently.
 
+- **Always use a worktree.** Never modify files in the user's main checkout. Use `isolation: "worktree"` when spawning agents, or `EnterWorktree` for interactive work. This keeps the main checkout clean and allows concurrent agents.
 - **Never commit directly to main.** All work happens on feature branches.
 - **One proposal per branch.** Branch name: `<PROPOSAL-ID>/<slug>` (e.g., `SIMP/simpson-quadrature`).
 - **PRs against main.** Title format: `<PROPOSAL-ID>: <description>`. PR body must reference the proposal and include a summary and test plan.
@@ -90,6 +91,32 @@ This project uses a branch-and-PR workflow. Multiple agents may work concurrentl
   - **Researcher** — owns physics/math correctness. Proposes features, validates against QE and literature.
   - **Code Reviewer** — owns code quality. Hunts dead code, enforces idioms, improves logging/tests.
   - **Technical Writer** — owns documentation. README, CLAUDE.md, docstrings, code comments.
+
+## Machine Coordination
+
+Multiple agents share this machine. The machine lock serializes CPU-intensive commands to prevent test runs from contaminating benchmark results.
+
+**What requires the lock:** `cargo test`, `cargo bench`, `cargo build`, `cargo clippy` — any command that compiles or runs code.
+
+**What does NOT require the lock:** reading files, editing code in worktrees, writing proposals, git operations, `machine-lock status`.
+
+```bash
+# Check lock state:
+.claude/bin/machine-lock status
+
+# Acquire before cargo commands:
+.claude/bin/machine-lock acquire "Core Engineer" "cargo test"
+cargo test
+.claude/bin/machine-lock release
+
+# Or use the one-liner (acquire + run + release):
+.claude/bin/machine-lock run "Core Engineer" "cargo test" -- cargo test
+```
+
+- **Always check/acquire before any cargo command.** If blocked, wait and retry — do not force-remove another agent's lock.
+- **Release promptly.** Don't hold the lock while reading code or writing proposals.
+- **Stale locks** (>30 min old) are auto-cleared on next acquire.
+- Lock state: `.claude/locks/machine.lock` (gitignored).
 
 ## Conventions
 

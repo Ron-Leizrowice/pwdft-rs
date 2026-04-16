@@ -8,7 +8,8 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| SIMP | Simpson's Rule for Radial Integrals | medium | medium | — | VERF, QEVL |
+| KBTF | Investigate KB Projector Test Failures (3 tests) | small | low | — | SIMP |
+| SIMP | Simpson's Rule for Radial Integrals | medium | medium | KBTF | VERF, QEVL |
 | VERF | V_local erf Coulomb Subtraction | small | medium | SIMP | QEVL |
 | QEDX | Systematic Energy Discrepancy vs QE | large | high | SIMP, VERF | QEVL |
 
@@ -85,4 +86,5 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 - **SDED** scope reduced: SmearingType dedup done, MixingModeType + OccupationType remain.
 - **CFGN** dependency on CNST satisfied (archived). DDUP + SIMP still pending.
 - **HD5I** references deleted `src/input.rs` — update to YAML Settings when implementing.
-- **3 failing tests** in kb_projector_validation need investigation before SIMP work begins.
+- **KBTF** covers the 3 failing kb_projector_validation tests. Must complete before SIMP.
+- SIMP now depends on KBTF (was previously unblocked).

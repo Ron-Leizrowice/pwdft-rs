@@ -4,6 +4,7 @@
 !.claude/
 !.claude/**
 .claude/settings.local.json
+.claude/locks/*.lock
 qe-7.5/
 scripts/
 *.tar.gz

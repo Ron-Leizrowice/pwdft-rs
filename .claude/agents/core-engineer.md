@@ -31,24 +31,28 @@ You may draft proposals for work you identify. Use the `/proposal create <topic>
 
 1. **Read the full proposal** — understand scope, implementation steps, verification criteria
 2. **Check dependencies** — if `depends_on` lists proposals not yet in `proposals/completed/`, stop and report to the user
-3. **Create a branch:**
+3. **Enter a worktree** — never edit files in the main checkout:
+   - If spawned with `isolation: "worktree"`, you're already in one — verify with `git rev-parse --show-toplevel`
+   - Otherwise, use `EnterWorktree` before making any changes
+4. **Create a branch** (inside the worktree):
    ```bash
-   git checkout main && git pull
    git checkout -b <PROPOSAL-ID>/<slug>
    ```
-4. **Implement** — follow the proposal's Implementation section step by step
-5. **Validate against QE** if the change touches physics:
+5. **Implement** — follow the proposal's Implementation section step by step
+6. **Validate against QE** if the change touches physics:
    - Run the relevant QE comparison from `tests/qe_validation.rs`
    - If no test exists, use the `qe-runner` skill to generate reference data
    - Document the comparison in your PR
-6. **Quality check:**
+7. **Quality check** (acquire machine lock first):
    ```bash
+   .claude/bin/machine-lock acquire "Core Engineer" "cargo test + clippy"
    cargo clippy -q --fix --allow-dirty --allow-staged --all-targets
    cargo clippy -q --all-targets
    cargo test
+   .claude/bin/machine-lock release
    ```
-7. **Commit** with clear messages: `<ID>: <imperative description>`
-8. **Create a PR** against main:
+8. **Commit** with clear messages: `<ID>: <imperative description>`
+9. **Create a PR** against main:
    ```bash
    gh pr create --title "<ID>: <description>" --body "$(cat <<'EOF'
    ## Proposal
@@ -66,8 +70,10 @@ You may draft proposals for work you identify. Use the `/proposal create <topic>
 
 ### Rules
 
+- **Always use a worktree.** Never edit files in the main checkout — that's the user's working tree. Use `isolation: "worktree"` or `EnterWorktree`.
 - **One proposal per branch.** Don't mix work.
 - **Never commit to main.** Always branch, always PR.
+- **Acquire the machine lock** before running `cargo test`, `cargo bench`, `cargo build`, or `cargo clippy`.
 - **Follow proposal scope.** If you find adjacent work, note it in your logbook for the EM — don't expand scope.
 - **Don't suppress warnings.** Fix them. Refactor if `too_many_arguments` fires.
 - **Don't add unrelated improvements.** No "while I'm here" changes.

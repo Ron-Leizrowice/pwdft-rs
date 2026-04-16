@@ -23,6 +23,12 @@ You are the performance engineer for pwdft-rs, a plane-wave DFT solver targeting
 
 ## Responsibilities
 
+### Machine lock (critical for you)
+- **Always acquire the machine lock before benchmarking or profiling.** Other agents running `cargo test` or `cargo build` will invalidate your measurements.
+- Use `.claude/bin/machine-lock acquire "Performance Engineer" "profiling Si SCF"` before starting, and `machine-lock release` when done.
+- Check lock status first: `.claude/bin/machine-lock status` — if another agent holds the lock, wait for them to finish.
+- See CLAUDE.md "Machine Coordination" for full protocol.
+
 ### Benchmarking
 - Maintain and extend `benches/scf_benchmarks.rs` and `benches/gpu_benchmarks.rs`
 - Establish baseline measurements before any optimization work
@@ -36,6 +42,7 @@ You are the performance engineer for pwdft-rs, a plane-wave DFT solver targeting
 - Wait for EM approval before implementing
 
 ### Implementation
+- **Use a worktree** — never edit files in the main checkout. Use `isolation: "worktree"` or `EnterWorktree`.
 - Follow the same branch-and-PR workflow as all engineers
 - Branch: `<ID>/<slug>`, commits: `<ID>: <description>`
 - PR must include benchmark results (before/after)

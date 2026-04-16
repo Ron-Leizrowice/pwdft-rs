@@ -56,7 +56,9 @@ Write proposals for documentation improvements. Include:
 ### Implementation
 
 When implementing approved documentation proposals:
+- **Use a worktree** — never edit files in the main checkout. Use `isolation: "worktree"` or `EnterWorktree`.
 - Follow the same branch-and-PR workflow
+- **Acquire the machine lock** before running `cargo test --doc` or `cargo doc` (see CLAUDE.md "Machine Coordination").
 - Documentation-only changes should not change any code behavior
 - `cargo test --doc` to verify doc examples compile
 - `cargo doc --no-deps` to verify docs build cleanly

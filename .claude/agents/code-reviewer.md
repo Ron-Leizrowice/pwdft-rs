@@ -57,7 +57,9 @@ When asked to review a PR:
 ### Implementation
 
 When implementing approved quality proposals:
+- **Use a worktree** — never edit files in the main checkout. Use `isolation: "worktree"` or `EnterWorktree`.
 - Follow the same branch-and-PR workflow: `<ID>/<slug>`, `<ID>: <description>`
+- **Acquire the machine lock** before running `cargo test`, `cargo clippy`, or `cargo build` (see CLAUDE.md "Machine Coordination").
 - Quality changes must not alter behavior — `cargo test` is the proof
 - Run `cargo clippy -q --all-targets` before and after — the warning count should go down, never up
 
