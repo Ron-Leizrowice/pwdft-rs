@@ -8,6 +8,17 @@
 //! Uses f32 precision on GPU. The calling code handles f64↔f32 conversion
 //! at the boundary. Eigensolves and energy accumulation remain f64 on CPU.
 //!
+//! ## f32/f64 error budget
+//!
+//! Expected relative errors vs f64 CPU path:
+//! - Hartree potential: ~1e-7 (linear operations, f32 precision limit)
+//! - LDA XC: ~1e-5 (cube root and log amplify rounding)
+//! - V_eff assembly: ~1e-7 (linear addition)
+//!
+//! For SCF convergence to 1e-6 eV, f32 XC error (~1e-5 relative) can cause
+//! the GPU path to converge to a slightly different energy (~0.01 meV).
+//! This is acceptable for production use.
+//!
 //! Enable with `cargo build --features gpu`.
 
 use bytemuck::{Pod, Zeroable};

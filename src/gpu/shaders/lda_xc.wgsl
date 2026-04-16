@@ -1,6 +1,13 @@
 // LDA exchange-correlation: Perdew-Zunger parametrization.
 // Input:  rho_r (real-space density, f32, in e/Å³)
 // Output: exc_r (energy density, eV), vxc_r (potential, eV)
+//
+// References:
+//   Exchange: Slater, Phys. Rev. 81, 385 (1951)
+//   Correlation: Perdew & Zunger, Phys. Rev. B 23, 5048 (1981), Table I
+//
+// Runs in f32 for GPU throughput. Expected relative error vs f64 CPU: ~1e-5
+// (dominated by cube root and log rounding in f32).
 
 struct Params {
     n_grid: u32,
@@ -13,7 +20,7 @@ struct Params {
 
 const PI: f32 = 3.14159265358979323846;
 const HA_TO_EV: f32 = 27.211386;
-const BOHR3: f32 = 0.14818471; // 0.529177^3
+const BOHR3: f32 = 0.1481847; // 0.529177^3 (7 significant digits, f32 limit)
 
 // Perdew-Zunger correlation parameters (unpolarized, rs >= 1)
 const PZ_GAMMA: f32 = -0.1423;
@@ -34,6 +41,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     let rho = rho_r[idx];
+    // Must match RHO_FLOOR in src/consts.rs
     if (rho < 1e-20) {
         exc_r[idx] = 0.0;
         vxc_r[idx] = 0.0;
@@ -46,7 +54,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Wigner-Seitz radius
     let rs = pow(3.0 / (4.0 * PI * rho_bohr), 1.0 / 3.0);
 
-    // Slater exchange
+    // Slater exchange: ε_x = -(3/4)(3ρ/π)^{1/3} in Hartree
     let cbrt_arg = pow(3.0 * rho_bohr / PI, 1.0 / 3.0);
     let ex_ha = -0.75 * cbrt_arg;
     let vx_ha = (4.0 / 3.0) * ex_ha;
