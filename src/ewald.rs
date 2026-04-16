@@ -204,10 +204,8 @@ mod tests {
             v_local: vec![],
             beta_projectors: vec![],
             dij: vec![],
-            n_projectors: 0,
             rho_atom: vec![],
             core_charge: vec![],
-            has_nlcc: false,
         }
     }
 

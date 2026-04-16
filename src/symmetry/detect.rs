@@ -4,7 +4,7 @@
 
 use crate::crystal::Crystal;
 
-use super::operations::{frac_distance, wrap_to_unit_cell, SpaceGroupOp};
+use super::operations::{frac_distance, wrap_to_unit_cell, SpaceGroupOp, SymmOp};
 
 /// Find all symmetry operations of a crystal.
 ///
@@ -144,7 +144,7 @@ fn find_translation(
     let ref_pos = ref_atom.position;
 
     // Rotated position of reference atom
-    let r_pos = apply_rotation(rotation, &ref_pos);
+    let r_pos = SymmOp { rotation: *rotation }.apply(&ref_pos);
 
     // For each atom of the same species, compute candidate translation
     for target in crystal.atoms.iter().filter(|a| a.z == ref_z) {
@@ -172,7 +172,7 @@ fn all_atoms_map(
     tolerance: f64,
 ) -> bool {
     for atom in &crystal.atoms {
-        let r_pos = apply_rotation(rotation, &atom.position);
+        let r_pos = SymmOp { rotation: *rotation }.apply(&atom.position);
         let mapped = wrap_to_unit_cell([r_pos[0] + tau[0], r_pos[1] + tau[1], r_pos[2] + tau[2]]);
 
         let found = crystal.atoms.iter().any(|other| {
@@ -184,15 +184,6 @@ fn all_atoms_map(
         }
     }
     true
-}
-
-/// Apply a 3×3 integer rotation matrix to fractional coordinates.
-fn apply_rotation(r: &[[i32; 3]; 3], f: &[f64; 3]) -> [f64; 3] {
-    [
-        r[0][0] as f64 * f[0] + r[0][1] as f64 * f[1] + r[0][2] as f64 * f[2],
-        r[1][0] as f64 * f[0] + r[1][1] as f64 * f[1] + r[1][2] as f64 * f[2],
-        r[2][0] as f64 * f[0] + r[2][1] as f64 * f[1] + r[2][2] as f64 * f[2],
-    ]
 }
 
 #[cfg(test)]

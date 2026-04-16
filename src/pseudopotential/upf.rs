@@ -119,10 +119,8 @@ pub fn parse(content: &str) -> Result<PseudopotentialData> {
         v_local,
         beta_projectors,
         dij,
-        n_projectors: n_proj,
         rho_atom,
         core_charge,
-        has_nlcc,
     })
 }
 
@@ -201,7 +199,7 @@ mod tests {
         assert_eq!(pp.element, "Si");
         assert!((pp.z_valence - 4.0).abs() < 1e-10);
         assert!(pp.l_max >= 1, "Si should have l_max >= 1");
-        assert!(pp.n_projectors > 0, "Si should have projectors");
+        assert!(pp.n_projectors() > 0, "Si should have projectors");
     }
 
     #[test]
@@ -248,6 +246,6 @@ mod tests {
     #[test]
     fn test_dij_matrix_size() {
         let pp = parse(&si_content()).unwrap();
-        assert_eq!(pp.dij.len(), pp.n_projectors * pp.n_projectors);
+        assert_eq!(pp.dij.len(), pp.n_projectors() * pp.n_projectors());
     }
 }
