@@ -151,6 +151,24 @@ pub struct ScfResult {
     pub nspin: usize,
 }
 
+/// Compute occupation numbers for all k-points from eigenvalues and Fermi energy.
+fn compute_occupations(
+    eigenvalues: &[Vec<f64>],
+    scheme: smearing::SmearingScheme,
+    fermi_energy: f64,
+    sigma: f64,
+    spin_factor: f64,
+) -> Vec<Vec<f64>> {
+    eigenvalues
+        .iter()
+        .map(|evs| {
+            evs.iter()
+                .map(|&e| smearing::occupation(scheme, e, fermi_energy, sigma, spin_factor))
+                .collect()
+        })
+        .collect()
+}
+
 fn scf_progress_bar(max_iter: usize) -> ProgressBar {
     let pb = ProgressBar::new(max_iter as u64);
     pb.set_style(
@@ -293,14 +311,10 @@ pub fn run_scf(
             ctx.params.smearing_scheme,
             ctx.spin_factor,
         );
-        let occupations: Vec<Vec<f64>> = eigenvalues_all
-            .iter()
-            .map(|evs| {
-                evs.iter()
-                    .map(|&e| smearing::occupation(ctx.params.smearing_scheme, e, fermi_energy, ctx.params.smearing_sigma, ctx.spin_factor))
-                    .collect()
-            })
-            .collect();
+        let occupations = compute_occupations(
+            &eigenvalues_all, ctx.params.smearing_scheme, fermi_energy,
+            ctx.params.smearing_sigma, ctx.spin_factor,
+        );
 
         // 6. New density
         let mut rho_r_new = density::compute_density(
@@ -322,14 +336,7 @@ pub fn run_scf(
 
         // Compute energy every iteration for convergence monitoring
         let mut rho_g_new = vec![Complex64::new(0.0, 0.0); ctx.n_grid];
-        for (i, &r) in rho_r_new.iter().enumerate() {
-            rho_g_new[i] = Complex64::new(r, 0.0);
-        }
-        ctx.grid.fft.forward(&mut rho_g_new);
-        let fft_norm = 1.0 / ctx.n_grid as f64;
-        for v in &mut rho_g_new {
-            *v *= fft_norm;
-        }
+        density_r_to_g(&mut ctx.grid.fft, &rho_r_new, &mut rho_g_new);
 
         let rho_new_for_xc = add_core_density(&rho_r_new, &ctx.rho_core_r);
         let (exc_r, vxc_r_energy) = xc::lda_xc_grid(&rho_new_for_xc);
@@ -469,6 +476,9 @@ fn run_scf_spin(
     let mut last_delta = f64::INFINITY;
     let pb = scf_progress_bar(ctx.params.max_iter);
 
+    // Precompute half core density (constant across iterations)
+    let rho_core_half: Vec<f64> = ctx.rho_core_r.iter().map(|&c| c / 2.0).collect();
+
     for iter in 0..ctx.params.max_iter {
         // Total density for Hartree (spin-independent)
         let rho_total_r: Vec<f64> = rho_up_r.iter().zip(rho_down_r.iter())
@@ -480,18 +490,16 @@ fn run_scf_spin(
         let v_h_fft = hartree_on_fft_grid(&rho_total_g, &ctx.g_squared);
 
         // 2. Spin-dependent XC
-        let rho_up_xc = add_core_density(&rho_up_r, &ctx.rho_core_r.iter().map(|&c| c / 2.0).collect::<Vec<_>>());
-        let rho_down_xc = add_core_density(&rho_down_r, &ctx.rho_core_r.iter().map(|&c| c / 2.0).collect::<Vec<_>>());
+        let rho_up_xc = add_core_density(&rho_up_r, &rho_core_half);
+        let rho_down_xc = add_core_density(&rho_down_r, &rho_core_half);
         let (exc_r, vxc_up_r, vxc_down_r) = xc::lda_xc_spin_grid(&rho_up_xc, &rho_down_xc);
 
         let vxc_up_g = real_to_g_space(&vxc_up_r, &mut ctx.grid.fft);
         let vxc_down_g = real_to_g_space(&vxc_down_r, &mut ctx.grid.fft);
 
         // 3. Two V_eff: V_local + V_H + V_xc_sigma
-        let v_eff_up: Vec<Complex64> = ctx.v_local_fft.iter().zip(v_h_fft.iter()).zip(vxc_up_g.iter())
-            .map(|((&vl, &vh), &vxc)| vl + vh + vxc).collect();
-        let v_eff_down: Vec<Complex64> = ctx.v_local_fft.iter().zip(v_h_fft.iter()).zip(vxc_down_g.iter())
-            .map(|((&vl, &vh), &vxc)| vl + vh + vxc).collect();
+        let v_eff_up = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_up_g);
+        let v_eff_down = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_down_g);
 
         // 4. Diagonalize both spins at each k-point
         let kpoint_results_up: Vec<_> = ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
@@ -530,12 +538,14 @@ fn run_scf_spin(
                 ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
             );
 
-            let occ_up: Vec<Vec<f64>> = eig_up.iter().map(|evs| {
-                evs.iter().map(|&e| smearing::occupation(ctx.params.smearing_scheme, e, ef_up, ctx.params.smearing_sigma, ctx.spin_factor)).collect()
-            }).collect();
-            let occ_down: Vec<Vec<f64>> = eig_down.iter().map(|evs| {
-                evs.iter().map(|&e| smearing::occupation(ctx.params.smearing_scheme, e, ef_down, ctx.params.smearing_sigma, ctx.spin_factor)).collect()
-            }).collect();
+            let occ_up = compute_occupations(
+                &eig_up, ctx.params.smearing_scheme, ef_up,
+                ctx.params.smearing_sigma, ctx.spin_factor,
+            );
+            let occ_down = compute_occupations(
+                &eig_down, ctx.params.smearing_scheme, ef_down,
+                ctx.params.smearing_sigma, ctx.spin_factor,
+            );
 
             // Report average Fermi energy
             ((ef_up + ef_down) / 2.0, occ_up, occ_down)
@@ -546,12 +556,14 @@ fn run_scf_spin(
                 ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
             );
 
-            let occ_up: Vec<Vec<f64>> = eig_up.iter().map(|evs| {
-                evs.iter().map(|&e| smearing::occupation(ctx.params.smearing_scheme, e, fermi_energy, ctx.params.smearing_sigma, ctx.spin_factor)).collect()
-            }).collect();
-            let occ_down: Vec<Vec<f64>> = eig_down.iter().map(|evs| {
-                evs.iter().map(|&e| smearing::occupation(ctx.params.smearing_scheme, e, fermi_energy, ctx.params.smearing_sigma, ctx.spin_factor)).collect()
-            }).collect();
+            let occ_up = compute_occupations(
+                &eig_up, ctx.params.smearing_scheme, fermi_energy,
+                ctx.params.smearing_sigma, ctx.spin_factor,
+            );
+            let occ_down = compute_occupations(
+                &eig_down, ctx.params.smearing_scheme, fermi_energy,
+                ctx.params.smearing_sigma, ctx.spin_factor,
+            );
 
             (fermi_energy, occ_up, occ_down)
         };
