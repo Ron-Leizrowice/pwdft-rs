@@ -11,6 +11,7 @@ pub mod fft;
 pub mod gpu;
 pub mod hamiltonian;
 pub mod kpoints;
+pub mod numerics;
 pub mod potential;
 pub mod pseudopotential;
 pub mod scf;

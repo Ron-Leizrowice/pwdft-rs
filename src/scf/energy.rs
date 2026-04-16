@@ -72,7 +72,9 @@ pub(crate) fn xc_energy_corrected(
     e_xc - e_vxc
 }
 
-/// Total energy: E_band - E_H + (E_xc - E_vxc) + E_ewald.
+/// Kohn-Sham total energy: E_band - E_H[rho_out] + (E_xc[rho_out] - E_vxc[rho_out]) + E_ewald.
+///
+/// Uses the OUTPUT density (from new wavefunctions) for double-counting corrections.
 pub(crate) fn total_energy(
     e_band: f64,
     e_hartree: f64,
@@ -80,6 +82,23 @@ pub(crate) fn total_energy(
     e_ewald: f64,
 ) -> f64 {
     e_band - e_hartree + e_xc_corrected + e_ewald
+}
+
+/// Harris-Foulkes energy: E_band - E_H[rho_in] + (E_xc[rho_in] - E_vxc[rho_in]) + E_ewald.
+///
+/// Uses the INPUT density for all double-counting corrections but OUTPUT eigenvalues
+/// (from diagonalizing H[rho_in]). This is stationary at self-consistency: first-order
+/// density errors cancel, making E_HF converge quadratically to E_KS.
+///
+/// Reference: Harris, Phys. Rev. B 31, 1770 (1985);
+///            Foulkes & Haydock, Phys. Rev. B 39, 12520 (1989).
+pub(crate) fn harris_foulkes_energy(
+    e_band: f64,
+    e_hartree_in: f64,
+    e_xc_corrected_in: f64,
+    e_ewald: f64,
+) -> f64 {
+    e_band - e_hartree_in + e_xc_corrected_in + e_ewald
 }
 
 // ---------------------------------------------------------------------------
@@ -111,13 +130,8 @@ pub(crate) fn density_r_to_g(fft: &mut FFT3D, rho_r: &[f64], rho_g: &mut [Comple
 
 /// Convert real-space array to G-space with FFT normalization.
 pub(crate) fn real_to_g_space(data_r: &[f64], fft: &mut FFT3D) -> Vec<Complex64> {
-    let n = data_r.len();
-    let mut data_g: Vec<Complex64> = data_r.iter().map(|&v| Complex64::new(v, 0.0)).collect();
-    fft.forward(&mut data_g);
-    let norm = 1.0 / n as f64;
-    for v in &mut data_g {
-        *v *= norm;
-    }
+    let mut data_g = vec![Complex64::new(0.0, 0.0); data_r.len()];
+    density_r_to_g(fft, data_r, &mut data_g);
     data_g
 }
 

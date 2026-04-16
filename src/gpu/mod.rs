@@ -453,11 +453,11 @@ impl GpuAccelerator {
         receiver.recv().unwrap().unwrap();
 
         let data = slice.get_mapped_range();
-        let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+        let result = bytemuck::cast_slice(&data)[..n_floats].to_vec();
         drop(data);
         buffer.unmap();
 
-        result[..n_floats].to_vec()
+        result
     }
 }
 

@@ -90,7 +90,7 @@ impl NonlocalPotential {
 
             form_factors.push(type_ff);
             dij_all.push(pp.dij.clone());
-            n_proj_all.push(pp.n_projectors);
+            n_proj_all.push(pp.n_projectors());
             proj_l_all.push(type_l);
         }
 
@@ -221,21 +221,22 @@ fn bessel_transform_projector(
     l: i32,
     q: f64,
 ) -> f64 {
-    let mut integral = 0.0;
+    use crate::numerics::simpson_integrate;
 
-    for i in 0..r_grid.len() {
+    let n = r_grid.len();
+    let mut integrand = vec![0.0; n];
+
+    for i in 0..n {
         let r = r_grid[i];
-        let dr = rab[i];
         let rb = r_beta[i]; // r·β(r)
-
         let qr = q * r;
         let jl = spherical_bessel_j(l, qr);
 
-        // Integrand: [r·β(r)] × j_l(qr) × r × dr
-        integral += rb * jl * r * dr;
+        // Integrand: [r·β(r)] × j_l(qr) × r
+        integrand[i] = rb * jl * r;
     }
 
-    4.0 * PI * integral
+    4.0 * PI * simpson_integrate(&integrand, rab)
 }
 
 /// Spherical Bessel function j_l(x) for arbitrary l >= 0.

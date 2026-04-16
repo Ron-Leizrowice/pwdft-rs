@@ -30,16 +30,12 @@ pub struct PseudopotentialData {
     /// D_ij coupling matrix for non-local projectors (eV).
     /// Stored as a flat n_proj × n_proj matrix in row-major order.
     pub dij: Vec<f64>,
-    /// Number of non-local projectors.
-    pub n_projectors: usize,
     /// Atomic charge density on radial grid (e/Å, stores 4πr²ρ(r)).
     /// May be empty if not provided by the pseudopotential.
     pub rho_atom: Vec<f64>,
     /// Nonlinear core correction (NLCC) charge density on radial grid.
-    /// Stores 4πr²ρ_core(r) in e/Å. Empty if `has_nlcc` is false.
+    /// Stores 4πr²ρ_core(r) in e/Å. Empty if NLCC is not present.
     pub core_charge: Vec<f64>,
-    /// Whether this PP has nonlinear core correction.
-    pub has_nlcc: bool,
 }
 
 /// A single non-local beta projector.
@@ -83,6 +79,16 @@ pub fn find_for_atom<'a>(z: u32, pseudopotentials: &[&'a PseudopotentialData]) -
 }
 
 impl PseudopotentialData {
+    /// Number of non-local beta projectors.
+    pub fn n_projectors(&self) -> usize {
+        self.beta_projectors.len()
+    }
+
+    /// Whether this PP has nonlinear core correction.
+    pub fn has_nlcc(&self) -> bool {
+        !self.core_charge.is_empty()
+    }
+
     /// Compute V_local(G) via spherical Bessel transform.
     ///
     /// V_local(G) = (4π/Ω) ∫₀^∞ r² [V_local(r) + Z_val e²/r] sin(Gr)/(Gr) dr
@@ -97,33 +103,33 @@ impl PseudopotentialData {
     /// Units: returns eV (potential in reciprocal space per unit cell).
     pub fn v_local_of_g(&self, g_norm: f64, omega: f64) -> f64 {
         use crate::consts::E2_COULOMB as E2;
-
-        let n = self.r_grid.len();
-        let mut integral = 0.0;
+        use crate::numerics::simpson_integrate;
 
         if g_norm < 1e-12 {
             // G = 0 case: ∫ r² [V_loc(r) + Z e²/r] dr
-            for i in 0..n {
-                let r = self.r_grid[i];
-                let dr = self.rab[i];
-                let v_short = self.v_local[i] + self.z_valence * E2 / r.max(1e-20);
-                integral += r * r * v_short * dr;
-            }
+            let integrand: Vec<f64> = self.r_grid.iter().zip(self.v_local.iter())
+                .map(|(&r, &v)| {
+                    let v_short = v + self.z_valence * E2 / r.max(1e-20);
+                    r * r * v_short
+                })
+                .collect();
+            let integral = simpson_integrate(&integrand, &self.rab);
             4.0 * std::f64::consts::PI / omega * integral
         } else {
             // G ≠ 0: ∫ r² [V_loc(r) + Z e²/r] sin(Gr)/(Gr) dr - 4π Z e² / (Ω G²)
-            for i in 0..n {
-                let r = self.r_grid[i];
-                let dr = self.rab[i];
-                let gr = g_norm * r;
-                let v_short = self.v_local[i] + self.z_valence * E2 / r.max(1e-20);
-                let sinc = if gr < 1e-10 {
-                    1.0 - gr * gr / 6.0
-                } else {
-                    gr.sin() / gr
-                };
-                integral += r * r * v_short * sinc * dr;
-            }
+            let integrand: Vec<f64> = self.r_grid.iter().zip(self.v_local.iter())
+                .map(|(&r, &v)| {
+                    let gr = g_norm * r;
+                    let v_short = v + self.z_valence * E2 / r.max(1e-20);
+                    let sinc = if gr < 1e-10 {
+                        1.0 - gr * gr / 6.0
+                    } else {
+                        gr.sin() / gr
+                    };
+                    r * r * v_short * sinc
+                })
+                .collect();
+            let integral = simpson_integrate(&integrand, &self.rab);
             4.0 * std::f64::consts::PI / omega * integral
                 - 4.0 * std::f64::consts::PI * self.z_valence * E2
                     / (omega * g_norm * g_norm)
@@ -153,8 +159,7 @@ mod tests {
         assert!(pp.l_max >= 1, "Si should have l_max >= 1");
         assert!(pp.r_grid.len() > 100, "Radial grid too small");
         assert_eq!(pp.v_local.len(), pp.r_grid.len());
-        assert!(pp.n_projectors > 0, "Should have projectors");
-        assert_eq!(pp.beta_projectors.len(), pp.n_projectors);
+        assert!(pp.n_projectors() > 0, "Should have projectors");
     }
 
     #[test]
@@ -171,8 +176,7 @@ mod tests {
         let pp = load(&path).unwrap();
         assert_eq!(pp.element, "Fe");
         assert!(pp.z_valence >= 8.0, "Fe should have >= 8 valence electrons");
-        assert!(pp.n_projectors > 0, "Fe should have projectors");
-        assert_eq!(pp.beta_projectors.len(), pp.n_projectors);
+        assert!(pp.n_projectors() > 0, "Fe should have projectors");
         // D_ij should be non-trivial (nonzero diagonal)
         let dij_max: f64 = pp.dij.iter().map(|d| d.abs()).fold(0.0, f64::max);
         assert!(dij_max > 0.01, "D_ij should have nonzero entries, max={dij_max}");
@@ -184,7 +188,7 @@ mod tests {
         let pp = load(&path).unwrap();
         assert_eq!(pp.element, "C");
         assert!((pp.z_valence - 4.0).abs() < 1e-10);
-        assert!(pp.n_projectors > 0);
+        assert!(pp.n_projectors() > 0);
     }
 
     #[test]
