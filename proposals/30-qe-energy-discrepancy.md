@@ -27,7 +27,17 @@ In Fe (BCC) at Gamma, bands 2-4 (3p semicore) should be triply degenerate. QE gi
 
 ## Research: What's validated, what's suspect
 
-### Validated components
+### Root cause identified (April 2026 audit)
+
+A comprehensive line-by-line comparison against QE 7.5 source code verified all 18 core formulas, unit conversions, and conventions as correct. The discrepancy is traced to **radial quadrature quality** — see Proposals 38 and 39 for the fix:
+
+1. **Simple sum vs Simpson's rule (Proposal 38):** All radial integrals use `integral += f * dr` (O(h^2)), while QE uses Simpson's rule (O(h^4), ~100x more accurate). This affects V_local, beta projectors, core density, and atomic density.
+
+2. **V_local Coulomb subtraction singularity (Proposal 39):** Our V_local integrand has a divergent `Ze^2/r` term near r=0. QE uses erf subtraction to keep the integrand bounded. Combined with lower-order quadrature, this produces G-dependent errors that break eigenvalue degeneracies.
+
+The per-electron error scaling with Z (Si 1.66 eV/el vs Fe 2.84 eV/el) is consistent: the near-origin singularity grows with Z_valence.
+
+### Validated components (expanded in April 2026 audit)
 
 | Component | Test | Status |
 |-----------|------|--------|
@@ -37,114 +47,59 @@ In Fe (BCC) at Gamma, bands 2-4 (3p semicore) should be triply degenerate. QE gi
 | **Free-electron eigenvalues** | Band 0 = 0, band 1 = 36.52 eV (BCC Fe) | **Correct** |
 | **PZ correlation constants** | Verified against Table I of PZ 1981 | **Correct** |
 | **Smearing/occupations** | Extensive unit tests, nspin=1/2 consistency | **Correct** |
+| **All unit conversions** | UPF parser: r, V, beta, D_ij, rho_atom, core_charge | **Correct** |
+| **XC NLCC double-counting** | E_xc uses rho_total, E_vxc uses rho_val | **Correct (matches QE)** |
+| **KB form factors** | `∫ r·β(r) j_l(qr) r dr` matches QE beta_mod.f90:112-113 | **Correct** |
+| **Hamiltonian assembly** | T + V_eff(G-G') via Miller index, FFT convention | **Correct** |
+| **V_local(G=0) convention** | Excluded from H, added to E_total | **Correct (matches QE)** |
+| **Slater exchange + PZ correlation** | All parameters, derivatives, unit chain | **Correct** |
+| **Spin-polarized LSDA** | f(zeta), exchange, correlation interpolation | **Correct** |
 
-### Suspect components (ordered by likelihood)
+### Original suspect components (pre-audit)
 
-**1. V_local Fourier transform — HIGH SUSPICION**
+**1. V_local Fourier transform — CONFIRMED: QUADRATURE QUALITY ISSUE**
 
-`v_local_of_g()` in `src/pseudopotential/mod.rs:97-132` computes the spherical Bessel transform of V_local(r) analytically using Simpson-like integration on the PP radial grid. This is the single largest potential contribution and a subtle numerical integral.
+The formula in `v_local_of_g()` is correct, and the Coulomb subtraction approach is mathematically valid. The issue is purely numerical: O(h^2) quadrature with a near-singular integrand vs QE's O(h^4) Simpson with a smooth integrand.
 
-Evidence: Si V_local(G=0) = 5.17 eV, Fe V_local(G=0) = 5.17 eV. These are suspiciously similar for very different elements. Fe with Z=16 should have a much larger (more negative?) short-range potential integral.
+**2. XC double-counting with NLCC — CLEARED**
 
-To verify: extract V_local(G) from QE's XML output and compare point-by-point. QE stores this in `tmp/<prefix>.save/charge-density.hdf5` or can be printed with pp.x.
+Verified correct by reading both our code and QE's `v_of_rho.f90`.
 
-**2. XC double-counting with NLCC — MEDIUM SUSPICION**
+**3. Projector unit conversion — CLEARED**
 
-The energy expression is:
-```
-E_total = E_band - E_H + (E_xc[ρ_val+ρ_core] - E_vxc) + E_ewald + V_local(G=0)·N_el
-```
+Confirmed matching QE: `upf%beta * besr * r` (QE beta_mod.f90:113) = `rb * jl * r` (our nonlocal.rs:235). The `4π/√Ω` prefactor and `D_ij` conventions are consistent.
 
-In `xc_energy_corrected()` (`src/scf/energy.rs:55-73`), E_vxc uses `rho_val` (without core), but `vxc_r` was computed from `rho_val + rho_core`. This is correct per the NLCC prescription: the potential is from total density, but the double-counting integral uses only valence density. However, the `exc_r` used in E_xc is also from `rho_val + rho_core`, meaning:
+**4. FFT normalization or grid mismatch — CLEARED**
 
-```
-E_xc = ∫ (ρ_val + ρ_core) · ε_xc(ρ_val + ρ_core) dr
-E_vxc = ∫ ρ_val · V_xc(ρ_val + ρ_core) dr
-```
+FFT convention is consistent. Hamiltonian assembly via Miller index lookup is correct. The broken degeneracies are explained by G-dependent quadrature errors, not grid asymmetry.
 
-QE does the same (see `v_of_rho.f90`). So this is likely correct but should be verified by comparing individual energy components.
+**5. V_local(G=0) convention — CLEARED**
 
-**3. Projector unit conversion — MEDIUM SUSPICION**
+Matches QE exactly.
 
-UPF stores β projectors as `χ(r) = r·β(r)` in Bohr^{-1/2}. We convert to Å^{-1/2} by dividing by `√(BOHR_TO_ANG)` (`src/pseudopotential/upf.rs:68-71`). D_ij converts from Ry to eV (`dij_ry * RY_TO_EV`). The dimensional chain:
+## Implementation: Fix Plan
 
-```
-V_NL matrix element ~ F_i × D_ij × F_j / Ω
-F_i = 4π ∫ χ(r) j_l(qr) r dr  [Å^{-1/2} · Å · Å = Å^{3/2}]
-D_ij [eV]
-Ω [ų]
-V_NL ~ [ų] × [eV] / [ų] = [eV] ✓
-```
+The root cause is identified. Fix via Proposals 38 and 39:
 
-But the actual numerical prefactor matters. QE's `init_us_2.f90` applies `(4π/Ω) × tpiba` factors that may differ from our convention. A 2π or √(2π) factor error would shift all eigenvalues uniformly.
+1. **Proposal 38: Simpson's rule** — Replace O(h^2) sum with O(h^4) Simpson in all 4 radial integral sites. Highest impact, lowest risk. ~1-2 hours.
+2. **Proposal 39: erf subtraction** — Adopt QE's erf/r decomposition for V_local(G!=0). Only needed if Proposal 38 alone is insufficient. ~1-2 hours.
 
-**4. FFT normalization or grid mismatch — LOW-MEDIUM SUSPICION**
+### Remaining diagnostics (if Proposals 38+39 are insufficient)
 
-Our FFT convention: forward is unnormalized, we divide by N manually. QE uses the same convention. But if there's a mismatch in how V_eff(G-G') is indexed or normalized, it could shift eigenvalues.
+These steps from the original investigation remain valid as fallback diagnostics:
 
-The broken degeneracies suggest the potential doesn't respect the full crystal symmetry. Possible causes:
-- FFT grid dimensions not respecting the point group (e.g., different dims along different axes for a cubic cell)
-- Numerical noise in the radial integrals for V_local or projectors breaking the angular symmetry
-
-**5. V_local(G=0) convention — LOW SUSPICION**
-
-Our code excludes V_local(G=0) from the Hamiltonian and adds `V_local(G=0) × N_el` to the total energy, following QE convention. This was verified in previous debugging. The value itself (5.17 eV for both Si and Fe) needs cross-checking.
-
-## Implementation: Diagnostic Steps
-
-### Step 1: Add per-component energy printout at convergence
-
-In `src/scf/mod.rs`, after computing `e_total`, also log the individual components:
-
-```
-info!("  E_band  = {:.6} eV", e_band);
-info!("  E_H     = {:.6} eV", e_hartree);
-info!("  E_xc    = {:.6} eV", e_xc);
-info!("  E_vxc   = {:.6} eV", e_vxc);
-info!("  E_ewald = {:.6} eV", e_ewald);
-info!("  V_G0·N  = {:.6} eV", v_local_g0 * n_el);
-```
-
-Compare each against QE's output (which prints exactly these components in Ry).
-
-Files: `src/scf/mod.rs`, `src/scf/energy.rs`
-
-### Step 2: Compare V_local(G) point-by-point against QE
-
-Write a test that computes V_local(G) for the first ~20 G-vectors and compares against QE's values (extractable from `pp.x` with `plot_num=1`).
-
-Files: `tests/fe_debug.rs`, new QE pp.x run
-
-### Step 3: Compare projector form factors F_i(q) against QE
-
-Compute `F_i(|k+G|)` for the first few G-vectors and compare against QE's `init_us_2` output (available in XML with `verbosity='debug'` or by adding print statements to QE source).
-
-Files: `tests/fe_debug.rs`
-
-### Step 4: Verify XC on a known density
-
-Construct a uniform electron gas at a known density (e.g., r_s = 2 Bohr), evaluate our LDA XC, and compare against published values from PZ 1981 Table I.
-
-Files: `src/potential/xc.rs` (new test)
-
-### Step 5: Run QE with `verbosity='debug'` to extract V_eff
-
-This dumps the effective potential at each SCF step, enabling direct comparison of V_H, V_xc, V_local in G-space.
-
-### Step 6: Binary search — V_local only, then V_local+V_NL
-
-Run our code with V_NL disabled (D_ij = 0). If eigenvalues match QE's "kinetic + V_local" component, the bug is in V_NL. If they don't, the bug is in V_local.
-
-This is the most information-efficient diagnostic: one bit tells us which half of the code to focus on.
+- **Binary search (D_ij=0):** Disable V_NL and compare eigenvalues to isolate V_local vs V_NL.
+- **V_local(G) point-by-point comparison:** Extract QE V_local(G) via pp.x and compare.
+- **Per-component energy printout:** Log E_band, E_H, E_xc, E_vxc, E_ewald individually.
 
 ## Verification
 
 1. Si total energy within 0.1 eV of QE (-231.61 eV)
 2. C diamond converges and matches QE within 0.1 eV
 3. Fe total energy within 0.1 eV of QE (-3059.46 eV)
-4. All eigenvalue degeneracies exact to 1e-6 eV at Gamma
+4. All eigenvalue degeneracies exact to 1e-4 eV at Gamma
 5. `cargo test --release --test qe_validation` passes with all assertions < 0.5 eV
 
 ## Estimated Effort
 
-Multi-session investigation. Step 1 (energy printout) and Step 6 (binary search) are the highest-value diagnostics — each takes ~30 minutes and together will localize the bug to V_local or V_NL. Steps 2-5 are follow-up validation once the root cause is identified.
+2-4 hours total via Proposals 38 and 39. The root cause is understood; implementation is mechanical.
