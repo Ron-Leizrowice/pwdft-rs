@@ -31,8 +31,8 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
 | SOPT | Drop `Option<&SymmetryInfo>` from `ScfContext` | small | low | — | — |
-| QLN2 | Quality Lints — GPU + Benches Follow-up (QLNT spillover) | small | low | — | — |
 | DBGC | `ScfResult` Debug derive + GPU-test reference-value const (TAUD nits) | small | low | — | — |
+| CIGP | Document `--features gpu` in clippy CI gate (QLN2 follow-up) | small | low | — | — |
 
 ### Low / Deferred
 
@@ -99,6 +99,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | FMAD | Fused Multiply-Add via `suboptimal_flops` (-3 to -4% on `lda_xc_grid_*`) |
 | QLNT | Tier-1 Quality Lints (11 new lints, 15 fixes; GPU spillover → QLN2) |
 | TAUD | Test Suite Quality Audit (5 PRs landed; PR D uncovered VLQR follow-up) |
+| QLN2 | GPU + benches lint follow-up (closes the CLIP `--features gpu` gap) |
 
 ## Notes
 
