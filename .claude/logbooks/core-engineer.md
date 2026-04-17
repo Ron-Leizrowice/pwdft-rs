@@ -96,3 +96,24 @@ Three agents were launched in parallel for VERF, SPXC, QEVL with `isolation: "wo
 - **QEVL**: QE reference data for 8 Tier 1+2 systems generated (archived `/tmp/pwdft-rescue/qe_validation_data/`). Needs validation re-run before trusting. Test-harness refactor still pending.
 
 All rescue artifacts at `/tmp/pwdft-rescue/`. When relaunching agents, enforce isolation: require `pwd` check at start of session and reject if not inside own worktree.
+
+## 2026-04-17 — VERF finalized + VGCMP opened
+
+Branch `VERF/vloc-erf-finalize`. Decision: **LAND** the erf-subtraction change even though it's numerically a no-op on Si/Fe today.
+
+- `src/pseudopotential/mod.rs` — replaced bare-Coulomb `G≠0` branch with QE's erf decomposition `[r·V(r) + Z·e²·erf(r)]·sin(Gr)/G` and analytic correction `−4π·Z·e²·exp(−G²/4)/(Ω·G²)`. G=0 unchanged.
+- New `tests/vloc_erf_consistency.rs` — 2 tests. First 20 Si |G| shells: `max |Δ| = 5.91e-9 eV`, `max relative = 6.4e-6` — confirms erf ≡ bare-Coulomb on our log mesh post-SIMP. Clean regression guard.
+- `proposals/VERF-vloc-erf-subtraction.md` → `proposals/completed/` with `outcome: landed-as-cosmetic`.
+- New `proposals/VGCMP-vloc-g-cross-check.md` — Researcher-owned follow-up. Plan: Python reference for `V_local(G)` (Phase 1, 1 day), β_l(q) (Phase 2), D_ij (Phase 3), single Hamiltonian element (Phase 4). Phase 1 almost certainly isolates the 13.4 eV Si gap.
+- `proposals/INDEX.md` — VERF moved to Completed, VGCMP added as critical (dependency of QEDX, QEVL).
+
+**Rationale for landing VERF:** matches QE convention exactly (simplifies VGCMP Phase 1 by removing one axis of variation), bounded integrand at r=0 is an insurance policy for future high-Z PPs where bare-Coulomb hits billions of eV near the origin, and the regression test pins the mathematical equivalence so any future drift fires loudly.
+
+**Numbers:**
+- Si QE validation: still −218.18 eV (13.43 eV above QE) — unchanged. C diamond still doesn't converge. Both pre-existing; VERF was never expected to fix them.
+- Fe BCC QE validation: still passes (−3059.44 eV).
+- 10/11 kb_projector tests pass, 1 ignored (VGCMP territory).
+- `vloc_erf_consistency`: 2/2 pass.
+- Clippy clean.
+
+**Isolation footgun:** this session initially wrote 4 files to the main checkout via the Write/Edit tool with `/Users/ronleizrowice/Documents/github/pwdft-rs/...` paths — both paths pointed at the main checkout, not the worktree. Caught it after `cargo test` reported "no test target" because the worktree didn't have the file. Cleaned up main checkout and re-applied to the worktree correctly. Lesson: **always verify Write/Edit paths resolve inside `.claude/worktrees/agent-*` before using them.**

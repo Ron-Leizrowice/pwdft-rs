@@ -1,14 +1,19 @@
 ---
 id: VERF
-status: active
+status: completed
 priority: critical
 complexity: small
 risk: medium
 depends_on: [SIMP]
-blocks: [QEVL]
+blocks: []
+completed: 2026-04-17
+completed_by: core-engineer
+outcome: landed-as-cosmetic
 ---
 
 # VERF: V_local erf Coulomb Subtraction
+
+> **Completion note (2026-04-17):** Landed the erf-subtraction convention even though it is numerically equivalent to the previous bare-Coulomb form on the current log mesh. Rationale (engineer's call): (1) matches QE's convention exactly, which simplifies the upcoming VGCMP V_local(G) cross-check; (2) produces a bounded integrand near r=0, which will matter for future high-Z pseudopotentials where the bare-Coulomb integrand can reach very large values at the first radial grid points. A regression test at `tests/vloc_erf_consistency.rs` pins the mathematical equivalence for Si's first 20 |G| shells (< 1e-6 eV absolute) so any future deviation fires loudly. **This change does NOT close the 13.4 eV Si gap — see the new VGCMP proposal for that investigation.**
 
 > **Prerequisite:** Implement Proposal 38 (Simpson's rule) first. This proposal is only needed if Simpson alone doesn't bring Si within 0.1 eV of QE.
 
