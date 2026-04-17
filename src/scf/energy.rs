@@ -1,8 +1,11 @@
 //! Total energy computation and density utilities for SCF.
 
+use nalgebra::Vector3;
 use num_complex::Complex64;
 
 use crate::{
+    basis::BasisSet,
+    consts::HBAR2_OVER_2M,
     fft::FFT3D,
     potential::xc,
 };
@@ -180,4 +183,126 @@ pub(crate) fn hartree_on_fft_grid(rho_g: &[Complex64], g_squared: &[f64]) -> Vec
             }
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Per-component diagnostics (VGC5)
+// ---------------------------------------------------------------------------
+
+/// Kinetic expectation value: Σ_{n,k} f·w·⟨ψ_{n,k}|T|ψ_{n,k}⟩ (eV).
+///
+/// For plane-wave coefficients c_{n,k}(G) (columns of `wavefunctions[ik]`):
+/// ⟨ψ|T|ψ⟩ = Σ_G |c(G)|² · (ℏ²/2m) · |k+G|²
+///
+/// Coefficients are assumed orthonormal: Σ_G |c(G)|² = 1.
+pub(crate) fn kinetic_expectation(
+    basis: &BasisSet,
+    k_points: &[Vector3<f64>],
+    kpoint_weights: &[f64],
+    wavefunctions: &[faer::Mat<Complex64>],
+    occupations: &[Vec<f64>],
+) -> f64 {
+    use rayon::prelude::*;
+    let g_vecs = basis.g_vectors();
+    (0..k_points.len())
+        .into_par_iter()
+        .map(|ik| {
+            let k = &k_points[ik];
+            let wfn = &wavefunctions[ik];
+            let occ = &occupations[ik];
+            let w = kpoint_weights[ik];
+            let n_pw = wfn.nrows();
+            let n_bands = wfn.ncols();
+            let mut e = 0.0f64;
+            for nb in 0..n_bands {
+                let f = occ[nb];
+                if f == 0.0 {
+                    continue;
+                }
+                let mut t_band = 0.0f64;
+                for ig in 0..n_pw {
+                    let c = wfn[(ig, nb)];
+                    let ke = HBAR2_OVER_2M * (k + g_vecs[ig]).norm_squared();
+                    t_band += c.norm_sqr() * ke;
+                }
+                e += f * w * t_band;
+            }
+            e
+        })
+        .sum()
+}
+
+/// Local-PP expectation (G ≠ 0 piece): ∫ρ(r)·V_local(r)dr (eV).
+///
+/// `v_local_fft` is the FFT-grid V_local with its G=0 component already
+/// zeroed (see `ScfContext::new`). The integral is therefore
+///   ∫ρ·V_local(G≠0)dr = Σ_r ρ(r)·V_local(r)·dV.
+/// The compensating `V_local(G=0)·N_el` shift is reported separately.
+pub(crate) fn local_pp_energy_grid(
+    rho_r: &[f64],
+    v_local_fft_r: &[f64],
+    omega: f64,
+    n_grid: usize,
+) -> f64 {
+    let dvol = omega / n_grid as f64;
+    rho_r
+        .iter()
+        .zip(v_local_fft_r.iter())
+        .map(|(&r, &v)| r * v * dvol)
+        .sum()
+}
+
+/// Non-local PP expectation: Σ_{n,k} f·w·⟨ψ|V_NL|ψ⟩ (eV).
+///
+/// Uses the cached `NonlocalPotential` for each k-point to build an
+/// ephemeral H_NL matrix, then computes ⟨ψ|H_NL|ψ⟩ for each band.
+pub(crate) fn nonlocal_expectation(
+    basis: &BasisSet,
+    crystal: &crate::crystal::Crystal,
+    k_points: &[Vector3<f64>],
+    kpoint_weights: &[f64],
+    wavefunctions: &[faer::Mat<Complex64>],
+    occupations: &[Vec<f64>],
+    vnl_cache: &[crate::potential::nonlocal::NonlocalPotential],
+) -> f64 {
+    use rayon::prelude::*;
+    (0..k_points.len())
+        .into_par_iter()
+        .map(|ik| {
+            let k = &k_points[ik];
+            let wfn = &wavefunctions[ik];
+            let occ = &occupations[ik];
+            let w = kpoint_weights[ik];
+            let n_pw = wfn.nrows();
+            let n_bands = wfn.ncols();
+
+            let mut h_nl = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
+            vnl_cache[ik].add_to_hamiltonian(&mut h_nl, crystal, basis, k);
+
+            let mut e = 0.0f64;
+            for nb in 0..n_bands {
+                let f = occ[nb];
+                if f == 0.0 {
+                    continue;
+                }
+                // ⟨ψ|H_NL|ψ⟩ = Σ_{G,G'} c*(G) H_NL[G,G'] c(G')
+                let mut acc = Complex64::new(0.0, 0.0);
+                for ig in 0..n_pw {
+                    let mut row_sum = Complex64::new(0.0, 0.0);
+                    for jg in 0..n_pw {
+                        row_sum += h_nl[(ig, jg)] * wfn[(jg, nb)];
+                    }
+                    acc += wfn[(ig, nb)].conj() * row_sum;
+                }
+                e += f * w * acc.re;
+            }
+            e
+        })
+        .sum()
+}
+
+/// Bare XC energy: ∫ρ(r)·ε_xc(r)dr (eV). Same sign as QE's "xc contribution".
+/// `rho_xc` = ρ_val + ρ_core (for NLCC) or ρ_val otherwise.
+pub(crate) fn xc_energy_bare(rho_xc: &[f64], exc_r: &[f64], omega: f64) -> f64 {
+    xc::lda_xc_energy(rho_xc, exc_r, omega)
 }

@@ -8,7 +8,10 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
+| NCFX | NLCC Core-Density Unit and Radial-Weight Fix | small | low | VGC5 | — |
 | VGC5 | Per-Component Energy Accounting (Si vs QE) — VGCMP Phase 5 | medium | low | — | — |
+
+**2026-04-17 (later):** VGC5 (this PR) landed the per-component decomposition. The Si 13.4 eV gap localizes to **E_xc** (Δ = +13.74 eV); all other terms are within 2.4 eV and Ewald matches to 0.011 eV. Fe shows the same XC-dominated pattern (Δ_xc = −48.85 eV). Root cause: NLCC core-density parse + Bessel transform has wrong unit conversion (`/BOHR_TO_ANG` instead of `/BOHR_TO_ANG³`) and is missing the `r²`/`4π` radial weights — see `proposals/NCFX-nlcc-core-density-fix.md`. V_local(G=0) compensating shift is already present in the energy path (not the culprit).
 
 **2026-04-17:** VGCMP Phases 1+2+3+4 all done (PR #29). The entire pseudopotential → Hamiltonian assembly pipeline is bit-correct vs QE: V_local(G), β_l(q), D_ij, and assembled diagonal H[G,G] all clear to machine precision. **The 13.4 eV Si gap is OUTSIDE the matrix assembly.** VGC5 (Phase 5) will tabulate per-component energies side-by-side. Prime suspect: the V_local(G=0) compensating background shift in `total_energy()` (`src/scf/context.rs:93-94` zeroes `v_local_fft[0]` and stashes it separately; may not be added back). Geometry-dependent — explains why Fe (matches to 0.02 eV) and Si (off by 13.4 eV) diverge.
 
@@ -114,7 +117,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 - **XCPR** (done 2026-04-17): Steps 1+2 (XC grid) + Step 3 (spin-channel `rayon::join`) all landed. Step 3 speedup 1.12–1.24× (faer's internal gemm already saturates 8 cores during eigensolve); ceiling ~2× after ITEV drops per-k eigensolve cost.
 - **CFGN** all dependencies satisfied (DDUP + SIMP done).
 - **BROY** landed core algorithm only; adaptive-beta (MXBA) and periodic Pulay (PRPL) follow-ups are now open proposals.
-- **NLCC** audit (2026-04-17): all code paths verified correct against QE `v_of_rho.f90`. Hartree excludes core, electron count excludes core, LSDA splits core/2 per spin, XC uses val+core with val-only double-counting. No bug. Proposal is documentation + integration test against an NLCC element (Fe).
+- **NLCC** audit (2026-04-17): code-path audit against QE `v_of_rho.f90` verified Hartree/electron-count/LSDA-split/XC-double-counting invariants. Hierarchy is fine, but VGC5 (2026-04-17 later) found that the UNDERLYING `PP_NLCC` storage convention was misread in `src/pseudopotential/upf.rs:94-111` and `src/scf/potentials.rs:92-107`: PP_NLCC stores bare `ρ_core(r)` in e/Bohr³, not `4πr²·ρ` in e/Bohr. Also missing `r²·4π` in the Bessel FT. Captured as **NCFX** (critical). The NLCC audit's Part A/B/C (unit tests, Fe integration, docs) should land AFTER NCFX closes the numeric gap.
 - **HD5I** references deleted `src/input.rs` — update to YAML Settings when implementing.
 - **SOPT** (done 2026-04-17): refactored `ScfContext.symmetry: Option<&SymmetryInfo>` to always-present with identity-only fallback. Review caught a P1+TR regression in the initial `is_trivial()` short-circuit in main.rs; fixed by dropping the branch and tightening the predicate. Regression test pins the behavior.
 - **ITEV** (new 2026-04-17, Performance Engineer): Post-FFTB/FMAD profiling shows eigensolver at 85-90% of SCF user CPU (n_pw=259: 56 ms/call; n_pw=725: 836 ms/call). `faer 0.24` ships `matrix_free::eigen::partial_self_adjoint_eigen` (implicitly-restarted Arnoldi, matrix-free via `LinOp`, warm-start via `v0`). Supersedes DVSN's hand-rolled Davidson plan. Projected 2.5-4× SCF wall-time speedup at production sizes. WFRX becomes the warm-start knob.

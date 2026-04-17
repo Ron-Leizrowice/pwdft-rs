@@ -25,7 +25,8 @@ use crate::{
 use self::energy::{
     add_core_density, assemble_v_eff, band_energy, density_diff,
     density_r_to_g, harris_foulkes_energy, hartree_energy, hartree_on_fft_grid,
-    real_to_g_space, total_energy, xc_energy_corrected,
+    kinetic_expectation, local_pp_energy_grid, nonlocal_expectation,
+    real_to_g_space, total_energy, xc_energy_bare, xc_energy_corrected,
 };
 use self::grid::FftGrid;
 use self::potentials::build_hamiltonian_with_v_eff;
@@ -122,6 +123,59 @@ impl Default for ScfParams {
     }
 }
 
+/// Per-component energy decomposition of a converged SCF total energy.
+///
+/// All values in eV. Identity (at convergence):
+/// ```text
+/// E_total = e_kinetic
+///         + e_local
+///         + e_local_g0_shift   (= V_local(G=0) · N_el)
+///         + e_nonlocal
+///         + e_hartree
+///         + e_xc
+///         + e_ewald
+/// ```
+/// and by the Kohn-Sham double-counting identity:
+/// ```text
+/// e_band = e_kinetic + e_local + e_nonlocal + 2·e_hartree + e_vxc
+/// ```
+/// where `e_vxc = ∫ρ(r)·V_xc(r)dr`. The `V_local(G=0)·N_el` background shift
+/// is the compensating term for zeroing the G=0 component of the local
+/// pseudopotential in the Hamiltonian; see `scf::context::ScfContext::new`.
+///
+/// Mirrors QE's `pw.x` standard-output decomposition:
+/// ```text
+///   one-electron contribution = e_kinetic + e_local + e_nonlocal + e_local_g0_shift
+///   hartree    contribution = e_hartree
+///   xc         contribution = e_xc
+///   ewald      contribution = e_ewald
+/// ```
+/// Intended for validation (see proposal VGC5) rather than routine SCF use.
+/// Computed on the final iteration by one extra pass over wavefunctions,
+/// V_local on the FFT grid, and the V_NL operator.
+#[derive(Debug, Clone)]
+pub struct EnergyComponents {
+    /// Band energy: Σ_{n,k} f_{n,k} w_k ε_{n,k}.
+    pub e_band: f64,
+    /// Kinetic: Σ_{n,k} f·w·⟨ψ|T|ψ⟩ = Σ_{n,k} f·w·Σ_G |c_G|² · ℏ²/(2m)·|k+G|².
+    pub e_kinetic: f64,
+    /// Local PP (G ≠ 0): ∫ρ(r)·V_local(r)dr on the FFT grid (G=0 excluded).
+    pub e_local: f64,
+    /// Local PP G=0 compensating shift: V_local(G=0)·N_el.
+    /// Constant background subtracted from `v_local_fft` at setup to keep the
+    /// Hamiltonian diagonal finite.
+    pub e_local_g0_shift: f64,
+    /// Non-local (KB separable): Σ_{n,k} f·w·⟨ψ|V_NL|ψ⟩.
+    pub e_nonlocal: f64,
+    /// Hartree: (Ω/2) Σ_G |ρ(G)|² · 4πe²/|G|² (from OUTPUT density).
+    pub e_hartree: f64,
+    /// XC energy: ∫ρ(r)·ε_xc(r)dr (from OUTPUT density; same sign as QE's
+    /// "xc contribution"). NLCC: ρ here is ρ_val + ρ_core.
+    pub e_xc: f64,
+    /// Ewald ion-ion energy (spin- and density-independent).
+    pub e_ewald: f64,
+}
+
 /// Output of a converged SCF calculation.
 ///
 /// All energies are in eV. The three energy quantities are:
@@ -155,6 +209,8 @@ pub struct ScfResult {
     pub magnetization: f64,
     /// Number of spin channels (1 or 2).
     pub nspin: usize,
+    /// Per-term energy breakdown (VGC5 diagnostic).
+    pub components: EnergyComponents,
 }
 
 /// Compute occupation numbers for all k-points from eigenvalues and Fermi energy.
@@ -409,6 +465,49 @@ pub fn run_scf(
             let free_energy = e_total - ts;
             let energy_sigma0 = f64::midpoint(e_total, free_energy);
 
+            // -------------------------------------------------------------
+            // VGC5 per-component decomposition (diagnostic).
+            // Computed once at convergence; final wavefunctions are alive here.
+            // -------------------------------------------------------------
+            let k_vecs: Vec<nalgebra::Vector3<f64>> =
+                ctx.kpoints.iter().map(|kp| kp.k).collect();
+
+            let e_kinetic = kinetic_expectation(
+                ctx.basis, &k_vecs, &ctx.kpt_weights,
+                &all_kpoint_wavefns, &occupations,
+            );
+
+            // V_local in real space (G=0 already zeroed in v_local_fft).
+            let mut v_local_cplx = ctx.v_local_fft.clone();
+            ctx.grid.fft.inverse(&mut v_local_cplx);
+            let v_local_r: Vec<f64> = v_local_cplx.iter().map(|c| c.re).collect();
+            let e_local = local_pp_energy_grid(&rho_r_new, &v_local_r, ctx.omega, ctx.n_grid);
+            let e_local_g0_shift = ctx.v_local_g0 * ctx.n_electrons;
+
+            let e_nonlocal = nonlocal_expectation(
+                ctx.basis, ctx.crystal, &k_vecs, &ctx.kpt_weights,
+                &all_kpoint_wavefns, &occupations, &ctx.vnl_cache,
+            );
+
+            // NB: `rho_g` was assigned `rho_g_new` in the convergence branch
+            // above; use `rho_g` here (the final-iteration density in G-space).
+            let e_hartree_term = hartree_energy(&rho_g, &ctx.g_squared, ctx.omega);
+            let e_xc_term = xc_energy_bare(&rho_new_for_xc, &exc_r, ctx.omega);
+            let e_ewald_term = ctx.e_ewald;
+
+            let components = EnergyComponents {
+                e_band,
+                e_kinetic,
+                e_local,
+                e_local_g0_shift,
+                e_nonlocal,
+                e_hartree: e_hartree_term,
+                e_xc: e_xc_term,
+                e_ewald: e_ewald_term,
+            };
+
+            let e_sum = e_kinetic + e_local + e_local_g0_shift + e_nonlocal
+                + e_hartree_term + e_xc_term + e_ewald_term;
             info!("Energy (E_KS):   {e_total:.6} eV");
             info!("Harris-Foulkes:  {e_harris:.6} eV  (|HF-KS|={hf_diff:.2e})");
             info!("Free energy (F): {free_energy:.6} eV");
@@ -419,6 +518,17 @@ pub fn run_scf(
                     -ts, -ts * 1000.0 / ctx.crystal.atoms.len() as f64
                 );
             }
+            info!("--- Per-component energies (eV) ---");
+            info!("  E_band       = {e_band:.6}");
+            info!("  E_kinetic    = {e_kinetic:.6}");
+            info!("  E_local      = {e_local:.6}");
+            info!("  E_local(G=0) = {e_local_g0_shift:.6}  (= V_loc(G=0)·N_el, N_el={:.3})", ctx.n_electrons);
+            info!("  E_nonlocal   = {e_nonlocal:.6}");
+            info!("  E_hartree    = {e_hartree_term:.6}");
+            info!("  E_xc         = {e_xc_term:.6}");
+            info!("  E_ewald      = {e_ewald_term:.6}");
+            info!("  E_sum(comp)  = {e_sum:.6}   (vs E_KS {e_total:.6}, Δ={:.2e})",
+                  e_sum - e_total);
 
             return Ok(ScfResult {
                 total_energy: e_total,
@@ -432,6 +542,7 @@ pub fn run_scf(
                 rho_g: rho_g_basis,
                 magnetization: 0.0,
                 nspin: 1,
+                components,
             });
         }
 
@@ -757,10 +868,72 @@ fn run_scf_spin(
             let free_energy = e_total - ts;
             let energy_sigma0 = f64::midpoint(e_total, free_energy);
 
+            // -------------------------------------------------------------
+            // VGC5 per-component decomposition (diagnostic, spin-polarized).
+            // Kinetic / non-local: sum over both spin channels.
+            // Local / Hartree / Ewald: built from total density (spin-
+            //   independent operators).
+            // XC: ∫(ρ_up+ρ_down+ρ_core)·ε_xc(ρ_up,ρ_down)dr (bare, from OUTPUT).
+            // -------------------------------------------------------------
+            let k_vecs: Vec<nalgebra::Vector3<f64>> =
+                ctx.kpoints.iter().map(|kp| kp.k).collect();
+
+            let e_kin_up = kinetic_expectation(
+                ctx.basis, &k_vecs, &ctx.kpt_weights, &wfn_up, &occ_up,
+            );
+            let e_kin_down = kinetic_expectation(
+                ctx.basis, &k_vecs, &ctx.kpt_weights, &wfn_down, &occ_down,
+            );
+            let e_kinetic = e_kin_up + e_kin_down;
+
+            let mut v_local_cplx = ctx.v_local_fft.clone();
+            ctx.grid.fft.inverse(&mut v_local_cplx);
+            let v_local_r: Vec<f64> = v_local_cplx.iter().map(|c| c.re).collect();
+            let e_local = local_pp_energy_grid(&rho_total_new, &v_local_r, ctx.omega, ctx.n_grid);
+            let e_local_g0_shift = ctx.v_local_g0 * ctx.n_electrons;
+
+            let e_nl_up = nonlocal_expectation(
+                ctx.basis, ctx.crystal, &k_vecs, &ctx.kpt_weights,
+                &wfn_up, &occ_up, &ctx.vnl_cache,
+            );
+            let e_nl_down = nonlocal_expectation(
+                ctx.basis, ctx.crystal, &k_vecs, &ctx.kpt_weights,
+                &wfn_down, &occ_down, &ctx.vnl_cache,
+            );
+            let e_nonlocal = e_nl_up + e_nl_down;
+
+            let e_hartree_term = hartree_energy(&rho_total_new_g, &ctx.g_squared, ctx.omega);
+            let e_xc_term = xc_energy_bare(&rho_xc_total, &exc_r_out, ctx.omega);
+            let e_ewald_term = ctx.e_ewald;
+
+            let components = EnergyComponents {
+                e_band,
+                e_kinetic,
+                e_local,
+                e_local_g0_shift,
+                e_nonlocal,
+                e_hartree: e_hartree_term,
+                e_xc: e_xc_term,
+                e_ewald: e_ewald_term,
+            };
+
+            let e_sum = e_kinetic + e_local + e_local_g0_shift + e_nonlocal
+                + e_hartree_term + e_xc_term + e_ewald_term;
             info!("Energy (E_KS):   {e_total:.6} eV");
             info!("Harris-Foulkes:  {e_harris:.6} eV  (|HF-KS|={hf_diff:.2e})");
             info!("Free energy (F): {free_energy:.6} eV");
             info!("E sigma→0 (E₀):  {energy_sigma0:.6} eV");
+            info!("--- Per-component energies (eV) ---");
+            info!("  E_band       = {e_band:.6}");
+            info!("  E_kinetic    = {e_kinetic:.6}");
+            info!("  E_local      = {e_local:.6}");
+            info!("  E_local(G=0) = {e_local_g0_shift:.6}  (= V_loc(G=0)·N_el, N_el={:.3})", ctx.n_electrons);
+            info!("  E_nonlocal   = {e_nonlocal:.6}");
+            info!("  E_hartree    = {e_hartree_term:.6}");
+            info!("  E_xc         = {e_xc_term:.6}");
+            info!("  E_ewald      = {e_ewald_term:.6}");
+            info!("  E_sum(comp)  = {e_sum:.6}   (vs E_KS {e_total:.6}, Δ={:.2e})",
+                  e_sum - e_total);
 
             return Ok(ScfResult {
                 total_energy: e_total,
@@ -774,6 +947,7 @@ fn run_scf_spin(
                 rho_g: rho_g_basis,
                 magnetization: mag,
                 nspin: 2,
+                components,
             });
         }
 
