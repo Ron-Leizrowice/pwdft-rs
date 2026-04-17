@@ -3,15 +3,17 @@
 Reference results from Quantum ESPRESSO 7.5 used to validate pwdft-rs SCF
 results in `tests/qe_validation.rs`. All 8 systems in this directory use the
 same PseudoDojo ONCV NC/LDA pseudopotentials as pwdft-rs (`pseudopotentials/nc/lda/`),
-copied into `./pseudo/` for hermetic re-runs.
+exposed here as `./pseudo/` via symlink so QE inputs can reference
+`pseudo_dir = './pseudo'` without duplicating content.
 
 ## Provenance and trust
 
 Reference values were generated on 2026-04-17 (M3 Max, `qe-7.5/build/bin/pw.x`,
 8 MPI ranks) and spot-checked by re-running Si and Al on the same build:
 both systems reproduced the archived `total energy` bit-for-bit
-(Si: `-17.02299344 Ry`, Al: `-4.72371790 Ry`). The `pseudo/` directory
-matches `pseudopotentials/nc/lda/` byte-for-byte for every element used.
+(Si: `-17.02299344 Ry`, Al: `-4.72371790 Ry`). The `pseudo/` symlink
+points at the canonical `pseudopotentials/nc/lda/` so both pwdft-rs and
+QE read identical pseudopotential files.
 
 ## Layout
 
@@ -20,7 +22,7 @@ matches `pseudopotentials/nc/lda/` byte-for-byte for every element used.
 | `reference_data.toml` | Machine-readable reference numbers (energies, Fermi, Γ-eigenvalues). |
 | `<system>_scf.in` | QE pw.x input files. |
 | `<system>_scf.out` | Raw pw.x output (committed for auditability). |
-| `pseudo/<Elem>.upf` | Copies of NC/LDA PPs used by all runs. |
+| `pseudo/` | Symlink to `../pseudopotentials/nc/lda/` (canonical PP source). |
 
 ## Re-running a reference calculation
 
