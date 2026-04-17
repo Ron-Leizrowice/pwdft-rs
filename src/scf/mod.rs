@@ -646,16 +646,27 @@ fn run_scf_spin(
         let rho_xc_total: Vec<f64> = add_core_density(&rho_total_new, &ctx.rho_core_r);
         let occ_all: Vec<Vec<f64>> = occ_up.iter().chain(occ_down.iter()).cloned().collect();
 
+        // SPXC fix: recompute spin-polarized XC from OUTPUT spin densities for E_KS.
+        // Previously `exc_r` (INPUT density, depends on zeta_in) was integrated against
+        // `rho_xc_total` (OUTPUT total density), which is not physically meaningful and
+        // introduced an O(delta_rho) error that spoiled the quadratic convergence of
+        // |E_HF - E_KS|. The non-spin run_scf already recomputes XC from the output
+        // density (see `let (exc_r, vxc_r_energy) = xc::lda_xc_grid(&rho_new_for_xc)`).
+        // INPUT-based quantities (exc_r, vxc_up_r, vxc_down_r) remain for E_HF below.
+        let rho_up_xc_out = add_core_density(&rho_up_sym, &rho_core_half);
+        let rho_down_xc_out = add_core_density(&rho_down_sym, &rho_core_half);
+        let (exc_r_out, vxc_up_r_out, vxc_down_r_out) =
+            xc::lda_xc_spin_grid(&rho_up_xc_out, &rho_down_xc_out);
+
         // Spin XC double-counting (OUTPUT density): E_vxc = integral(V_xc_up rho_up_out + V_xc_down rho_down_out) dr
-        // Note: vxc_up_r and vxc_down_r are from the INPUT density (step 2),
-        //       rho_up_sym/rho_down_sym are the OUTPUT density.
-        //       This matches QE's convention for E_KS.
+        // Both V_xc and rho_sigma here come from the OUTPUT (symmetrized) density,
+        // matching the non-spin run_scf convention.
         let dvol = ctx.omega / ctx.n_grid as f64;
-        let e_vxc_spin_out: f64 = rho_up_sym.iter().zip(vxc_up_r.iter())
-            .zip(rho_down_sym.iter().zip(vxc_down_r.iter()))
+        let e_vxc_spin_out: f64 = rho_up_sym.iter().zip(vxc_up_r_out.iter())
+            .zip(rho_down_sym.iter().zip(vxc_down_r_out.iter()))
             .map(|((&ru, &vu), (&rd, &vd))| (ru * vu + rd * vd) * dvol)
             .sum();
-        let e_xc_out = xc::lda_xc_energy(&rho_xc_total, &exc_r, ctx.omega);
+        let e_xc_out = xc::lda_xc_energy(&rho_xc_total, &exc_r_out, ctx.omega);
         let e_xc_corrected_out = e_xc_out - e_vxc_spin_out;
 
         let e_band = band_energy(&eigenvalues_all, &occ_all, &weights_all);
