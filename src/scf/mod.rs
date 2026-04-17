@@ -533,19 +533,29 @@ fn run_scf_spin(
         let v_eff_up = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_up_g);
         let v_eff_down = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_down_g);
 
-        // 4. Diagonalize both spins at each k-point
-        let kpoint_results_up: Result<Vec<_>> = ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
-            let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_up, ctx.grid.dims);
-            ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
-            dense::diagonalize_lowest(&h, ctx.params.n_bands)
-        }).collect();
+        // 4. Diagonalize both spins at each k-point. Run the two spin channels
+        //    concurrently via `rayon::join`: each closure returns a `Result<Vec<_>>`
+        //    from an inner `par_iter` over k-points. `ctx` is borrowed by shared
+        //    reference, and every captured field is `Sync` (plain data, `Arc`, or
+        //    slice references), so both closures can execute in parallel without
+        //    cloning. Errors propagate after the join.
+        let (kpoint_results_up, kpoint_results_down): (Result<Vec<_>>, Result<Vec<_>>) = rayon::join(
+            || {
+                ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
+                    let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_up, ctx.grid.dims);
+                    ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
+                    dense::diagonalize_lowest(&h, ctx.params.n_bands)
+                }).collect()
+            },
+            || {
+                ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
+                    let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_down, ctx.grid.dims);
+                    ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
+                    dense::diagonalize_lowest(&h, ctx.params.n_bands)
+                }).collect()
+            },
+        );
         let kpoint_results_up = kpoint_results_up?;
-
-        let kpoint_results_down: Result<Vec<_>> = ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
-            let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_down, ctx.grid.dims);
-            ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
-            dense::diagonalize_lowest(&h, ctx.params.n_bands)
-        }).collect();
         let kpoint_results_down = kpoint_results_down?;
 
         // Flatten eigenvalues: [up_k0, up_k1, ..., down_k0, down_k1, ...]
