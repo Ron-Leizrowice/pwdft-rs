@@ -8,10 +8,10 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| VGCMP | V_local(G) & KB projector cross-check vs QE | medium | low | VERF | QEDX, QEVL |
+| VGCMP | V_local(G) & KB projector cross-check vs QE (Phase 1 done; Phase 2-4 pending) | medium | low | VERF | QEDX, QEVL |
 | QEDX | Systematic Energy Discrepancy vs QE | large | high | VGCMP | QEVL |
 
-**2026-04-17:** VERF landed (cosmetic but adopted) — now on the QE erf-subtraction convention, with a regression test pinning bare-Coulomb↔erf equivalence. Still does NOT close the Si 13.4 eV gap. VGCMP opened to isolate the residual discrepancy at the form-factor level (V_local(G), β_l(q), D_ij) before touching the assembled Hamiltonian.
+**2026-04-17:** VERF landed (cosmetic but adopted). **VGCMP Phase 1 result: V_local(G) is CORRECT** (max |Δ| = 2.78e-9 Ry vs independent Python Simpson ref, across Si's first 20 G-shells). **The 13.4 eV Si gap is NOT in V_local(G).** Investigation now focuses on KB non-local: Phase 2 will cross-check β_l(q) form factors. Primary suspects: `NonlocalPotential::F_l(q)`, UPF projector √(BOHR_TO_ANG) unit conversion, D_ij diagonalization.
 
 ### High — Foundation & Code Quality
 
@@ -25,7 +25,6 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | FFTB | FFT Buffer Reuse | small | low | — | — |
 | XCPR | XC and Spin Diagonalization Parallelization | small | low | — | — |
-| SPXC | Fix Spin-Polarized E_xc Density Consistency | small | medium | — | — |
 | CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
 
 ### Medium — Code Quality Lints (follow-up to CLIP)
@@ -91,6 +90,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | BROY | Broyden Mixing (core algorithm; adaptive beta deferred) |
 | ERRH | Error Handling Cleanup |
 | VERF | V_local erf Coulomb Subtraction (landed as QE convention; regression test only) |
+| SPXC | Fix Spin-Polarized E_xc Density Consistency (|HF-KS| 22→13 eV on Fe; residual from nspin=2 convergence — see follow-up) |
 
 ## Notes
 
