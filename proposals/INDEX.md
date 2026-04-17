@@ -19,6 +19,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | SPNC | Per-Spin Density Diff for nspin=2 Convergence | small | low | SPXC | — |
 | QEVL | QE Validation Test Suite | medium | medium | — | — |
+| TAUD | Test Suite Quality Audit (silent-pass, tolerance gaps) | medium | low | — | — |
 
 ### Medium — Enhancements & Performance
 
