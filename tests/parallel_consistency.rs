@@ -52,7 +52,7 @@ fn test_fft_serial_vs_parallel() {
         });
 
     let mut fft = FFT3D::new(20, 20, 20);
-    let mut data_parallel = original.clone();
+    let mut data_parallel = original;
     fft.forward(&mut data_parallel);
 
     for (i, (s, p)) in result_serial.iter().zip(data_parallel.iter()).enumerate() {
@@ -79,7 +79,7 @@ fn test_fft_inverse_serial_vs_parallel() {
         });
 
     let mut fft = FFT3D::new(20, 20, 20);
-    let mut data_parallel = original.clone();
+    let mut data_parallel = original;
     fft.inverse_normalized(&mut data_parallel);
 
     for (i, (s, p)) in result_serial.iter().zip(data_parallel.iter()).enumerate() {

@@ -80,6 +80,15 @@ fn si_cell_volume_ang3() -> f64 {
 
 #[test]
 fn vgcmp_phase1_v_local_g_matches_python_reference() {
+    struct RowOut {
+        shell: usize,
+        g2_int: i32,
+        g_bohr_inv: f64,
+        py_ry: f64,
+        rust_ry: f64,
+        diff_ry: f64,
+    }
+
     let csv_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(CSV_REL_PATH);
     let Some(rows) = load_reference_csv(&csv_path) else {
         eprintln!(
@@ -101,14 +110,6 @@ fn vgcmp_phase1_v_local_g_matches_python_reference() {
     let mut max_abs_diff_ry: f64 = 0.0;
     let mut worst: Option<(usize, i32, f64, f64, f64, f64)> = None;
 
-    struct RowOut {
-        shell: usize,
-        g2_int: i32,
-        g_bohr_inv: f64,
-        py_ry: f64,
-        rust_ry: f64,
-        diff_ry: f64,
-    }
     let mut table: Vec<RowOut> = Vec::with_capacity(rows.len());
 
     for row in &rows {

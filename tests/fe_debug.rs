@@ -183,7 +183,7 @@ fn test_fe_full_hamiltonian_eigenvalues() {
 
     // Build H = T + V_local
     let miller = basis.miller_indices();
-    let mut h_loc = h_kin.clone();
+    let mut h_loc = h_kin;
     for i in 0..n {
         for j in 0..n {
             let dn = [

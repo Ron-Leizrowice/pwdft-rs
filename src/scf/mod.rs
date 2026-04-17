@@ -407,7 +407,7 @@ pub fn run_scf(
                 ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
             );
             let free_energy = e_total - ts;
-            let energy_sigma0 = (e_total + free_energy) / 2.0;
+            let energy_sigma0 = f64::midpoint(e_total, free_energy);
 
             info!("Energy (E_KS):   {e_total:.6} eV");
             info!("Harris-Foulkes:  {e_harris:.6} eV  (|HF-KS|={hf_diff:.2e})");
@@ -471,7 +471,7 @@ fn run_scf_spin(
 
     // Determine n_up, n_down
     let (n_up, n_down) = if let Some(tot_mag) = ctx.params.tot_magnetization {
-        let n_up = (ctx.n_electrons + tot_mag) / 2.0;
+        let n_up = f64::midpoint(ctx.n_electrons, tot_mag);
         let n_down = (ctx.n_electrons - tot_mag) / 2.0;
         info!("Fixed magnetization: n_up={n_up:.2}, n_down={n_down:.2}");
         (n_up, n_down)
@@ -560,7 +560,7 @@ fn run_scf_spin(
         // 5. Fermi energy and occupations
         let (fermi_energy, occ_up, occ_down) = if let Some(tot_mag) = ctx.params.tot_magnetization {
             // Fixed magnetization: separate Fermi energies per spin
-            let n_up_target = (ctx.n_electrons + tot_mag) / 2.0;
+            let n_up_target = f64::midpoint(ctx.n_electrons, tot_mag);
             let n_down_target = (ctx.n_electrons - tot_mag) / 2.0;
 
             let ef_up = smearing::find_fermi_energy(
@@ -582,7 +582,7 @@ fn run_scf_spin(
             );
 
             // Report average Fermi energy
-            ((ef_up + ef_down) / 2.0, occ_up, occ_down)
+            (f64::midpoint(ef_up, ef_down), occ_up, occ_down)
         } else {
             // Free magnetization: single Fermi energy for both spins
             let fermi_energy = smearing::find_fermi_energy(
@@ -745,7 +745,7 @@ fn run_scf_spin(
                 ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
             );
             let free_energy = e_total - ts;
-            let energy_sigma0 = (e_total + free_energy) / 2.0;
+            let energy_sigma0 = f64::midpoint(e_total, free_energy);
 
             info!("Energy (E_KS):   {e_total:.6} eV");
             info!("Harris-Foulkes:  {e_harris:.6} eV  (|HF-KS|={hf_diff:.2e})");

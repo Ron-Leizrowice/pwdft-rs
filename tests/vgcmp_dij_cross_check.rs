@@ -141,7 +141,7 @@ fn vgcmp_phase3_dij_matches_python_reference() {
     eprintln!("{hdr}");
     for (i, row_vals) in rust_ry.iter().enumerate() {
         let mut line = format!("i={i} (l={}) ", l_per_proj[i]);
-        for &val in row_vals.iter() {
+        for &val in row_vals {
             line.push_str(&format!("{val:+14.6e} "));
         }
         eprintln!("{line}");
@@ -151,7 +151,7 @@ fn vgcmp_phase3_dij_matches_python_reference() {
     eprintln!("{hdr}");
     for (i, row_vals) in ref_ry.iter().enumerate() {
         let mut line = format!("i={i} (l={}) ", l_per_proj[i]);
-        for &val in row_vals.iter() {
+        for &val in row_vals {
             line.push_str(&format!("{val:+14.6e} "));
         }
         eprintln!("{line}");

@@ -946,7 +946,7 @@ mod tests {
 
         let broyden_params = ScfParams {
             mixing_mode: MixingMode::Broyden { kerker: false },
-            ..plain_params.clone()
+            ..plain_params
         };
         let result_broyden = run_scf(&crystal, &basis, &kpoints, &[&pp], &broyden_params, None);
 

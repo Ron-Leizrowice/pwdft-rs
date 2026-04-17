@@ -152,6 +152,15 @@ fn ang_3halves_to_bohr_3halves(x: f64) -> f64 {
 
 #[test]
 fn vgcmp_phase2_beta_q_matches_python_reference() {
+    struct RowOut {
+        projector_index: usize,
+        l: i32,
+        q_bohr_inv: f64,
+        py_bohr_3halves: f64,
+        rust_bohr_3halves: f64,
+        diff_bohr_3halves: f64,
+    }
+
     let csv_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(CSV_REL_PATH);
     let Some(rows) = load_reference_csv(&csv_path) else {
         eprintln!(
@@ -166,14 +175,6 @@ fn vgcmp_phase2_beta_q_matches_python_reference() {
     let pp = load_si_pp();
     let n_proj = pp.n_projectors();
 
-    struct RowOut {
-        projector_index: usize,
-        l: i32,
-        q_bohr_inv: f64,
-        py_bohr_3halves: f64,
-        rust_bohr_3halves: f64,
-        diff_bohr_3halves: f64,
-    }
     let mut table: Vec<RowOut> = Vec::with_capacity(rows.len());
 
     let mut max_abs_diff: f64 = 0.0;
