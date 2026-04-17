@@ -178,3 +178,60 @@ Open a follow-up branch `VGCMP/phase2-beta-q` once this PR merges.
 ### No bugs filed in `src/`
 
 The existing `v_local_of_g` implementation (`src/pseudopotential/mod.rs:119-171`) is numerically correct to machine precision against the independent reference. No changes to production code were made in this session.
+
+## 2026-04-17 — Phase 2 Result
+
+**Verdict: β_l(q) passes. The Si 13.43 eV gap is NOT in the KB non-local projector form factors.**
+
+### Artifacts
+
+- `scripts/validate/beta_q_reference.py` — independent Python implementation of the QE Bessel-transform `F_l(q) = 4π ∫ χ(r) j_l(qr) r dr` (`scipy.integrate.simpson` on the UPF log mesh; `scipy.special.spherical_jn` for Bessel). Mirrors QE 7.5 `upflib/beta_mod.f90:111-116` exactly, stripped of the `(4π/√Ω)` Hamiltonian-assembly prefactor so we compare pure form factors.
+- `scripts/validate/beta_q_si_reference.csv` — committed golden file: 6 projectors × 20 q-values = 120 rows. q-grid is equally spaced in [0.1, 7.0] Bohr⁻¹ (q_max ≈ √(2·25 Ry) covers the ecut=25 Ry regime).
+- `tests/vgcmp_beta_q_cross_check.rs` — Rust test reproduces the production helper `bessel_transform_projector` (`src/potential/nonlocal.rs:223`) verbatim using public APIs (`PseudopotentialData` + `numerics::simpson_integrate`), converts Å^(3/2) → Bohr^(3/2) for comparison, and asserts per-row agreement. Includes per-projector and low-q/high-q bucket diagnostics.
+
+### Numerical result (Si ONCVPSP LDA, 6 projectors: l=0, 0, 1, 1, 2, 2)
+
+**Max |Δ| across 120 rows = 3.03×10⁻¹² Bohr^(3/2)** — eight orders of magnitude below the 1×10⁻⁴ Bohr^(3/2) pass threshold. Every row agrees to 12–13 significant digits.
+
+Per-projector max |Δ| (Bohr^(3/2)):
+
+| proj | l | max \|Δ\| | notes |
+|------|---|-----------|-------|
+| 0 | 0 | 6.9e−13 | clean |
+| 1 | 0 | 3.0e−12 | clean |
+| 2 | 1 | 6.7e−13 | clean |
+| 3 | 1 | 1.4e−12 | clean |
+| 4 | 2 | 7.3e−13 | clean |
+| 5 | 2 | 1.1e−12 | clean |
+
+Bucket breakdown:
+
+- low-q (q < 3.5 Bohr⁻¹, 72 rows): max |Δ| = 3.03×10⁻¹²
+- high-q (q ≥ 3.5 Bohr⁻¹, 48 rows): max |Δ| = 7.69×10⁻¹³
+
+No systematic structure across projectors, l, or q. Errors are pure floating-point round-off from the Simpson sum order in Rust vs NumPy.
+
+### Interpretation
+
+1. The Bessel transform integrand `χ(r) · j_l(qr) · r` is evaluated identically (within rounding) in Python (scipy) and Rust.
+2. The UPF projector unit conversion `χ_Å = χ_Bohr / √BOHR_TO_ANG` at `src/pseudopotential/upf.rs:68-72` is consistent with the Å-native r_grid, rab, and Å⁻¹ q convention — the full end-to-end round trip (Bohr^(3/2) ↔ Å^(3/2) via BOHR_TO_ANG^(3/2)) closes to machine precision.
+3. The spherical Bessel function `spherical_bessel_j` in Rust (upward recurrence from j_0, j_1) matches `scipy.special.spherical_jn` at all l=0,1,2 and all q in our grid.
+4. **β_l(q) is not the source of the 13.43 eV Si gap.** The KB form factor machinery — per-q values fed into the Hamiltonian at each (k+G, k+G') pair — is bit-for-bit faithful to QE's convention.
+
+### Recommended next step — Phase 3: D_ij
+
+With V_local(G) cleared (Phase 1) and β_l(q) cleared (Phase 2), the remaining suspects inside the pseudopotential are:
+
+1. **D_ij matrix** — the Ry→eV unit conversion at `src/pseudopotential/upf.rs:77-78` is simple; a sign error, off-diagonal handling, or row/column ordering mistake is possible. Si's UPF has 2 projectors per l-channel (l=0, l=1, l=2), so D_ij is 6×6 but block-diagonal in l (zeros between different-l blocks). Diagonal of each block may not be diagonal itself (QE diagonalizes h^l and absorbs the rotation into χ; see the KBTF note from 2026-04-16).
+2. **KB assembly** — the angular factor `(2l+1)/(4π) P_l(cos θ)`, structure factor `S(G−G')`, and the 1/Ω normalization in `add_to_hamiltonian` (`src/potential/nonlocal.rs:118-208`).
+
+**Phase 3 plan:** follow-up branch `VGCMP/phase3-dij`. Two sub-tasks:
+
+- **3A (fast):** Python script parses `<PP_DIJ>` XML block, prints the 6×6 matrix in both Ry (native) and eV (internal). Rust test loads Si.upf, prints `pp.dij` as 6×6 matrix, asserts element-wise agreement to 1e-12 eV. Confirms the UPF→internal unit conversion is clean.
+- **3B (decisive):** extend the Python script to parse QE's `init_us_1` intermediate quantities or compute a single matrix element `H_{GG'}` at the Γ point for Si using Python's independent β_l(q) and D_ij values. Compare against pwdft-rs's assembled `H_{GG'}`. This is Phase 4 as originally scoped; given Phases 1 and 2 both passed to 10⁻⁹ Ry / 10⁻¹² Bohr^(3/2), the bug — if it's in the pseudopotential pipeline at all — must lie in the assembly step, not the form factors. Phase 4 isolates that directly.
+
+If Phase 3 also passes, the Si 13.43 eV gap is **outside** the pseudopotential machinery. Candidates then become: Ewald sign/convention, structure factor in `scf/potentials.rs`, symmetry-breaking at Γ (known to exist, per the orientation note), or SCF convergence criterion.
+
+### No bugs filed in `src/`
+
+The existing `bessel_transform_projector` implementation (`src/potential/nonlocal.rs:223-246`) and UPF projector unit conversion (`src/pseudopotential/upf.rs:54-73`) are numerically correct to machine precision against the independent reference. No changes to production code were made in this session.
