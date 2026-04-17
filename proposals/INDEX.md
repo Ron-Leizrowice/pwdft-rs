@@ -18,6 +18,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | CCMX | Coupled-Channel Mixer for nspin=2 (mix (ρ_total, m)) | medium | medium | — | — |
 | ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` (supersedes DVSN) | medium | medium | — | — |
+| PCRS | Per-Component Energy Residual Investigation (VGC5 follow-up) | small | low | — | — |
 
 ### Medium — Enhancements & Performance
 
