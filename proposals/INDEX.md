@@ -29,12 +29,6 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | PRPL | Periodic Pulay Mixing (BROY follow-up — Banerjee et al. JCTC 2016) | small | low | — | — |
 | NLCC | Nonlinear Core Correction Audit (docs + test coverage; no bug found) | small | low | — | — |
 
-### Medium — Code Quality & Refactor
-
-| ID | Title | Complexity | Risk | Depends On | Blocks |
-|----|-------|-----------|------|------------|--------|
-| DBGC | `ScfResult` Debug derive + GPU-test reference-value const (TAUD nits) | small | low | — | — |
-
 ### Low / Deferred
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
@@ -106,6 +100,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | VLQR | Retire Cube-based `test_vloc_comparison_with_qe` (superseded by VGCMP Phase 1) |
 | XCPR | XC + Spin Diagonalization Parallelization (3 steps; Step 3 = 1.12–1.24×, ceiling at 2× post-ITEV) |
 | VGC5 | Per-Component Energy Accounting (VGCMP Phase 5) — localized 13.4 eV Si gap to E_xc / NLCC |
+| DBGC | `ScfResult` Debug derive + GPU reference consts (TAUD nits) |
 
 ## Notes
 
