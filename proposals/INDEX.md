@@ -26,10 +26,20 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | SPXC | Fix Spin-Polarized E_xc Density Consistency | small | medium | — | — |
 | CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
 
+### Medium — Code Quality Lints (follow-up to CLIP)
+
+| ID | Title | Complexity | Risk | Depends On | Blocks |
+|----|-------|-----------|------|------------|--------|
+| QLNT | Tier-1 Quality Lints (follow-up to CLIP) | small | low | — | — |
+| FMAD | Fused Multiply-Add via `suboptimal_flops` | medium | medium | — | — |
+
 ### Low / Deferred
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
+| CLSS | `cast_lossless` + Doc Hygiene | small | low | — | — |
+| MUST | `must_use_candidate` Annotations | medium | low | — | — |
+| CAST | Numeric Cast Safety Audit | medium | medium | — | — |
 | WFRX | Wavefunction Reuse Between SCF Iterations | medium | low | — | DVSN |
 | DVSN | Iterative Eigensolver (Davidson / LOBPCG) | large | medium | — | SPRS |
 | HD5I | HDF5 Restart and Structured Output | large | medium | — | — |
