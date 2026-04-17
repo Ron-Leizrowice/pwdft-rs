@@ -30,8 +30,8 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| QLNT | Tier-1 Quality Lints (follow-up to CLIP) | small | low | — | — |
 | SOPT | Drop `Option<&SymmetryInfo>` from `ScfContext` | small | low | — | — |
+| QLN2 | Quality Lints — GPU + Benches Follow-up (QLNT spillover) | small | low | — | — |
 
 ### Low / Deferred
 
@@ -96,6 +96,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | SYKP | Audit Si 4×4×4 IBZ reduction (convention mismatch — docstrings clarified, no code change) |
 | FFTB | FFT Buffer Reuse (23–33% speedup on `fft/scf_iter_20x_*`) |
 | FMAD | Fused Multiply-Add via `suboptimal_flops` (-3 to -4% on `lda_xc_grid_*`) |
+| QLNT | Tier-1 Quality Lints (11 new lints, 15 fixes; GPU spillover → QLN2) |
 
 ## Notes
 
