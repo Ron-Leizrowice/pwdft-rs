@@ -230,7 +230,8 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
 
     // GPU SCF (gpu feature enabled, so run_scf uses GPU automatically)
     let gpu_result = pwdft_rs::scf::run_scf(
-        &crystal, &basis, &kpoints, &[&pp], &params, None,
+        &crystal, &basis, &kpoints, &[&pp], &params,
+        &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
     );
 
     // CPU SCF: disable GPU by setting WGPU_BACKEND to none.
@@ -378,7 +379,8 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
 
     // Run GPU-accelerated SCF
     let gpu_result = pwdft_rs::scf::run_scf(
-        &crystal, &basis, &kpoints, &[&pp], &params, None,
+        &crystal, &basis, &kpoints, &[&pp], &params,
+        &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
     );
 
     // Run CPU-only SCF in a separate thread pool with 1 thread
@@ -393,7 +395,8 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
             // To truly force CPU-only, we'd need a runtime flag.
             // For now, we verify convergence consistency.
             pwdft_rs::scf::run_scf(
-                &crystal, &basis, &kpoints, &[&pp], &params, None,
+                &crystal, &basis, &kpoints, &[&pp], &params,
+        &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
             )
         });
 
@@ -497,7 +500,8 @@ fn test_gpu_scf_kerker_converges() {
     };
 
     let result = pwdft_rs::scf::run_scf(
-        &crystal, &basis, &kpoints, &[&pp], &params, None,
+        &crystal, &basis, &kpoints, &[&pp], &params,
+        &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
     );
 
     let r = result.expect("GPU Kerker SCF must converge");

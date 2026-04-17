@@ -754,13 +754,14 @@ mod tests {
             ..Default::default()
         };
 
-        let result_plain = run_scf(&crystal, &basis, &kpoints, &[&pp], &base_params, None);
+        let sym_id = crate::symmetry::SymmetryInfo::identity_only();
+        let result_plain = run_scf(&crystal, &basis, &kpoints, &[&pp], &base_params, &sym_id);
 
         let kerker_params = ScfParams {
             mixing_mode: MixingMode::Kerker { q_tf: None },
             ..base_params
         };
-        let result_kerker = run_scf(&crystal, &basis, &kpoints, &[&pp], &kerker_params, None);
+        let result_kerker = run_scf(&crystal, &basis, &kpoints, &[&pp], &kerker_params, &sym_id);
 
         match (&result_plain, &result_kerker) {
             (Ok(plain), Ok(kerker)) => {
@@ -942,13 +943,14 @@ mod tests {
             ..Default::default()
         };
 
-        let result_plain = run_scf(&crystal, &basis, &kpoints, &[&pp], &plain_params, None);
+        let sym_id = crate::symmetry::SymmetryInfo::identity_only();
+        let result_plain = run_scf(&crystal, &basis, &kpoints, &[&pp], &plain_params, &sym_id);
 
         let broyden_params = ScfParams {
             mixing_mode: MixingMode::Broyden { kerker: false },
             ..plain_params
         };
-        let result_broyden = run_scf(&crystal, &basis, &kpoints, &[&pp], &broyden_params, None);
+        let result_broyden = run_scf(&crystal, &basis, &kpoints, &[&pp], &broyden_params, &sym_id);
 
         match (&result_plain, &result_broyden) {
             (Ok(plain), Ok(broyden)) => {

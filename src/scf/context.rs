@@ -32,7 +32,7 @@ pub(crate) struct ScfContext<'a> {
     pub kpoints: &'a [KPoint],
     pub pseudopotentials: &'a [&'a PseudopotentialData],
     pub params: &'a ScfParams,
-    pub symmetry: Option<&'a crate::symmetry::SymmetryInfo>,
+    pub symmetry: &'a crate::symmetry::SymmetryInfo,
 
     // Precomputed (immutable across iterations)
     pub grid: FftGrid,
@@ -62,7 +62,7 @@ impl<'a> ScfContext<'a> {
         kpoints: &'a [KPoint],
         pseudopotentials: &'a [&'a PseudopotentialData],
         params: &'a ScfParams,
-        symmetry: Option<&'a crate::symmetry::SymmetryInfo>,
+        symmetry: &'a crate::symmetry::SymmetryInfo,
     ) -> Result<Self> {
         let omega = crystal.lattice.volume();
         let n_electrons: f64 = crystal

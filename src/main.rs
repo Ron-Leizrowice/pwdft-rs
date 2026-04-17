@@ -74,24 +74,27 @@ fn main() -> pwdft_rs::error::Result<()> {
             let full_kpts =
                 kpoints::monkhorst_pack(grid[0], grid[1], grid[2], &crystal.lattice);
 
-            // Detect symmetry and reduce k-points
+            // Detect symmetry and reduce k-points. A trivial (identity-only)
+            // SymmetryInfo corresponds to `symmetry.enabled = false`: each
+            // orbit has size 1, so reduction is a no-op but the code path is
+            // uniform.
             let symmetry_info = settings.to_symmetry_info(&crystal);
-            let kpts = if let Some(ref sym) = symmetry_info {
-                info!("Symmetry: {} space group operations", sym.n_ops);
+            let kpts = if symmetry_info.is_trivial() {
+                info!(
+                    "Monkhorst-Pack grid: {}×{}×{} = {} k-points (no symmetry)",
+                    grid[0], grid[1], grid[2], full_kpts.len()
+                );
+                full_kpts
+            } else {
+                info!("Symmetry: {} space group operations", symmetry_info.n_ops);
                 let reduced = pwdft_rs::symmetry::kpoints::reduce_kpoints(
-                    &full_kpts, *grid, sym, &crystal.lattice,
+                    &full_kpts, *grid, &symmetry_info, &crystal.lattice,
                 );
                 info!(
                     "Monkhorst-Pack grid: {}×{}×{} = {} → {} IBZ k-points",
                     grid[0], grid[1], grid[2], full_kpts.len(), reduced.len()
                 );
                 reduced
-            } else {
-                info!(
-                    "Monkhorst-Pack grid: {}×{}×{} = {} k-points (no symmetry)",
-                    grid[0], grid[1], grid[2], full_kpts.len()
-                );
-                full_kpts
             };
 
             // Load pseudopotentials
@@ -126,7 +129,7 @@ fn main() -> pwdft_rs::error::Result<()> {
                 &kpts,
                 &pp_refs,
                 &params,
-                symmetry_info.as_ref(),
+                &symmetry_info,
             )?;
 
             eprintln!("SCF converged in {} iterations", result.n_iterations);

@@ -155,7 +155,7 @@ fn run_qe_comparison(cfg: &QeComparisonConfig<'_>) -> PwdftResult<ScfResult> {
     };
 
     let symmetry = SymmetryInfo::from_crystal(cfg.crystal, 1e-5);
-    scf::run_scf(cfg.crystal, &basis, &kpts, &cfg.pps, &params, Some(&symmetry))
+    scf::run_scf(cfg.crystal, &basis, &kpts, &cfg.pps, &params, &symmetry)
 }
 
 // ---------------------------------------------------------------------------
