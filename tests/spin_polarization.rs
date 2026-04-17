@@ -93,20 +93,32 @@ fn test_si_nspin2_matches_nspin1() {
 
     let de = (r1.total_energy - r2.total_energy).abs();
     eprintln!("Si nspin=1: E={:.6} eV ({} iters)", r1.total_energy, r1.n_iterations);
-    eprintln!("Si nspin=2: E={:.6} eV ({} iters), M={:.4} μB", r2.total_energy, r2.n_iterations, r2.magnetization);
-    eprintln!("Energy diff: {de:.6} eV");
+    eprintln!("Si nspin=2: E={:.6} eV ({} iters), M={:.6} μB", r2.total_energy, r2.n_iterations, r2.magnetization);
+    eprintln!("Energy diff: {de:.3e} eV");
 
-    // Energies should match within ~0.1 eV (different convergence paths)
+    // TAUD finding 2.1: Si nspin=1 and nspin=2 (M=0 starting) evolve through
+    // different SCF paths but must agree in the unpolarized limit to within
+    // SCF convergence precision. Empirical de < 1e-6 eV (reads as "0.000000"
+    // at 6-decimal print); threshold set at 10× empirical = 1e-5 eV.
+    // Previously 0.5 eV — would have masked a real spin-XC bug of SPXC scale
+    // (~13 eV pre-fix) or silent-convergence bug of SPNC scale.
     assert!(
-        de < 0.5,
-        "nspin=1 ({:.4} eV) and nspin=2 ({:.4} eV) energies differ by {de:.4} eV",
+        de < 1.0e-5,
+        "nspin=1 ({:.6} eV) and nspin=2 ({:.6} eV) energies differ by {de:.3e} eV \
+         (> 1e-5 eV). Unpolarized Si must match nspin=1 to SCF precision; a \
+         value of many eV suggests SPXC (XC input/output mismatch) or SPNC \
+         (per-spin convergence criterion) has regressed.",
         r1.total_energy, r2.total_energy
     );
 
-    // Magnetization should be ~0 for non-magnetic Si
+    // TAUD finding 2.2: Si is non-magnetic — M must be exactly zero at
+    // convergence (no starting_mag, nspin=2 relaxation). Use .abs() (not
+    // signed `<`, which would let arbitrarily-negative M pass). Empirical
+    // |M| < 1e-5 μB (reads as "0.000000" at 6-decimal print); threshold at
+    // 10× empirical = 1e-4 μB. Previously 0.1 μB (10% of full electron spin).
     assert!(
-        r2.magnetization < 0.1,
-        "Si should be non-magnetic, got M={:.4} μB", r2.magnetization
+        r2.magnetization.abs() < 1.0e-4,
+        "Si should be non-magnetic, got |M|={:.3e} μB (> 1e-4)", r2.magnetization
     );
 }
 
@@ -211,14 +223,36 @@ fn test_fe_spin_xc_consistency_regression() {
 
 #[test]
 fn test_fe_ferromagnetic_fixed_moment() {
-    // Fe BCC with fixed magnetization = 2.0 μB.
-    // QE reference (4x4x4, 15 Ry, LDA, FD 0.02 Ry, nspin=2, tot_mag=2):
-    //   E = -44.062_678_79 Ry = -599.503 eV, 9 iters
+    // TAUD finding 1.2 — INVERTED from its original (silently-passing) form.
+    //
+    // Fe BCC fixed-magnetization=2 on the nc/lda/Fe.upf pseudopotential is
+    // KNOWN TO NOT CONVERGE. The failure mode is documented in
+    // `proposals/SPNC-spin-per-density-convergence.md` §Empirical Result:
+    // independent Anderson mixers on (ρ_up, ρ_down) enter a ±ε limit cycle
+    // (Δρ_up = Δρ_down ≈ 0.254 steady-state from iter ~5 onward) that
+    // cancels in the total density. Before SPNC, the total-only convergence
+    // criterion hid this — the test reported "converged" with |HF-KS| ≈
+    // 13.0 eV (post-SPXC) or 22.2 eV (pre-SPXC). After SPNC landed, the
+    // per-spin criterion correctly surfaces the limit cycle as
+    // ConvergenceFailure.
+    //
+    // Root cause is physical, not numerical: LDA Fe ground state is
+    // non-magnetic for this PP, so fixed-mag=2 is not a stable SCF fixed
+    // point. Resolving it needs either (a) a coupled-channel mixer (see
+    // proposals/CCMX-coupled-channel-mixer.md) that mixes (ρ_total, m)
+    // instead of (ρ_up, ρ_down) — mirroring QE's `rhoz_or_updw` — or (b) a
+    // different Fe pseudopotential that favours the ferromagnetic state.
+    //
+    // This test is kept as an inverted regression detector: the day CCMX
+    // or a PP swap flips the outcome to `Ok`, the `assert!(matches!(..))`
+    // below will fail and pull attention back to this case. At that point,
+    // restore the original assertions (magnetization ≈ 2, energy vs QE
+    // reference E = -44.062_678_79 Ry × 13.605... = -599.503 eV from 4×4×4,
+    // 15 Ry, LDA, FD 0.02 Ry) and un-invert the test.
+    //
+    // QE reference eigenvalues (if/when this starts converging):
     //   Gamma up:   4.62  25.71  25.71  26.52  26.52  26.52
     //   Gamma down: 5.79  27.30  27.30  28.05  28.05  28.05
-    // NOTE: This PP favours non-magnetic Fe at LDA. The fixed-moment
-    // solution is higher in energy than non-magnetic, but still validates
-    // the spin-polarized SCF machinery.
     let crystal = fe_bcc();
     let pp = pwdft_rs::pseudopotential::load(
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Fe.upf"),
@@ -245,25 +279,30 @@ fn test_fe_ferromagnetic_fixed_moment() {
     let symmetry = pwdft_rs::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
     let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, Some(&symmetry));
 
-    match result {
-        Ok(r) => {
-            eprintln!("Fe spin-polarized: E={:.6} eV, M={:.4} μB, {} iters",
-                r.total_energy, r.magnetization, r.n_iterations);
-            eprintln!("  E_F={:.4} eV", r.fermi_energy);
-
-            // Magnetization should be ~2.0 (fixed)
-            assert!(
-                (r.magnetization - 2.0).abs() < 0.5,
-                "Fe fixed M=2 should give M≈2, got {:.4}", r.magnetization
+    // Specifically expect the per-spin limit-cycle failure to manifest as
+    // ConvergenceFailure (not e.g. Eigensolver or Gpu). If the variant
+    // changes, something else went wrong and we want to see it.
+    match &result {
+        Err(pwdft_rs::error::PwdftError::ConvergenceFailure { iterations, delta }) => {
+            eprintln!(
+                "Fe BCC fixed-mag=2 correctly failed to converge after {iterations} iters \
+                 (final delta={delta:.3e}) — per-spin limit cycle, as expected post-SPNC."
             );
-
-            // Compare total energy against QE
-            let qe_energy = -44.062_678_79 * 13.605_693_122_994;
-            let de = (r.total_energy - qe_energy).abs();
-            eprintln!("  Energy diff vs QE: {de:.4} eV (QE={qe_energy:.4} eV)");
         }
-        Err(e) => {
-            eprintln!("Fe spin-polarized SCF did not converge: {e}");
+        Ok(r) => {
+            panic!(
+                "Fe BCC fixed-mag=2 UNEXPECTEDLY converged: E={:.6} eV, M={:.4} μB, {} iters. \
+                 Either CCMX landed (coupled-channel mixer) or the PP changed — inspect the \
+                 result and restore the original magnetization/energy assertions (see comment above).",
+                r.total_energy, r.magnetization, r.n_iterations
+            );
+        }
+        Err(other) => {
+            panic!(
+                "Fe BCC fixed-mag=2 returned an unexpected error variant: {other}. \
+                 Expected ConvergenceFailure (per-spin limit cycle, per SPNC proposal). \
+                 A different error variant suggests a new regression."
+            );
         }
     }
 }

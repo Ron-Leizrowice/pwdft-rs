@@ -231,3 +231,36 @@ Matches proposal's allocation-rate argument: per-call we save `data.to_vec()` (5
 **Tests:** full `cargo test` green (173 unit + all integration passing). Clippy clean on `--all-targets`.
 
 **Minor observation (not blocking):** during this session, in-progress edits to `src/fft.rs` and `benches/scf_benchmarks.rs` were silently reverted between bash invocations (the compiled bench binary lacked the newly-added `fft_scf_iteration` group despite the source having it minutes earlier). Re-applied the edits, verified hashes before each `cargo` invocation, and confirmed via `--list` that the bench binary contains the new symbols. Cost ~10 min. Worth investigating the worktree/hook setup separately.
+
+## 2026-04-17 — TAUD B+C+D+E bundled (PR #26)
+
+Branch `TAUD/prs-bcde-bundle`. Bundled remaining TAUD fix PRs (B/C/D/E) since all touch only `tests/` and are mechanical.
+
+**Empirical margins read under lock (each test ran once to set data-driven tolerances):**
+- 2.1 Si nspin=1 vs nspin=2 energy diff: ~0 (prints as "0.000000") → threshold 1e-5 eV (was 0.5)
+- 2.2 Si M: ~0 (prints as "0.000000") → threshold |M| < 1e-4 μB (was M < 0.1, unsigned!)
+- 2.4 GPU Hartree max rel err: 1.8e-7 → threshold 1e-5 (was 1e-3)
+- 2.5 GPU Si E: -198.892595 eV → `|E - (-198.8926)| < 0.1` (was `∈ [-300, -100]`)
+- 2.6 GPU Si E_F: **6.968947 eV** (not 5.97 as my first guess — all 4 bands occupied, E_F sits ~1 eV above HOMO) → `|E_F - 6.969| < 0.1` (was `∈ [-5, 10]`)
+- 2.7 5σ Fermi tail: documented (5σ ≈ 0.67% FD occupation), no numeric change
+- 2.8 Kerker GPU Si E: -198.892588 → same as 2.5
+
+**PR B (1.2) — Fe test inverted.** Now asserts `matches!(result, Err(ConvergenceFailure { .. }))`. Empirical hit: 100 iters, delta=0.0846 (matches SPNC logbook line 148 exactly). `ScfResult` has no `Debug` derive, so used a 3-arm `match` with explicit eprintln/panic instead of `{result:?}` in assert format strings. Same idiom in PR E.
+
+**PR D (3.1) — Real finding surfaced.** Un-ignored `test_vloc_comparison_with_qe` per plan; it **FAILED** post-VERF:
+- V_local(G=0): ours +1.343 eV vs QE -1.003 eV (sign flip, diff 2.35 eV)
+- |V_local(G=(1,0,0))|: ours 5.468 vs QE 6.968 (diff 1.50 eV)
+- |V_local(G=(1,1,1))|: same 1.50 eV
+
+This is the same class of convention mismatch VGCMP Phase 1 is targeting — re-ignored with specific numbers in the `#[ignore = "..."]` reason string and pointer to VGCMP Phase 1. **Did not open a new proposal** — would duplicate VGCMP. Listed in PR body "Flagged for follow-up" for EM visibility.
+
+**PR E (5.3) — ConvergenceFailure variant.** Replaced `.is_err()` in `parallel_consistency.rs::test_scf_serial_vs_parallel` with explicit 3-arm match (ConvergenceFailure OK, Ok panics, other Err panics with `{other}`). Inline to avoid `clippy::items_after_statements` from a nested fn.
+
+**Results:** 222 CPU pass + 231 GPU pass, 9 ignored (8 qe_validation + 1 kb_projector vloc), zero failures, clippy clean on both `--all-targets` and `--features gpu --all-targets`. Remaining warnings (benches/gpu_benchmarks.rs deprecated `black_box`, uninlined format args) are pre-existing, tracked under QLN2.
+
+**Clippy gotchas encountered:** `const FOO: f64 = ...` inside a fn after let-bindings fires `clippy::items_after_statements`; switched to `let foo = 1.23_f64;`. Also `fn expect_...()` helper inside the test triggered same — inlined the match.
+
+**Handoff notes for next session:**
+- `test_vloc_comparison_with_qe` will need attention when VGCMP Phase 1 resolves the V_local convention. At that point, un-ignore and expect tolerance to need tightening from the current 0.5 eV (which was a wish at write-time, not empirical).
+- `ScfResult` doesn't derive `Debug`. If future tests want to print Result values, either derive Debug on ScfResult (see `src/scf/mod.rs:131`) or use the 3-arm-match idiom from this PR (spin_polarization.rs Fe test, parallel_consistency.rs).
+- Machine lock held 1007s total across baseline + final-test runs.

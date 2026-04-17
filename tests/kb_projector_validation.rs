@@ -931,7 +931,28 @@ fn extract_beta_block(content: &str, tag: &str) -> Vec<f64> {
 ///   G=(1,1,1):  (-4.9268, -4.9268)i eV  |V| = 6.9675 eV
 ///   G=(2,0,0):  ~0 eV
 #[test]
-#[ignore = "VERF: v_local_of_g uses bare Coulomb subtraction; QE uses erf(r)/r which is numerically superior"]
+// TAUD finding 3.1, re-ignored 2026-04-17 after VERF landing.
+//
+// Hypothesis going in (per TAUD proposal and VERF completion): VERF's
+// erf(r)/r-based Bessel transform would close this gap transitively.
+// Outcome: no. Re-running the test post-VERF produces:
+//   V_local(G=0):          ours=+1.343088 eV,  QE=-1.002741 eV  (diff 2.35 eV, OPPOSITE SIGN)
+//   |V_local(G=(1,0,0))|:  ours= 5.467636 eV,  QE= 6.967521 eV  (diff 1.50 eV)
+//   |V_local(G=(1,1,1))|:  ours= 5.467636 eV,  QE= 6.967521 eV  (diff 1.50 eV)
+// Both the sign flip at G=0 and the uniform ~1.5 eV |V|-mismatch at |G|=(1,0,0)
+// / (1,1,1) shells point at a sign or normalization convention mismatch in
+// either our form factor `v_local_of_g` or in the QE Cube→FFT reference
+// values at lines 976-978. It is the same class of discrepancy that VGCMP
+// Phase 1 is investigating for the Si 13.4 eV total-energy gap. Defer
+// un-ignoring until VGCMP Phase 1 disambiguates: the QE reference values
+// here may need re-extraction via QE's own V_local(G) dump (scf.x →
+// pw2wannier-style or direct vlocal_mod dump) rather than going through
+// pp.x's Cube file and our FFT.
+#[ignore = "TAUD 3.1: VERF did not close this gap; see test comment. \
+            Sign flip at G=0 plus ~1.5 eV |V|-mismatch at |G|=(1,0,0), \
+            (1,1,1) shells — same class of discrepancy VGCMP Phase 1 \
+            targets. Re-enable after VGCMP Phase 1 resolves the V_local \
+            convention."]
 fn test_vloc_comparison_with_qe() {
     let pp = load_si_pp();
     let crystal = si_crystal();
