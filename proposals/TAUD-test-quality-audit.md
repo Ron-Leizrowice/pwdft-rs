@@ -207,3 +207,11 @@ Specifically, this proposal does not:
   corroborating empirical numbers.
 - `proposals/completed/ERRH-error-handling-cleanup.md` — the `PwdftError`
   enum that 5.3 will pattern-match on.
+
+## Status (2026-04-17)
+
+- **PR A done** (PR #20 merged). 5 silent-pass SCF tests now hard-assert. No bugs unmasked.
+- **PR B pending** — Fe fixed-mag test: invert to `assert!(result.is_err())` (per SPNC, current PP can't sustain fixed-mag=2; CCMX may fix later).
+- **PR C pending** — tighten 6 tolerance call sites (findings 2.1–2.7).
+- **PR D pending** — unignore `test_vloc_comparison_with_qe` (post-VERF).
+- **PR E pending** — pattern-match `ConvergenceFailure` variant in `test_scf_serial_vs_parallel`.

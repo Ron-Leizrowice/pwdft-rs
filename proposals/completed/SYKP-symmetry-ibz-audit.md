@@ -1,7 +1,7 @@
 ---
 id: SYKP
 title: Audit Si 4×4×4 IBZ reduction discrepancy vs QE
-status: documented
+status: completed
 priority: medium
 complexity: small
 risk: low

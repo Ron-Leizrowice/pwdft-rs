@@ -105,3 +105,9 @@ cargo bench --bench scf_benchmarks  # measure speedup
 ## Estimated Effort
 
 Under an hour. The XC change is a drop-in rayon replacement. The `rayon::join` requires verifying `ctx` fields are `Sync` (they are — all shared references).
+
+## Status (2026-04-17)
+
+**Steps 1 + 2 done** (PR #19, merged). `lda_xc_grid` and `lda_xc_spin_grid` parallelized via rayon. See Performance Engineer logbook for measurements.
+
+**Step 3 pending:** `rayon::join` for spin-channel diagonalization in `run_scf_spin`. Independent work — can be picked up at any time.

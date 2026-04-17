@@ -1,6 +1,6 @@
 ---
 id: SPNC
-status: active
+status: completed
 priority: high
 complexity: small
 risk: low
