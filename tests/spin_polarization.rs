@@ -72,8 +72,9 @@ fn test_si_nspin2_matches_nspin1() {
         ..params_nspin1.clone()
     };
 
-    let result1 = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_nspin1, None);
-    let result2 = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_nspin2, None);
+    let sym_id = pwdft_rs::symmetry::SymmetryInfo::identity_only();
+    let result1 = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_nspin1, &sym_id);
+    let result2 = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_nspin2, &sym_id);
 
     let r1 = result1.expect("nspin=1 must converge");
     let r2 = result2.expect("nspin=2 must converge");
@@ -184,7 +185,8 @@ fn test_fe_spin_xc_consistency_regression() {
         ..Default::default()
     };
 
-    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None)
+    let sym_id = pwdft_rs::symmetry::SymmetryInfo::identity_only();
+    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, &sym_id)
         .expect("Si nspin=2 SCF must converge for SPXC+SPNC regression test");
 
     let hf_diff = (result.harris_foulkes_energy - result.total_energy).abs();
@@ -277,7 +279,7 @@ fn test_fe_ferromagnetic_fixed_moment() {
     };
 
     let symmetry = pwdft_rs::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
-    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, Some(&symmetry));
+    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, &symmetry);
 
     // Specifically expect the per-spin limit-cycle failure to manifest as
     // ConvergenceFailure (not e.g. Eigensolver or Gpu). If the variant

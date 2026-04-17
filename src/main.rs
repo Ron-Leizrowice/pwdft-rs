@@ -6,8 +6,7 @@ use log::info;
 use pwdft_rs::{
     bandstructure,
     basis::BasisSet,
-    kpoints,
-    scf,
+    kpoints, scf,
     settings::{KPointSettings, Settings},
 };
 
@@ -71,28 +70,37 @@ fn main() -> pwdft_rs::error::Result<()> {
             }
         }
         KPointSettings::MonkhorstPack { grid } => {
-            let full_kpts =
-                kpoints::monkhorst_pack(grid[0], grid[1], grid[2], &crystal.lattice);
+            let full_kpts = kpoints::monkhorst_pack(grid[0], grid[1], grid[2], &crystal.lattice);
 
-            // Detect symmetry and reduce k-points
+            // Always reduce k-points via `reduce_kpoints`. When the user
+            // disables symmetry, `settings.to_symmetry_info` returns the
+            // identity-only group (no time reversal); in that case the
+            // reduction is a no-op — every orbit has size 1 and the output
+            // matches `monkhorst_pack` bit-for-bit (see
+            // `reduce_kpoints_with_identity_only_preserves_full_grid`).
+            //
+            // A previous version short-circuited via `is_trivial()` when
+            // `n_ops == 1`, but that also triggered for real P1 crystals
+            // where `n_ops == 1` yet `has_time_reversal == true` — skipping
+            // the k ↔ −k folding that physics demands. The uniform call
+            // below avoids that regression and matches the treatment in
+            // `symmetrize_density`, which already always-calls.
             let symmetry_info = settings.to_symmetry_info(&crystal);
-            let kpts = if let Some(ref sym) = symmetry_info {
-                info!("Symmetry: {} space group operations", sym.n_ops);
-                let reduced = pwdft_rs::symmetry::kpoints::reduce_kpoints(
-                    &full_kpts, *grid, sym, &crystal.lattice,
-                );
-                info!(
-                    "Monkhorst-Pack grid: {}×{}×{} = {} → {} IBZ k-points",
-                    grid[0], grid[1], grid[2], full_kpts.len(), reduced.len()
-                );
-                reduced
-            } else {
-                info!(
-                    "Monkhorst-Pack grid: {}×{}×{} = {} k-points (no symmetry)",
-                    grid[0], grid[1], grid[2], full_kpts.len()
-                );
-                full_kpts
-            };
+            info!("Symmetry: {} space group operations", symmetry_info.n_ops);
+            let kpts = pwdft_rs::symmetry::kpoints::reduce_kpoints(
+                &full_kpts,
+                *grid,
+                &symmetry_info,
+                &crystal.lattice,
+            );
+            info!(
+                "Monkhorst-Pack grid: {}×{}×{} = {} → {} IBZ k-points",
+                grid[0],
+                grid[1],
+                grid[2],
+                full_kpts.len(),
+                kpts.len()
+            );
 
             // Load pseudopotentials
             let input_dir = cli.input.parent().unwrap_or(std::path::Path::new("."));
@@ -107,9 +115,9 @@ fn main() -> pwdft_rs::error::Result<()> {
                 {
                     continue;
                 }
-                let pp_path = settings
-                    .pseudopotential_path(&sym)
-                    .ok_or_else(|| pwdft_rs::error::PwdftError::MissingPseudopotential(sym.clone()))?;
+                let pp_path = settings.pseudopotential_path(&sym).ok_or_else(|| {
+                    pwdft_rs::error::PwdftError::MissingPseudopotential(sym.clone())
+                })?;
                 let pp_path = input_dir.join(pp_path);
                 info!("Loading pseudopotential for {sym}: {}", pp_path.display());
                 let pp = pwdft_rs::pseudopotential::load(&pp_path)?;
@@ -120,14 +128,7 @@ fn main() -> pwdft_rs::error::Result<()> {
 
             let params = settings.to_scf_params(n_bands_fallback);
 
-            let result = scf::run_scf(
-                &crystal,
-                &basis,
-                &kpts,
-                &pp_refs,
-                &params,
-                symmetry_info.as_ref(),
-            )?;
+            let result = scf::run_scf(&crystal, &basis, &kpts, &pp_refs, &params, &symmetry_info)?;
 
             eprintln!("SCF converged in {} iterations", result.n_iterations);
             eprintln!("Total energy: {:.6} eV", result.total_energy);

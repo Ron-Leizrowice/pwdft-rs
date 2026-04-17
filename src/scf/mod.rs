@@ -197,7 +197,7 @@ pub fn run_scf(
     kpoints: &[KPoint],
     pseudopotentials: &[&PseudopotentialData],
     params: &ScfParams,
-    symmetry: Option<&crate::symmetry::SymmetryInfo>,
+    symmetry: &crate::symmetry::SymmetryInfo,
 ) -> Result<ScfResult> {
     params.validate()?;
     if crystal.atoms.is_empty() {
@@ -333,10 +333,10 @@ pub fn run_scf(
             ctx.kpoints, &all_kpoint_wavefns, &occupations,
         );
 
-        // 6b. Symmetrize density if symmetry info is available
-        if let Some(symm) = ctx.symmetry {
-            crate::symmetry::density::symmetrize_density(&mut rho_r_new, ctx.grid.dims, symm);
-        }
+        // 6b. Symmetrize density. `symmetrize_density` short-circuits for a
+        //     trivial group (identity-only), so this call is a no-op when the
+        //     user disabled symmetry — bit-identical to the legacy skip.
+        crate::symmetry::density::symmetrize_density(&mut rho_r_new, ctx.grid.dims, ctx.symmetry);
 
         // 7. Convergence check (dual criterion: density AND energy)
         let delta = density_diff(&rho_r, &rho_r_new, ctx.omega, ctx.n_grid);
@@ -459,7 +459,7 @@ fn run_scf_spin(
     kpoints: &[KPoint],
     pseudopotentials: &[&PseudopotentialData],
     params: &ScfParams,
-    symmetry: Option<&crate::symmetry::SymmetryInfo>,
+    symmetry: &crate::symmetry::SymmetryInfo,
 ) -> Result<ScfResult> {
     let mut ctx = context::ScfContext::new(crystal, basis, kpoints, pseudopotentials, params, symmetry)?;
 
@@ -625,13 +625,13 @@ fn run_scf_spin(
             ctx.kpoints, &wfn_down, &occ_down,
         );
 
-        // Symmetrize each channel
+        // Symmetrize each channel. Trivial (identity-only) groups
+        // short-circuit inside `symmetrize_density`, preserving the legacy
+        // "no symmetrization" behavior bit-identically.
         let mut rho_up_sym = rho_up_new;
         let mut rho_down_sym = rho_down_new;
-        if let Some(symm) = ctx.symmetry {
-            crate::symmetry::density::symmetrize_density(&mut rho_up_sym, ctx.grid.dims, symm);
-            crate::symmetry::density::symmetrize_density(&mut rho_down_sym, ctx.grid.dims, symm);
-        }
+        crate::symmetry::density::symmetrize_density(&mut rho_up_sym, ctx.grid.dims, ctx.symmetry);
+        crate::symmetry::density::symmetrize_density(&mut rho_down_sym, ctx.grid.dims, ctx.symmetry);
 
         // 7. Convergence check
         let rho_total_new: Vec<f64> = rho_up_sym.iter().zip(rho_down_sym.iter())

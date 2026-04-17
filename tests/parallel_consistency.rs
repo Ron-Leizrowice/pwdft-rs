@@ -27,12 +27,7 @@ fn si_crystal() -> Crystal {
 
 fn make_test_data(n: usize) -> Vec<Complex64> {
     (0..n)
-        .map(|i| {
-            Complex64::new(
-                (i as f64 * 0.123).sin(),
-                (i as f64 * 0.456).cos(),
-            )
-        })
+        .map(|i| Complex64::new((i as f64 * 0.123).sin(), (i as f64 * 0.456).cos()))
         .collect()
 }
 
@@ -115,7 +110,8 @@ fn test_scf_serial_vs_parallel() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0); // smaller basis for speed
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
 
@@ -144,12 +140,25 @@ fn test_scf_serial_vs_parallel() {
         .build()
         .unwrap()
         .install(|| {
-            pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None)
+            pwdft_rs::scf::run_scf(
+                &crystal,
+                &basis,
+                &kpoints,
+                &[&pp],
+                &params,
+                &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
+            )
         });
 
     // Multi-threaded: same 5 iterations
-    let result_parallel =
-        pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None);
+    let result_parallel = pwdft_rs::scf::run_scf(
+        &crystal,
+        &basis,
+        &kpoints,
+        &[&pp],
+        &params,
+        &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
+    );
 
     // TAUD finding 5.3: pattern-match the specific ConvergenceFailure variant
     // rather than any Err. If the SCF started returning e.g. Eigensolver or
@@ -192,11 +201,24 @@ fn test_scf_serial_vs_parallel() {
         .build()
         .unwrap()
         .install(|| {
-            pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_conv, None)
+            pwdft_rs::scf::run_scf(
+                &crystal,
+                &basis,
+                &kpoints,
+                &[&pp],
+                &params_conv,
+                &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
+            )
         });
 
-    let result_p =
-        pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_conv, None);
+    let result_p = pwdft_rs::scf::run_scf(
+        &crystal,
+        &basis,
+        &kpoints,
+        &[&pp],
+        &params_conv,
+        &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
+    );
 
     let s = result_s.expect("serial SCF must converge");
     let p = result_p.expect("parallel SCF must converge");
@@ -237,7 +259,8 @@ fn test_scf_kerker_serial_vs_parallel() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
 
@@ -265,11 +288,24 @@ fn test_scf_kerker_serial_vs_parallel() {
         .build()
         .unwrap()
         .install(|| {
-            pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None)
+            pwdft_rs::scf::run_scf(
+                &crystal,
+                &basis,
+                &kpoints,
+                &[&pp],
+                &params,
+                &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
+            )
         });
 
-    let result_p =
-        pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None);
+    let result_p = pwdft_rs::scf::run_scf(
+        &crystal,
+        &basis,
+        &kpoints,
+        &[&pp],
+        &params,
+        &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
+    );
 
     let s = result_s.expect("serial Kerker SCF must converge");
     let p = result_p.expect("parallel Kerker SCF must converge");

@@ -451,18 +451,24 @@ impl Settings {
     }
 
     /// Build `SymmetryInfo` from these settings and a crystal.
+    ///
+    /// When `symmetry.enabled = false`, this returns the trivial group
+    /// (identity-only, no time reversal) via
+    /// [`crate::symmetry::SymmetryInfo::identity_only`] rather than `None`.
+    /// Downstream code treats that as "no symmetrization to apply",
+    /// bit-identically to the legacy `Option::None` path.
     #[must_use]
     pub fn to_symmetry_info(
         &self,
         crystal: &Crystal,
-    ) -> Option<crate::symmetry::SymmetryInfo> {
+    ) -> crate::symmetry::SymmetryInfo {
         if !self.symmetry.enabled {
-            return None;
+            return crate::symmetry::SymmetryInfo::identity_only();
         }
         let mut info =
             crate::symmetry::SymmetryInfo::from_crystal(crystal, self.symmetry.tolerance);
         info.has_time_reversal = self.symmetry.time_reversal;
-        Some(info)
+        info
     }
 
     /// Return the pseudopotential file path for a given element symbol.
