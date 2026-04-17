@@ -79,3 +79,28 @@ Per SCF iteration at converged settings (10 irr. k-points): ~730 ms eigensolver 
 - **Allocator proposal** still relevant — 75 MB peak with rayon threads means malloc pressure.
 
 **TODO next session:** Profile with Instruments.app for per-function breakdown within eigensolver and V_NL build. Consider proposing iterative eigensolver.
+
+## 2026-04-17 — XCPR Step 1 implemented (PR #19)
+
+**Scope:** Parallelized `lda_xc_grid` + `lda_xc_spin_grid` with rayon `par_iter`, gated by empirical size threshold `XC_PARALLEL_THRESHOLD = 16 384`. Step 2 (spin-channel diag in `src/scf/mod.rs`) deferred — SPXC branch is active there.
+
+**Calibration (Apple M2, machine lock held):**
+- Rayon fork/join/unzip overhead on this machine: ~70 µs per region.
+- Sequential `lda_xc_grid`: ~11 ns/point. Sequential `lda_xc_spin_grid`: ~26 ns/point.
+- n=4096 naive parallel: 113 µs (vs 43 µs serial) — 161% regression. Confirmed threshold must be above 4 k.
+- n=16 384 parallel: 160 µs unpolarized, 197 µs spin — net positive, modest.
+- n=32 768: 2.09x unpolarized, 3.45x spin.
+- n=262 144 (64³): 6.86x unpolarized, 10.07x spin (3.0 ms → 442 µs; 7.8 ms → 777 µs).
+
+**Observations worth flagging:**
+- Revised prior claim: XCPR is not "marginal" — for 48³ and 64³ grids, spin XC cost drops by ~10x. For 32³ (typical production) it's still 2-3x. Small/gate grids are guarded by the threshold.
+- Grid sizes 24³ (13 824 pts) fall *just below* the threshold. If we find real SCF calls spending time at 24³ XC, consider lowering threshold to 8 192 — but `lda_xc_grid` would likely regress.
+- Competing `spin_polarization` integration test runs ~3-5 min at 1400% CPU — a background agent ran it during my first benchmark pass and corrupted the timings. Always verify load avg < 5 before trusting criterion numbers. Re-ran bench clean after it exited.
+
+**Tangential ideas:**
+- The n=4096 pure-sequential cost is 43 µs; rayon costs ~70 µs. A thread-pool-reuse scheme (pin workers, skip fork/join) could lower the breakeven to ~1 000 pts. Not worth it for XC alone — but same pattern applies to Hartree, V_eff assembly, density reconstruction — might be a cross-cutting proposal ("hot-loop rayon pool").
+- XC still dominated by `cbrt` and `ln`. CBRT proposal (replace cbrt with Newton-refined f64::from_bits hack) could stack with this.
+
+**Next session TODO:**
+- Step 2 after SPXC merges.
+- Profile full SCF end-to-end to confirm XCPR net impact on wall time (XC is maybe 5-10% of SCF, so expected overall SCF speedup at 32³: ~3-5%, at 64³: ~8-15%).
