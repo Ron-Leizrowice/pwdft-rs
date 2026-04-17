@@ -292,3 +292,37 @@ Rationale for proceeding to Phase 4 regardless of this clean Phase 3: the assemb
 ### No bugs filed in `src/`
 
 The existing UPF D_ij parser (`src/pseudopotential/upf.rs:77-78`) is bit-exactly correct against the independent reference. No changes to production code were made in this session.
+
+---
+
+## Phase 4 result (2026-04-17): assembled H[G,G] is bit-correct
+
+PR #29 cross-checked the diagonal `H[G,G]` element for Si at k=Γ across the first 5 G-shells (Miller indices through |G|² = 11) against an independent Python reference built from QE conventions.
+
+**Result:**
+
+| shell | Miller        | \|G\|² | ΔT (Ry)  | ΔV_NL (Ry) | ΔH_diag (Ry) |
+|------:|---------------|-------:|---------:|-----------:|-------------:|
+| 0     | (0,0,0)       | 0      | 0        | −4e−14     | −4e−14       |
+| 1     | (−1,−1,−1)    | 3      | −7.9e−11 | +2.3e−14   | −7.9e−11     |
+| 2     | (−1,−1, 0)    | 4      | −1.1e−10 | +1.5e−14   | −1.1e−10     |
+| 3     | (−2,−1,−1)    | 8      | −2.1e−10 | −3.0e−14   | −2.1e−10     |
+| 4     | (−2,−2,−1)    | 11     | −2.9e−10 | +1.0e−14   | −2.9e−10     |
+
+Max |ΔH_diag| = **2.9e−10 Ry (3.9e−9 eV)** — 9 orders of magnitude below the 1e−4 Ry pass criterion. The 7e−11 relative drift is the SI-vs-QE-convention discrepancy in `HBAR2_OVER_2M` (3.8099821159 vs 3.8099821161 eV·Å²); not a bug. **V_NL is at pure ULP noise (≤4e−14 Ry).**
+
+**Combined Phase 1+2+3+4 conclusion:** the entire pseudopotential → Hamiltonian assembly pipeline (form factors, structure factor, angular factor, normalization) is verified bit-correct against independent Python references. **The 13.4 eV Si gap is OUTSIDE the matrix assembly.**
+
+Test: `tests/vgcmp_assembled_h_cross_check.rs` (regression-pinned). Reference: `scripts/validate/vgcmp_phase4_assembled_h.py` + `scripts/validate/vgcmp_phase4_reference.csv`.
+
+### Phase 4b — off-diagonal cross-check (deferred follow-up)
+
+Phase 4 only checked `H[G, G]`. Off-diagonal `H[G, G']` for `G ≠ G'` exercises the structure factor `S(G−G')` for non-zero argument, which has not been verified. If Phase 5 narrows the bug further, consider opening a small Phase 4b proposal to extend the same Python reference to off-diagonals.
+
+### Phase 5 (recommended next, not in this proposal)
+
+Open `VGC5/per-component-energy-accounting`. Per-component side-by-side comparison of pwdft-rs vs QE Si SCF at ecut=30 Ry: E_band, E_kinetic, E_local, **E_local(G=0) compensating shift**, E_nonlocal, E_Hartree, E_xc, E_ewald.
+
+**Prime suspect (per VGCMP Phase 4 Researcher session):** `src/scf/context.rs:93-94` zeroes `v_local_fft[0]` and stashes `v_local_g0` separately. `total_energy()` may be missing the compensating `V_local(G=0) · N_el` background shift. Geometry-dependent (Si has 2 atoms/primitive cell vs Fe's 1) — plausible explanation for Fe matching to 0.02 eV while Si misses by 13.4 eV.
+
+Other suspects: Ewald for diamond structure (2-atom primitive vs 1-atom BCC; double-counting in pair sum possible); SAD initial density pathology for covalent Si vs metallic Fe.

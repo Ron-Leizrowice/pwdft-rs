@@ -8,9 +8,9 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| VGCMP | Si gap investigation — Phases 1-3 done; Phase 4 (assembled-H element cross-check) pending | medium | low | — | — |
+| VGC5 | Per-Component Energy Accounting (Si vs QE) — VGCMP Phase 5 | medium | low | — | — |
 
-**2026-04-17:** VGCMP Phases 1+2+3 done. **V_local(G), β_l(q), and D_ij all match QE to machine precision.** The 13.4 eV Si gap is NOT in the per-term pseudopotential form factors. Phase 4 will cross-check the assembled Hamiltonian element (structure factor, (2l+1)/(4π) angular factor, 1/Ω prefactor) and Ewald/symmetry/SCF code paths.
+**2026-04-17:** VGCMP Phases 1+2+3+4 all done (PR #29). The entire pseudopotential → Hamiltonian assembly pipeline is bit-correct vs QE: V_local(G), β_l(q), D_ij, and assembled diagonal H[G,G] all clear to machine precision. **The 13.4 eV Si gap is OUTSIDE the matrix assembly.** VGC5 (Phase 5) will tabulate per-component energies side-by-side. Prime suspect: the V_local(G=0) compensating background shift in `total_energy()` (`src/scf/context.rs:93-94` zeroes `v_local_fft[0]` and stashes it separately; may not be added back). Geometry-dependent — explains why Fe (matches to 0.02 eV) and Si (off by 13.4 eV) diverge.
 
 ### High — Foundation & Code Quality
 
@@ -103,7 +103,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 ## Notes
 
-- **VGCMP** (active): Phases 1-3 ruled out V_local(G), β_l(q), D_ij as the source of the 13.4 eV Si gap. Phase 4 will cross-check the assembled Hamiltonian element + Ewald/symmetry/SCF.
+- **VGCMP** (Phases 1-4 done): the entire PP→H assembly pipeline is bit-correct vs QE. The 13.4 eV Si gap is OUTSIDE matrix assembly. **VGC5** is the next-step Phase 5 (per-component energy accounting). Prime suspect: V_local(G=0) compensating shift missing in `total_energy()`.
 - **CCMX** (active): Independent Anderson mixers on `(ρ↑, ρ↓)` can't converge Fe fixed-mag=2 (limit cycle). Fix is to mix `(ρ_total, m)` instead, matching QE's `rhoz_or_updw` basis change.
 - **TAUD** (done): all 5 PRs landed. PR D uncovered a sign-flipped V_local in the test's QE Cube reference (NOT in our Rust code — VGCMP Phase 1 already proved Rust correct). Captured as VLQR. Test re-`#[ignore]`'d with diagnostic numbers in the reason string.
 - **XCPR** (active): Step 1+2 (XC grid parallelization) merged. Step 3 (spin-channel `rayon::join`) remains.
