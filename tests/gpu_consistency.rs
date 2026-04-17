@@ -71,9 +71,21 @@ fn test_gpu_hartree_on_realistic_density() {
             let i1 = idx / (ny * nz);
             let i2 = (idx / nz) % ny;
             let i3 = idx % nz;
-            let n1 = if i1 > nx / 2 { i1 as i32 - nx as i32 } else { i1 as i32 };
-            let n2 = if i2 > ny / 2 { i2 as i32 - ny as i32 } else { i2 as i32 };
-            let n3 = if i3 > nz / 2 { i3 as i32 - nz as i32 } else { i3 as i32 };
+            let n1 = if i1 > nx / 2 {
+                i1 as i32 - nx as i32
+            } else {
+                i1 as i32
+            };
+            let n2 = if i2 > ny / 2 {
+                i2 as i32 - ny as i32
+            } else {
+                i2 as i32
+            };
+            let n3 = if i3 > nz / 2 {
+                i3 as i32 - nz as i32
+            } else {
+                i3 as i32
+            };
             let g = n1 as f64 * recip.a + n2 as f64 * recip.b + n3 as f64 * recip.c;
             g.norm_squared()
         })
@@ -85,7 +97,11 @@ fn test_gpu_hartree_on_realistic_density() {
         .iter()
         .zip(g_squared.iter())
         .map(|(&rho, &g2)| {
-            if g2 > 1e-20 { rho * fourpi_e2 / g2 } else { Complex64::new(0.0, 0.0) }
+            if g2 > 1e-20 {
+                rho * fourpi_e2 / g2
+            } else {
+                Complex64::new(0.0, 0.0)
+            }
         })
         .collect();
 
@@ -218,7 +234,8 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
     let kpoints = vec![pwdft_rs::kpoints::KPoint {
@@ -230,7 +247,11 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
 
     // GPU SCF (gpu feature enabled, so run_scf uses GPU automatically)
     let gpu_result = pwdft_rs::scf::run_scf(
-        &crystal, &basis, &kpoints, &[&pp], &params,
+        &crystal,
+        &basis,
+        &kpoints,
+        &[&pp],
+        &params,
         &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
     );
 
@@ -254,7 +275,10 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
         }
     };
 
-    eprintln!("GPU SCF converged in {} iterations", gpu_result.n_iterations);
+    eprintln!(
+        "GPU SCF converged in {} iterations",
+        gpu_result.n_iterations
+    );
     eprintln!("GPU total energy: {:.6} eV", gpu_result.total_energy);
     eprintln!("GPU Fermi energy: {:.6} eV", gpu_result.fermi_energy);
 
@@ -272,7 +296,9 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
     assert!(
         e_diff < 0.1,
         "GPU total energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
-        gpu_result.total_energy, si_total_energy_ev, e_diff
+        gpu_result.total_energy,
+        si_total_energy_ev,
+        e_diff
     );
 
     // TAUD finding 2.6: previously `> -5.0 && < 10.0` (a 15-eV window).
@@ -287,28 +313,34 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
     assert!(
         ef_diff < 0.1,
         "GPU Fermi energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
-        gpu_result.fermi_energy, si_fermi_energy_ev, ef_diff
+        gpu_result.fermi_energy,
+        si_fermi_energy_ev,
+        ef_diff
     );
 
     // 3. Each k-point should have the requested number of eigenvalues
     let n_bands = params.n_bands;
     for (ik, evs) in gpu_result.eigenvalues.iter().enumerate() {
         assert_eq!(
-            evs.len(), n_bands,
-            "k-point {ik}: expected {n_bands} eigenvalues, got {}", evs.len()
+            evs.len(),
+            n_bands,
+            "k-point {ik}: expected {n_bands} eigenvalues, got {}",
+            evs.len()
         );
         // Eigenvalues should be sorted
         for i in 1..evs.len() {
             assert!(
                 evs[i] >= evs[i - 1] - 1e-10,
                 "k-point {ik}: eigenvalues not sorted: [{:.4}, {:.4}]",
-                evs[i - 1], evs[i]
+                evs[i - 1],
+                evs[i]
             );
         }
     }
 
     // 4. Lowest eigenvalue at any k-point should be deep (core-like for Si)
-    let min_eig = gpu_result.eigenvalues
+    let min_eig = gpu_result
+        .eigenvalues
         .iter()
         .flat_map(|evs| evs.iter())
         .copied()
@@ -367,7 +399,8 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
     let kpoints = vec![pwdft_rs::kpoints::KPoint {
@@ -379,7 +412,11 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
 
     // Run GPU-accelerated SCF
     let gpu_result = pwdft_rs::scf::run_scf(
-        &crystal, &basis, &kpoints, &[&pp], &params,
+        &crystal,
+        &basis,
+        &kpoints,
+        &[&pp],
+        &params,
         &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
     );
 
@@ -395,8 +432,12 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
             // To truly force CPU-only, we'd need a runtime flag.
             // For now, we verify convergence consistency.
             pwdft_rs::scf::run_scf(
-                &crystal, &basis, &kpoints, &[&pp], &params,
-        &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
+                &crystal,
+                &basis,
+                &kpoints,
+                &[&pp],
+                &params,
+                &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
             )
         });
 
@@ -424,7 +465,8 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
             assert!(
                 energy_diff < 0.1,
                 "Energy mismatch: gpu={:.6}, cpu={:.6}, diff={energy_diff:.6}",
-                g.total_energy, c.total_energy
+                g.total_energy,
+                c.total_energy
             );
 
             // Eigenvalues at each k-point
@@ -449,7 +491,8 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
             assert!(
                 fermi_diff < 0.1,
                 "Fermi mismatch: gpu={:.6}, cpu={:.6}",
-                g.fermi_energy, c.fermi_energy
+                g.fermi_energy,
+                c.fermi_energy
             );
         }
         (Err(e1), Err(e2)) => {
@@ -477,7 +520,8 @@ fn test_gpu_scf_kerker_converges() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_rs::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
     let kpoints = vec![pwdft_rs::kpoints::KPoint {
@@ -500,7 +544,11 @@ fn test_gpu_scf_kerker_converges() {
     };
 
     let result = pwdft_rs::scf::run_scf(
-        &crystal, &basis, &kpoints, &[&pp], &params,
+        &crystal,
+        &basis,
+        &kpoints,
+        &[&pp],
+        &params,
         &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
     );
 
@@ -513,8 +561,10 @@ fn test_gpu_scf_kerker_converges() {
         params.max_iter
     );
 
-    eprintln!("GPU+Kerker SCF converged in {} iterations, E={:.6} eV",
-        r.n_iterations, r.total_energy);
+    eprintln!(
+        "GPU+Kerker SCF converged in {} iterations, E={:.6} eV",
+        r.n_iterations, r.total_energy
+    );
 
     // TAUD finding 2.8: duplicate of 2.5 — replace 200-eV zip-code check with
     // specific value ± tolerance. Empirical Si total energy with Kerker
@@ -524,6 +574,8 @@ fn test_gpu_scf_kerker_converges() {
     assert!(
         e_diff < 0.1,
         "GPU+Kerker total energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
-        r.total_energy, si_total_energy_ev, e_diff
+        r.total_energy,
+        si_total_energy_ev,
+        e_diff
     );
 }

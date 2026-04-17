@@ -39,9 +39,8 @@ pub fn reduce_kpoints(
     // Convert full k-points to fractional reciprocal coordinates
     let frac_kpoints: Vec<[f64; 3]> = (0..grid[0])
         .flat_map(|i1| {
-            (0..grid[1]).flat_map(move |i2| {
-                (0..grid[2]).map(move |i3| mp_fractional(i1, i2, i3, grid))
-            })
+            (0..grid[1])
+                .flat_map(move |i2| (0..grid[2]).map(move |i3| mp_fractional(i1, i2, i3, grid)))
         })
         .collect();
 
@@ -59,23 +58,28 @@ pub fn reduce_kpoints(
         // Apply all symmetry operations
         for op in &symmetry.operations {
             // Reciprocal-space rotation: (R⁻¹)ᵀ
-            let r_inv_t = SymmOp { rotation: op.rotation }.inverse_transpose();
+            let r_inv_t = SymmOp {
+                rotation: op.rotation,
+            }
+            .inverse_transpose();
             let k_rot = r_inv_t.apply(frac);
 
             if let Some(rot_idx) = frac_to_grid_index(&k_rot, grid)
-                && !visited[rot_idx] {
-                    visited[rot_idx] = true;
-                    orbit_count += 1;
-                }
+                && !visited[rot_idx]
+            {
+                visited[rot_idx] = true;
+                orbit_count += 1;
+            }
 
             // Time-reversal: k → -k
             if symmetry.has_time_reversal {
                 let k_neg = [-k_rot[0], -k_rot[1], -k_rot[2]];
                 if let Some(neg_idx) = frac_to_grid_index(&k_neg, grid)
-                    && !visited[neg_idx] {
-                        visited[neg_idx] = true;
-                        orbit_count += 1;
-                    }
+                    && !visited[neg_idx]
+                {
+                    visited[neg_idx] = true;
+                    orbit_count += 1;
+                }
             }
         }
 
@@ -161,7 +165,10 @@ mod tests {
         let ibz = reduce_kpoints(&full_kpts, [4, 4, 4], &symmetry, &crystal.lattice);
 
         for (i, kp) in ibz.iter().enumerate() {
-            eprintln!("IBZ k{i}: w={:.6} k=({:.4},{:.4},{:.4})", kp.weight, kp.k.x, kp.k.y, kp.k.z);
+            eprintln!(
+                "IBZ k{i}: w={:.6} k=({:.4},{:.4},{:.4})",
+                kp.weight, kp.k.x, kp.k.y, kp.k.z
+            );
         }
         let total_w: f64 = ibz.iter().map(|k| k.weight).sum();
         eprintln!("total weight: {total_w}");
@@ -242,6 +249,59 @@ mod tests {
 
         let total_weight: f64 = ibz.iter().map(|k| k.weight).sum();
         assert!(relative_eq!(total_weight, 1.0, epsilon = 1e-12));
+    }
+
+    #[test]
+    fn p1_with_time_reversal_folds_grid() {
+        // SOPT regression guard. For a P1 crystal (triclinic, single
+        // identity space-group op) with `has_time_reversal = true`,
+        // `reduce_kpoints` must still fold k ↔ −k pairs: the IBZ size
+        // must be strictly less than the full input grid size.
+        //
+        // The SOPT refactor briefly short-circuited this path via an
+        // `is_trivial()` check in main.rs that fired on `n_ops == 1`
+        // regardless of the time-reversal flag. This test pins the
+        // corrected behavior: with TR enabled, P1 folding is non-trivial.
+        //
+        // We bypass the symmetry detector entirely and inject an
+        // identity-only group with `has_time_reversal = true`. That is
+        // the exact situation the bug created: a real P1 crystal under
+        // the user-facing setting `symmetry.enabled = true,
+        // time_reversal = true` yields this group shape, and the old
+        // `is_trivial()` check in main.rs would then skip folding.
+        let crystal = Crystal {
+            lattice: Lattice::new(
+                Vector3::new(3.1, 0.2, 0.1),
+                Vector3::new(0.3, 4.2, -0.1),
+                Vector3::new(-0.1, 0.15, 5.3),
+            ),
+            atoms: vec![Atom::new(6, [0.13, 0.27, 0.41])],
+        };
+        let mut symmetry = crate::symmetry::SymmetryInfo::identity_only();
+        symmetry.has_time_reversal = true;
+        assert_eq!(
+            symmetry.n_ops, 1,
+            "fixture must have identity-only space group for this regression test"
+        );
+
+        let grid = [4_u32, 4, 4];
+        let n_total = (grid[0] * grid[1] * grid[2]) as usize;
+        let full_kpts = crate::kpoints::monkhorst_pack(grid[0], grid[1], grid[2], &crystal.lattice);
+        assert_eq!(full_kpts.len(), n_total);
+
+        let ibz = reduce_kpoints(&full_kpts, grid, &symmetry, &crystal.lattice);
+        assert!(
+            ibz.len() < n_total,
+            "P1 + time-reversal must fold k ↔ −k: expected IBZ < {n_total}, got {}",
+            ibz.len()
+        );
+
+        // Weights still sum to 1.0 regardless of folding amount.
+        let total_weight: f64 = ibz.iter().map(|k| k.weight).sum();
+        assert!(
+            relative_eq!(total_weight, 1.0, epsilon = 1e-12),
+            "IBZ weights sum to {total_weight}, expected 1.0"
+        );
     }
 
     #[test]

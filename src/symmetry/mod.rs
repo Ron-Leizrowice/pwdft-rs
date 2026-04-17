@@ -34,9 +34,9 @@ impl SymmetryInfo {
         let ops = detect::find_symmetry_operations(crystal, tolerance);
         let n_ops = ops.len();
 
-        let has_inversion = ops.iter().any(|op| {
-            op.rotation == [[-1, 0, 0], [0, -1, 0], [0, 0, -1]]
-        });
+        let has_inversion = ops
+            .iter()
+            .any(|op| op.rotation == [[-1, 0, 0], [0, -1, 0], [0, 0, -1]]);
 
         Self {
             operations: ops,
@@ -75,15 +75,26 @@ impl SymmetryInfo {
         }
     }
 
-    /// Whether this group contains only the identity operation.
+    /// Whether this group is trivial in the sense that applying it to any
+    /// quantity (density, k-point mesh, …) is guaranteed to be a no-op.
     ///
-    /// Cheap predicate (`n_ops == 1` plus an identity check on that single
-    /// op). Intended for callers that want to short-circuit work which
-    /// would otherwise be a no-op under the trivial group.
+    /// Returns `true` iff the group contains **only** the identity operation
+    /// **and** time-reversal symmetry is disabled. Both conditions are
+    /// required: a P1 crystal (triclinic, single identity op) with
+    /// time-reversal on still folds k ↔ −k under [`kpoints::reduce_kpoints`],
+    /// so treating it as "trivial" would skip real symmetry work.
+    ///
+    /// Cheap predicate — an identity check on the single op plus two scalar
+    /// comparisons. Intended for callers that want to short-circuit work
+    /// which would genuinely be a no-op under this group; callers needing a
+    /// weaker check (e.g. "is this the spatial-symmetry identity?") should
+    /// inspect `n_ops` and `operations` directly rather than generalize
+    /// this predicate.
     #[must_use]
     pub fn is_trivial(&self) -> bool {
         self.n_ops == 1
             && self.operations.len() == 1
+            && !self.has_time_reversal
             && self.operations[0].is_identity(self.tolerance.max(1e-12))
     }
 
@@ -95,7 +106,10 @@ impl SymmetryInfo {
         for (i, a) in self.operations.iter().enumerate() {
             // Check inverse exists
             let a_inv = a.inverse();
-            let has_inv = self.operations.iter().any(|b| b.approx_eq(&a_inv, self.tolerance));
+            let has_inv = self
+                .operations
+                .iter()
+                .any(|b| b.approx_eq(&a_inv, self.tolerance));
             assert!(
                 has_inv,
                 "operation {i} has no inverse in the group: R={:?} τ={:?}",
@@ -105,7 +119,10 @@ impl SymmetryInfo {
             // Check closure under composition
             for (j, b) in self.operations.iter().enumerate() {
                 let ab = a.compose(b);
-                let in_set = self.operations.iter().any(|c| c.approx_eq(&ab, self.tolerance));
+                let in_set = self
+                    .operations
+                    .iter()
+                    .any(|c| c.approx_eq(&ab, self.tolerance));
                 assert!(
                     in_set,
                     "composition of ops {i} and {j} not in group: R={:?} τ={:?}",
@@ -137,6 +154,22 @@ mod tests {
     }
 
     #[test]
+    fn identity_plus_time_reversal_is_not_trivial() {
+        // A P1 crystal has only the identity space-group op but still admits
+        // time-reversal symmetry (k ↔ −k), which folds the MP grid. Such a
+        // group must NOT be reported as trivial — otherwise callers that
+        // short-circuit on `is_trivial()` will skip real folding work. This
+        // is the SOPT regression the predicate tightening guards against.
+        let mut s = SymmetryInfo::identity_only();
+        s.has_time_reversal = true;
+        assert!(
+            !s.is_trivial(),
+            "identity-only with time-reversal must not be considered trivial: \
+             k ↔ −k folding is still meaningful"
+        );
+    }
+
+    #[test]
     fn symmetrize_with_identity_only_is_noop() {
         // Verify the "identity-only SymmetryInfo" is numerically indistinguishable
         // from the legacy "no symmetrization" path: the density must be left
@@ -145,8 +178,7 @@ mod tests {
         let s = SymmetryInfo::identity_only();
         let dims = [8, 8, 8];
         let n = dims[0] * dims[1] * dims[2];
-        let rho_original: Vec<f64> =
-            (0..n).map(|i| (i as f64 * 0.13).sin() + 1.0).collect();
+        let rho_original: Vec<f64> = (0..n).map(|i| (i as f64 * 0.13).sin() + 1.0).collect();
         let mut rho = rho_original.clone();
         density::symmetrize_density(&mut rho, dims, &s);
         for (orig, sym) in rho_original.iter().zip(rho.iter()) {
@@ -196,14 +228,20 @@ mod tests {
             assert!(
                 (f.k - r.k).norm() < 1e-12,
                 "k-point position changed under identity-only reduction: {:?} vs {:?}",
-                f.k, r.k
+                f.k,
+                r.k
             );
             assert!(
                 (f.weight - r.weight).abs() < 1e-12,
-                "k-point weight changed: {} vs {}", f.weight, r.weight
+                "k-point weight changed: {} vs {}",
+                f.weight,
+                r.weight
             );
         }
         let w_sum: f64 = reduced.iter().map(|kp| kp.weight).sum();
-        assert!((w_sum - 1.0).abs() < 1e-12, "weights must sum to 1.0, got {w_sum}");
+        assert!(
+            (w_sum - 1.0).abs() < 1e-12,
+            "weights must sum to 1.0, got {w_sum}"
+        );
     }
 }
