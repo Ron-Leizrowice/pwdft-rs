@@ -183,3 +183,25 @@ Full suite: 220 CPU tests pass + 6 GPU consistency tests pass, 9 ignored (pre-ex
 **Rebase note:** branch rebased onto origin/main (ea1a300) before final commit to include XCPR merge.
 
 **No follow-up proposals opened** — none of the 5 hardened tests revealed a regression. The silent-pass patterns were pure hygiene debt.
+
+## 2026-04-17 — XCLN cleanup (docs + proposal paperwork)
+
+Branch `XCLN/cleanup-ccmx-qedx-sykp`. Three bundled items, no behavioural code changes.
+
+**1. CCMX proposal opened** (`proposals/CCMX-coupled-channel-mixer.md`). Captures the SPNC follow-up identified on 2026-04-17: independent `(ρ↑, ρ↓)` Anderson mixers can't drive Fe BCC fixed-mag=2 to a converged fixed point. Plan: mix `(ρ_total, m)` instead, mirroring QE's `rhoz_or_updw` basis change. Cited QE sources verified:
+- `qe-7.5/PW/src/sum_band.f90:307` — `rhoz_or_updw(rho, 'r_and_g', '->rhoz')` called right after band-sum density accumulation.
+- `qe-7.5/PW/src/scf_mod.f90:1360-1414` — the basis-change subroutine itself (`vi=1.0` forward, `vi=0.5` inverse).
+- `qe-7.5/PW/src/v_of_rho.f90:320-360` — local back-conversion for XC evaluation.
+`depends_on: [SPNC]`, priority high, complexity medium, risk medium. Mixer internals remain channel-agnostic — only `run_scf_spin` mixing step is touched.
+
+**2. QEDX archived** (moved to `proposals/completed/QEDX-qe-energy-discrepancy.md`, status → `superseded`). Added completion note at top citing SIMP + VERF as done and VGCMP as the active investigation. INDEX.md updated: removed QEDX row from Critical (only VGCMP remains there), added to Completed table, updated the `## Notes` block.
+
+**3. SYKP D1 done**. Updated 3 docstrings + 1 assertion comment:
+- `src/kpoints.rs::monkhorst_pack` — now explicitly names the shifted MP-1976 convention, cites QE equivalence (`k1=k2=k3=1`, not default `0 0 0`), and points at the SYKP audit.
+- `src/symmetry/kpoints.rs::reduce_kpoints` — convention section explaining the 10-vs-8 IBZ reduction story.
+- `src/symmetry/kpoints.rs::mp_fractional` — same convention note, must-match callout to `kpoints::monkhorst_pack`.
+- `src/symmetry/kpoints.rs` test comment for `test_si_4x4x4_reduces_to_8` — replaced the misleading "incomplete boundary handling" prose with the correct convention-mismatch explanation. Assertion range (`8..=10`) unchanged. Appended "2026-04-17 — D1 done" block to `proposals/SYKP-symmetry-ibz-audit.md` (the file still lives in active dir alongside INDEX.md's "Low/Deferred" row — task spec referenced `proposals/completed/` but SYKP hasn't been formally archived yet; I appended to its actual location).
+
+**Quality gate:** `cargo test` all pass (spin_polarization 3/3 including `test_fe_spin_xc_consistency_regression` Si nspin=2, plus VGCMP/VLOC/VERF cross-checks). `cargo clippy -q --all-targets` clean. No behavioural code paths touched — purely docstring + test comment.
+
+**Surprises:** none. The SPNC logbook entry already flagged CCMX as a follow-up candidate with the correct QE reference (`PW/src/mix_rho.f90`-via-`rhoz_or_updw`); I just verified the exact line numbers and sketched the scope. SYKP's `proposals/completed/` path was a minor spec mismatch (the file is still in active/`proposals/`) but doesn't affect correctness.

@@ -1,12 +1,18 @@
 ---
 id: QEDX
-status: active
+status: superseded
 priority: critical
 complexity: large
 risk: high
 depends_on: [SIMP, VERF]
 blocks: [QEVL]
 ---
+
+## Completion note
+
+**Superseded 2026-04-17 by VGCMP.** SIMP closed the Fe gap; VERF
+cosmetic; VGCMP Phases 1+2 ruled out V_local(G) and β_l(q). Remaining
+Si gap continues under VGCMP Phase 3+4.
 
 # QEDX: Systematic Energy Discrepancy vs QE
 

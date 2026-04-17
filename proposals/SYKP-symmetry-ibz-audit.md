@@ -219,3 +219,11 @@ needed.
     (not re-audited here; Si Fd-3m detection was independently verified
     via 48-op count and group closure tests listed above).
 - Our own reference run: `qe_validation/si_scf.out:672-691`.
+
+## 2026-04-17 — D1 done
+
+Docstrings updated in `src/kpoints.rs::monkhorst_pack` and
+`src/symmetry/kpoints.rs::{reduce_kpoints, mp_fractional}`, and the
+misleading "incomplete boundary handling" comment in
+`test_si_4x4x4_reduces_to_8` replaced with the correct convention
+explanation. Landed in XCLN cleanup PR.
