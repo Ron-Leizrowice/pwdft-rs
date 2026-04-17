@@ -13,11 +13,27 @@ pub struct KPoint {
     pub label: Option<String>,
 }
 
-/// Generate a uniform Monkhorst-Pack k-point grid.
+/// Generate a uniform Monkhorst-Pack k-point grid (shifted convention).
 ///
-/// Produces k-points: k_i = (2n_i - N_i - 1) / (2 N_i) for n_i = 1..N_i,
-/// in fractional reciprocal coordinates, then converted to Cartesian.
+/// Produces fractional coordinates
+/// `f_j = (2·i_j − N_j + 1) / (2·N_j)` for `i_j ∈ {0, …, N_j−1}`, then
+/// converted to Cartesian reciprocal space. For N=4 this yields
+/// `{−3/8, −1/8, 1/8, 3/8}` — the original **shifted** Monkhorst-Pack
+/// grid (Monkhorst & Pack, *Phys. Rev. B* **13**, 5188 (1976), Eq. 4).
 /// No symmetry reduction is applied (full grid).
+///
+/// ## Convention caveat vs QE
+///
+/// This is equivalent to Quantum ESPRESSO's
+/// `K_POINTS automatic / nk1 nk2 nk3 1 1 1` (half-shift along every
+/// axis), **not** the default `0 0 0` Γ-centred grid. The Γ-centred
+/// version would produce `{0, 1/4, 1/2, 3/4}` and contain Γ, X, L
+/// exactly; the shifted version avoids all BZ-boundary points.
+///
+/// For even N these are physically distinct k-meshes of the same
+/// density, and their IBZ reductions generally differ in the number
+/// of irreducible points. This is a convention choice, not a bug —
+/// see `proposals/completed/SYKP-symmetry-ibz-audit.md`.
 #[must_use]
 pub fn monkhorst_pack(n1: u32, n2: u32, n3: u32, lattice: &Lattice) -> Vec<KPoint> {
     let recip = lattice.reciprocal();
