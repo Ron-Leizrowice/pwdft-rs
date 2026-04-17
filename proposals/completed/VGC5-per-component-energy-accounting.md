@@ -1,6 +1,6 @@
 ---
 id: VGC5
-status: active
+status: completed
 priority: critical
 complexity: medium
 risk: low

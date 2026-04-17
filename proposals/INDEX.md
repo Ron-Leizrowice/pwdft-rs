@@ -8,12 +8,9 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| NCFX | NLCC Core-Density Unit and Radial-Weight Fix | small | low | VGC5 | — |
-| VGC5 | Per-Component Energy Accounting (Si vs QE) — VGCMP Phase 5 | medium | low | — | — |
+| NCFX | NLCC Core-Density Unit and Radial-Weight Fix | small | low | — | — |
 
-**2026-04-17 (later):** VGC5 (this PR) landed the per-component decomposition. The Si 13.4 eV gap localizes to **E_xc** (Δ = +13.74 eV); all other terms are within 2.4 eV and Ewald matches to 0.011 eV. Fe shows the same XC-dominated pattern (Δ_xc = −48.85 eV). Root cause: NLCC core-density parse + Bessel transform has wrong unit conversion (`/BOHR_TO_ANG` instead of `/BOHR_TO_ANG³`) and is missing the `r²`/`4π` radial weights — see `proposals/NCFX-nlcc-core-density-fix.md`. V_local(G=0) compensating shift is already present in the energy path (not the culprit).
-
-**2026-04-17:** VGCMP Phases 1+2+3+4 all done (PR #29). The entire pseudopotential → Hamiltonian assembly pipeline is bit-correct vs QE: V_local(G), β_l(q), D_ij, and assembled diagonal H[G,G] all clear to machine precision. **The 13.4 eV Si gap is OUTSIDE the matrix assembly.** VGC5 (Phase 5) will tabulate per-component energies side-by-side. Prime suspect: the V_local(G=0) compensating background shift in `total_energy()` (`src/scf/context.rs:93-94` zeroes `v_local_fft[0]` and stashes it separately; may not be added back). Geometry-dependent — explains why Fe (matches to 0.02 eV) and Si (off by 13.4 eV) diverge.
+**2026-04-17:** VGCMP Phases 1-4 + VGC5 all done. Entire PP→H assembly pipeline is bit-correct vs QE (V_local(G), β_l(q), D_ij, H[G,G] all at ULP). VGC5 localized the 13.4 eV Si gap to **E_xc** (Δ = +13.74 eV on Si; Fe shows Δ_xc = −48.85 eV). Root cause: NLCC `PP_NLCC` parsed with wrong units (`/BOHR_TO_ANG` instead of `/BOHR_TO_ANG³`) + Bessel transform missing `r²`/`4π` weights — captured as **NCFX** (critical-path fix in flight). V_local(G=0) compensating shift ruled out — already present.
 
 ### High — Foundation & Code Quality
 
@@ -108,10 +105,11 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | SOPT | Drop `Option<&SymmetryInfo>` from `ScfContext` (incl. P1+TR regression test) |
 | VLQR | Retire Cube-based `test_vloc_comparison_with_qe` (superseded by VGCMP Phase 1) |
 | XCPR | XC + Spin Diagonalization Parallelization (3 steps; Step 3 = 1.12–1.24×, ceiling at 2× post-ITEV) |
+| VGC5 | Per-Component Energy Accounting (VGCMP Phase 5) — localized 13.4 eV Si gap to E_xc / NLCC |
 
 ## Notes
 
-- **VGCMP** (Phases 1-4 done): the entire PP→H assembly pipeline is bit-correct vs QE. The 13.4 eV Si gap is OUTSIDE matrix assembly. **VGC5** is the next-step Phase 5 (per-component energy accounting). Prime suspect: V_local(G=0) compensating shift missing in `total_energy()`.
+- **VGCMP + VGC5** (all phases done): the entire PP→H assembly pipeline is bit-correct vs QE. Per-component decomposition localized the 13.4 eV Si gap to E_xc (Δ_xc = +13.74 eV Si, −48.85 eV Fe). Root cause captured as **NCFX**. Prime suspect (V_local(G=0) shift) ruled out — already present.
 - **CCMX** (active): Independent Anderson mixers on `(ρ↑, ρ↓)` can't converge Fe fixed-mag=2 (limit cycle). Fix is to mix `(ρ_total, m)` instead, matching QE's `rhoz_or_updw` basis change.
 - **TAUD** (done): all 5 PRs landed. PR D uncovered a sign-flipped V_local in the test's QE Cube reference (NOT in our Rust code — VGCMP Phase 1 already proved Rust correct). Captured as VLQR. Test re-`#[ignore]`'d with diagnostic numbers in the reason string.
 - **XCPR** (done 2026-04-17): Steps 1+2 (XC grid) + Step 3 (spin-channel `rayon::join`) all landed. Step 3 speedup 1.12–1.24× (faer's internal gemm already saturates 8 cores during eigensolve); ceiling ~2× after ITEV drops per-k eigensolve cost.
