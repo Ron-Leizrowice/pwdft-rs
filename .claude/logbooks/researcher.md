@@ -121,3 +121,18 @@ Next: Phase 2 (β_l(q) KB projectors) — follow-up branch `VGCMP/phase2-beta-q`
 Primary suspect now is the non-local KB machinery, specifically the
 F_l(q) Bessel transform and/or the √BOHR_TO_ANG projector unit conversion
 in `src/pseudopotential/upf.rs:68-72`.
+
+## 2026-04-17 — VGCMP Phase 2: β_l(q) cleared
+
+Si KB projector form factors F_l(q) agree with independent Python
+(scipy.special.spherical_jn + scipy.integrate.simpson on UPF log mesh) to
+**max |Δ| = 3.03e-12 Bohr^(3/2)** across 120 rows (6 projectors × 20 q-values
+in [0.1, 7.0] Bohr⁻¹; l = 0, 0, 1, 1, 2, 2). Tolerance was 1e-4 Bohr^(3/2);
+beat by eight orders of magnitude. Bessel transform, √BOHR_TO_ANG projector
+unit conversion, and the spherical-Bessel upward recurrence are all correct.
+
+Artifacts: `scripts/validate/beta_q_reference.py`,
+`scripts/validate/beta_q_si_reference.csv`, `tests/vgcmp_beta_q_cross_check.rs`.
+**β_l(q) is not the Si 13.43 eV culprit.** Remaining pseudopotential suspects:
+D_ij (Phase 3), KB assembly at `src/potential/nonlocal.rs:118-208` (Phase 4).
+If those also pass, the gap lives in Ewald, structure factors, or symmetry.
