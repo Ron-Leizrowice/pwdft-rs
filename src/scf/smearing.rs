@@ -156,7 +156,7 @@ fn methfessel_paxton_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     let x = (energy - fermi_energy) / sigma;
     let f0 = puruspe::erfc(x) / 2.0;
     let gauss = (-x * x).exp() / PI.sqrt();
-    f0 - 0.5 * x * gauss
+    (0.5 * x).mul_add(-gauss, f0)
 }
 
 /// Marzari-Vanderbilt "cold" smearing occupation (before spin factor).
@@ -176,7 +176,7 @@ fn cold_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     let x = (energy - fermi_energy) / sigma;
     let sq2_inv = std::f64::consts::FRAC_1_SQRT_2;
     let arg = x + sq2_inv;
-    0.5 * puruspe::erfc(arg) + (1.0 / (2.0 * PI).sqrt()) * (-arg * arg).exp()
+    0.5f64.mul_add(puruspe::erfc(arg), (1.0 / (2.0 * PI).sqrt()) * (-arg * arg).exp())
 }
 
 // ---------------------------------------------------------------------------
@@ -233,7 +233,7 @@ fn entropy_weight(scheme: SmearingScheme, x: f64) -> f64 {
             (-x * x).exp() / PI.sqrt()
         }
         SmearingScheme::MethfesselPaxton => {
-            (0.5 - x * x) * (-x * x).exp() / PI.sqrt()
+            x.mul_add(-x, 0.5) * (-x * x).exp() / PI.sqrt()
         }
         SmearingScheme::Cold => {
             let sq2_inv = std::f64::consts::FRAC_1_SQRT_2;

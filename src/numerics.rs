@@ -42,14 +42,14 @@ pub fn simpson_integrate(func: &[f64], rab: &[f64]) -> f64 {
 
     if n % 2 == 1 {
         // Odd mesh: standard Simpson's rule
-        (sum + func[0] * rab[0] + func[n - 1] * rab[n - 1]) / 3.0
+        func[n - 1].mul_add(rab[n - 1], func[0].mul_add(rab[0], sum)) / 3.0
     } else {
         // Even mesh: boundary correction (matches QE/DFTK formula)
-        (sum + func[0] * rab[0]
-            - func[n - 3] * rab[n - 3] * 0.25
-            + func[n - 2] * rab[n - 2]
-            + func[n - 1] * rab[n - 1] * 1.25)
-            / 3.0
+        let mut acc = func[0].mul_add(rab[0], sum);
+        acc = (func[n - 3] * rab[n - 3]).mul_add(-0.25, acc);
+        acc += func[n - 2] * rab[n - 2];
+        acc = (func[n - 1] * rab[n - 1]).mul_add(1.25, acc);
+        acc / 3.0
     }
 }
 

@@ -161,21 +161,21 @@ fn perdew_zunger_correlation(rho: f64) -> (f64, f64) {
         // V_c = ε_c - (r_s / 3) dε_c/dr_s
         // dε_c/dr_s = -γ (β₁/(2√r_s) + β₂) / denom²
         let d_ec = -gamma * (beta1 / (2.0 * sqrt_rs) + beta2) / (denom * denom);
-        vc_ha = ec_ha - rs / 3.0 * d_ec;
+        vc_ha = (rs / 3.0).mul_add(-d_ec, ec_ha);
     } else {
         // PZ parameters for r_s < 1 (unpolarized)
-        let a = 0.0311;
-        let b = -0.048;
-        let c = 0.0020;
-        let d = -0.0116;
+        let a: f64 = 0.0311;
+        let b: f64 = -0.048;
+        let c: f64 = 0.0020;
+        let d: f64 = -0.0116;
 
         let ln_rs = rs.ln();
-        ec_ha = a * ln_rs + b + c * rs * ln_rs + d * rs;
+        ec_ha = d.mul_add(rs, (c * rs).mul_add(ln_rs, a.mul_add(ln_rs, b)));
 
         // V_c = ε_c - (r_s / 3) dε_c/dr_s
         // dε_c/dr_s = a/r_s + c(ln(r_s) + 1) + d
-        let d_ec = a / rs + c * (ln_rs + 1.0) + d;
-        vc_ha = ec_ha - rs / 3.0 * d_ec;
+        let d_ec = c.mul_add(ln_rs + 1.0, a / rs) + d;
+        vc_ha = (rs / 3.0).mul_add(-d_ec, ec_ha);
     }
 
     (ec_ha * crate::consts::HA_TO_EV, vc_ha * crate::consts::HA_TO_EV)
@@ -298,7 +298,7 @@ fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
 
     // Total exchange energy density: ε_x = (ρ_up·ε_x_up + ρ_down·ε_x_down) / ρ
     let rho_bohr = rho * bohr3;
-    let ex_ha = (rho_up_bohr * ex_up_ha + rho_down_bohr * ex_down_ha) / rho_bohr;
+    let ex_ha = rho_up_bohr.mul_add(ex_up_ha, rho_down_bohr * ex_down_ha) / rho_bohr;
 
     // Potentials: V_x_σ = d(ρ·ε_x)/dρ_σ = (4/3)·ε_x(ρ_σ)
     let vx_up_ha = (4.0 / 3.0) * ex_up_ha;
@@ -332,7 +332,7 @@ fn pz_correlation_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     let (ec_pol, vc_pol) = pz_correlation_rs(rs, true);
 
     // Spin interpolation function f(ζ) and its derivative
-    let f_denom = 2.0_f64.cbrt() * 2.0 - 2.0; // 2^{4/3} - 2
+    let f_denom = 2.0_f64.cbrt().mul_add(2.0, -2.0); // 2^{4/3} - 2
 
     let op = (1.0 + zeta).max(0.0);
     let om = (1.0 - zeta).max(0.0);
@@ -353,8 +353,8 @@ fn pz_correlation_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     let vc_rs_ha = vc_unpol + fz * (vc_pol - vc_unpol); // this is ε_c - (rs/3)·dε_c/drs
     let dec_dzeta = dfz * (ec_pol - ec_unpol);
 
-    let vc_up_ha = vc_rs_ha + (1.0 - zeta) * dec_dzeta;
-    let vc_down_ha = vc_rs_ha - (1.0 + zeta) * dec_dzeta;
+    let vc_up_ha = (1.0 - zeta).mul_add(dec_dzeta, vc_rs_ha);
+    let vc_down_ha = (1.0 + zeta).mul_add(-dec_dzeta, vc_rs_ha);
 
     (ec_ha * crate::consts::HA_TO_EV, vc_up_ha * crate::consts::HA_TO_EV, vc_down_ha * crate::consts::HA_TO_EV)
 }
@@ -367,28 +367,28 @@ fn pz_correlation_rs(rs: f64, polarized: bool) -> (f64, f64) {
     let (ec_ha, vc_ha);
 
     if rs >= 1.0 {
-        let (gamma, beta1, beta2) = if polarized {
+        let (gamma, beta1, beta2): (f64, f64, f64) = if polarized {
             (-0.0843, 1.3981, 0.2611) // PZ fully polarized parameters
         } else {
             (-0.1423, 1.0529, 0.3334) // PZ unpolarized parameters
         };
 
         let sqrt_rs = rs.sqrt();
-        let denom = 1.0 + beta1 * sqrt_rs + beta2 * rs;
+        let denom = beta2.mul_add(rs, beta1.mul_add(sqrt_rs, 1.0));
         ec_ha = gamma / denom;
         let d_ec = -gamma * (beta1 / (2.0 * sqrt_rs) + beta2) / (denom * denom);
-        vc_ha = ec_ha - rs / 3.0 * d_ec;
+        vc_ha = (rs / 3.0).mul_add(-d_ec, ec_ha);
     } else {
-        let (a, b, c, d) = if polarized {
+        let (a, b, c, d): (f64, f64, f64, f64) = if polarized {
             (0.01555, -0.0269, 0.0007, -0.0048) // PZ fully polarized
         } else {
             (0.0311, -0.048, 0.0020, -0.0116) // PZ unpolarized
         };
 
         let ln_rs = rs.ln();
-        ec_ha = a * ln_rs + b + c * rs * ln_rs + d * rs;
-        let d_ec = a / rs + c * (ln_rs + 1.0) + d;
-        vc_ha = ec_ha - rs / 3.0 * d_ec;
+        ec_ha = d.mul_add(rs, (c * rs).mul_add(ln_rs, a.mul_add(ln_rs, b)));
+        let d_ec = c.mul_add(ln_rs + 1.0, a / rs) + d;
+        vc_ha = (rs / 3.0).mul_add(-d_ec, ec_ha);
     }
 
     (ec_ha, vc_ha)

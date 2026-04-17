@@ -307,7 +307,7 @@ impl BroydenMixer {
 
         if m == 0 {
             // First iteration: simple linear mixing ρ_new = ρ_in + β·R
-            return rho_in.iter().zip(residual.iter()).map(|(&r, &res)| r + self.beta * res).collect();
+            return rho_in.iter().zip(residual.iter()).map(|(&r, &res)| self.beta.mul_add(res, r)).collect();
         }
 
         // Build overlap matrix β_{ij} = ⟨df_i | df_j⟩
@@ -358,7 +358,7 @@ impl BroydenMixer {
             .iter()
             .zip(residual.iter())
             .zip(corr_dv.iter().zip(corr_df.iter()))
-            .map(|((&ri, &res), (&cv, &cf))| (ri - cv) + self.beta * (res - cf))
+            .map(|((&ri, &res), (&cv, &cf))| self.beta.mul_add(res - cf, ri - cv))
             .collect()
     }
 }
