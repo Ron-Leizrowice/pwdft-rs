@@ -43,3 +43,21 @@ Investigated 3 failing tests in `tests/kb_projector_validation.rs`. PR #1 on bra
 ### Key references
 
 PZ: PRB 23, 5048 (1981). KB: PRL 48, 1425 (1982). NLCC: PRB 26, 1738 (1982). QE source: `vloc_mod.f90`, `simpsn.f90`, `setlocal.f90`.
+
+## 2026-04-16 — SPXC: Spin-polarized E_xc consistency investigation
+
+**Confirmed the bug.** In `run_scf_spin`, E_KS computation mixes:
+- `exc_r` from INPUT spin densities (line 525)
+- `rho_xc_total` from OUTPUT total density (line 642)
+- `vxc_{up,down}_r` from INPUT (line 525) with `rho_{up,down}_sym` from OUTPUT (line 650)
+
+Non-spin `run_scf` does NOT have this bug -- it recomputes XC from OUTPUT at lines 347-348.
+Harris-Foulkes in spin path is correct (all INPUT quantities, lines 670-683).
+
+**QE comparison:** QE never recomputes XC from output. Uses `etxc`/`vtxc` from input density + `descf` first-order correction. Different formulation, same result at convergence.
+
+**Recommended fix:** Recompute `lda_xc_spin_grid` from OUTPUT spin densities for E_KS. One extra grid-level call per iteration. Simple, matches non-spin path.
+
+**Impact:** Bug is O(delta_rho) at convergence -- sub-meV for converged energy. But spoils quadratic convergence of |E_HF - E_KS|, reducing it to linear. This is the main practical issue: false HF-KS warnings in spin-polarized runs.
+
+Proposal updated: `proposals/SPXC-spin-xc-consistency.md`.
