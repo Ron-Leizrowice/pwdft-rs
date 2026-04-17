@@ -397,3 +397,38 @@ closing the 13.4 eV gap.
   conv_threshold=1e-8 deserves its own audit; keep an eye on it
   after NCFX closes the XC gap.
 
+## 2026-04-17 — PCRS: residual-scan investigation, root cause found
+
+Si per-component identity Δ=1.204 eV from VGC5 is NOT SCF noise. Plateau across 4 orders of conv_threshold:
+
+| conv_thr | sym ON | sym OFF |
+|----------|--------|---------|
+| 1e-6     | 1.204  | 1.07e-07 |
+| 1e-8     | 1.204  | 1.03e-08 |
+| 1e-10    | 1.204  | 1.39e-09 |
+
+sym OFF scales as O(Δρ) (SCF noise, expected). sym ON is a hard plateau — structural. QE's identity closes bit-exact (Σ Ry = internal E Ry to 10 digits).
+
+**Root cause:** `src/symmetry/density.rs::symmetrize_density` applies space-group ops S={R|τ} via `nint(n·τ_i)` rounding. Si Fd-3m has τ=(¼,¼,¼); our FFT grid 18 is not divisible by 4 → 4.5 rounds to 5, inverse op rounds back to a different grid point, symmetry average SMEARS ρ. `check_grid_compatibility` only checks rotations, not translations. And the SCF path doesn't consult it anyway. Fe Im-3m is symmorphic (all τ=0) → bug absent → residual ~45 meV (different/smaller source).
+
+QE sidesteps via G-space symmetrization: ρ_sym(G) = (1/N) Σ_S exp(iG·τ_S)·ρ(R_S⁻¹G). Phase factors exact for any τ. Our real-space symmetrization can only represent τ on exact grid points.
+
+E_KS itself also biased by 17 meV (ρ_sym ≠ ρ_ψ leaks into the `−e_H + (e_xc − e_vxc)` double-counting terms). Not just a diagnostic issue.
+
+Algebraic derivation: residual = ∫(ρ_ψ − ρ_sym)·V_eff dr. Back-solve from numbers: e_vxc_total_energy_path = −85.313 vs e_vxc_band_identity = −86.517 eV → diff +1.204 eV ≡ the residual.
+
+**Deliverables:**
+- `scripts/validate/pcrs_residual_scan.py` — sweep with sym-on/sym-off + QE identity.
+- `proposals/PCRS-per-component-residual.md` — marked completed with tables + analysis.
+- `proposals/PCFX-symmetrize-rho-g-space.md` — follow-up fix (G-space symmetrization).
+- INDEX updated.
+
+**Not a code change here.** Fix belongs to Core Engineer via PCFX.
+
+### Tangential notes
+
+- `compatible_grid_dims` (`src/symmetry/density.rs:120`) is dead code outside tests.
+- At FFT grid 20 or 24 (both div-by-4) Si Anderson mixer loses conditioning and oscillates — separate mixer-stability concern.
+- Fe's residual under CLI (IBZ=10 kpts) is 73 meV; under the VGC5 test (full 64 kpts, no IBZ reduction) it's 45 meV. Gap is probably rotation-only aliasing on non-compatible parts of the rotation matrix (cubic perms are fine, but the `round()` in `frac_to_grid_idx` may mis-map a few points per op). Sub-eV; low priority.
+- QE source pointer for PCFX: `qe-7.5/PW/src/symme.f90` — `sym_rho` + `sym_rho_init_shells`.
+
