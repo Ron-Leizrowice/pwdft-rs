@@ -2,83 +2,17 @@
 
 Entries: date, measurements (actual numbers), bottleneck findings, proposals assessed. Always include hardware context.
 
-## 2026-04-16 — Orientation (no benchmarks run yet)
+## 2026-04-16 — Orientation
 
-**Proposal audit (code inspection only, not profiled):**
-- FFTB: well-motivated, FFT allocates fresh Array3 every call. Impact unknown without profiling.
-- XCPR: XC parallelization straightforward but may not help at small grid sizes (4096 points). Spin-channel join is a clean win.
-- WFRX: theoretically sound but 25x claim is optimistic. Real gain likely 5-15% net.
-- DVSN: strategically correct long-term target, not highest near-term impact.
+Proposal audit (inspection only): FFTB well-motivated (fresh `Array3` per call); XCPR straightforward, may not help small grids (4096 pts); WFRX sound but 25× claim optimistic (likely 5–15% net); DVSN long-term. Gap: no allocator proposal (jemalloc/mimalloc) — macOS libmalloc underperforms under multithreaded pressure.
 
-**Gap found:** No proposal for allocator selection (jemalloc/mimalloc). macOS libmalloc underperforms under multithreaded pressure. Trivial integration via feature flag. Worth proposing.
+## 2026-04-16 — Baseline profiling (Apple M2, lock held)
 
-**TODO next session:** Run `cargo bench`, profile SCF with Instruments.app, establish actual bottleneck distribution before proposing anything.
+End-to-end SCF on Si FCC 2 atoms: `si_scf.yaml` (ecut=100 Ry, 2×2×2) 0.11 s wall, 12 MB peak; `si_scf_converged.yaml` (ecut=200 Ry, 4×4×4) 0.34 s wall, 75 MB peak. Rayon ≈6× across 10 k-points. Memory dominated by per-k Hamiltonian (n_pw² complex).
 
-## 2026-04-16 — Baseline Profiling (machine-lock held, no contention)
+**Bottleneck ranking at n_pw=725:** eigensolver 73.5 ms (dominant); V_NL build 42.3 ms; V_NL apply 25.9 ms; FFT ~3 ms; kinetic/basis µs. Per-iter at converged settings: ~1.4 s compute, ~12.7 s serial, 0.34 s wall with rayon. Note: n_pw=725 eigensolver later re-measured at 836 ms — the 73.5 ms figure was criterion noise (see 2026-04-17 ITEV entry).
 
-**Hardware:** Apple M2, macOS Darwin 25.3.0. All runs with machine lock acquired.
-
-### End-to-end SCF — Si FCC 2 atoms (pre-compiled binary)
-
-| Config | ecut (Ry) | k-grid (irr.) | Iters | Wall | User | Peak RSS | Peak Footprint |
-|--------|-----------|---------------|-------|------|------|----------|----------------|
-| si_scf.yaml | 100 | 2×2×2 (3) | 9 | 0.11s | 0.19s | 12 MB | 10 MB |
-| si_scf_converged.yaml | 200 | 4×4×4 (10) | 9 | 0.34s | 2.09s | 75 MB | 73 MB |
-
-Memory scales ~6x (3→10 k-points, 3x basis). Dominated by per-k-point Hamiltonian matrices (n_pw² complex).
-Rayon parallelism effective: 2.09s user / 0.34s wall ≈ 6x speedup across 10 k-points.
-
-### Criterion Microbenchmarks
-
-**Eigensolver (faer Hermitian, SCF bottleneck, O(n³)):**
-
-| n_pw | Time |
-|------|------|
-| 89 | ~1.2–1.9 ms (high variance at 20 samples) |
-| 259 | 7.36 ms |
-| 725 | 73.5 ms |
-
-Scaling: 259→725 is 10x for 2.8x n — consistent with O(n³).
-
-**Hamiltonian construction:**
-
-| n_pw | Kinetic | V_NL build | V_NL apply |
-|------|---------|------------|------------|
-| 89 | 2.1 µs | 5.27 ms | 388 µs |
-| 259 | 16.9 µs | 15.1 ms | 3.22 ms |
-| 725 | 109 µs | 42.3 ms | 25.9 ms |
-
-**FFT (3D complex, ndrustfft):**
-
-| Grid | Forward | Roundtrip |
-|------|---------|-----------|
-| 16³ | 28.7 µs | 57.7 µs |
-| 20³ | 112 µs | 225 µs |
-| 24³ | 94 µs | 190 µs |
-| 32³ | 349 µs | 704 µs |
-| 48³ | 1.65 ms | 3.32 ms |
-
-Note: 24³ faster than 20³ — likely favorable FFT factorization (24 = 2³×3).
-
-### Bottleneck Ranking (at n_pw=725, production size)
-
-1. **Eigensolver: 73.5 ms** — dominant cost, called once per k-point per SCF step
-2. **V_NL build: 42.3 ms** — #2, once per k-point per SCF step
-3. **V_NL apply: 25.9 ms** — #3, adds KB projectors to Hamiltonian
-4. **FFT: ~3.3 ms** — cheap, <5% of one eigensolve even at 48³
-5. **Kinetic/basis: negligible** — µs-scale
-
-Per SCF iteration at converged settings (10 irr. k-points): ~730 ms eigensolver + 423 ms V_NL build + 259 ms V_NL apply ≈ 1.4s compute, 9 iterations ≈ 12.7s serial, wall 0.34s with rayon.
-
-### Implications for Proposals
-
-- **FFTB** (FFT buffer reuse): confirmed low-impact. FFT is <5% of cost. Worth doing for cleanliness but not a performance win.
-- **XCPR** (XC parallelization): grid ops are cheap; marginal gain expected.
-- **WFRX** (wavefunction reuse): could skip V_NL rebuild — would save 42 ms/k-point/iter if applicable.
-- **Eigensolver optimization** is the highest-impact target (not yet proposed). Iterative solvers (Davidson/LOBPCG) with warm-start from previous SCF step would slash the dominant cost.
-- **Allocator proposal** still relevant — 75 MB peak with rayon threads means malloc pressure.
-
-**TODO next session:** Profile with Instruments.app for per-function breakdown within eigensolver and V_NL build. Consider proposing iterative eigensolver.
+**Implications:** FFTB is <5% of cost (do for cleanliness); XCPR marginal; WFRX could skip V_NL rebuild (~42 ms/k/iter); eigensolver optimisation is the highest-impact unproposed target; allocator still relevant at 75 MB peak.
 
 ## 2026-04-17 — XCPR Step 1 implemented (PR #19)
 
