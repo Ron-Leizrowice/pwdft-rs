@@ -17,6 +17,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
 | CCMX | Coupled-Channel Mixer for nspin=2 (mix (ρ_total, m)) | medium | medium | — | — |
+| ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` (supersedes DVSN) | medium | medium | — | — |
 | VLQR | V_local QE Reference Data Re-extraction (TAUD PR D follow-up) | small | low | — | — |
 
 ### Medium — Enhancements & Performance
@@ -42,8 +43,8 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | CLSS | `cast_lossless` + Doc Hygiene | small | low | — | — |
 | CAST | Numeric Cast Safety Audit | medium | medium | — | — |
-| WFRX | Wavefunction Reuse Between SCF Iterations | medium | low | — | DVSN |
-| DVSN | Iterative Eigensolver (Davidson / LOBPCG) | large | medium | — | SPRS |
+| WFRX | Wavefunction Reuse Between SCF Iterations (re-scope as ITEV warm-start) | medium | low | — | — |
+| DVSN | Iterative Eigensolver (Davidson / LOBPCG) — SUPERSEDED BY ITEV | large | medium | — | — |
 | HD5I | HDF5 Restart and Structured Output | large | medium | — | — |
 | SPRS | Sparse Matrix Support | large | medium | DVSN | — |
 | CUCL | CubeCL GPU Kernels | large | high | — | — |
@@ -115,3 +116,4 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 - **NLCC** audit (2026-04-17): all code paths verified correct against QE `v_of_rho.f90`. Hartree excludes core, electron count excludes core, LSDA splits core/2 per spin, XC uses val+core with val-only double-counting. No bug. Proposal is documentation + integration test against an NLCC element (Fe).
 - **HD5I** references deleted `src/input.rs` — update to YAML Settings when implementing.
 - **SOPT** (new 2026-04-17): refactor `ScfContext.symmetry: Option<&SymmetryInfo>` to always-present (identity fallback). Every material has identity group; Option encodes a setting not a structural fact.
+- **ITEV** (new 2026-04-17, Performance Engineer): Post-FFTB/FMAD profiling shows eigensolver at 85-90% of SCF user CPU (n_pw=259: 56 ms/call; n_pw=725: 836 ms/call). `faer 0.24` ships `matrix_free::eigen::partial_self_adjoint_eigen` (implicitly-restarted Arnoldi, matrix-free via `LinOp`, warm-start via `v0`). Supersedes DVSN's hand-rolled Davidson plan. Projected 2.5-4× SCF wall-time speedup at production sizes. WFRX becomes the warm-start knob.

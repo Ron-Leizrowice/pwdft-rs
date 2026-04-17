@@ -130,3 +130,54 @@ Per SCF iteration at converged settings (10 irr. k-points): ~730 ms eigensolver 
 - All 81 suboptimal_flops warnings reduced to 54, with all remaining in test code, mod.rs orchestration, or symmetry/pseudopot (out of scope).
 - No tests broke; relative_eq tolerances absorb the ULP-level bit diff from FMA.
 - For future bench runs: watch for concurrent debug test builds at peak (spin_polarization at 1400% CPU masked by lock scheduler). Sequential benchmarks (n ≤ 16 384) are robust; parallel benchmarks (n ≥ 32 768) require quiet machine for reliable criterion stats.
+
+## 2026-04-17 — Post-FFTB/FMAD profiling pass; new ITEV proposal
+
+Task: identify next perf target after FFTB/FMAD landed. Lock held 702 s, released before writing.
+
+**Baseline re-measured (criterion, machine-locked, Apple M2):**
+
+| n_pw | `faer_eigen` | `vnl_apply` | `vnl_new` | `kinetic` |
+|------|--------------|-------------|-----------|-----------|
+| 89   |   1.07 ms    |  0.53 ms    |   7.17 ms |  2.77 µs  |
+| 259  |  56.3  ms    |  4.70 ms    |  22.1  ms | 22.6  µs  |
+| 725  | 835.8  ms    | 28.6  ms    |  47.2  ms | 166   µs  |
+
+Prior logbook's `n725 = 73.5 ms` was noise. O(n³) scaling confirmed.
+
+**End-to-end SCF profile** (`sample` 4 s, 5×Si ecut=200 runs, n_pw=259, 31 197 samples):
+- Idle: 39.7 %
+- Rayon pool overhead (truncated stacks): 27.6 %
+- Classified user code: 32.7 %
+  - Eigensolver (faer+gemm): **60.7 % of user CPU**
+  - V_NL apply: 7.1 %
+  - FFT: 2.1 %; build_H: 1.2 %; symm: 0.1 %; XC: 0.0 %
+- Re-attributing rayon pool overhead by call-site → **eigensolver ≈ 85-90 % of SCF user CPU**.
+
+**Decisive finding:** `faer 0.24` ships
+`faer::matrix_free::eigen::partial_self_adjoint_eigen` — an upstream
+implicitly-restarted Arnoldi partial Hermitian eigensolver with `LinOp`
+and `v0` warm-start. This obsoletes DVSN's hand-rolled Davidson plan and
+drops the complexity from `large` to `medium`.
+
+**Proposal opened:** `ITEV-faer-partial-eigen.md` (new). Supersedes
+DVSN; WFRX remains as warm-start for ITEV. Projected 2.5-4× SCF speedup
+at production sizes (n_pw ≥ 259), 10-50× on the eigensolve step at
+n_pw = 725. Shift-and-flip (`A' = σI − H`) to map largest-magnitude →
+algebraically-lowest. Keep dense backend as selectable fallback.
+
+**Tangential ideas:**
+- V_NL apply @ n_pw=725 is 29 ms = #2 bottleneck after eigensolve. Inner
+  double-loop `for ig × for jg × for i_proj × for j_proj` is O(n_pw² · n_proj²).
+  Worth a proposal *after* ITEV lands: projector-sum lifted to O(n_pw · n_proj²)
+  blocked-matmul (V_NL = Σ_α β_α D_α β_α^H can be GEMM'd).
+- `vnl_new` @ n_pw=725 is 47 ms but only runs ONCE per k-point per SCF
+  (cached in ScfContext) — not a hot target.
+- Rayon pool overhead 27.6 % of samples is high; likely from faer's inner
+  spindle + outer k-point par_iter double-nesting. ITEV should drop this
+  because each k-point call becomes much shorter → less in-faer parallelism.
+
+**Next session TODO:**
+- Wait for EM decision on ITEV priority/approval.
+- If ITEV approved: Phase 1 wrapper + correctness tests.
+- If blocked: consider V_NL blocked-matmul as a parallel-track proposal.
