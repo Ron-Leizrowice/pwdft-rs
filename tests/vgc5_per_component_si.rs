@@ -17,10 +17,10 @@
 //! numbers and keep the tolerance loose; QE-match assertions go into
 //! `tests/qe_validation.rs`.
 //!
-//! PRE-NCFX: All pinned values in this file are the pwdft-rs numbers
-//! observed BEFORE the NCFX (NLCC core-density fix) lands. Search this
-//! file for `PRE-NCFX` to find every pin that needs updating once NCFX
-//! is merged. See `proposals/NCFX-nlcc-core-density-fix.md`.
+//! Pin values are refreshed post-NCFX (NLCC core-density fix, PR #?).
+//! Pre-NCFX baselines are retained as `// PRE-NCFX:` comments on each
+//! pin line for context — they are useful to see the impact of NCFX at
+//! a glance and help anyone re-running the audit in the future.
 
 use nalgebra::Vector3;
 use pwdft_rs::{
@@ -262,10 +262,10 @@ fn vgc5_si_per_component() {
     print_side_by_side("Si diamond", &result, &QeReference::si());
 
     // -------- Regression pins (pwdft-rs, NOT QE-match) --------
-    // PRE-NCFX baseline as of VGC5 (a161221 HEAD, before any fix). If these
-    // shift, the test records the new numbers via the failure message —
-    // update pins to match. Per-component tolerances are 0.05 eV (CI /
-    // machine noise budget). All pins below are PRE-NCFX values.
+    // Post-NCFX values (see `proposals/completed/NCFX-nlcc-core-density-fix.md`).
+    // Per-component tolerances are 0.05 eV (CI / machine noise budget). If
+    // these shift, the failure message records the new numbers — update the
+    // pins to match and note the follow-up proposal that caused the change.
     let tol = 0.05;
     let pin = |name: &str, got: f64, expected: f64| {
         let d = (got - expected).abs();
@@ -276,15 +276,15 @@ fn vgc5_si_per_component() {
     };
 
     let c = &result.components;
-    pin("E_band",             c.e_band,             -1.4683); // PRE-NCFX
-    pin("E_kinetic",          c.e_kinetic,          82.8657); // PRE-NCFX
-    pin("E_local (G≠0)",      c.e_local,           -58.4678); // PRE-NCFX
-    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   10.7447); // PRE-NCFX
-    pin("E_nonlocal",         c.e_nonlocal,         33.4650); // PRE-NCFX
-    pin("E_hartree",          c.e_hartree,          13.5930); // PRE-NCFX
-    pin("E_xc",               c.e_xc,              -70.6575); // PRE-NCFX
-    pin("E_ewald",            c.e_ewald,          -228.5192); // PRE-NCFX
-    pin("E_total",            result.total_energy, -218.1806); // PRE-NCFX
+    pin("E_band",             c.e_band,             -3.6189); // PRE-NCFX: -1.4683
+    pin("E_kinetic",          c.e_kinetic,          83.7203); // PRE-NCFX:  82.8657
+    pin("E_local (G≠0)",      c.e_local,           -62.1961); // PRE-NCFX: -58.4678
+    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   10.7447); // PRE-NCFX:  10.7447 (unchanged)
+    pin("E_nonlocal",         c.e_nonlocal,         35.9570); // PRE-NCFX:  33.4650
+    pin("E_hartree",          c.e_hartree,          14.3111); // PRE-NCFX:  13.5930  (Δ_QE: −1.51 → −0.79)
+    pin("E_xc",               c.e_xc,              -84.7026); // PRE-NCFX: -70.6575  (Δ_QE: +13.74 → −0.31)
+    pin("E_ewald",            c.e_ewald,          -228.5192); // PRE-NCFX: -228.5192 (unchanged)
+    pin("E_total",            result.total_energy, -231.8653); // PRE-NCFX: -218.1806 (Δ_QE: +13.43 → −0.26)
 }
 
 /// VGC5 Fe BCC per-component audit.
@@ -351,16 +351,17 @@ fn vgc5_fe_per_component() {
     assert!(result.total_energy.is_finite(), "Fe total energy is NaN");
     assert!(c.e_band.is_finite() && c.e_kinetic.is_finite(), "Fe components are NaN");
 
-    // PRE-NCFX: Pinned from the first converged run under VGC5 (a161221 +
-    // VGC5 patch). nspin=1, 4×4×4 MP, ecut=15 Ry, Kerker, 150 iters. Not
-    // byte-matched to QE (nspin=2, 8×8×8); these are regression guards only.
-    pin("E_band",             c.e_band,           -411.2020); // PRE-NCFX
-    pin("E_kinetic",          c.e_kinetic,         942.2052); // PRE-NCFX
-    pin("E_local (G≠0)",      c.e_local,         -1749.3601); // PRE-NCFX
-    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   82.7774); // PRE-NCFX
-    pin("E_nonlocal",         c.e_nonlocal,         38.9673); // PRE-NCFX
-    pin("E_hartree",          c.e_hartree,         363.4925); // PRE-NCFX
-    pin("E_xc",               c.e_xc,             -442.1090); // PRE-NCFX
-    pin("E_ewald",            c.e_ewald,         -2337.1672); // PRE-NCFX
-    pin("E_total",            result.total_energy, -3101.2389); // PRE-NCFX
+    // Post-NCFX pins: nspin=1, 4×4×4 MP, ecut=15 Ry, Kerker, 150 iters.
+    // Not byte-matched to QE (nspin=2, 8×8×8); these are regression guards
+    // only. See `proposals/completed/NCFX-nlcc-core-density-fix.md` for the
+    // impact of NCFX on these numbers.
+    pin("E_band",             c.e_band,           -419.6026); // PRE-NCFX: -411.2020
+    pin("E_kinetic",          c.e_kinetic,         942.0082); // PRE-NCFX:  942.2052
+    pin("E_local (G≠0)",      c.e_local,         -1748.8396); // PRE-NCFX: -1749.3601
+    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   82.7774); // PRE-NCFX:   82.7774 (unchanged)
+    pin("E_nonlocal",         c.e_nonlocal,         38.7678); // PRE-NCFX:   38.9673
+    pin("E_hartree",          c.e_hartree,         363.1071); // PRE-NCFX:  363.4925
+    pin("E_xc",               c.e_xc,             -392.5675); // PRE-NCFX: -442.1090 (Δ_QE: −48.85 → +0.69)
+    pin("E_ewald",            c.e_ewald,         -2337.1672); // PRE-NCFX: -2337.1672 (unchanged)
+    pin("E_total",            result.total_energy, -3051.8909); // PRE-NCFX: -3101.2389 (Δ_QE: −41.08 → +8.27)
 }

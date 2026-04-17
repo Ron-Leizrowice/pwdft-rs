@@ -8,10 +8,9 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| NCFX | NLCC Core-Density Unit and Radial-Weight Fix | small | low | — | — |
 | PCFX | Density symmetrization in G-space (non-symmorphic τ fix) | medium | medium | — | — |
 
-**2026-04-17:** VGCMP Phases 1-4 + VGC5 all done. Entire PP→H assembly pipeline is bit-correct vs QE (V_local(G), β_l(q), D_ij, H[G,G] all at ULP). VGC5 localized the 13.4 eV Si gap to **E_xc** (Δ = +13.74 eV on Si; Fe shows Δ_xc = −48.85 eV). Root cause: NLCC `PP_NLCC` parsed with wrong units (`/BOHR_TO_ANG` instead of `/BOHR_TO_ANG³`) + Bessel transform missing `r²`/`4π` weights — captured as **NCFX** (critical-path fix in flight). V_local(G=0) compensating shift ruled out — already present.
+**2026-04-18:** NCFX landed (closed the 13.4 eV Si gap to 0.26 eV — 52× reduction). Remaining critical item is PCFX: real-space density symmetrization uses `nint`-based rotation on 18³ grid and can't represent Fd-3m's τ=(1/4,1/4,1/4); fix is G-space phase-factor symmetrization (QE-style). Residual on Si traced to PCFX + MP-shifted grid (SYKP territory).
 
 ### High — Foundation & Code Quality
 
@@ -102,16 +101,17 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | VGC5 | Per-Component Energy Accounting (VGCMP Phase 5) — localized 13.4 eV Si gap to E_xc / NLCC |
 | DBGC | `ScfResult` Debug derive + GPU reference consts (TAUD nits) |
 | PCRS | Per-Component Energy Residual Investigation (traced 1.2 eV to non-symmorphic τ symmetrization → PCFX) |
+| NCFX | NLCC Core-Density Unit and Radial-Weight Fix (closes the 13.4 eV Si gap: 13.43 → 0.26 eV) |
 
 ## Notes
 
-- **VGCMP + VGC5** (all phases done): the entire PP→H assembly pipeline is bit-correct vs QE. Per-component decomposition localized the 13.4 eV Si gap to E_xc (Δ_xc = +13.74 eV Si, −48.85 eV Fe). Root cause captured as **NCFX**. Prime suspect (V_local(G=0) shift) ruled out — already present.
+- **VGCMP + VGC5 + NCFX** (all done): the entire PP→H assembly pipeline is bit-correct vs QE, and NCFX (NLCC unit conversion + missing r²·4π in Bessel FT) closed the 13.4 eV Si gap to 0.26 eV. Residual attributed to Monkhorst-Pack shifted-vs-Γ-centered grid convention (SYKP). Prime suspect (V_local(G=0) shift) ruled out — already present.
 - **CCMX** (active): Independent Anderson mixers on `(ρ↑, ρ↓)` can't converge Fe fixed-mag=2 (limit cycle). Fix is to mix `(ρ_total, m)` instead, matching QE's `rhoz_or_updw` basis change.
 - **TAUD** (done): all 5 PRs landed. PR D uncovered a sign-flipped V_local in the test's QE Cube reference (NOT in our Rust code — VGCMP Phase 1 already proved Rust correct). Captured as VLQR. Test re-`#[ignore]`'d with diagnostic numbers in the reason string.
 - **XCPR** (done 2026-04-17): Steps 1+2 (XC grid) + Step 3 (spin-channel `rayon::join`) all landed. Step 3 speedup 1.12–1.24× (faer's internal gemm already saturates 8 cores during eigensolve); ceiling ~2× after ITEV drops per-k eigensolve cost.
 - **CFGN** all dependencies satisfied (DDUP + SIMP done).
 - **BROY** landed core algorithm only; adaptive-beta (MXBA) and periodic Pulay (PRPL) follow-ups are now open proposals.
-- **NLCC** audit (2026-04-17): code-path audit against QE `v_of_rho.f90` verified Hartree/electron-count/LSDA-split/XC-double-counting invariants. Hierarchy is fine, but VGC5 (2026-04-17 later) found that the UNDERLYING `PP_NLCC` storage convention was misread in `src/pseudopotential/upf.rs:94-111` and `src/scf/potentials.rs:92-107`: PP_NLCC stores bare `ρ_core(r)` in e/Bohr³, not `4πr²·ρ` in e/Bohr. Also missing `r²·4π` in the Bessel FT. Captured as **NCFX** (critical). The NLCC audit's Part A/B/C (unit tests, Fe integration, docs) should land AFTER NCFX closes the numeric gap.
+- **NLCC** audit (2026-04-17): code-path audit against QE `v_of_rho.f90` verified Hartree/electron-count/LSDA-split/XC-double-counting invariants. **NCFX** (now landed) fixed the underlying storage-convention bug (`PP_NLCC` bare ρ_core in e/Bohr³, not 4πr²·ρ in e/Bohr) + missing r²·4π in the Bessel FT. The NLCC audit's Part A/B/C (unit tests, Fe integration, docs) is now unblocked.
 - **HD5I** references deleted `src/input.rs` — update to YAML Settings when implementing.
 - **SOPT** (done 2026-04-17): refactored `ScfContext.symmetry: Option<&SymmetryInfo>` to always-present with identity-only fallback. Review caught a P1+TR regression in the initial `is_trivial()` short-circuit in main.rs; fixed by dropping the branch and tightening the predicate. Regression test pins the behavior.
 - **ITEV** (new 2026-04-17, Performance Engineer): Post-FFTB/FMAD profiling shows eigensolver at 85-90% of SCF user CPU (n_pw=259: 56 ms/call; n_pw=725: 836 ms/call). `faer 0.24` ships `matrix_free::eigen::partial_self_adjoint_eigen` (implicitly-restarted Arnoldi, matrix-free via `LinOp`, warm-start via `v0`). Supersedes DVSN's hand-rolled Davidson plan. Projected 2.5-4× SCF wall-time speedup at production sizes. WFRX becomes the warm-start knob.
