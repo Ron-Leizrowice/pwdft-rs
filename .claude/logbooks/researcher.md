@@ -136,3 +136,57 @@ Artifacts: `scripts/validate/beta_q_reference.py`,
 **β_l(q) is not the Si 13.43 eV culprit.** Remaining pseudopotential suspects:
 D_ij (Phase 3), KB assembly at `src/potential/nonlocal.rs:118-208` (Phase 4).
 If those also pass, the gap lives in Ewald, structure factors, or symmetry.
+
+## 2026-04-17 — SYKP: Si 4×4×4 IBZ reduction (10 vs 8) classified
+
+**Classification (b): convention mismatch, not a bug.**
+
+pwdft-rs' `monkhorst_pack` (`src/kpoints.rs:30-34`) hard-codes the shifted
+MP-1976 convention: frac = `(2i - N + 1)/(2N)` = `{-3/8,-1/8,1/8,3/8}` for
+N=4. QE's `qe_validation/si_scf.in` uses `4 4 4 0 0 0` which is the
+Γ-centered unshifted grid `{0, 1/4, 1/2, 3/4}` (different grid,
+same density). Per `qe-7.5/PW/src/kpoint_grid.f90:67-78` the QE formula
+is `xkg = (i-1)/nk + k1/(2·nk)`; with `k1=1` QE reproduces our grid.
+
+Therefore our 10 IBZ is the correct reduction of the **shifted** grid
+and QE's 8 IBZ is the correct reduction of the **unshifted** grid.
+The assertion comment in `src/symmetry/kpoints.rs:148-151` ("10 due to
+incomplete boundary handling") is wrong and should be rewritten — logged
+as deliverable D1 in the proposal.
+
+### Does it explain the 13.4 eV Si gap? No.
+
+- k-sampling convergence error at 4×4×4 is < 10 meV for either grid;
+  cannot produce 13,400 meV.
+- The gap signatures (Γ degeneracy broken, ~1.66 eV/electron) are
+  k-independent — they're form-factor/quadrature artefacts in V_local
+  and KB projectors (VGCMP / SIMP / VERF class).
+- A residual sub-meV apples-to-oranges effect exists because pwdft-rs
+  and QE sample physically different k-meshes, but that's swallowed by
+  the 0.05–0.1 eV `tests/qe_validation.rs` tolerances.
+
+### QE source cited
+
+- `qe-7.5/PW/src/kpoint_grid.f90:67-170` — MP generator + IBZ reduction.
+- `qe-7.5/PW/src/setup.f90:673` — `wk *= degspin` explains the printed
+  QE wk sum of 2.0 vs our 1.0.
+- `qe_validation/si_scf.out:672-691` — QE's 8 IBZ points for Si.
+
+### Symmetry detector verified clean
+
+- 48 ops for Si Fd-3m (`test_si_fcc_48_operations`).
+- Group closure passes (`test_si_group_closure`).
+- Grid-index roundtrip covers all 64 MP points (`test_mp_fractional_roundtrip`).
+- `(R^{-1})^T` reciprocal-space rotation is correct
+  (`src/symmetry/operations.rs:142-152`).
+
+### Follow-ups (deferred)
+
+- **D1** (docstring fix): update docstrings on `monkhorst_pack` and
+  `reduce_kpoints`; fix the misleading comment in
+  `test_si_4x4x4_reduces_to_8`. Core Engineer task.
+- **D2** (new proposal if needed): add MP shift parameter to
+  `KPointSettings::MonkhorstPack` so users can run the Γ-centered grid
+  for byte-identical QE comparison. Suggested ID: `MPSH`.
+
+Proposal: `proposals/SYKP-symmetry-ibz-audit.md` (status: documented).

@@ -47,6 +47,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | HD5I | HDF5 Restart and Structured Output | large | medium | — | — |
 | SPRS | Sparse Matrix Support | large | medium | DVSN | — |
 | CUCL | CubeCL GPU Kernels | large | high | — | — |
+| SYKP | Audit Si 4×4×4 IBZ reduction (documented: convention mismatch, no code change) | small | low | — | — |
 
 ## Reference Documents
 
