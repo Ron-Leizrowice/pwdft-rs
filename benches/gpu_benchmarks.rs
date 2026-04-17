@@ -2,7 +2,8 @@
 //!
 //! Run with: cargo bench --features gpu --bench gpu_benchmarks
 
-use criterion::{Criterion, criterion_group, criterion_main, black_box};
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 use num_complex::Complex64;
 
 use pwdft_rs::gpu::GpuAccelerator;

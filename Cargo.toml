@@ -53,17 +53,18 @@ unreadable_literal = "warn"
 manual_let_else = "warn"
 
 # --- QLNT additions (Tier-1 quality lints) ---
-manual_midpoint = "warn"
-redundant_clone = "warn"
-match_same_arms = "warn"
-semicolon_if_nothing_returned = "warn"
+doc_link_with_quotes = "warn"
 explicit_iter_loop = "warn"
 implicit_clone = "warn"
 inefficient_to_string = "warn"
-unnecessary_wraps = "warn"
 items_after_statements = "warn"
-doc_link_with_quotes = "warn"
+manual_div_ceil = "warn"
+manual_midpoint = "warn"
+match_same_arms = "warn"
+redundant_clone = "warn"
+semicolon_if_nothing_returned = "warn"
 unnecessary_box_returns = "warn"
+unnecessary_wraps = "warn"
 
 [profile.release]
 opt-level = 3
