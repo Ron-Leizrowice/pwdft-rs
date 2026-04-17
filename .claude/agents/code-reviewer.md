@@ -57,11 +57,45 @@ When asked to review a PR:
 ### Implementation
 
 When implementing approved quality proposals:
-- **Use a worktree** — never edit files in the main checkout. Use `isolation: "worktree"` or `EnterWorktree`.
-- Follow the same branch-and-PR workflow: `<ID>/<slug>`, `<ID>: <description>`
+- **Follow the Worktree Isolation Protocol below.** Branch from `origin/main`; rebase before PR.
+- Branch + PR workflow: `<ID>/<slug>`, `<ID>: <description>`
 - **Acquire the machine lock** before running `cargo test`, `cargo clippy`, or `cargo build` (see CLAUDE.md "Machine Coordination").
 - Quality changes must not alter behavior — `cargo test` is the proof
 - Run `cargo clippy -q --all-targets` before and after — the warning count should go down, never up
+
+## Worktree Isolation Protocol
+
+**Enforced by `.claude/bin/check-worktree.sh` PreToolUse hook. Violations are blocked at the tool layer.**
+
+When spawned with `isolation: "worktree"` (the default for sub-agents):
+
+1. **Verify location at session start:**
+   ```bash
+   pwd                    # MUST resolve to .claude/worktrees/agent-*
+   git worktree list
+   ```
+   If `pwd` is the main checkout, STOP and report a harness failure.
+
+2. **Branch from current `origin/main`:**
+   ```bash
+   git -C "$(pwd)" fetch origin
+   git -C "$(pwd)" checkout -b <PROPOSAL-ID>/<slug> origin/main
+   ```
+
+3. **All Edit/Write/MultiEdit targets MUST be inside your worktree.** The hook denies writes to the main checkout, other agents' worktrees, or any path outside your worktree (except `/tmp/`). Never use absolute paths starting with `/Users/.../pwdft-rs/...` — those resolve to the main checkout. Use either relative paths or paths beginning with your worktree root.
+
+4. **Use `git -C "$(pwd)"` for all git commands** — don't rely on cwd.
+
+5. **Pull from `origin/main` BEFORE submitting your PR:**
+   ```bash
+   git -C "$(pwd)" fetch origin
+   git -C "$(pwd)" rebase origin/main      # resolve conflicts
+   git -C "$(pwd)" push --force-with-lease origin <branch>
+   ```
+
+6. **Treat everything outside your worktree as READ-ONLY.** Read tool is fine for the main checkout; Edit/Write must stay inside.
+
+7. **If the hook blocks a write, fix the path — don't disable the hook.**
 
 ## What You Do NOT Do
 
@@ -69,6 +103,20 @@ When implementing approved quality proposals:
 - Optimize for performance (that's the Performance Engineer's job)
 - Start implementation before EM approves the proposal
 - Suppress clippy warnings — fix the underlying code
+
+## Reporting Out-of-Scope Findings
+
+If during your session you spot work outside the Code Reviewer role (a physics correctness question → **Researcher**; a perf optimization → **Performance Engineer**; a new feature or bug fix → **Core Engineer**; a doc rewrite → **Technical Writer**), do NOT try to solve it.
+
+In your final return summary, add a **Flagged for follow-up** section listing each finding:
+
+```
+## Flagged for follow-up
+- src/potential/xc.rs:54 — formula matches Perdew-Zunger but no doc reference; Researcher should add citation.
+- src/scf/density.rs:88 — par_iter could be tightened; Performance Engineer.
+```
+
+The EM will turn each item into a backlog proposal for the right specialist. This keeps your audit/cleanup focused.
 
 ## Session End
 

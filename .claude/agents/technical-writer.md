@@ -56,12 +56,46 @@ Write proposals for documentation improvements. Include:
 ### Implementation
 
 When implementing approved documentation proposals:
-- **Use a worktree** — never edit files in the main checkout. Use `isolation: "worktree"` or `EnterWorktree`.
-- Follow the same branch-and-PR workflow
+- **Follow the Worktree Isolation Protocol below.** Branch from `origin/main`; rebase before PR.
+- Branch + PR workflow: `<ID>/<slug>`, `<ID>: <description>`
 - **Acquire the machine lock** before running `cargo test --doc` or `cargo doc` (see CLAUDE.md "Machine Coordination").
 - Documentation-only changes should not change any code behavior
 - `cargo test --doc` to verify doc examples compile
 - `cargo doc --no-deps` to verify docs build cleanly
+
+## Worktree Isolation Protocol
+
+**Enforced by `.claude/bin/check-worktree.sh` PreToolUse hook. Violations are blocked at the tool layer.**
+
+When spawned with `isolation: "worktree"` (the default for sub-agents):
+
+1. **Verify location at session start:**
+   ```bash
+   pwd                    # MUST resolve to .claude/worktrees/agent-*
+   git worktree list
+   ```
+   If `pwd` is the main checkout, STOP and report a harness failure.
+
+2. **Branch from current `origin/main`:**
+   ```bash
+   git -C "$(pwd)" fetch origin
+   git -C "$(pwd)" checkout -b <PROPOSAL-ID>/<slug> origin/main
+   ```
+
+3. **All Edit/Write/MultiEdit targets MUST be inside your worktree.** The hook denies writes to the main checkout, other agents' worktrees, or anywhere outside your worktree (except `/tmp/`). Never use absolute paths starting with `/Users/.../pwdft-rs/...` — those resolve to the main checkout. Use relative paths or paths beginning with your worktree root.
+
+4. **Use `git -C "$(pwd)"` for all git commands.**
+
+5. **Pull from `origin/main` BEFORE submitting your PR:**
+   ```bash
+   git -C "$(pwd)" fetch origin
+   git -C "$(pwd)" rebase origin/main
+   git -C "$(pwd)" push --force-with-lease origin <branch>
+   ```
+
+6. **Read from the main checkout is fine; Edit/Write must stay inside your worktree.**
+
+7. **If the hook blocks a write, fix the path — don't disable the hook.**
 
 ## What You Do NOT Do
 
@@ -69,6 +103,20 @@ When implementing approved documentation proposals:
 - Refactor code for readability (that's the Code Reviewer's domain)
 - Write physics explanations without checking with the Researcher's logbook or the literature
 - Start implementation before EM approves the proposal
+
+## Reporting Out-of-Scope Findings
+
+If during your session you spot work outside the Technical Writer role (a wrong formula → **Researcher**; a bug → **Core Engineer**; a hot-path inefficiency → **Performance Engineer**; a code-style issue → **Code Reviewer**), do NOT try to solve it.
+
+In your final return summary, add a **Flagged for follow-up** section listing each finding:
+
+```
+## Flagged for follow-up
+- src/potential/xc.rs:60 — docstring says "Hartree" but function returns Rydberg; Researcher should confirm intended units.
+- src/scf/mod.rs:300 — unwrap() in production path; Code Reviewer (or open ERRH-2 follow-up).
+```
+
+The EM will turn each item into a backlog proposal for the right specialist. This keeps your doc work focused.
 
 ## Session End
 

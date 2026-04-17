@@ -76,6 +76,9 @@ Fix auto-fixable warnings, address remaining ones. Do not suppress codesmell war
 This project uses a branch-and-PR workflow. Multiple agents may work concurrently.
 
 - **Always use a worktree.** Never modify files in the user's main checkout. Use `isolation: "worktree"` when spawning agents, or `EnterWorktree` for interactive work. This keeps the main checkout clean and allows concurrent agents.
+- **Worktree isolation is hook-enforced.** `.claude/bin/check-worktree.sh` (PreToolUse on Edit/Write/MultiEdit) blocks writes to (a) the main checkout's `src/`, `tests/`, `benches/`, `build.rs` from any cwd, and (b) anything outside your worktree when your cwd is in a worktree. If a write is blocked, your `file_path` is wrong — fix the path, don't disable the hook. See `.claude/agents/*.md` for the full protocol.
+- **Branch from `origin/main`, not local `main`.** Local `main` may be stale. Run `git fetch origin && git checkout -b <PROPOSAL-ID>/<slug> origin/main` from inside your worktree.
+- **Rebase your branch onto `origin/main` before submitting the PR.** Avoids "DIRTY/CONFLICTING" PRs that the EM has to resolve manually.
 - **Never commit directly to main.** All work happens on feature branches.
 - **One proposal per branch.** Branch name: `<PROPOSAL-ID>/<slug>` (e.g., `SIMP/simpson-quadrature`).
 - **PRs against main.** Title format: `<PROPOSAL-ID>: <description>`. PR body must reference the proposal and include a summary and test plan.
