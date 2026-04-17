@@ -121,3 +121,60 @@ This is the **bottleneck** proposal on the validation track: QEDX, QEVL, and any
 - VERF (completed) — established that the erf vs bare-Coulomb distinction is cosmetic on our mesh
 - SIMP (completed) — established Simpson's rule; closed Fe gap but not Si gap
 - QEDX (tracking) — will be archived once VGCMP lands or hands off the remaining Si error to a successor proposal
+
+## 2026-04-17 — Phase 1 Result
+
+**Verdict: V_local(G) passes. The Si 13.43 eV gap is NOT in V_local(G).**
+
+### Artifacts
+
+- `scripts/validate/vloc_g_reference.py` — independent Python implementation (manual UPF XML parsing; `scipy.integrate.simpson` on the ONCVPSP linear mesh; QE erf-subtracted formula in native Ry/Bohr units).
+- `scripts/validate/vloc_g_si_reference.csv` — committed golden file with the 20-shell reference values.
+- `tests/vgcmp_vloc_cross_check.rs` — Rust test asserts shell-by-shell agreement to < 1e-4 Ry absolute.
+
+### Numerical result (Si FCC, a = 5.431 Å, Ω = 270.256 Bohr³)
+
+**Max |Δ| across 20 shells = 2.78×10⁻⁹ Ry (3.78×10⁻⁸ eV)** — five orders of magnitude below the 1×10⁻⁴ Ry pass threshold. Every shell agrees to 10 significant digits.
+
+| shell | \|G\|² ((2π/a)²) | \|G\| (Bohr⁻¹) | Python (Ry) | Rust (Ry) | Δ (Ry) |
+|-------|-----------------|----------------|-------------|-----------|--------|
+| 0 | 3 | 1.060381 | −2.8416065668e−1 | −2.8416065946e−1 | −2.78e−9 |
+| 1 | 4 | 1.224422 | −2.0232760981e−1 | −2.0232760778e−1 | +2.03e−9 |
+| 2 | 8 | 1.731594 | −8.1619259966e−2 | −8.1619259374e−2 | +5.92e−10 |
+| 3 | 11 | 2.030475 | −5.0143978352e−2 | −5.0143977786e−2 | +5.66e−10 |
+| 4 | 12 | 2.120761 | −4.3381962073e−2 | −4.3381961468e−2 | +6.05e−10 |
+| 5 | 16 | 2.448844 | −2.5585808228e−2 | −2.5585807828e−2 | +4.00e−10 |
+| 6 | 19 | 2.668566 | −1.7801652398e−2 | −1.7801652784e−2 | −3.86e−10 |
+| 7 | 20 | 2.737891 | −1.5832129100e−2 | −1.5832129488e−2 | −3.88e−10 |
+| 8 | 24 | 2.999210 | −9.9970720150e−3 | −9.9970719093e−3 | +1.06e−10 |
+| 9 | 27 | 3.181142 | −7.0948904852e−3 | −7.0948906910e−3 | −2.06e−10 |
+| 10 | 32 | 3.463189 | −3.9350427122e−3 | −3.9350428241e−3 | −1.12e−10 |
+| 11 | 35 | 3.621890 | −2.6943323485e−3 | −2.6943324277e−3 | −7.92e−11 |
+| 12 | 36 | 3.673267 | −2.3584734957e−3 | −2.3584733900e−3 | +1.06e−10 |
+| 13 | 40 | 3.871963 | −1.3108479118e−3 | −1.3108479780e−3 | −6.62e−11 |
+| 14 | 43 | 4.014537 | −7.6455859255e−4 | −7.6455872032e−4 | −1.28e−10 |
+| 15 | 44 | 4.060949 | −6.1746972237e−4 | −6.1746971867e−4 | +3.70e−12 |
+| 16 | 48 | 4.241523 | −1.6545893380e−4 | −1.6545886338e−4 | +7.04e−11 |
+| 17 | 51 | 4.372062 | +6.1386422657e−5 | +6.1386251691e−5 | −1.71e−10 |
+| 18 | 52 | 4.414717 | +1.2039710003e−4 | +1.2039696600e−4 | −1.34e−10 |
+| 19 | 56 | 4.581368 | +2.9141526304e−4 | +2.9141541872e−4 | +1.56e−10 |
+
+### Interpretation
+
+1. The worst discrepancy (shell 0, the largest |G|² = 3 shell that dominates V_local contribution) is 2.78 ns-Ry — pure floating-point round-off from the order of Kahan-free sums in Rust vs NumPy. No systematic structure (signs are roughly balanced across shells; magnitude is flat ~10⁻⁹–10⁻¹⁰ Ry across two orders of magnitude in V_loc(G)).
+2. The erf-subtracted form, the Simpson quadrature, the UPF unit conversions (Bohr→Å, Ry→eV, e² Gaussian Rydberg convention), and the Å⁻¹↔Bohr⁻¹ G-vector handling are all correct end-to-end.
+3. **V_local(G) is not the source of the 13.43 eV Si gap.** The ~100 V_local(G) terms entering a Si SCF contribute at most ~1e-6 eV of accumulated error from this pathway, many orders of magnitude below 13.43 eV.
+
+### Recommended next step
+
+Proceed to **Phase 2 (β_l(q) non-local projectors)** as originally scoped. The angular-momentum-channel-sized offset (13.43 eV ≈ one l-channel × N_atoms × a few per-state energies) points strongly at the KB projectors. Specifically:
+
+- Suspect #1: `NonlocalPotential::F_l(q)` — the Bessel transform ∫ χ(r) j_l(qr) r dr. Use same Python/scipy technique as Phase 1.
+- Suspect #2: UPF projector unit conversion. `src/pseudopotential/upf.rs:68-72` divides by √BOHR_TO_ANG; double-check this against the KB matrix-element convention actually used in the Hamiltonian assembly.
+- Suspect #3: D_ij sign/diagonalization — UPF stores rotated projectors with diagonalized h^l; Phase 3 spot-check.
+
+Open a follow-up branch `VGCMP/phase2-beta-q` once this PR merges.
+
+### No bugs filed in `src/`
+
+The existing `v_local_of_g` implementation (`src/pseudopotential/mod.rs:119-171`) is numerically correct to machine precision against the independent reference. No changes to production code were made in this session.

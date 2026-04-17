@@ -107,3 +107,17 @@ version now added.
   `Fe_dalcorso.upf` at higher cutoff post-VERF to exercise magnetism.
 - C diamond non-convergence may deserve its own proposal (high-ecut
   light-element mixing tuning) once Si offset is cleared.
+
+## 2026-04-17 — VGCMP Phase 1: V_local(G) cleared
+
+Si V_local(G) agrees with independent Python (scipy simpson on UPF mesh,
+QE erf-subtracted formula) to **max |Δ| = 2.78e-9 Ry (3.78e-8 eV)** across
+20 shells (|G|² = 3..56 in (2π/a)²). Tolerance was 1e-4 Ry; we beat it by
+five orders of magnitude. V_local(G) is **not** the Si 13.43 eV culprit.
+
+Artifacts: `scripts/validate/vloc_g_reference.py`,
+`scripts/validate/vloc_g_si_reference.csv`, `tests/vgcmp_vloc_cross_check.rs`.
+Next: Phase 2 (β_l(q) KB projectors) — follow-up branch `VGCMP/phase2-beta-q`.
+Primary suspect now is the non-local KB machinery, specifically the
+F_l(q) Bessel transform and/or the √BOHR_TO_ANG projector unit conversion
+in `src/pseudopotential/upf.rs:68-72`.
