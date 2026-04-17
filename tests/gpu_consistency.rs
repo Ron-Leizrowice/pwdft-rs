@@ -343,7 +343,7 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
 
     eprintln!("GPU SCF physical constraints: all passed");
     if let Some(evs) = gpu_result.eigenvalues.first() {
-        eprintln!("Gamma eigenvalues: {:?}", evs);
+        eprintln!("Gamma eigenvalues: {evs:?}");
     }
 }
 

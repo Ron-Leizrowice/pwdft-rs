@@ -76,7 +76,7 @@ struct GridParams {
 const WORKGROUP_SIZE: u32 = 256;
 
 fn dispatch_size(n: u32) -> u32 {
-    (n + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE
+    n.div_ceil(WORKGROUP_SIZE)
 }
 
 impl GpuAccelerator {
@@ -231,42 +231,42 @@ impl GpuAccelerator {
         let params_buf = self.create_uniform_buffer(&params);
 
         // Use pooled buffers if available and sized correctly
-        if let Some(ref pool) = self.pool {
-            if pool.n_grid == n_grid {
-                let rho_buf = &pool.complex_bufs[0];
-                let out_buf = &pool.complex_bufs[1];
-                // SAFETY: g_squared_buf is always set by prepare_buffers(),
-                // which runs before any kernel call on the pooled path.
-                let g2_buf = pool.g_squared_buf.as_ref()
-                    .expect("BUG: g_squared buffer not allocated despite pool being ready");
+        if let Some(ref pool) = self.pool
+            && pool.n_grid == n_grid
+        {
+            let rho_buf = &pool.complex_bufs[0];
+            let out_buf = &pool.complex_bufs[1];
+            // SAFETY: g_squared_buf is always set by prepare_buffers(),
+            // which runs before any kernel call on the pooled path.
+            let g2_buf = pool.g_squared_buf.as_ref()
+                .expect("BUG: g_squared buffer not allocated despite pool being ready");
 
-                self.queue.write_buffer(rho_buf, 0, bytemuck::cast_slice(&rho_f32));
+            self.queue.write_buffer(rho_buf, 0, bytemuck::cast_slice(&rho_f32));
 
-                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("hartree"),
-                    layout: &self.hartree_pipeline.get_bind_group_layout(0),
-                    entries: &[
-                        wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 1, resource: rho_buf.as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 2, resource: g2_buf.as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 3, resource: out_buf.as_entire_binding() },
-                    ],
-                });
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("hartree"),
+                layout: &self.hartree_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: rho_buf.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 2, resource: g2_buf.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 3, resource: out_buf.as_entire_binding() },
+                ],
+            });
 
-                let mut encoder = self.device.create_command_encoder(&Default::default());
-                {
-                    let mut pass = encoder.begin_compute_pass(&Default::default());
-                    pass.set_pipeline(&self.hartree_pipeline);
-                    pass.set_bind_group(0, &bind_group, &[]);
-                    pass.dispatch_workgroups(dispatch_size(n_grid as u32), 1, 1);
-                }
-                let byte_size = (rho_f32.len() * std::mem::size_of::<f32>()) as u64;
-                encoder.copy_buffer_to_buffer(out_buf, 0, &pool.complex_staging, 0, byte_size);
-                self.queue.submit(std::iter::once(encoder.finish()));
-
-                let result_f32 = self.read_staging_buffer(&pool.complex_staging, rho_f32.len());
-                return f32_pairs_to_complex(&result_f32);
+            let mut encoder = self.device.create_command_encoder(&Default::default());
+            {
+                let mut pass = encoder.begin_compute_pass(&Default::default());
+                pass.set_pipeline(&self.hartree_pipeline);
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.dispatch_workgroups(dispatch_size(n_grid as u32), 1, 1);
             }
+            let byte_size = (rho_f32.len() * std::mem::size_of::<f32>()) as u64;
+            encoder.copy_buffer_to_buffer(out_buf, 0, &pool.complex_staging, 0, byte_size);
+            self.queue.submit(std::iter::once(encoder.finish()));
+
+            let result_f32 = self.read_staging_buffer(&pool.complex_staging, rho_f32.len());
+            return f32_pairs_to_complex(&result_f32);
         }
 
         // Fallback: allocate fresh buffers
