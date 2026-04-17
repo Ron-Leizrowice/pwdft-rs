@@ -47,7 +47,7 @@ Sub-agents are instructed to add a `## Flagged for follow-up` section to their f
 This pattern is how findings from inside one role's work get routed to the right specialist without scope creep.
 
 ### Quality gate
-- Every merge must pass `cargo test` and `cargo clippy -q --all-targets`
+- Every merge must pass `cargo test`, `cargo clippy -q --all-targets`, **and** `cargo clippy -q --all-targets --features gpu` — both clippy invocations are required because the default-feature run does not lint the `gpu/` source tree or the GPU-only test binaries (see CLAUDE.md § Code Quality)
 - Physics changes require validation evidence (QE comparison, numerical tests)
 - No new `unwrap()` or `panic!()` in production code paths
 
@@ -59,6 +59,7 @@ When reviewing a PR (`gh pr view <n>`, `gh pr diff <n>`):
 - [ ] Changes match the proposal's Implementation section — no scope creep
 - [ ] `cargo test` passes
 - [ ] `cargo clippy -q --all-targets` is clean
+- [ ] `cargo clippy -q --all-targets --features gpu` is clean (lints the `gpu/` tree + GPU test binaries; see CLAUDE.md § Code Quality)
 - [ ] No hardcoded magic numbers introduced (see CFGN proposal)
 - [ ] No new `unwrap()` or `panic!()` in production paths
 - [ ] Physics changes have verification (QE comparison, unit test with known values)

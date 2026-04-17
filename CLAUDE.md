@@ -42,10 +42,11 @@ Integration tests in `tests/`: free-electron band validation (Si, C diamond, BCC
 After finishing a batch of work, always run:
 ```bash
 cargo clippy -q --fix --allow-dirty --allow-staged --all-targets
-cargo clippy -q --all-targets  # check remaining warnings
-cargo test                     # verify nothing broke
+cargo clippy -q --all-targets                  # default-feature warnings
+cargo clippy -q --all-targets --features gpu   # GPU feature warnings
+cargo test                                     # verify nothing broke
 ```
-Fix auto-fixable warnings, address remaining ones. Do not suppress codesmell warnings like `too_many_arguments` — refactor the code instead.
+Both clippy invocations are required: without `--features gpu`, the `gpu/` source tree and the GPU-only test binaries are not linted, so warnings accumulate silently (QLN2 caught an `uninlined_format_args` violation in `tests/gpu_consistency.rs` that had slipped past the default-feature gate for weeks). Fix auto-fixable warnings, address remaining ones. Do not suppress codesmell warnings like `too_many_arguments` — refactor the code instead.
 
 ## Architecture
 
@@ -82,7 +83,7 @@ This project uses a branch-and-PR workflow. Multiple agents may work concurrentl
 - **Never commit directly to main.** All work happens on feature branches.
 - **One proposal per branch.** Branch name: `<PROPOSAL-ID>/<slug>` (e.g., `SIMP/simpson-quadrature`).
 - **PRs against main.** Title format: `<PROPOSAL-ID>: <description>`. PR body must reference the proposal and include a summary and test plan.
-- **Quality gate before PR:** `cargo test` and `cargo clippy -q --all-targets` must pass.
+- **Quality gate before PR:** `cargo test` plus both `cargo clippy -q --all-targets` and `cargo clippy -q --all-targets --features gpu` must pass (see § Code Quality for why both clippy invocations are required).
 - **Commit messages:** `<PROPOSAL-ID>: <imperative description>`.
 - **Proposals drive work.** See `proposals/INDEX.md` for the backlog. Each proposal has a 4-letter ID (e.g., `SIMP`), frontmatter with priority/complexity/risk/dependencies, and an implementation plan.
 - **Propose first, implement after approval.** All roles draft proposals and wait for EM approval before starting work.
