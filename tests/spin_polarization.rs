@@ -75,30 +75,39 @@ fn test_si_nspin2_matches_nspin1() {
     let result1 = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_nspin1, None);
     let result2 = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_nspin2, None);
 
-    match (&result1, &result2) {
-        (Ok(r1), Ok(r2)) => {
-            let de = (r1.total_energy - r2.total_energy).abs();
-            eprintln!("Si nspin=1: E={:.6} eV ({} iters)", r1.total_energy, r1.n_iterations);
-            eprintln!("Si nspin=2: E={:.6} eV ({} iters), M={:.4} μB", r2.total_energy, r2.n_iterations, r2.magnetization);
-            eprintln!("Energy diff: {de:.6} eV");
+    let r1 = result1.expect("nspin=1 must converge");
+    let r2 = result2.expect("nspin=2 must converge");
 
-            // Energies should match within ~0.1 eV (different convergence paths)
-            assert!(
-                de < 0.5,
-                "nspin=1 ({:.4} eV) and nspin=2 ({:.4} eV) energies differ by {de:.4} eV",
-                r1.total_energy, r2.total_energy
-            );
+    // Convergence guard (TAUD finding 5.1): reaching max_iter means SCF did
+    // not actually meet conv_threshold, which earlier silent-pass patterns hid.
+    assert!(
+        r1.n_iterations < params_nspin1.max_iter,
+        "nspin=1 hit max_iter={} without converging",
+        params_nspin1.max_iter
+    );
+    assert!(
+        r2.n_iterations < params_nspin2.max_iter,
+        "nspin=2 hit max_iter={} without converging",
+        params_nspin2.max_iter
+    );
 
-            // Magnetization should be ~0 for non-magnetic Si
-            assert!(
-                r2.magnetization < 0.1,
-                "Si should be non-magnetic, got M={:.4} μB", r2.magnetization
-            );
-        }
-        (Ok(_), Err(e)) => eprintln!("nspin=2 failed: {e}"),
-        (Err(e), Ok(_)) => eprintln!("nspin=1 failed: {e}"),
-        (Err(e1), Err(e2)) => eprintln!("Both failed: {e1}, {e2}"),
-    }
+    let de = (r1.total_energy - r2.total_energy).abs();
+    eprintln!("Si nspin=1: E={:.6} eV ({} iters)", r1.total_energy, r1.n_iterations);
+    eprintln!("Si nspin=2: E={:.6} eV ({} iters), M={:.4} μB", r2.total_energy, r2.n_iterations, r2.magnetization);
+    eprintln!("Energy diff: {de:.6} eV");
+
+    // Energies should match within ~0.1 eV (different convergence paths)
+    assert!(
+        de < 0.5,
+        "nspin=1 ({:.4} eV) and nspin=2 ({:.4} eV) energies differ by {de:.4} eV",
+        r1.total_energy, r2.total_energy
+    );
+
+    // Magnetization should be ~0 for non-magnetic Si
+    assert!(
+        r2.magnetization < 0.1,
+        "Si should be non-magnetic, got M={:.4} μB", r2.magnetization
+    );
 }
 
 #[test]

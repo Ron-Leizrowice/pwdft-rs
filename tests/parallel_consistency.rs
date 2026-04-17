@@ -174,24 +174,36 @@ fn test_scf_serial_vs_parallel() {
     let result_p =
         pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_conv, None);
 
-    // If both converge, eigenvalues should match closely
-    if let (Ok(s), Ok(p)) = (&result_s, &result_p) {
-        assert_eq!(s.eigenvalues.len(), p.eigenvalues.len());
-        for (ik, (evs_s, evs_p)) in s.eigenvalues.iter().zip(p.eigenvalues.iter()).enumerate() {
-            for (ib, (&es, &ep)) in evs_s.iter().zip(evs_p.iter()).enumerate() {
-                assert!(
-                    (es - ep).abs() < 1e-6,
-                    "Eigenvalue mismatch at k={ik} band={ib}: serial={es:.6}, parallel={ep:.6}"
-                );
-            }
+    let s = result_s.expect("serial SCF must converge");
+    let p = result_p.expect("parallel SCF must converge");
+
+    // Convergence guard (TAUD finding 5.1): hitting max_iter is silent failure.
+    assert!(
+        s.n_iterations < params_conv.max_iter,
+        "serial SCF hit max_iter={} without converging",
+        params_conv.max_iter
+    );
+    assert!(
+        p.n_iterations < params_conv.max_iter,
+        "parallel SCF hit max_iter={} without converging",
+        params_conv.max_iter
+    );
+
+    assert_eq!(s.eigenvalues.len(), p.eigenvalues.len());
+    for (ik, (evs_s, evs_p)) in s.eigenvalues.iter().zip(p.eigenvalues.iter()).enumerate() {
+        for (ib, (&es, &ep)) in evs_s.iter().zip(evs_p.iter()).enumerate() {
+            assert!(
+                (es - ep).abs() < 1e-6,
+                "Eigenvalue mismatch at k={ik} band={ib}: serial={es:.6}, parallel={ep:.6}"
+            );
         }
-        assert!(
-            (s.total_energy - p.total_energy).abs() < 1e-4,
-            "Total energy mismatch: serial={:.6}, parallel={:.6}",
-            s.total_energy,
-            p.total_energy
-        );
     }
+    assert!(
+        (s.total_energy - p.total_energy).abs() < 1e-4,
+        "Total energy mismatch: serial={:.6}, parallel={:.6}",
+        s.total_energy,
+        p.total_energy
+    );
 }
 
 #[test]
@@ -235,20 +247,33 @@ fn test_scf_kerker_serial_vs_parallel() {
     let result_p =
         pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None);
 
-    if let (Ok(s), Ok(p)) = (&result_s, &result_p) {
-        for (ik, (evs_s, evs_p)) in s.eigenvalues.iter().zip(p.eigenvalues.iter()).enumerate() {
-            for (ib, (&es, &ep)) in evs_s.iter().zip(evs_p.iter()).enumerate() {
-                assert!(
-                    (es - ep).abs() < 1e-6,
-                    "Kerker eigenvalue mismatch at k={ik} band={ib}: serial={es:.6}, parallel={ep:.6}"
-                );
-            }
+    let s = result_s.expect("serial Kerker SCF must converge");
+    let p = result_p.expect("parallel Kerker SCF must converge");
+
+    // Convergence guard (TAUD finding 5.1).
+    assert!(
+        s.n_iterations < params.max_iter,
+        "serial Kerker SCF hit max_iter={} without converging",
+        params.max_iter
+    );
+    assert!(
+        p.n_iterations < params.max_iter,
+        "parallel Kerker SCF hit max_iter={} without converging",
+        params.max_iter
+    );
+
+    for (ik, (evs_s, evs_p)) in s.eigenvalues.iter().zip(p.eigenvalues.iter()).enumerate() {
+        for (ib, (&es, &ep)) in evs_s.iter().zip(evs_p.iter()).enumerate() {
+            assert!(
+                (es - ep).abs() < 1e-6,
+                "Kerker eigenvalue mismatch at k={ik} band={ib}: serial={es:.6}, parallel={ep:.6}"
+            );
         }
-        assert!(
-            (s.total_energy - p.total_energy).abs() < 1e-4,
-            "Kerker energy mismatch: serial={:.6}, parallel={:.6}",
-            s.total_energy,
-            p.total_energy
-        );
     }
+    assert!(
+        (s.total_energy - p.total_energy).abs() < 1e-4,
+        "Kerker energy mismatch: serial={:.6}, parallel={:.6}",
+        s.total_energy,
+        p.total_energy
+    );
 }
