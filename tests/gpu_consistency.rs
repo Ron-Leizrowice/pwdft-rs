@@ -368,6 +368,18 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
             eprintln!("GPU: {} iters, E={:.6} eV", g.n_iterations, g.total_energy);
             eprintln!("CPU: {} iters, E={:.6} eV", c.n_iterations, c.total_energy);
 
+            // Convergence guard (TAUD finding 5.2).
+            assert!(
+                g.n_iterations < params.max_iter,
+                "GPU SCF hit max_iter={} without converging",
+                params.max_iter
+            );
+            assert!(
+                c.n_iterations < params.max_iter,
+                "CPU SCF hit max_iter={} without converging",
+                params.max_iter
+            );
+
             // Total energy: f32 grid ops introduce ~1e-3 eV noise per iteration,
             // accumulated over ~20 iterations → ~0.02 eV tolerance
             let energy_diff = (g.total_energy - c.total_energy).abs();
@@ -404,7 +416,7 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
             );
         }
         (Err(e1), Err(e2)) => {
-            eprintln!("Both did not converge: gpu={e1}, cpu={e2}");
+            panic!("both GPU and CPU SCF diverged: gpu={e1}, cpu={e2}");
         }
         (Ok(_), Err(e)) => {
             panic!("GPU converged but CPU did not: {e}");
@@ -447,23 +459,26 @@ fn test_gpu_scf_kerker_converges() {
         ecutrho_ratio: 4,
         fft_grid: Some([16, 16, 16]),
         mixing_mode: pwdft_rs::scf::mixing::MixingMode::Kerker { q_tf: None },
+        ..Default::default()
     };
 
     let result = pwdft_rs::scf::run_scf(
         &crystal, &basis, &kpoints, &[&pp], &params, None,
     );
 
-    match result {
-        Ok(r) => {
-            eprintln!("GPU+Kerker SCF converged in {} iterations, E={:.6} eV",
-                r.n_iterations, r.total_energy);
-            assert!(
-                r.total_energy < -100.0 && r.total_energy > -300.0,
-                "Energy {:.2} eV outside reasonable range", r.total_energy
-            );
-        }
-        Err(e) => {
-            eprintln!("GPU+Kerker SCF did not converge: {e}");
-        }
-    }
+    let r = result.expect("GPU Kerker SCF must converge");
+
+    // Convergence guard (TAUD finding 5.1).
+    assert!(
+        r.n_iterations < params.max_iter,
+        "GPU+Kerker SCF hit max_iter={} without converging",
+        params.max_iter
+    );
+
+    eprintln!("GPU+Kerker SCF converged in {} iterations, E={:.6} eV",
+        r.n_iterations, r.total_energy);
+    assert!(
+        r.total_energy < -100.0 && r.total_energy > -300.0,
+        "Energy {:.2} eV outside reasonable range", r.total_energy
+    );
 }

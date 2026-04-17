@@ -159,3 +159,27 @@ Branch `SPNC/per-spin-convergence`. Proposal + implementation + test update.
 - Coupled-channel nspin=2 mixer (mix `(ρ_total, m)` instead of `(ρ_up, ρ_down)`) — QE does this via `mix_rho` which takes the full nspin-component vector as one residual. Would unblock Fe fixed-mag.
 - Revisit `test_fe_ferromagnetic_fixed_moment` — passes vacuously (gated on `Ok`, SCF always returns Err). Either remove or swap to a ferromagnetic-stable PP.
 - Adaptive spin mixing `mix_beta` separate from charge `mix_beta` — standard QE setting, damps spin oscillations independently of charge.
+
+## 2026-04-17 — TAUD-A implemented
+
+Branch `TAUD-A/silent-pass-fixes`. PR A of the test-quality audit: replaced 5 silent-pass `match`/`if let` patterns with hard `.expect()` + convergence guards.
+
+**Files modified** (tests only, no `src/` changes, no tolerance changes):
+- `tests/spin_polarization.rs` — finding 1.1 (`test_si_nspin2_matches_nspin1`): 4-arm match → `.expect()` + `n_iter < max_iter` guard for both nspin=1 and nspin=2.
+- `tests/parallel_consistency.rs` — findings 1.3 + 1.4: `if let (Ok, Ok)` → `.expect()` + convergence guards for both `test_scf_serial_vs_parallel` and `test_scf_kerker_serial_vs_parallel`.
+- `tests/gpu_consistency.rs` — finding 1.5: `(Err, Err)` arm now `panic!`s instead of `eprintln!`; `(Ok, Ok)` arm gained 5.2 convergence guards. Finding 1.7: `test_gpu_scf_kerker_converges` match → `.expect()` + convergence guard.
+
+**Pre-existing compile fix incidental to 1.7:** line 440 of `gpu_consistency.rs` built an `ScfParams` literal that was missing the `energy_threshold`, `smearing_scheme`, `nspin`, `starting_magnetization`, `tot_magnetization` fields added since this test was written — the whole GPU test binary wouldn't compile. Added `..Default::default()` so the test compiles and runs. Documented in PR body.
+
+**Test results post-fix (all pass strictly, no bugs unmasked):**
+- `test_si_nspin2_matches_nspin1` — PASS
+- `test_scf_serial_vs_parallel` — PASS
+- `test_scf_kerker_serial_vs_parallel` — PASS
+- `test_gpu_vs_cpu_scf_direct_comparison` — PASS (GPU path)
+- `test_gpu_scf_kerker_converges` — PASS (GPU path)
+
+Full suite: 220 CPU tests pass + 6 GPU consistency tests pass, 9 ignored (pre-existing VERF/VGCMP-gated). Clippy clean on `--all-targets`; `--features gpu` surfaces pre-existing warnings only.
+
+**Rebase note:** branch rebased onto origin/main (ea1a300) before final commit to include XCPR merge.
+
+**No follow-up proposals opened** — none of the 5 hardened tests revealed a regression. The silent-pass patterns were pure hygiene debt.
