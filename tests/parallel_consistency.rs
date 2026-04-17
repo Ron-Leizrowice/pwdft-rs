@@ -151,9 +151,33 @@ fn test_scf_serial_vs_parallel() {
     let result_parallel =
         pwdft_rs::scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None);
 
-    // Both should fail to converge (only 5 iters)
-    assert!(result_serial.is_err());
-    assert!(result_parallel.is_err());
+    // TAUD finding 5.3: pattern-match the specific ConvergenceFailure variant
+    // rather than any Err. If the SCF started returning e.g. Eigensolver or
+    // Gpu errors for unrelated reasons, `is_err()` would still pass and hide
+    // the regression. `ConvergenceFailure` is specifically the expected
+    // outcome from max_iter=5 with conv_threshold=1e-20 on Si.
+    match &result_serial {
+        Err(pwdft_rs::error::PwdftError::ConvergenceFailure { .. }) => {}
+        Ok(_) => panic!(
+            "serial 5-iter SCF unexpectedly converged — conv_threshold=1e-20 \
+             should force ConvergenceFailure in 5 iters"
+        ),
+        Err(other) => panic!(
+            "serial 5-iter SCF returned unexpected error variant: {other}. \
+             Expected ConvergenceFailure."
+        ),
+    }
+    match &result_parallel {
+        Err(pwdft_rs::error::PwdftError::ConvergenceFailure { .. }) => {}
+        Ok(_) => panic!(
+            "parallel 5-iter SCF unexpectedly converged — conv_threshold=1e-20 \
+             should force ConvergenceFailure in 5 iters"
+        ),
+        Err(other) => panic!(
+            "parallel 5-iter SCF returned unexpected error variant: {other}. \
+             Expected ConvergenceFailure."
+        ),
+    }
 
     // Now run to convergence with a small but real problem
     let params_conv = pwdft_rs::scf::ScfParams {

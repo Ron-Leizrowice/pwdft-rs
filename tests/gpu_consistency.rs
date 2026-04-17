@@ -97,8 +97,14 @@ fn test_gpu_hartree_on_realistic_density() {
         let scale = c.norm().max(1e-15);
         let rel = diff / scale;
         max_rel_err = max_rel_err.max(rel);
+        // TAUD finding 2.4: Hartree is a linear f32 operation (divide by g²,
+        // multiply by 4πe²) with f32 relative precision ~1e-6 per op, so
+        // the natural scale is a few ×1e-7 — not 1e-3. Empirical max
+        // relative error = 1.8e-7 on M-series GPU. Threshold at ~50×
+        // empirical = 1e-5 for cross-hardware f32 variance. If this fires,
+        // investigate which G-vector / density entry loses precision.
         assert!(
-            rel < 1e-3,
+            rel < 1e-5,
             "Hartree mismatch at {i}: cpu={c:.6e}, gpu={g:.6e}, rel={rel:.2e}"
         );
     }
@@ -249,20 +255,38 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
 
     eprintln!("GPU SCF converged in {} iterations", gpu_result.n_iterations);
     eprintln!("GPU total energy: {:.6} eV", gpu_result.total_energy);
+    eprintln!("GPU Fermi energy: {:.6} eV", gpu_result.fermi_energy);
 
-    // Physical constraints on converged Si SCF:
-    // 1. Total energy should be in a reasonable range for Si with this PP
+    // Physical constraints on converged Si SCF.
+    //
+    // TAUD finding 2.5: previously `< -100 && > -300` (a 200-eV-wide "is it
+    // in the zip code" window). Empirical Si total energy with this PP
+    // (Si.upf, ecut=100 eV, FFT 16³, Γ-only, 4 bands) is -198.8926 eV;
+    // GPU f32 noise ≈ 1e-3 eV accumulated over ~10 SCF iters gives a few
+    // ×1e-3 variance. Tolerance ±0.1 eV is ~100× the observed run-to-run
+    // variance, tight enough to catch any >0.1 eV regression but not so
+    // tight that f32 noise flakes the test.
+    let si_total_energy_ev = -198.8926_f64;
+    let e_diff = (gpu_result.total_energy - si_total_energy_ev).abs();
     assert!(
-        gpu_result.total_energy < -100.0 && gpu_result.total_energy > -300.0,
-        "GPU total energy {:.4} eV outside expected Si range [-300, -100]",
-        gpu_result.total_energy
+        e_diff < 0.1,
+        "GPU total energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
+        gpu_result.total_energy, si_total_energy_ev, e_diff
     );
 
-    // 2. Fermi energy should be in the gap region
+    // TAUD finding 2.6: previously `> -5.0 && < 10.0` (a 15-eV window).
+    // With n_bands=4 all bands are occupied (Si: 8 electrons, 2 per band),
+    // so the Fermi level is set above the HOMO to conserve electron count
+    // under Fermi-Dirac smearing. Empirical E_F ≈ 6.969 eV on this mesh
+    // (HOMO ~ 5.969 eV at Γ, E_F sits ~1 eV above). Tolerance ±0.1 eV
+    // matches the total-energy scale and catches any smearing/band-count
+    // regression.
+    let si_fermi_energy_ev = 6.969_f64;
+    let ef_diff = (gpu_result.fermi_energy - si_fermi_energy_ev).abs();
     assert!(
-        gpu_result.fermi_energy > -5.0 && gpu_result.fermi_energy < 10.0,
-        "GPU Fermi energy {:.4} eV unreasonable",
-        gpu_result.fermi_energy
+        ef_diff < 0.1,
+        "GPU Fermi energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
+        gpu_result.fermi_energy, si_fermi_energy_ev, ef_diff
     );
 
     // 3. Each k-point should have the requested number of eigenvalues
@@ -293,15 +317,25 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
         "Minimum eigenvalue {min_eig:.4} eV should be negative for Si"
     );
 
-    // 5. Highest occupied eigenvalue should be below Fermi energy
-    // (within smearing width)
+    // 5. Highest occupied eigenvalue should be below Fermi energy, within a
+    //    few Fermi-Dirac smearing widths above E_F.
+    //
+    //    TAUD finding 2.7: previously a bare `5.0 * sigma` with a vague
+    //    "within smearing width" comment. For Fermi-Dirac occupation
+    //    f(E) = 1/(exp((E-E_F)/σ) + 1), at (E-E_F) = 5σ the partial
+    //    occupation is f ≈ 1/(e⁵+1) ≈ 0.67%. So 5σ is a conservative
+    //    "essentially occupied" threshold — any state with f > ~1% should
+    //    satisfy it. At σ=0.05 eV this gives 0.25 eV headroom above E_F,
+    //    generous given Si has eigenvalues clustered O(1 eV) around E_F.
     let sigma = params.smearing_sigma;
+    let fermi_tail_headroom = 5.0 * sigma; // 5σ ≈ f = 0.67% Fermi tail
     for evs in &gpu_result.eigenvalues {
         let n_occ = n_bands.min(4); // Si: 8 electrons, 2 per band → 4 occupied
         for &e in &evs[..n_occ] {
             assert!(
-                e < gpu_result.fermi_energy + 5.0 * sigma,
-                "Occupied eigenvalue {e:.4} eV too far above Fermi {:.4} eV",
+                e < gpu_result.fermi_energy + fermi_tail_headroom,
+                "Occupied eigenvalue {e:.4} eV too far above Fermi {:.4} eV \
+                 (> 5σ = {fermi_tail_headroom:.4} eV tail, f < 0.7%)",
                 gpu_result.fermi_energy
             );
         }
@@ -477,8 +511,15 @@ fn test_gpu_scf_kerker_converges() {
 
     eprintln!("GPU+Kerker SCF converged in {} iterations, E={:.6} eV",
         r.n_iterations, r.total_energy);
+
+    // TAUD finding 2.8: duplicate of 2.5 — replace 200-eV zip-code check with
+    // specific value ± tolerance. Empirical Si total energy with Kerker
+    // (same mesh as test_gpu_vs_cpu_scf_eigenvalues) = -198.8926 eV.
+    let si_total_energy_ev = -198.8926_f64;
+    let e_diff = (r.total_energy - si_total_energy_ev).abs();
     assert!(
-        r.total_energy < -100.0 && r.total_energy > -300.0,
-        "Energy {:.2} eV outside reasonable range", r.total_energy
+        e_diff < 0.1,
+        "GPU+Kerker total energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
+        r.total_energy, si_total_energy_ev, e_diff
     );
 }
