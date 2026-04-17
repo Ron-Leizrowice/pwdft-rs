@@ -10,6 +10,28 @@
 
 use std::f64::consts::PI;
 
+use rayon::prelude::*;
+
+/// Minimum grid size at which rayon parallelism beats sequential execution
+/// for `lda_xc_grid` / `lda_xc_spin_grid` on Apple M2.
+///
+/// Empirical calibration (`cargo bench --bench scf_benchmarks -- xc_grid`,
+/// Apple M2 8-core):
+///
+/// | n       | sequential | parallel | net           |
+/// |---------|------------|----------|---------------|
+/// | 4 096   | 43 µs      | 113 µs   | +161% (worse) |
+/// | 32 768  | 407 µs     | 195 µs   | −52%          |
+/// | 262 144 | 3 035 µs   | 459 µs   | −85%          |
+///
+/// Rayon's fork/join/unzip costs ~70 µs per region on this hardware, which
+/// dominates for n=4096 (43 µs sequential work) but is easily amortized by
+/// n=32768.  We set the threshold at 16 384 — the safe side of the
+/// crossover.  Grid sizes between 16³=4 096 and 32³=32 768 are the most
+/// sensitive region; typical production FFT grids are 24³–48³ (≥13 824
+/// points), so most real SCF calls take the parallel path.
+const XC_PARALLEL_THRESHOLD: usize = 16_384;
+
 /// Result of evaluating the XC functional at a single density point.
 pub struct XcPoint {
     /// Exchange-correlation energy density ε_xc (eV per electron).
@@ -45,17 +67,30 @@ pub fn lda_xc(rho: f64) -> XcPoint {
 /// `rho_r`: electron density on real-space grid (e/ų).
 ///
 /// Returns (exc_r, vxc_r): energy density and potential on the grid (eV).
+///
+/// Each point is an independent evaluation, so this is embarrassingly
+/// parallel. We fall back to the sequential path below
+/// [`XC_PARALLEL_THRESHOLD`] because rayon's per-region dispatch overhead
+/// dominates on very small grids.
 pub fn lda_xc_grid(rho_r: &[f64]) -> (Vec<f64>, Vec<f64>) {
-    let mut exc = Vec::with_capacity(rho_r.len());
-    let mut vxc = Vec::with_capacity(rho_r.len());
-
-    for &rho in rho_r {
-        let xc = lda_xc(rho);
-        exc.push(xc.exc);
-        vxc.push(xc.vxc);
+    if rho_r.len() < XC_PARALLEL_THRESHOLD {
+        let mut exc = Vec::with_capacity(rho_r.len());
+        let mut vxc = Vec::with_capacity(rho_r.len());
+        for &rho in rho_r {
+            let xc = lda_xc(rho);
+            exc.push(xc.exc);
+            vxc.push(xc.vxc);
+        }
+        return (exc, vxc);
     }
 
-    (exc, vxc)
+    rho_r
+        .par_iter()
+        .map(|&rho| {
+            let xc = lda_xc(rho);
+            (xc.exc, xc.vxc)
+        })
+        .unzip()
 }
 
 /// Compute the total XC energy: E_xc = Ω/N_grid · Σ_r ρ(r) ε_xc(r)
@@ -191,21 +226,38 @@ pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> XcSpinPoint {
 /// Spin-polarized XC on a real-space grid.
 ///
 /// Returns (exc_r, vxc_up_r, vxc_down_r) in eV.
+///
+/// Parallelized for grids at or above [`XC_PARALLEL_THRESHOLD`] points.
+/// Rayon's `unzip` handles only 2-tuples, so we unzip into an
+/// ((exc, vxc_up), vxc_down) shape and then flatten.
 pub fn lda_xc_spin_grid(
     rho_up_r: &[f64],
     rho_down_r: &[f64],
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let n = rho_up_r.len();
-    let mut exc = Vec::with_capacity(n);
-    let mut vxc_up = Vec::with_capacity(n);
-    let mut vxc_down = Vec::with_capacity(n);
+    debug_assert_eq!(n, rho_down_r.len(), "spin channels must share grid size");
 
-    for (&ru, &rd) in rho_up_r.iter().zip(rho_down_r.iter()) {
-        let xc = lda_xc_spin(ru, rd);
-        exc.push(xc.exc);
-        vxc_up.push(xc.vxc_up);
-        vxc_down.push(xc.vxc_down);
+    if n < XC_PARALLEL_THRESHOLD {
+        let mut exc = Vec::with_capacity(n);
+        let mut vxc_up = Vec::with_capacity(n);
+        let mut vxc_down = Vec::with_capacity(n);
+        for (&ru, &rd) in rho_up_r.iter().zip(rho_down_r.iter()) {
+            let xc = lda_xc_spin(ru, rd);
+            exc.push(xc.exc);
+            vxc_up.push(xc.vxc_up);
+            vxc_down.push(xc.vxc_down);
+        }
+        return (exc, vxc_up, vxc_down);
     }
+
+    let ((exc, vxc_up), vxc_down): ((Vec<f64>, Vec<f64>), Vec<f64>) = rho_up_r
+        .par_iter()
+        .zip(rho_down_r.par_iter())
+        .map(|(&ru, &rd)| {
+            let xc = lda_xc_spin(ru, rd);
+            ((xc.exc, xc.vxc_up), xc.vxc_down)
+        })
+        .unzip();
 
     (exc, vxc_up, vxc_down)
 }

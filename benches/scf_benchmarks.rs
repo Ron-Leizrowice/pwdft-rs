@@ -20,7 +20,7 @@ use pwdft_rs::{
     eigensolver::dense,
     fft::FFT3D,
     hamiltonian,
-    potential::nonlocal::NonlocalPotential,
+    potential::{nonlocal::NonlocalPotential, xc},
 };
 
 /// Si FCC crystal (2 atoms, diamond structure).
@@ -163,11 +163,57 @@ fn bench_basis(c: &mut Criterion) {
     group.finish();
 }
 
+// ---------------------------------------------------------------------------
+// LDA XC grid evaluation (per-iteration hot path)
+//
+// Sizes span the sequential→parallel crossover region:
+//   256   — tiny molecule / sanity
+//   512   — threshold candidate
+//   4_096 — 16^3 grid (small SCF)
+//   32_768 — 32^3 grid (typical production)
+//   262_144 — 64^3 grid (large)
+// ---------------------------------------------------------------------------
+
+fn make_rho(n: usize) -> Vec<f64> {
+    // Positive, physically plausible densities. Span low (near RHO_FLOOR) and
+    // higher values so both the rs>=1 and rs<1 branches of PZ are exercised.
+    (0..n)
+        .map(|i| 0.001 + (i as f64 / n as f64) * 0.5)
+        .collect()
+}
+
+fn bench_xc_grid(c: &mut Criterion) {
+    let mut group = c.benchmark_group("xc_grid");
+
+    for &n in &[256_usize, 512, 4_096, 16_384, 32_768, 262_144] {
+        let rho_r = make_rho(n);
+
+        group.bench_function(format!("lda_xc_grid_n{n}"), |b| {
+            b.iter(|| black_box(xc::lda_xc_grid(black_box(&rho_r))));
+        });
+
+        let rho_up: Vec<f64> = rho_r.iter().map(|&r| 0.6 * r).collect();
+        let rho_down: Vec<f64> = rho_r.iter().map(|&r| 0.4 * r).collect();
+
+        group.bench_function(format!("lda_xc_spin_grid_n{n}"), |b| {
+            b.iter(|| {
+                black_box(xc::lda_xc_spin_grid(
+                    black_box(&rho_up),
+                    black_box(&rho_down),
+                ))
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_eigensolver,
     bench_hamiltonian,
     bench_fft,
     bench_basis,
+    bench_xc_grid,
 );
 criterion_main!(benches);
