@@ -61,3 +61,49 @@ Harris-Foulkes in spin path is correct (all INPUT quantities, lines 670-683).
 **Impact:** Bug is O(delta_rho) at convergence -- sub-meV for converged energy. But spoils quadratic convergence of |E_HF - E_KS|, reducing it to linear. This is the main practical issue: false HF-KS warnings in spin-polarized runs.
 
 Proposal updated: `proposals/SPXC-spin-xc-consistency.md`.
+
+## 2026-04-17 — QEVL: QE validation suite landed (Tier 1+2)
+
+Validated the rescue data at `/tmp/pwdft-rescue/qe_validation_data/` and moved
+into `qe_validation/` on branch `QEVL/qe-validation-suite`. Inputs match the
+proposal spec for all 8 systems.
+
+### Spot-check (M3 Max, 8 MPI, qe-7.5/build/bin/pw.x)
+
+| System | Rescue E (Ry) | Re-run E (Ry) | Agreement |
+|--------|---------------|---------------|-----------|
+| Si diamond | -17.02299344 | -17.02299344 | bit-exact |
+| Al FCC     |  -4.72371790 |  -4.72371790 | bit-exact |
+
+Pseudo directory byte-identical to `pseudopotentials/nc/lda/`. Trusted; no
+regeneration needed.
+
+### Tests written (`tests/qe_validation.rs`)
+
+Refactored into helpers (`fcc_crystal`, `bcc_crystal`, `run_qe_comparison`,
+`assert_energy_matches_qe`, `assert_fermi_matches_qe`) + 8 `#[test]`s, all
+`#[ignore]`d with per-test reasons because the Si 13.4 eV gap (VERF root
+cause) propagates through all heavier systems. Tolerances set at 0.05 eV
+(Tier 1) and 0.1 eV (Tier 2) so that when VERF closes the gap, unblocking
+is `remove the #[ignore]` — nothing else.
+
+QE reference numbers (Ry) that will be asserted once unblocked:
+Si -17.022_993_44, C -23.843_439_10, Al -4.723_717_90, Fe -224.917_449_34,
+GaAs -307.928_895_02, Cu -356.736_028_69, NaCl -119.779_703_03,
+MgO -147.235_477_68.
+
+### Baseline (pre-VERF) while old test file was in place
+
+Si |ΔE|=13.43 eV, E_F off by 1.24 eV, Γ degeneracy broken. C diamond does
+not converge in 80 iters at ecut=30 Ry with `MixingMode::Plain`. Fe
+(nspin=1, old test) previously passed with a warning-only check; nspin=2
+version now added.
+
+### Tangential
+
+- Tier 3 convergence studies (tests 9-11) still deferred; revisit after
+  Tier 1+2 pass.
+- Fe nspin=2 at ecut=15 Ry collapses to NM under PseudoDojo; consider
+  `Fe_dalcorso.upf` at higher cutoff post-VERF to exercise magnetism.
+- C diamond non-convergence may deserve its own proposal (high-ecut
+  light-element mixing tuning) once Si offset is cleared.
