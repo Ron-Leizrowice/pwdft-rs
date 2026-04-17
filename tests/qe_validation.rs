@@ -222,11 +222,17 @@ fn report_gamma_eigenvalues(label: &str, result: &ScfResult, qe_eigs_ev: &[f64])
 /// QE ref (qe_validation/si_scf.in): E = -17.022_993_44 Ry,
 /// E_F = 6.3449 eV, converges in 7 iters.
 ///
-/// Ignored because pwdft-rs is currently ~13.4 eV below QE for this system.
-/// The root cause is the open item in VERF (see that proposal's 2026-04-17
-/// update). Once closed, tighten tolerance and drop `#[ignore]`.
+/// Ignored: post-NCFX the total-energy gap dropped from ~13.4 eV to
+/// ~0.26 eV (E = −231.865 eV vs QE −231.610 eV at 4×4×4 ecut = 15 Ry).
+/// The residual is dominated by the Monkhorst-Pack grid convention
+/// mismatch tracked in SYKP — QE uses Γ-centered `4 4 4 0 0 0` while
+/// pwdft-rs hard-codes the shifted MP-1976 convention
+/// (`src/kpoints.rs::monkhorst_pack`). Γ eigenvalues still differ by
+/// ≈ 1 eV which is consistent with different k-meshes. Drop `#[ignore]`
+/// once MPSH (or equivalent shift-aware fix) lands and the two codes
+/// sample the same grid.
 #[test]
-#[ignore = "known 13.4 eV discrepancy; see proposals/VERF-vloc-erf-subtraction.md"]
+#[ignore = "post-NCFX residual ≈0.26 eV dominated by MP shifted-vs-Γ-centered grid mismatch; see SYKP/MPSH"]
 fn test_si_diamond_vs_qe() {
     let crystal = fcc_crystal(
         5.431,

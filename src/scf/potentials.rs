@@ -57,6 +57,28 @@ pub(crate) fn compute_v_local(
 
 /// Compute NLCC core density on the real-space FFT grid.
 ///
+/// For a spherically symmetric radial density `ρ_core(r)`, the Fourier
+/// transform per unit cell is
+///
+/// ```text
+///     ρ_core(G) = (4π / Ω) · ∫₀^∞ ρ_core(r) · j₀(|G| r) · r² dr · S(G),
+/// ```
+///
+/// where `S(G) = exp(−i G·τ)` is the atomic structure factor.
+/// `pp.core_charge` stores the bare `ρ_core(r)` in `e/Å³`
+/// (see `PseudopotentialData::core_charge`); the `r²` weight and `4π`
+/// prefactor are supplied here. This mirrors QE's `init_tab_rhc` at
+/// `qe-7.5/upflib/rhoc_mod.f90:107-115`:
+///
+/// ```text
+///     aux(ir)     = upf%rho_atc(ir) * rgrid%r2(ir) * sin(qr)/(qr)
+///     tab_rhc(iq) = fpi * simpson(aux, rab) / omega
+/// ```
+///
+/// Units: `r` and `rab` in Å, `G` in 1/Å, `ρ_core` in `e/Å³`; the
+/// Simpson integral has units `e/Å³ · Å² · Å = e`, so `4π·I/Ω` is
+/// `e/Å³` (real-space density after the inverse FFT).
+///
 /// Returns empty vec if no PP has NLCC.
 pub(crate) fn compute_core_density(
     crystal: &Crystal,
@@ -70,6 +92,7 @@ pub(crate) fn compute_core_density(
 
     let n_grid = grid.total_size();
     let omega = crystal.lattice.volume();
+    let four_pi = 4.0 * std::f64::consts::PI;
     let mut rho_core_g = vec![Complex64::new(0.0, 0.0); n_grid];
 
     for atom in &crystal.atoms {
@@ -89,6 +112,7 @@ pub(crate) fn compute_core_density(
             let g = grid.g_vector_at(idx);
             let g_norm = g.norm();
 
+            // Integrand: ρ_core(r) · r² · j₀(|G| r)
             let integrand: Vec<f64> = pp.core_charge.iter().zip(pp.r_grid.iter())
                 .map(|(&rho_c, &r)| {
                     let gr = g_norm * r;
@@ -97,14 +121,14 @@ pub(crate) fn compute_core_density(
                     } else {
                         gr.sin() / gr
                     };
-                    rho_c * j0
+                    rho_c * r * r * j0
                 })
                 .collect();
             let integral = crate::numerics::simpson_integrate(&integrand, &pp.rab);
 
             let phase = -g.dot(&tau);
             let sf = Complex64::cis(phase);
-            *rho_g_val += sf * (integral / omega);
+            *rho_g_val += sf * (four_pi * integral / omega);
         }
     }
 

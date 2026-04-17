@@ -18,8 +18,12 @@ use pwdft_rs::{
 // Γ-only, 4 bands). See `test_gpu_vs_cpu_scf_eigenvalues` for the physical
 // justification of each tolerance. Hoisted to module-level consts (DBGC) so
 // all tests that share this configuration reference one source of truth.
-const SI_REFERENCE_TOTAL_EV: f64 = -198.8926;
-const SI_REFERENCE_FERMI_EV: f64 = 6.969;
+//
+// Post-NCFX values: pre-NCFX had -198.8926 eV / 6.969 eV; the NLCC unit and
+// radial-weight fix shifts E_tot by -14.1 eV (same magnitude as the E_xc gap
+// NCFX closed on the 4×4×4 CPU path).
+const SI_REFERENCE_TOTAL_EV: f64 = -213.0283;
+const SI_REFERENCE_FERMI_EV: f64 = 6.709;
 
 fn si_crystal() -> Crystal {
     let a = 5.431;
@@ -293,9 +297,11 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
     //
     // TAUD finding 2.5: previously `< -100 && > -300` (a 200-eV-wide "is it
     // in the zip code" window). Empirical Si total energy with this PP
-    // (Si.upf, ecut=100 eV, FFT 16³, Γ-only, 4 bands) is -198.8926 eV;
-    // GPU f32 noise ≈ 1e-3 eV accumulated over ~10 SCF iters gives a few
-    // ×1e-3 variance. Tolerance ±0.1 eV is ~100× the observed run-to-run
+    // (Si.upf, ecut=100 eV, FFT 16³, Γ-only, 4 bands) is -213.0283 eV
+    // post-NCFX. Pre-NCFX value was -198.8926 eV; the 14.1 eV shift is the
+    // same NCFX-closed E_xc gap seen at 4×4×4 on the CPU path. GPU f32
+    // noise ≈ 1e-3 eV accumulated over ~10 SCF iters gives a few ×1e-3
+    // variance. Tolerance ±0.1 eV is ~100× the observed run-to-run
     // variance, tight enough to catch any >0.1 eV regression but not so
     // tight that f32 noise flakes the test.
     let e_diff = (gpu_result.total_energy - SI_REFERENCE_TOTAL_EV).abs();
@@ -310,10 +316,10 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
     // TAUD finding 2.6: previously `> -5.0 && < 10.0` (a 15-eV window).
     // With n_bands=4 all bands are occupied (Si: 8 electrons, 2 per band),
     // so the Fermi level is set above the HOMO to conserve electron count
-    // under Fermi-Dirac smearing. Empirical E_F ≈ 6.969 eV on this mesh
-    // (HOMO ~ 5.969 eV at Γ, E_F sits ~1 eV above). Tolerance ±0.1 eV
-    // matches the total-energy scale and catches any smearing/band-count
-    // regression.
+    // under Fermi-Dirac smearing. Empirical E_F ≈ 6.709 eV on this mesh
+    // post-NCFX (pre-NCFX value was 6.969 eV; the NLCC fix shifts the
+    // eigenvalues and thus E_F). Tolerance ±0.1 eV matches the
+    // total-energy scale and catches any smearing/band-count regression.
     let ef_diff = (gpu_result.fermi_energy - SI_REFERENCE_FERMI_EV).abs();
     assert!(
         ef_diff < 0.1,
@@ -573,7 +579,8 @@ fn test_gpu_scf_kerker_converges() {
 
     // TAUD finding 2.8: duplicate of 2.5 — replace 200-eV zip-code check with
     // specific value ± tolerance. Empirical Si total energy with Kerker
-    // (same mesh as test_gpu_vs_cpu_scf_eigenvalues) = -198.8926 eV.
+    // (same mesh as test_gpu_vs_cpu_scf_eigenvalues) = -213.0283 eV
+    // post-NCFX (pre-NCFX: -198.8926 eV).
     let e_diff = (r.total_energy - SI_REFERENCE_TOTAL_EV).abs();
     assert!(
         e_diff < 0.1,
