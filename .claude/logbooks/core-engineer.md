@@ -117,3 +117,22 @@ Branch `VERF/vloc-erf-finalize`. Decision: **LAND** the erf-subtraction change e
 - Clippy clean.
 
 **Isolation footgun:** this session initially wrote 4 files to the main checkout via the Write/Edit tool with `/Users/ronleizrowice/Documents/github/pwdft-rs/...` paths — both paths pointed at the main checkout, not the worktree. Caught it after `cargo test` reported "no test target" because the worktree didn't have the file. Cleaned up main checkout and re-applied to the worktree correctly. Lesson: **always verify Write/Edit paths resolve inside `.claude/worktrees/agent-*` before using them.**
+
+## 2026-04-17 — SPXC implemented (attempt 2)
+
+PR on `SPXC/spin-xc-consistency` branch. Implements the exact fix from the proposal: after `density_r_to_g`, recompute `(exc_r_out, vxc_up_r_out, vxc_down_r_out)` via `xc::lda_xc_spin_grid` from OUTPUT spin densities + half-core, use them for E_KS, keep INPUT-derived quantities for E_HF. 13-line logical change in `src/scf/mod.rs::run_scf_spin`.
+
+**Empirical |E_HF - E_KS| for Fe BCC (4x4x4, 15 Ry, fixed mag=2, starting_mag=0.5, conv=1e-6, 300 max_iter):**
+- Pre-fix: 22.24 eV  (E_KS=-3108.67 eV, 238 iters)
+- Post-fix: 13.03 eV (E_KS=-3099.46 eV, 244 iters)
+- Improvement: ~1.7x (not the 10x the task hoped for)
+
+**Why not 10x:** nspin=2 convergence check uses only rho_total, not per-spin. Spin density (zeta) is never driven to self-consistency, so E_xc[rho_in, zeta_in] vs E_xc[rho_out, zeta_out] differ at ~13 eV level regardless of how long SCF runs. The SPXC fix removes the artificial extra ~10 eV from mixing zeta_in with rho_out, but the residual zeta-inconsistency gap remains. Worth a follow-up proposal: convergence criterion should include per-spin density difference.
+
+**Regression test:** `test_fe_spin_xc_consistency_regression` in `tests/spin_polarization.rs`. Uses the Fe fixed-mag=2 setup with starting_mag=0.5 (required — without it Fe doesn't converge) and max_iter=300 (244 needed). Asserts `|HF-KS| < 18 eV`, which fails pre-fix (22.24 eV) and passes post-fix (13.03 eV). Takes ~3s in release mode.
+
+**Side notes:**
+- Existing `test_fe_ferromagnetic_fixed_moment` still does not converge (delta=8.46e-2 after 100 iters); its assertions are gated on `Ok`, so test passes vacuously. Pre-existing, unchanged by this fix.
+- `qe_validation.rs` Si/C tests fail on main too; not caused by SPXC.
+- Clippy clean, 173 lib + 44 integration (excl. qe_validation) tests pass.
+- Tangential: nspin=2 convergence metric should include `density_diff(rho_up_in, rho_up_new)` and `density_diff(rho_down_in, rho_down_new)`, not just rho_total. Worth a proposal.
