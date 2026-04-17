@@ -96,6 +96,7 @@ pub fn symmetrize_density(rho: &mut [f64], dims: [usize; 3], symmetry: &Symmetry
 /// to another exact grid point if and only if R_{ij} × n_j ≡ 0 (mod n_i) for all i, j.
 ///
 /// Returns true if all operations are compatible.
+#[must_use]
 pub fn check_grid_compatibility(dims: [usize; 3], symmetry: &SymmetryInfo) -> bool {
     let ns = [dims[0] as i32, dims[1] as i32, dims[2] as i32];
     for op in &symmetry.operations {
@@ -115,6 +116,7 @@ pub fn check_grid_compatibility(dims: [usize; 3], symmetry: &SymmetryInfo) -> bo
 ///
 /// Starts from the given minimum dimensions and increases until compatibility
 /// is achieved. Returns adjusted dimensions.
+#[must_use]
 pub fn compatible_grid_dims(min_dims: [usize; 3], symmetry: &SymmetryInfo) -> [usize; 3] {
     // For cubic symmetry, making all dimensions equal is usually sufficient
     // SAFETY: min_dims is [usize; 3], always has 3 elements -- max() cannot be None.

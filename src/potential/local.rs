@@ -66,11 +66,13 @@ impl LocalPotential {
     }
 
     /// Get V_local(G) for a given G-vector index.
+    #[must_use]
     pub fn v_of_g(&self, ig: usize) -> Complex64 {
         self.v_g[ig]
     }
 
     /// Get the full V_local(G) array.
+    #[must_use]
     pub fn as_slice(&self) -> &[Complex64] {
         &self.v_g
     }

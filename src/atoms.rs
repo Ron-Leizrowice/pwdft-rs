@@ -7,6 +7,7 @@ pub use mendeleev::Element;
 /// Look up an element by its standard symbol (e.g. "Si", "Fe", "C").
 ///
 /// Returns `None` if the symbol does not match any known element.
+#[must_use]
 pub fn from_symbol(s: &str) -> Option<Element> {
     Element::iter().find(|e| e.symbol() == s)
 }
@@ -14,6 +15,7 @@ pub fn from_symbol(s: &str) -> Option<Element> {
 /// Look up an element by its atomic number Z (1-based).
 ///
 /// Returns `None` if Z is outside the range 1..=118.
+#[must_use]
 pub fn from_z(z: u32) -> Option<Element> {
     Element::list()
         .iter()

@@ -29,6 +29,7 @@ impl SymmetryInfo {
     ///
     /// `tolerance`: maximum distance (in fractional coordinates) for atoms
     /// to be considered equivalent under a symmetry operation. Typical: 1e-5.
+    #[must_use]
     pub fn from_crystal(crystal: &Crystal, tolerance: f64) -> Self {
         let ops = detect::find_symmetry_operations(crystal, tolerance);
         let n_ops = ops.len();

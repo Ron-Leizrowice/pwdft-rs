@@ -38,6 +38,7 @@ pub struct InitialDensityConfig {
 
 impl InitialDensityConfig {
     /// Non-magnetic default: all moments zero.
+    #[must_use]
     pub fn non_magnetic(n_atoms: usize) -> Self {
         Self {
             magnetic_moments: vec![0.0; n_atoms],

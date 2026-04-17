@@ -13,6 +13,7 @@ use super::operations::{frac_distance, wrap_to_unit_cell, SpaceGroupOp, SymmOp};
 /// 2. Enumerate all 3×3 integer matrices R with det(R) = ±1 and Rᵀ M R = M
 /// 3. For each R, find fractional translation τ such that {R|τ} maps all atoms
 ///    to equivalent atoms (same species at equivalent positions mod 1)
+#[must_use]
 pub fn find_symmetry_operations(crystal: &Crystal, tolerance: f64) -> Vec<SpaceGroupOp> {
     let lattice_matrix = crystal.lattice.matrix();
     let metric = lattice_matrix.transpose() * lattice_matrix;

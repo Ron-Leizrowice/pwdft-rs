@@ -35,6 +35,7 @@ pub enum SmearingScheme {
 ///
 /// `spin_factor`: 2.0/nspin (2.0 for unpolarized, 1.0 for spin-polarized).
 /// Returns occupation in [0, spin_factor].
+#[must_use]
 pub fn occupation(
     scheme: SmearingScheme,
     energy: f64,
@@ -52,6 +53,7 @@ pub fn occupation(
 /// `eigenvalues_flat`: eigenvalues for all (spin, k) pairs.
 /// `kpoint_weights_flat`: k-point weight for each (spin, k) pair.
 /// `spin_factor`: 2.0/nspin.
+#[must_use]
 pub fn find_fermi_energy(
     eigenvalues_flat: &[Vec<f64>],
     kpoint_weights_flat: &[f64],
@@ -184,6 +186,7 @@ fn cold_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
 /// Compute the electronic entropy contribution T*S in eV.
 ///
 /// `spin_factor`: 2.0/nspin.
+#[must_use]
 pub fn entropy_ts(
     eigenvalues_flat: &[Vec<f64>],
     kpoint_weights_flat: &[f64],

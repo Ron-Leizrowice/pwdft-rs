@@ -35,3 +35,13 @@ Entries: date, metrics (actual counts), findings, proposals affected. Track qual
 **Metrics:** Production unwrap: 11->0, panic: 2->0, undocumented expect: 3->0, documented BUG expect: 0->13.
 
 **ERRH status:** Complete pending merge.
+
+## 2026-04-17 — MUST implementation
+
+**Done:** Applied `#[must_use]` to 70 functions/methods flagged by `-W clippy::must_use_candidate` across 19 files. Skipped 10 hits in 3 files deferred for parallel-agent safety (`src/potential/xc.rs`: 5, `src/pseudopotential/mod.rs`: 5, `src/scf/mod.rs`: 0). PR opened on branch `MUST/must-use-attributes`.
+
+**Counts:** 80 hits total → 70 applied, 10 deferred. Follow-up PR needed after SPXC/XCPR/VGCMP merge.
+
+**Quality gate:** `cargo test` all pass (same 8 ignored pre-existing), `cargo clippy -q --all-targets` = 0 warnings. `-W clippy::must_use_candidate` goes from 80 → 10 (the 10 deferred).
+
+**No restructurings needed.** Every hit was a straight `#[must_use]` add; no borderline cases required `#[allow]` or signature changes. Diff is purely additive.

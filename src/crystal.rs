@@ -16,11 +16,13 @@ pub struct Atom {
 }
 
 impl Atom {
+    #[must_use]
     pub fn new(z: u32, frac: [f64; 3]) -> Self {
         Self { z, position: frac }
     }
 
     /// Convert fractional coordinates to Cartesian (Å).
+    #[must_use]
     pub fn cart_position(&self, lattice: &Lattice) -> Vector3<f64> {
         let [f1, f2, f3] = self.position;
         f1 * lattice.a + f2 * lattice.b + f3 * lattice.c
@@ -35,6 +37,7 @@ pub struct Lattice {
 }
 
 impl Lattice {
+    #[must_use]
     pub fn new(a: Vector3<f64>, b: Vector3<f64>, c: Vector3<f64>) -> Self {
         Self { a, b, c }
     }
@@ -42,10 +45,12 @@ impl Lattice {
     /// Cell volume Ω = |a · (b × c)|.
     ///
     /// Always positive regardless of lattice vector handedness.
+    #[must_use]
     pub fn volume(&self) -> f64 {
         self.a.cross(&self.b).dot(&self.c).abs()
     }
 
+    #[must_use]
     pub fn reciprocal(&self) -> Self {
         // Use signed triple product to get correct reciprocal vector directions
         let triple = self.a.cross(&self.b).dot(&self.c);
@@ -58,6 +63,7 @@ impl Lattice {
     }
 
     /// 3×3 matrix whose columns are the lattice vectors.
+    #[must_use]
     pub fn matrix(&self) -> Matrix3<f64> {
         Matrix3::from_columns(&[self.a, self.b, self.c])
     }

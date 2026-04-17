@@ -22,6 +22,7 @@
 /// # Panics
 ///
 /// Panics if `func` and `rab` have different lengths.
+#[must_use]
 pub fn simpson_integrate(func: &[f64], rab: &[f64]) -> f64 {
     let n = func.len();
     assert_eq!(n, rab.len(), "func and rab must have the same length");
