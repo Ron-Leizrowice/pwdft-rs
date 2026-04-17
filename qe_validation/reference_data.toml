@@ -1,0 +1,121 @@
+# Quantum ESPRESSO 7.5 reference data for pwdft-rs validation.
+#
+# All runs use PseudoDojo ONCV NC/LDA pseudopotentials (same as pwdft-rs),
+# Fermi-Dirac smearing, Monkhorst-Pack grids, conv_thr = 1.0d-8.
+# Input files in this directory, raw pw.x outputs in *.out.
+#
+# Units: Rydberg atomic units (QE native). Convert to eV via
+#   1 Ry = 13.605_693_122_994 eV.
+#
+# Generated: 2026-04-17 on M3 Max, qe-7.5/build/bin/pw.x, 8 MPI ranks.
+
+[si_diamond]
+input_file        = "si_scf.in"
+lattice_param_ang = 5.431
+ecutwfc_ry        = 15.0
+k_grid            = [4, 4, 4]
+degauss_ry        = 0.01
+nspin             = 1
+total_energy_ry   = -17.02299344
+fermi_energy_ev   = 6.3449
+n_iterations      = 7
+# Γ-point eigenvalues (eV). 8 lowest bands; Γ has only 8 available at ecut=15.
+gamma_eigenvalues_ev = [-5.8903, 6.0816, 6.0816, 6.0816, 8.6106, 8.6106, 8.6106, 9.3253]
+
+[c_diamond]
+input_file        = "c_diamond_scf.in"
+lattice_param_ang = 3.567
+ecutwfc_ry        = 30.0
+k_grid            = [4, 4, 4]
+degauss_ry        = 0.01
+nspin             = 1
+total_energy_ry   = -23.84343910
+fermi_energy_ev   = 15.8873
+n_iterations      = 9
+gamma_eigenvalues_ev = [-8.1456, 14.0232, 14.0232, 14.0232, 19.3568, 19.3568, 19.3568, 27.2505]
+
+[al_fcc]
+input_file        = "al_fcc_scf.in"
+lattice_param_ang = 4.05
+ecutwfc_ry        = 15.0
+k_grid            = [8, 8, 8]
+degauss_ry        = 0.02
+nspin             = 1
+total_energy_ry   = -4.72371790
+fermi_energy_ev   = 7.6130
+n_iterations      = 6
+# Al FCC: only 6 bands at Γ with ecut=15 Ry, 3 valence electrons.
+gamma_eigenvalues_ev = [-3.4111, 20.3573, 20.3573, 21.5721, 21.5721, 21.5721]
+
+[fe_bcc_fm]
+input_file        = "fe_bcc_fm_scf.in"
+lattice_param_ang = 2.87
+ecutwfc_ry        = 15.0
+k_grid            = [8, 8, 8]
+degauss_ry        = 0.02
+nspin             = 2
+starting_magnetization = 0.5
+total_energy_ry   = -224.91744934
+fermi_energy_ev   = 26.2006
+n_iterations      = 10
+# NOTE: With PseudoDojo NC/LDA, Fe BCC (a=2.87 Å, ecut=15 Ry) collapses to
+# non-magnetic despite starting M=0.5. Final |M| = 0.00 μB. This is a PP/cutoff
+# limitation — real Fe is ferromagnetic, but this test validates nspin=2
+# machinery, not magnetism physics. Compare against QE's identical (non-magnetic)
+# converged energy.
+total_magnetization_mub = 0.00
+absolute_magnetization_mub = 0.00
+# Γ eigenvalues (spin-up = spin-down to within 0.001 eV after collapse).
+gamma_eigenvalues_ev = [-122.5041, -46.4140, -46.4140, -46.4140, 9.2567, 23.8230, 23.8230, 24.4515]
+
+[gaas_zincblende]
+input_file        = "gaas_scf.in"
+lattice_param_ang = 5.653
+ecutwfc_ry        = 20.0
+k_grid            = [4, 4, 4]
+degauss_ry        = 0.01
+nspin             = 1
+total_energy_ry   = -307.92889502
+fermi_energy_ev   = 6.5212
+n_iterations      = 11
+# GaAs has 18 valence electrons (Ga 3d10 4s2 4p1 + As 4s2 4p3); 18 bands.
+gamma_eigenvalues_ev = [-9.0547, -9.0547, -9.0547, -7.9791, -7.1414, -7.1414, -0.9400, -0.9400]
+
+[cu_fcc]
+input_file        = "cu_fcc_scf.in"
+lattice_param_ang = 3.61
+ecutwfc_ry        = 25.0
+k_grid            = [8, 8, 8]
+degauss_ry        = 0.02
+nspin             = 1
+total_energy_ry   = -356.73602869
+fermi_energy_ev   = 19.2056
+n_iterations      = 9
+# Cu has 19 valence electrons (3s2 3p6 3d10 4s1 — semicore): 14 bands shown.
+gamma_eigenvalues_ev = [-141.4571, -69.5066, -69.5066, -69.5066, 7.4368, 15.0881, 15.0881, 15.4196]
+
+[nacl_rocksalt]
+input_file        = "nacl_scf.in"
+lattice_param_ang = 5.614
+ecutwfc_ry        = 25.0
+k_grid            = [4, 4, 4]
+degauss_ry        = 0.01
+nspin             = 1
+total_energy_ry   = -119.77970303
+fermi_energy_ev   = 3.4704
+n_iterations      = 9
+# NaCl: Na (2s2 2p6 3s1) + Cl (3s2 3p5) = 16 valence electrons.
+gamma_eigenvalues_ev = [-59.5034, -18.1802, -18.1802, -18.1802, -11.3942, 1.1682, 1.1682, 1.1682]
+
+[mgo_rocksalt]
+input_file        = "mgo_scf.in"
+lattice_param_ang = 4.212
+ecutwfc_ry        = 30.0
+k_grid            = [4, 4, 4]
+degauss_ry        = 0.01
+nspin             = 1
+total_energy_ry   = -147.23547768
+fermi_energy_ev   = 10.2064
+n_iterations      = 8
+# MgO: Mg (2s2 2p6 3s2) + O (2s2 2p4) = 16 valence electrons.
+gamma_eigenvalues_ev = [-74.3080, -29.9713, -29.9713, -29.9713, -10.1472, 8.4930, 8.4930, 8.4930]
