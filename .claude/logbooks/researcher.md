@@ -341,3 +341,86 @@ The existing `build_kinetic` + `NonlocalPotential::add_to_hamiltonian`
 pipeline is numerically correct to machine precision against the
 independent reference. No production code changed this session.
 
+## 2026-04-17 — VGC5: per-component energy accounting — XC is the culprit
+
+Branch `VGC5/per-component-energy`. Added `ScfResult.components`
+(`EnergyComponents`) populated at convergence with direct ⟨ψ|·|ψ⟩
+expectation values for E_kin, E_NL and grid integrals for E_loc, E_H,
+E_xc, E_ewald plus the explicit `V_loc(G=0)·N_el` background shift.
+
+### Si diamond (ecut=15 Ry, 4×4×4 MP, nspin=1, FD σ=0.01 Ry)
+
+| term              | pwdft-rs    | QE         | Δ (ours−QE) |
+|-------------------|-------------|------------|-------------|
+| E_kinetic         |   82.866    | (in 1e)    |             |
+| E_local (G≠0)     |  −58.468    | (in 1e)    |             |
+| E_local(G=0)·N_el |   10.745    | (in 1e)    |             |
+| E_nonlocal        |   33.465    | (in 1e)    |             |
+| one-electron sum  |   68.608    |   66.225   |  +2.38      |
+| E_hartree         |   13.593    |   15.104   |  −1.51      |
+| **E_xc**          |  **−70.658**|  **−84.396**| **+13.74** |
+| E_ewald           | −228.519    | −228.530   |  +0.011     |
+| **E_total**       | **−218.181**| **−231.610**| **+13.43** |
+
+### Fe BCC (nspin=1, 4×4×4 MP, σ=0.02 Ry; nspin=2 at 8×8×8 does not converge)
+
+| term              | pwdft-rs     | QE (nspin=2, 8³) | Δ |
+|-------------------|--------------|-------------------|---|
+| E_xc              | −442.109     | −393.259          | **−48.85** |
+| Ewald             | −2337.167    | −2337.173         | +0.006 |
+| E_total           | −3101.239    | −3060.158         | −41.08 |
+
+### Root cause: NLCC core-density FT has two compounding bugs
+
+1. **Unit conversion:** `src/pseudopotential/upf.rs:95-105` divides
+   PP_NLCC by `BOHR_TO_ANG`, but PP_NLCC is a bare ρ_core(r) in
+   e/Bohr³ (QE's `rho_atc`). Correct divisor is `BOHR_TO_ANG³`.
+   First PP_NLCC value in Si.upf is 0.229 at r≈0 — a bare density,
+   not `4πr²·ρ`.
+2. **Missing radial weight + 4π:** `src/scf/potentials.rs:92-107`
+   integrates `ρ_c · j₀(Gr)` without `r²` and without 4π. QE's
+   `upflib/rhoc_mod.f90:107-115` uses `ρ·r²·j₀`, then `fpi/Ω`.
+
+Combined: ρ_core(G) is systematically wrong in magnitude and units;
+ΔE_xc scales with NLCC magnitude, matching Si/Fe asymmetry. Filed as
+`proposals/NCFX-nlcc-core-density-fix.md` (critical, small).
+
+### V_loc(G=0) shift is NOT the culprit (rules out prime suspect)
+
+`src/scf/mod.rs:415,424` adds `ctx.v_local_g0 * ctx.n_electrons` to
+both E_KS and E_HF. The orientation docstring note from 2026-04-16
+("total_energy docstring omits V_local(G=0)·N_el correction — formula
+is correct, doc is incomplete") was right about the formula being OK.
+
+### Self-check: Σ(components) − E_total residual
+
+Si: 1.20 eV, Fe: 0.045 eV. The identity E_band = E_kin+E_loc+E_NL+2E_H+E_vxc
+closes exactly only when ρ_in = ρ_out at the final iteration. At
+conv_threshold = 1e-8 the residual appears larger than expected
+(especially for Si) — plausibly an interaction with density
+symmetrization or density rescaling in `compute_density`. Worth a
+follow-up audit once NCFX lands but **not on the critical path** for
+closing the 13.4 eV gap.
+
+### Artifacts (all in branch `VGC5/per-component-energy`)
+
+- `src/scf/mod.rs` — `EnergyComponents` struct; per-component logging
+  + populated at convergence for both nspin=1 and nspin=2 paths.
+- `src/scf/energy.rs` — `kinetic_expectation`, `local_pp_energy_grid`,
+  `nonlocal_expectation`, `xc_energy_bare` (all pub, diagnostic-only).
+- `tests/vgc5_per_component_si.rs` — two tests (Si + Fe) that pin
+  per-component values and print side-by-side QE comparison.
+- `scripts/validate/vgc5_per_component.py` — QE output parser.
+- `scripts/validate/vgc5_qe_{si,fe}_components.csv` — reference CSVs.
+- `scripts/validate/vgc5_run_si.sh` — orchestrator.
+
+### Follow-ups (handoff)
+
+- **NCFX** (next): Core Engineer lands the two-file fix; unblock
+  `test_si_diamond_vs_qe` in `tests/qe_validation.rs`.
+- Fe nspin=2 at 8×8×8 fails to converge in 80 iters (delta stalls at
+  0.23); separate mixing/preconditioning issue. Not blocking NCFX.
+- The Σ(components) vs E_total 1.2 eV residual for Si at
+  conv_threshold=1e-8 deserves its own audit; keep an eye on it
+  after NCFX closes the XC gap.
+
