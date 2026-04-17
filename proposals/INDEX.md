@@ -18,7 +18,6 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | CCMX | Coupled-Channel Mixer for nspin=2 (mix (ρ_total, m)) | medium | medium | — | — |
 | ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` (supersedes DVSN) | medium | medium | — | — |
-| VLQR | V_local QE Reference Data Re-extraction (TAUD PR D follow-up) | small | low | — | — |
 
 ### Medium — Enhancements & Performance
 
@@ -104,6 +103,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | QLN2 | GPU + benches lint follow-up (closes the CLIP `--features gpu` gap) |
 | CIGP | Document `--features gpu` in clippy CI gate (CLAUDE.md + agent defs) |
 | SOPT | Drop `Option<&SymmetryInfo>` from `ScfContext` (incl. P1+TR regression test) |
+| VLQR | Retire Cube-based `test_vloc_comparison_with_qe` (superseded by VGCMP Phase 1) |
 
 ## Notes
 
