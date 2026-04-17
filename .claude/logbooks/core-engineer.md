@@ -205,3 +205,29 @@ Branch `XCLN/cleanup-ccmx-qedx-sykp`. Three bundled items, no behavioural code c
 **Quality gate:** `cargo test` all pass (spin_polarization 3/3 including `test_fe_spin_xc_consistency_regression` Si nspin=2, plus VGCMP/VLOC/VERF cross-checks). `cargo clippy -q --all-targets` clean. No behavioural code paths touched — purely docstring + test comment.
 
 **Surprises:** none. The SPNC logbook entry already flagged CCMX as a follow-up candidate with the correct QE reference (`PW/src/mix_rho.f90`-via-`rhoz_or_updw`); I just verified the exact line numbers and sketched the scope. SYKP's `proposals/completed/` path was a minor spec mismatch (the file is still in active/`proposals/`) but doesn't affect correctness.
+
+## 2026-04-17 — FFTB implemented
+
+Branch `FFTB/fft-buffer-reuse`. `FFT3D` now owns two reusable `Array3<Complex64>` scratch buffers (`buf_a`, `buf_b`), allocated once in `new()`. `forward()`/`inverse()` no longer allocate per call — they `copy_from_slice` into `buf_a` and ping-pong through the three 1D transforms.
+
+**Parallel-sharing risk:** investigated and cleared. Only two places run in parallel relative to FFTs:
+- `density::compute_density` — already constructs a `FFT3D::new` per rayon worker inside `fold`, so each thread gets its own buffers. No restructuring needed.
+- k-point eigensolve loops in `scf/mod.rs` — these don't touch `ctx.grid.fft` at all (pure linalg + `vnl_cache` read).
+
+All `ctx.grid.fft` usages are sequential in the outer SCF loop. Signatures `&mut self` on `forward`/`inverse` were already present; only the implementations changed.
+
+**Perf (criterion `fft/scf_iter_20x_NxNxN`, 20 forward+inverse on same FFT3D):**
+
+| Grid | Before | After | Delta |
+|---|---|---|---|
+| 16³ | 1.60 ms | 1.07 ms | −33% |
+| 20³ | 6.36 ms | 4.53 ms | −29% |
+| 24³ | 5.22 ms | 3.76 ms | −28% |
+| 32³ | 20.5 ms | 14.3 ms | −30% |
+| 48³ | 90.7 ms | 69.8 ms | −23% |
+
+Matches proposal's allocation-rate argument: per-call we save `data.to_vec()` (512 KB at 32³) + `Array3::zeros` (another 512 KB with zero-fill). Speedup consistent with avoided memcpy + page-fault traffic.
+
+**Tests:** full `cargo test` green (173 unit + all integration passing). Clippy clean on `--all-targets`.
+
+**Minor observation (not blocking):** during this session, in-progress edits to `src/fft.rs` and `benches/scf_benchmarks.rs` were silently reverted between bash invocations (the compiled bench binary lacked the newly-added `fft_scf_iteration` group despite the source having it minutes earlier). Re-applied the edits, verified hashes before each `cargo` invocation, and confirmed via `--list` that the bench binary contains the new symbols. Cost ~10 min. Worth investigating the worktree/hook setup separately.

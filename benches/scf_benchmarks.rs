@@ -141,6 +141,19 @@ fn bench_fft(c: &mut Criterion) {
                 fft.inverse_normalized(&mut data);
             });
         });
+
+        // SCF-iteration workload: ~20 FFT calls per SCF iteration on the
+        // charge-density grid (FFTB proposal). Measures buffer-reuse impact
+        // on the hot SCF path; with per-call Array3 allocation this would
+        // dominate the per-iteration heap traffic at large grids.
+        group.bench_function(format!("scf_iter_20x_{size}x{size}x{size}"), |b| {
+            b.iter(|| {
+                for _ in 0..20 {
+                    fft.forward(black_box(&mut data));
+                    fft.inverse_normalized(black_box(&mut data));
+                }
+            });
+        });
     }
 
     group.finish();
