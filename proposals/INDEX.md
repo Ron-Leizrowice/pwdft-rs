@@ -9,6 +9,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
 | NCFX | NLCC Core-Density Unit and Radial-Weight Fix | small | low | — | — |
+| PCFX | Density symmetrization in G-space (non-symmorphic τ fix) | medium | medium | — | — |
 
 **2026-04-17:** VGCMP Phases 1-4 + VGC5 all done. Entire PP→H assembly pipeline is bit-correct vs QE (V_local(G), β_l(q), D_ij, H[G,G] all at ULP). VGC5 localized the 13.4 eV Si gap to **E_xc** (Δ = +13.74 eV on Si; Fe shows Δ_xc = −48.85 eV). Root cause: NLCC `PP_NLCC` parsed with wrong units (`/BOHR_TO_ANG` instead of `/BOHR_TO_ANG³`) + Bessel transform missing `r²`/`4π` weights — captured as **NCFX** (critical-path fix in flight). V_local(G=0) compensating shift ruled out — already present.
 
@@ -18,7 +19,6 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | CCMX | Coupled-Channel Mixer for nspin=2 (mix (ρ_total, m)) | medium | medium | — | — |
 | ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` (supersedes DVSN) | medium | medium | — | — |
-| PCRS | Per-Component Energy Residual Investigation (VGC5 follow-up) | small | low | — | — |
 
 ### Medium — Enhancements & Performance
 
@@ -101,6 +101,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | XCPR | XC + Spin Diagonalization Parallelization (3 steps; Step 3 = 1.12–1.24×, ceiling at 2× post-ITEV) |
 | VGC5 | Per-Component Energy Accounting (VGCMP Phase 5) — localized 13.4 eV Si gap to E_xc / NLCC |
 | DBGC | `ScfResult` Debug derive + GPU reference consts (TAUD nits) |
+| PCRS | Per-Component Energy Residual Investigation (traced 1.2 eV to non-symmorphic τ symmetrization → PCFX) |
 
 ## Notes
 
@@ -114,3 +115,4 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 - **HD5I** references deleted `src/input.rs` — update to YAML Settings when implementing.
 - **SOPT** (done 2026-04-17): refactored `ScfContext.symmetry: Option<&SymmetryInfo>` to always-present with identity-only fallback. Review caught a P1+TR regression in the initial `is_trivial()` short-circuit in main.rs; fixed by dropping the branch and tightening the predicate. Regression test pins the behavior.
 - **ITEV** (new 2026-04-17, Performance Engineer): Post-FFTB/FMAD profiling shows eigensolver at 85-90% of SCF user CPU (n_pw=259: 56 ms/call; n_pw=725: 836 ms/call). `faer 0.24` ships `matrix_free::eigen::partial_self_adjoint_eigen` (implicitly-restarted Arnoldi, matrix-free via `LinOp`, warm-start via `v0`). Supersedes DVSN's hand-rolled Davidson plan. Projected 2.5-4× SCF wall-time speedup at production sizes. WFRX becomes the warm-start knob.
+- **PCRS → PCFX** (2026-04-17, Researcher): per-component identity residual of 1.204 eV on Si is NOT SCF noise (plateau across 4 orders of conv_threshold). Root cause: `symmetrize_density` applies Fd-3m's fractional translation τ=(1/4,1/4,1/4) via `nint` on an 18³ grid, and 18 is not divisible by 4 — every application of the glide bleeds ρ into the wrong grid point. Turning symmetry OFF drops the residual to 1e-8 eV. Fix = symmetrize ρ(G) in reciprocal space (QE-style phase factors); see **PCFX**.
