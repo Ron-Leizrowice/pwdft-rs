@@ -24,7 +24,6 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| XCPR | XC Parallelization — Step 3 (spin-channel `rayon::join`) remaining | small | low | — | — |
 | CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
 | MXBA | Adaptive Mixing Beta (BROY follow-up — Eyert 1996 residual-monitor rule) | medium | medium | — | — |
 | PRPL | Periodic Pulay Mixing (BROY follow-up — Banerjee et al. JCTC 2016) | small | low | — | — |
@@ -105,13 +104,14 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | CIGP | Document `--features gpu` in clippy CI gate (CLAUDE.md + agent defs) |
 | SOPT | Drop `Option<&SymmetryInfo>` from `ScfContext` (incl. P1+TR regression test) |
 | VLQR | Retire Cube-based `test_vloc_comparison_with_qe` (superseded by VGCMP Phase 1) |
+| XCPR | XC + Spin Diagonalization Parallelization (3 steps; Step 3 = 1.12–1.24×, ceiling at 2× post-ITEV) |
 
 ## Notes
 
 - **VGCMP** (Phases 1-4 done): the entire PP→H assembly pipeline is bit-correct vs QE. The 13.4 eV Si gap is OUTSIDE matrix assembly. **VGC5** is the next-step Phase 5 (per-component energy accounting). Prime suspect: V_local(G=0) compensating shift missing in `total_energy()`.
 - **CCMX** (active): Independent Anderson mixers on `(ρ↑, ρ↓)` can't converge Fe fixed-mag=2 (limit cycle). Fix is to mix `(ρ_total, m)` instead, matching QE's `rhoz_or_updw` basis change.
 - **TAUD** (done): all 5 PRs landed. PR D uncovered a sign-flipped V_local in the test's QE Cube reference (NOT in our Rust code — VGCMP Phase 1 already proved Rust correct). Captured as VLQR. Test re-`#[ignore]`'d with diagnostic numbers in the reason string.
-- **XCPR** (active): Step 1+2 (XC grid parallelization) merged. Step 3 (spin-channel `rayon::join`) remains.
+- **XCPR** (done 2026-04-17): Steps 1+2 (XC grid) + Step 3 (spin-channel `rayon::join`) all landed. Step 3 speedup 1.12–1.24× (faer's internal gemm already saturates 8 cores during eigensolve); ceiling ~2× after ITEV drops per-k eigensolve cost.
 - **CFGN** all dependencies satisfied (DDUP + SIMP done).
 - **BROY** landed core algorithm only; adaptive-beta (MXBA) and periodic Pulay (PRPL) follow-ups are now open proposals.
 - **NLCC** audit (2026-04-17): all code paths verified correct against QE `v_of_rho.f90`. Hartree excludes core, electron count excludes core, LSDA splits core/2 per spin, XC uses val+core with val-only double-counting. No bug. Proposal is documentation + integration test against an NLCC element (Fe).
