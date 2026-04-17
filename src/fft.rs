@@ -20,6 +20,11 @@ pub struct FFT3D {
     dims: [usize; 3],
     fwd_handlers: [FftHandler<f64>; 3],
     inv_handlers: [FftHandler<f64>; 3],
+    /// Scratch buffer A — reused across `forward`/`inverse` calls to avoid
+    /// per-call `Array3<Complex64>` allocations (~1 MB at 32^3).
+    buf_a: Array3<Complex64>,
+    /// Scratch buffer B — paired with `buf_a` for ping-pong 1D transforms.
+    buf_b: Array3<Complex64>,
 }
 
 impl FFT3D {
@@ -39,6 +44,8 @@ impl FFT3D {
                 FftHandler::<f64>::new(ny).normalization(Normalization::None),
                 FftHandler::<f64>::new(nz).normalization(Normalization::None),
             ],
+            buf_a: Array3::zeros((nx, ny, nz)),
+            buf_b: Array3::zeros((nx, ny, nz)),
         }
     }
 
@@ -57,19 +64,23 @@ impl FFT3D {
         let [nx, ny, nz] = self.dims;
         assert_eq!(data.len(), nx * ny * nz);
 
-        // SAFETY: The assert above guarantees data.len() == nx*ny*nz,
-        // so from_shape_vec cannot fail.
-        let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec())
-            .expect("BUG: FFT data length mismatch despite assertion");
-        let mut b = Array3::zeros((nx, ny, nz));
+        // Reuse pre-allocated scratch buffers (allocated once in `new`).
+        // `buf_a` is a row-major contiguous Array3, so `as_slice_mut` always
+        // succeeds. Copy input into `buf_a` without reallocating.
+        self.buf_a
+            .as_slice_mut()
+            .expect("BUG: Array3 should be contiguous")
+            .copy_from_slice(data);
 
-        ndfft(&a, &mut b, &self.fwd_handlers[0], 0);
-        ndfft(&b, &mut a, &self.fwd_handlers[1], 1);
-        ndfft(&a, &mut b, &self.fwd_handlers[2], 2);
+        ndfft(&self.buf_a, &mut self.buf_b, &self.fwd_handlers[0], 0);
+        ndfft(&self.buf_b, &mut self.buf_a, &self.fwd_handlers[1], 1);
+        ndfft(&self.buf_a, &mut self.buf_b, &self.fwd_handlers[2], 2);
 
-        // SAFETY: Array3 with default (row-major) layout is always contiguous.
-        data.copy_from_slice(b.as_slice()
-            .expect("BUG: Array3 should be contiguous"));
+        data.copy_from_slice(
+            self.buf_b
+                .as_slice()
+                .expect("BUG: Array3 should be contiguous"),
+        );
     }
 
     /// Inverse FFT: reciprocal-space → real-space (unnormalized).
@@ -78,19 +89,21 @@ impl FFT3D {
         let [nx, ny, nz] = self.dims;
         assert_eq!(data.len(), nx * ny * nz);
 
-        // SAFETY: The assert above guarantees data.len() == nx*ny*nz,
-        // so from_shape_vec cannot fail.
-        let mut a = Array3::from_shape_vec((nx, ny, nz), data.to_vec())
-            .expect("BUG: FFT data length mismatch despite assertion");
-        let mut b = Array3::zeros((nx, ny, nz));
+        // Reuse pre-allocated scratch buffers.
+        self.buf_a
+            .as_slice_mut()
+            .expect("BUG: Array3 should be contiguous")
+            .copy_from_slice(data);
 
-        ndifft(&a, &mut b, &self.inv_handlers[0], 0);
-        ndifft(&b, &mut a, &self.inv_handlers[1], 1);
-        ndifft(&a, &mut b, &self.inv_handlers[2], 2);
+        ndifft(&self.buf_a, &mut self.buf_b, &self.inv_handlers[0], 0);
+        ndifft(&self.buf_b, &mut self.buf_a, &self.inv_handlers[1], 1);
+        ndifft(&self.buf_a, &mut self.buf_b, &self.inv_handlers[2], 2);
 
-        // SAFETY: Array3 with default (row-major) layout is always contiguous.
-        data.copy_from_slice(b.as_slice()
-            .expect("BUG: Array3 should be contiguous"));
+        data.copy_from_slice(
+            self.buf_b
+                .as_slice()
+                .expect("BUG: Array3 should be contiguous"),
+        );
     }
 
     /// Inverse FFT with normalization (divides by N).
