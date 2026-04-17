@@ -16,6 +16,11 @@
 //! proposal (VGFX / EWFX / similar) closes the gap, bump the pinned
 //! numbers and keep the tolerance loose; QE-match assertions go into
 //! `tests/qe_validation.rs`.
+//!
+//! PRE-NCFX: All pinned values in this file are the pwdft-rs numbers
+//! observed BEFORE the NCFX (NLCC core-density fix) lands. Search this
+//! file for `PRE-NCFX` to find every pin that needs updating once NCFX
+//! is merged. See `proposals/NCFX-nlcc-core-density-fix.md`.
 
 use nalgebra::Vector3;
 use pwdft_rs::{
@@ -69,9 +74,7 @@ fn load_pp(element: &str) -> PseudopotentialData {
 // ----------------------------------------------------------------------------
 
 /// QE per-term reference (eV) for side-by-side reporting.
-#[allow(dead_code)]
 struct QeReference {
-    system: &'static str,
     total:        f64,
     one_electron: f64,
     hartree:      f64,
@@ -87,7 +90,6 @@ impl QeReference {
         //         xc=-6.20301507 Ry, ewald=-16.79667313 Ry,
         //         total=-17.02299344 Ry (includes -TS).
         Self {
-            system: "Si diamond",
             total:        -17.022_993_44 * RY_TO_EV,
             one_electron:   4.867_446_32 * RY_TO_EV,
             hartree:        1.110_106_70 * RY_TO_EV,
@@ -103,7 +105,6 @@ impl QeReference {
         // xc=-28.90402134 Ry, ewald=-171.77906580 Ry,
         // total=-224.91744934 Ry.
         Self {
-            system: "Fe BCC (FM)",
             total:       -224.917_449_34 * RY_TO_EV,
             one_electron: -50.856_512_13 * RY_TO_EV,
             hartree:       26.641_158_55 * RY_TO_EV,
@@ -189,10 +190,10 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
     // NB: The identity is exact only when rho_in == rho_out at the final
     // iteration. In practice conv_threshold is RMS-based and there can be
     // a small but nonzero rho_in vs rho_out difference at the last step,
-    // yielding an O(V_xc · Δρ) residual that can reach ~1 eV for tight
-    // per-term resolution at modest thresholds. The residual is bounded
-    // by the density difference: at conv_threshold = 1e-8 it is expected
-    // to be below 1e-6 eV, but loose convergence can inflate it.
+    // yielding an O(V_xc · Δρ) residual. Observed residual for Si at
+    // conv_threshold=1e-8 is ~1.2 eV (tracked by the PCRS follow-up
+    // proposal); the tests pin the observed per-component values as a
+    // regression guard rather than asserting the sum identity here.
     let e_sum = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal
         + c.e_hartree + c.e_xc + c.e_ewald;
     let sum_err = e_sum - result.total_energy;
@@ -261,10 +262,10 @@ fn vgc5_si_per_component() {
     print_side_by_side("Si diamond", &result, &QeReference::si());
 
     // -------- Regression pins (pwdft-rs, NOT QE-match) --------
-    // Baseline as of VGC5 (a161221 HEAD, before any fix). If these shift,
-    // the test records the new numbers via the failure message — update
-    // pins to match. Per-component tolerances are 0.05 eV (CI / machine
-    // noise budget).
+    // PRE-NCFX baseline as of VGC5 (a161221 HEAD, before any fix). If these
+    // shift, the test records the new numbers via the failure message —
+    // update pins to match. Per-component tolerances are 0.05 eV (CI /
+    // machine noise budget). All pins below are PRE-NCFX values.
     let tol = 0.05;
     let pin = |name: &str, got: f64, expected: f64| {
         let d = (got - expected).abs();
@@ -275,15 +276,15 @@ fn vgc5_si_per_component() {
     };
 
     let c = &result.components;
-    pin("E_band",             c.e_band,             -1.4683);
-    pin("E_kinetic",          c.e_kinetic,          82.8657);
-    pin("E_local (G≠0)",      c.e_local,           -58.4678);
-    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   10.7447);
-    pin("E_nonlocal",         c.e_nonlocal,         33.4650);
-    pin("E_hartree",          c.e_hartree,          13.5930);
-    pin("E_xc",               c.e_xc,              -70.6575);
-    pin("E_ewald",            c.e_ewald,          -228.5192);
-    pin("E_total",            result.total_energy, -218.1806);
+    pin("E_band",             c.e_band,             -1.4683); // PRE-NCFX
+    pin("E_kinetic",          c.e_kinetic,          82.8657); // PRE-NCFX
+    pin("E_local (G≠0)",      c.e_local,           -58.4678); // PRE-NCFX
+    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   10.7447); // PRE-NCFX
+    pin("E_nonlocal",         c.e_nonlocal,         33.4650); // PRE-NCFX
+    pin("E_hartree",          c.e_hartree,          13.5930); // PRE-NCFX
+    pin("E_xc",               c.e_xc,              -70.6575); // PRE-NCFX
+    pin("E_ewald",            c.e_ewald,          -228.5192); // PRE-NCFX
+    pin("E_total",            result.total_energy, -218.1806); // PRE-NCFX
 }
 
 /// VGC5 Fe BCC per-component audit.
@@ -306,15 +307,11 @@ fn vgc5_fe_per_component() {
     // relative to QE without inheriting k-sampling noise >~10 meV.
     let kpts = kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
 
-    let mut starting_mag = HashMap::new();
-    starting_mag.insert("Fe".to_string(), 0.5);
-
     // NB: nspin=1 used here (not nspin=2 as in QE ref). The PseudoDojo Fe PP
     // at ecut=15 Ry collapses to non-magnetic anyway (see reference_data.toml
     // note on fe_bcc_fm), and the nspin=2 run fails to converge at these
     // parameters. Non-spin reproduces the Fe energy landscape we want to
     // audit for per-component decomposition.
-    let _ = starting_mag;
     let params = ScfParams {
         n_bands: 12,
         max_iter: 150,
@@ -354,16 +351,16 @@ fn vgc5_fe_per_component() {
     assert!(result.total_energy.is_finite(), "Fe total energy is NaN");
     assert!(c.e_band.is_finite() && c.e_kinetic.is_finite(), "Fe components are NaN");
 
-    // Pinned from the first converged run under VGC5 (a161221 + VGC5 patch).
-    // nspin=1, 4×4×4 MP, ecut=15 Ry, Kerker, 150 iters. Not byte-matched to QE
-    // (nspin=2, 8×8×8); these are regression guards only.
-    pin("E_band",             c.e_band,           -411.2020);
-    pin("E_kinetic",          c.e_kinetic,         942.2052);
-    pin("E_local (G≠0)",      c.e_local,         -1749.3601);
-    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   82.7774);
-    pin("E_nonlocal",         c.e_nonlocal,         38.9673);
-    pin("E_hartree",          c.e_hartree,         363.4925);
-    pin("E_xc",               c.e_xc,             -442.1090);
-    pin("E_ewald",            c.e_ewald,         -2337.1672);
-    pin("E_total",            result.total_energy, -3101.2389);
+    // PRE-NCFX: Pinned from the first converged run under VGC5 (a161221 +
+    // VGC5 patch). nspin=1, 4×4×4 MP, ecut=15 Ry, Kerker, 150 iters. Not
+    // byte-matched to QE (nspin=2, 8×8×8); these are regression guards only.
+    pin("E_band",             c.e_band,           -411.2020); // PRE-NCFX
+    pin("E_kinetic",          c.e_kinetic,         942.2052); // PRE-NCFX
+    pin("E_local (G≠0)",      c.e_local,         -1749.3601); // PRE-NCFX
+    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   82.7774); // PRE-NCFX
+    pin("E_nonlocal",         c.e_nonlocal,         38.9673); // PRE-NCFX
+    pin("E_hartree",          c.e_hartree,         363.4925); // PRE-NCFX
+    pin("E_xc",               c.e_xc,             -442.1090); // PRE-NCFX
+    pin("E_ewald",            c.e_ewald,         -2337.1672); // PRE-NCFX
+    pin("E_total",            result.total_energy, -3101.2389); // PRE-NCFX
 }

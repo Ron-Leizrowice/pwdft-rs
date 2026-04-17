@@ -489,7 +489,8 @@ pub fn run_scf(
                 &all_kpoint_wavefns, &occupations, &ctx.vnl_cache,
             );
 
-            // NB: rho_g was assigned rho_g_new above (line 457); use rho_g here.
+            // NB: `rho_g` was assigned `rho_g_new` in the convergence branch
+            // above; use `rho_g` here (the final-iteration density in G-space).
             let e_hartree_term = hartree_energy(&rho_g, &ctx.g_squared, ctx.omega);
             let e_xc_term = xc_energy_bare(&rho_new_for_xc, &exc_r, ctx.omega);
             let e_ewald_term = ctx.e_ewald;

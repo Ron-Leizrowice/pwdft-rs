@@ -195,7 +195,7 @@ pub(crate) fn hartree_on_fft_grid(rho_g: &[Complex64], g_squared: &[f64]) -> Vec
 /// ⟨ψ|T|ψ⟩ = Σ_G |c(G)|² · (ℏ²/2m) · |k+G|²
 ///
 /// Coefficients are assumed orthonormal: Σ_G |c(G)|² = 1.
-pub fn kinetic_expectation(
+pub(crate) fn kinetic_expectation(
     basis: &BasisSet,
     k_points: &[Vector3<f64>],
     kpoint_weights: &[f64],
@@ -238,7 +238,7 @@ pub fn kinetic_expectation(
 /// zeroed (see `ScfContext::new`). The integral is therefore
 ///   ∫ρ·V_local(G≠0)dr = Σ_r ρ(r)·V_local(r)·dV.
 /// The compensating `V_local(G=0)·N_el` shift is reported separately.
-pub fn local_pp_energy_grid(
+pub(crate) fn local_pp_energy_grid(
     rho_r: &[f64],
     v_local_fft_r: &[f64],
     omega: f64,
@@ -256,7 +256,7 @@ pub fn local_pp_energy_grid(
 ///
 /// Uses the cached `NonlocalPotential` for each k-point to build an
 /// ephemeral H_NL matrix, then computes ⟨ψ|H_NL|ψ⟩ for each band.
-pub fn nonlocal_expectation(
+pub(crate) fn nonlocal_expectation(
     basis: &BasisSet,
     crystal: &crate::crystal::Crystal,
     k_points: &[Vector3<f64>],
@@ -303,6 +303,6 @@ pub fn nonlocal_expectation(
 
 /// Bare XC energy: ∫ρ(r)·ε_xc(r)dr (eV). Same sign as QE's "xc contribution".
 /// `rho_xc` = ρ_val + ρ_core (for NLCC) or ρ_val otherwise.
-pub fn xc_energy_bare(rho_xc: &[f64], exc_r: &[f64], omega: f64) -> f64 {
+pub(crate) fn xc_energy_bare(rho_xc: &[f64], exc_r: &[f64], omega: f64) -> f64 {
     xc::lda_xc_energy(rho_xc, exc_r, omega)
 }
