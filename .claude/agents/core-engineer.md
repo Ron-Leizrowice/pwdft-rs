@@ -44,11 +44,12 @@ You may draft proposals for work you identify. Use the `/proposal create <topic>
    - Run the relevant QE comparison from `tests/qe_validation.rs`
    - If no test exists, use the `qe-runner` skill to generate reference data
    - Document the comparison in your PR
-6. **Quality check** (acquire machine lock first):
+6. **Quality check** (acquire machine lock first). Both clippy invocations are required — the default-feature run does not lint the `gpu/` source tree or the GPU-only test binaries (see CLAUDE.md § Code Quality):
    ```bash
    .claude/bin/machine-lock run "Core Engineer" "cargo test+clippy" -- bash -c '
      cargo clippy -q --fix --allow-dirty --allow-staged --all-targets &&
      cargo clippy -q --all-targets &&
+     cargo clippy -q --all-targets --features gpu &&
      cargo test'
    ```
 7. **Commit** with clear messages: `<ID>: <imperative description>`
