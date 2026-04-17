@@ -267,7 +267,7 @@ fn spherical_bessel_j(l: i32, x: f64) -> f64 {
     let mut jlm1 = x.sin() / x;
     let mut jl = x.sin() / (x * x) - x.cos() / x;
     for n in 1..l {
-        let jlp1 = (2 * n + 1) as f64 / x * jl - jlm1;
+        let jlp1 = ((2 * n + 1) as f64 / x).mul_add(jl, -jlm1);
         jlm1 = jl;
         jl = jlp1;
     }
@@ -289,7 +289,7 @@ fn legendre_p(l: i32, x: f64) -> f64 {
     let mut plm1 = 1.0;
     let mut pl = x;
     for n in 1..l {
-        let plp1 = ((2 * n + 1) as f64 * x * pl - n as f64 * plm1) / (n + 1) as f64;
+        let plp1 = ((2 * n + 1) as f64 * x).mul_add(pl, -(n as f64 * plm1)) / (n + 1) as f64;
         plm1 = pl;
         pl = plp1;
     }

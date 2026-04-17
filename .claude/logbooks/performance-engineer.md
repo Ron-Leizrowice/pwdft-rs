@@ -104,3 +104,29 @@ Per SCF iteration at converged settings (10 irr. k-points): ~730 ms eigensolver 
 **Next session TODO:**
 - Step 2 after SPXC merges.
 - Profile full SCF end-to-end to confirm XCPR net impact on wall time (XC is maybe 5-10% of SCF, so expected overall SCF speedup at 32³: ~3-5%, at 64³: ~8-15%).
+
+## 2026-04-17 — FMAD applied (PR pending)
+
+**Scope:** 24 `mul_add` substitutions in hot-path kernels. Test code + out-of-scope files (mod.rs, fft.rs, symmetry/kpoints.rs) excluded per task brief.
+
+- `src/potential/xc.rs`: 13 sites (PZ correlation, spin interpolation, Slater exchange)
+- `src/numerics.rs`: 4 sites (Simpson boundary terms)
+- `src/scf/smearing.rs`: 3 sites (MP, cold, entropy)
+- `src/potential/nonlocal.rs`: 2 sites (spherical Bessel + Legendre recurrences)
+- `src/scf/mixing.rs`: 2 sites (Broyden linear + corrected mix)
+
+**Gotcha:** `ec_ha = (c * rs).mul_add(ln_rs, a.mul_add(ln_rs, b))` forced type annotation on `a, b, c, d: f64` (untyped literals no longer deducible through mul_add).
+
+**Measurements (Apple M2, machine lock held):**
+- `lda_xc_grid_n256`: 2.89 → 2.80 µs (-2.9%)
+- `lda_xc_grid_n512`: 5.74 → 5.50 µs (-4.2%)
+- `lda_xc_grid_n4096`: 45.97 → 44.16 µs (-3.9%)
+- `lda_xc_grid_n16384`: 160 → 154 µs (-3.9%)
+- `lda_xc_spin_grid_*`: within noise (~±2%). Expected — spin kernel dominated by `cbrt`, not additive ops.
+- Parallel sizes (n≥32k) noisy due to rayon fork/join variance; another agent's debug tests occasionally pollute even under lock (compilation happens outside lock).
+
+**Takeaways:**
+- FMA win is measurable but modest (~3-4%) on unpolarized XC, consistent with the fact that cbrt/ln dominate. CBRT proposal would stack multiplicatively.
+- All 81 suboptimal_flops warnings reduced to 54, with all remaining in test code, mod.rs orchestration, or symmetry/pseudopot (out of scope).
+- No tests broke; relative_eq tolerances absorb the ULP-level bit diff from FMA.
+- For future bench runs: watch for concurrent debug test builds at peak (spin_polarization at 1400% CPU masked by lock scheduler). Sequential benchmarks (n ≤ 16 384) are robust; parallel benchmarks (n ≥ 32 768) require quiet machine for reliable criterion stats.
