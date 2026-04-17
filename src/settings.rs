@@ -228,6 +228,10 @@ pub enum MixingModeType {
     Plain,
     /// Kerker preconditioning.
     Kerker,
+    /// Modified Broyden mixing (Johnson PRB 38, 12807, 1988).
+    Broyden,
+    /// Modified Broyden mixing with Kerker preconditioning.
+    BroydenKerker,
 }
 
 impl From<MixingModeType> for crate::scf::mixing::MixingMode {
@@ -235,6 +239,8 @@ impl From<MixingModeType> for crate::scf::mixing::MixingMode {
         match mode {
             MixingModeType::Plain => Self::Plain,
             MixingModeType::Kerker => Self::Kerker { q_tf: None },
+            MixingModeType::Broyden => Self::Broyden { kerker: false },
+            MixingModeType::BroydenKerker => Self::Broyden { kerker: true },
         }
     }
 }
@@ -741,7 +747,12 @@ kpoints:
 
     #[test]
     fn mixing_mode_type_roundtrip() {
-        for variant in [MixingModeType::Plain, MixingModeType::Kerker] {
+        for variant in [
+            MixingModeType::Plain,
+            MixingModeType::Kerker,
+            MixingModeType::Broyden,
+            MixingModeType::BroydenKerker,
+        ] {
             let yaml = serde_yaml_ng::to_string(&variant).unwrap();
             let parsed: MixingModeType = serde_yaml_ng::from_str(&yaml).unwrap();
             assert_eq!(parsed, variant);
@@ -758,6 +769,12 @@ kpoints:
         let kerker: MixingMode = MixingModeType::Kerker.into();
         // Kerker conversion should default q_tf to None (auto-estimated at runtime)
         assert!(matches!(kerker, MixingMode::Kerker { q_tf: None }));
+
+        let broyden: MixingMode = MixingModeType::Broyden.into();
+        assert!(matches!(broyden, MixingMode::Broyden { kerker: false }));
+
+        let broyden_kerker: MixingMode = MixingModeType::BroydenKerker.into();
+        assert!(matches!(broyden_kerker, MixingMode::Broyden { kerker: true }));
     }
 
     #[test]
@@ -830,6 +847,36 @@ electrons:
         assert!((s.electrons.mixing_beta - 0.7).abs() < 1e-15);
         assert_eq!(s.electrons.mixing_ndim, 8);
         assert_eq!(s.electrons.smearing, SmearingScheme::FermiDirac);
+    }
+
+    #[test]
+    fn broyden_mixing_mode_parses() {
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+electrons:
+  mixing_mode: broyden
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        assert_eq!(s.electrons.mixing_mode, MixingModeType::Broyden);
+    }
+
+    #[test]
+    fn broyden_kerker_mixing_mode_parses() {
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+electrons:
+  mixing_mode: broyden_kerker
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        assert_eq!(s.electrons.mixing_mode, MixingModeType::BroydenKerker);
     }
 
     #[test]

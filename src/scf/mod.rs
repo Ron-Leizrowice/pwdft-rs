@@ -240,7 +240,7 @@ pub fn run_scf(
     density_r_to_g(&mut ctx.grid.fft, &rho_r, &mut rho_g);
     info!("Initial density: superposition of atomic densities (Gaussian model)");
 
-    let mut mixer = mixing::AndersonMixer::new(
+    let mut mixer = mixing::Mixer::new(
         ctx.params.mixing_beta,
         ctx.params.mixing_ndim,
         &ctx.params.mixing_mode,
@@ -493,11 +493,11 @@ fn run_scf_spin(
     let mut rho_down_r: Vec<f64> = rho_total.iter().map(|&r| r * (1.0 - avg_mag) / 2.0).collect();
 
     // Two mixers (one per spin channel)
-    let mut mixer_up = mixing::AndersonMixer::new(
+    let mut mixer_up = mixing::Mixer::new(
         ctx.params.mixing_beta, ctx.params.mixing_ndim, &ctx.params.mixing_mode,
         Some(&ctx.g_squared), n_up, ctx.omega,
     );
-    let mut mixer_down = mixing::AndersonMixer::new(
+    let mut mixer_down = mixing::Mixer::new(
         ctx.params.mixing_beta, ctx.params.mixing_ndim, &ctx.params.mixing_mode,
         Some(&ctx.g_squared), n_down, ctx.omega,
     );
