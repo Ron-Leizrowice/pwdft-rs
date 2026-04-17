@@ -23,8 +23,6 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | FFTB | FFT Buffer Reuse | small | low | — | — |
 | XCPR | XC and Spin Diagonalization Parallelization | small | low | — | — |
-| ERRH | Error Handling Cleanup (16 production unwrap/panic/expect) | medium | medium | — | — |
-| BROY | Broyden Mixing and Adaptive Beta | medium | medium | — | — |
 | SPXC | Fix Spin-Polarized E_xc Density Consistency | small | medium | — | — |
 | CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
 
@@ -78,13 +76,15 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | SIMP | Simpson's Rule for Radial Integrals |
 | HRFK | Harris-Foulkes Energy |
 | SDED | Deduplicate Settings Enums |
+| BROY | Broyden Mixing (core algorithm; adaptive beta deferred) |
+| ERRH | Error Handling Cleanup |
 
 ## Notes
 
 - **QEDX** is a tracking proposal — actual fixes are SIMP (done) + VERF. Archive QEDX when VERF lands.
 - **VERF** is now unblocked (SIMP completed). Next critical path item — expected to close the remaining 13.4 eV Si discrepancy.
 - **SIMP** result: Fe BCC validation passes. Si still 13.4 eV off (needs VERF's erf subtraction).
-- **ERRH** counts refreshed: 11 unwrap + 2 panic + 3 expect in production code (was 25).
 - **SPXC** found during HRFK: spin-polarized E_KS mixes input exc_r with output rho_xc_total.
 - **CFGN** all dependencies satisfied (DDUP + SIMP done).
+- **BROY** landed core algorithm only; adaptive-beta and periodic Pulay deferred to follow-ups.
 - **HD5I** references deleted `src/input.rs` — update to YAML Settings when implementing.
