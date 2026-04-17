@@ -347,7 +347,7 @@ mod tests {
 
         // nspin=2 with identical channels
         let ef2 = find_fermi_energy(
-            &[evs.clone(), evs.clone()], &[1.0, 1.0], n_el, sigma, SmearingScheme::FermiDirac, 1.0,
+            &[evs.clone(), evs], &[1.0, 1.0], n_el, sigma, SmearingScheme::FermiDirac, 1.0,
         );
 
         assert!(
@@ -395,7 +395,7 @@ mod tests {
             std::slice::from_ref(&evs), &[1.0], ef, sigma, SmearingScheme::FermiDirac, 2.0,
         );
         let ts2 = entropy_ts(
-            &[evs.clone(), evs.clone()], &[1.0, 1.0], ef, sigma, SmearingScheme::FermiDirac, 1.0,
+            &[evs.clone(), evs], &[1.0, 1.0], ef, sigma, SmearingScheme::FermiDirac, 1.0,
         );
 
         assert!(
