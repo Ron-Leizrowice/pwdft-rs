@@ -24,6 +24,7 @@ impl BasisSet {
     ///
     /// where b_i are reciprocal lattice vectors (2π/V × a_j × a_k).
     /// The number of basis functions scales as N_pw ∝ E_cut^{3/2} × Ω.
+    #[must_use]
     pub fn new(lattice: &Lattice, ecut: f64) -> Self {
         let recip = lattice.reciprocal();
         let g_max_sq = ecut / HBAR2_OVER_2M;
@@ -61,34 +62,41 @@ impl BasisSet {
         }
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.pw.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.pw.is_empty()
     }
 
+    #[must_use]
     pub fn ecut(&self) -> f64 {
         self.ecut
     }
 
     /// Access G-vectors (Cartesian, 1/Å).
+    #[must_use]
     pub fn g_vectors(&self) -> &[Vector3<f64>] {
         &self.pw
     }
 
     /// Access integer Miller indices for each G-vector.
+    #[must_use]
     pub fn miller_indices(&self) -> &[[i32; 3]] {
         &self.miller
     }
 
     /// O(1) lookup: given Miller indices, return the index into the basis.
+    #[must_use]
     pub fn index_of(&self, n1: i32, n2: i32, n3: i32) -> Option<usize> {
         self.index_map.get(&(n1, n2, n3)).copied()
     }
 
     /// Kinetic energy (eV) for each G-vector: (ℏ²/2m)|G|².
+    #[must_use]
     pub fn kinetic_energy(&self) -> Vec<f64> {
         self.pw
             .iter()

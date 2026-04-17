@@ -69,6 +69,7 @@ pub struct AndersonMixer {
 
 impl AndersonMixer {
     /// Create a new mixer. For Kerker mode, pass g_squared (|G|² at each FFT grid point).
+    #[must_use]
     pub fn new(
         beta: f64,
         max_history: usize,
@@ -225,6 +226,7 @@ impl BroydenMixer {
     ///
     /// If `kerker` is true, Kerker preconditioning is applied to the residual
     /// before the Broyden update (like QE's default behavior).
+    #[must_use]
     pub fn new(
         beta: f64,
         max_history: usize,
@@ -371,6 +373,7 @@ pub enum Mixer {
 
 impl Mixer {
     /// Create a mixer from the given parameters and mixing mode.
+    #[must_use]
     pub fn new(
         beta: f64,
         max_history: usize,

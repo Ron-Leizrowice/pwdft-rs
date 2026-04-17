@@ -18,6 +18,7 @@ use crate::consts::E2_COULOMB;
 /// `g_vectors`: Cartesian G-vectors (1/Å).
 ///
 /// Returns V_H(G) in eV.
+#[must_use]
 pub fn hartree_potential(
     rho_g: &[Complex64],
     g_vectors: &[nalgebra::Vector3<f64>],
@@ -43,6 +44,7 @@ pub fn hartree_potential(
 /// E_H = (Ω/2) Σ_{G≠0} |ρ(G)|² · 4π e² / |G|²
 ///
 /// Returns energy in eV.
+#[must_use]
 pub fn hartree_energy(
     rho_g: &[Complex64],
     g_vectors: &[nalgebra::Vector3<f64>],

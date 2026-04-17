@@ -30,6 +30,7 @@ use crate::{
 /// excludes i=j when T=0 (self-interaction).
 ///
 /// Cutoffs: g_max = 10η (reciprocal), r_max = 10/η (real).
+#[must_use]
 pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]) -> f64 {
     let omega = crystal.lattice.volume();
 

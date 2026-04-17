@@ -9,6 +9,7 @@ use super::{SymmOp, SymmetryInfo};
 /// Uses crystal symmetry operations and (optionally) time-reversal symmetry
 /// to identify equivalent k-points. Returns a reduced set with updated weights
 /// that sum to 1.0.
+#[must_use]
 pub fn reduce_kpoints(
     full_kpoints: &[KPoint],
     grid: [u32; 3],

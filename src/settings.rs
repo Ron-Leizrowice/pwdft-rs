@@ -390,6 +390,7 @@ impl Settings {
     /// Build `ScfParams` from the SCF + electron + basis settings.
     ///
     /// `n_bands_fallback` is used when `scf.n_bands` is `None` (auto mode).
+    #[must_use]
     pub fn to_scf_params(&self, n_bands_fallback: usize) -> ScfParams {
         ScfParams {
             n_bands: self.scf.n_bands.unwrap_or(n_bands_fallback),
@@ -410,11 +411,13 @@ impl Settings {
     }
 
     /// Extract the wavefunction energy cutoff in eV.
+    #[must_use]
     pub fn ecutwfc(&self) -> f64 {
         self.basis.ecutwfc
     }
 
     /// Extract the Monkhorst-Pack grid dimensions, if configured.
+    #[must_use]
     pub fn mp_grid(&self) -> Option<[u32; 3]> {
         match &self.kpoints {
             KPointSettings::MonkhorstPack { grid } => Some(*grid),
@@ -423,6 +426,7 @@ impl Settings {
     }
 
     /// Extract the high-symmetry path for band-structure calculations.
+    #[must_use]
     pub fn to_high_sym_path(&self) -> Option<Vec<HighSymPoint>> {
         match &self.kpoints {
             KPointSettings::BandPath { path, .. } => Some(
@@ -438,6 +442,7 @@ impl Settings {
     }
 
     /// Number of k-points per band-path segment (if band_path mode).
+    #[must_use]
     pub fn band_path_npoints(&self) -> Option<usize> {
         match &self.kpoints {
             KPointSettings::BandPath { npoints, .. } => Some(*npoints),
@@ -446,6 +451,7 @@ impl Settings {
     }
 
     /// Build `SymmetryInfo` from these settings and a crystal.
+    #[must_use]
     pub fn to_symmetry_info(
         &self,
         crystal: &Crystal,
@@ -460,6 +466,7 @@ impl Settings {
     }
 
     /// Return the pseudopotential file path for a given element symbol.
+    #[must_use]
     pub fn pseudopotential_path(&self, symbol: &str) -> Option<&str> {
         self.pseudopotentials.files.get(symbol).map(|s| s.as_str())
     }

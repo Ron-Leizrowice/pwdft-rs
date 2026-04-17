@@ -18,6 +18,7 @@ pub struct KPoint {
 /// Produces k-points: k_i = (2n_i - N_i - 1) / (2 N_i) for n_i = 1..N_i,
 /// in fractional reciprocal coordinates, then converted to Cartesian.
 /// No symmetry reduction is applied (full grid).
+#[must_use]
 pub fn monkhorst_pack(n1: u32, n2: u32, n3: u32, lattice: &Lattice) -> Vec<KPoint> {
     let recip = lattice.reciprocal();
     let ntotal = (n1 * n2 * n3) as f64;
@@ -51,6 +52,7 @@ pub struct HighSymPoint {
 }
 
 /// Standard high-symmetry points for FCC Brillouin zone.
+#[must_use]
 pub fn fcc_high_sym_points() -> Vec<HighSymPoint> {
     vec![
         HighSymPoint {
@@ -85,6 +87,7 @@ pub fn fcc_high_sym_points() -> Vec<HighSymPoint> {
 /// `segments` is a list of (label, fractional_coords) pairs defining the path vertices.
 /// `npoints_per_segment` controls the density of sampling between each pair.
 /// Returns k-points with cumulative distance for plotting.
+#[must_use]
 pub fn high_symmetry_path(
     segments: &[HighSymPoint],
     npoints_per_segment: usize,

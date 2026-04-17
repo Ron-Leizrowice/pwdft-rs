@@ -23,6 +23,7 @@ pub struct FFT3D {
 }
 
 impl FFT3D {
+    #[must_use]
     pub fn new(nx: usize, ny: usize, nz: usize) -> Self {
         // Forward: no normalization (standard convention: unnormalized forward)
         // Inverse: no normalization (we apply 1/N manually in inverse_normalized)
@@ -41,10 +42,12 @@ impl FFT3D {
         }
     }
 
+    #[must_use]
     pub fn dims(&self) -> [usize; 3] {
         self.dims
     }
 
+    #[must_use]
     pub fn total_size(&self) -> usize {
         self.dims[0] * self.dims[1] * self.dims[2]
     }
@@ -111,6 +114,7 @@ impl FFT3D {
 ///
 /// Grid sizes that are products of small primes (2, 3, 5) give optimal FFT
 /// performance; arbitrary sizes may be much slower.
+#[must_use]
 pub fn fft_grid_size(n_max: i32) -> usize {
     let min_n = (2 * n_max + 1) as usize;
     let mut n = min_n;
