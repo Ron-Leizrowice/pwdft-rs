@@ -25,6 +25,9 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | XCPR | XC Parallelization — Step 3 (spin-channel `rayon::join`) remaining | small | low | — | — |
 | CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
+| MXBA | Adaptive Mixing Beta (BROY follow-up — Eyert 1996 residual-monitor rule) | medium | medium | — | — |
+| PRPL | Periodic Pulay Mixing (BROY follow-up — Banerjee et al. JCTC 2016) | small | low | — | — |
+| NLCC | Nonlinear Core Correction Audit (docs + test coverage; no bug found) | small | low | — | — |
 
 ### Medium — Code Quality & Refactor
 
@@ -108,6 +111,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 - **TAUD** (done): all 5 PRs landed. PR D uncovered a sign-flipped V_local in the test's QE Cube reference (NOT in our Rust code — VGCMP Phase 1 already proved Rust correct). Captured as VLQR. Test re-`#[ignore]`'d with diagnostic numbers in the reason string.
 - **XCPR** (active): Step 1+2 (XC grid parallelization) merged. Step 3 (spin-channel `rayon::join`) remains.
 - **CFGN** all dependencies satisfied (DDUP + SIMP done).
-- **BROY** landed core algorithm only; adaptive-beta and periodic Pulay deferred to follow-ups.
+- **BROY** landed core algorithm only; adaptive-beta (MXBA) and periodic Pulay (PRPL) follow-ups are now open proposals.
+- **NLCC** audit (2026-04-17): all code paths verified correct against QE `v_of_rho.f90`. Hartree excludes core, electron count excludes core, LSDA splits core/2 per spin, XC uses val+core with val-only double-counting. No bug. Proposal is documentation + integration test against an NLCC element (Fe).
 - **HD5I** references deleted `src/input.rs` — update to YAML Settings when implementing.
 - **SOPT** (new 2026-04-17): refactor `ScfContext.symmetry: Option<&SymmetryInfo>` to always-present (identity fallback). Every material has identity group; Option encodes a setting not a structural fact.
