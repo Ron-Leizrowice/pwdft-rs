@@ -45,3 +45,18 @@ Entries: date, metrics (actual counts), findings, proposals affected. Track qual
 **Quality gate:** `cargo test` all pass (same 8 ignored pre-existing), `cargo clippy -q --all-targets` = 0 warnings. `-W clippy::must_use_candidate` goes from 80 → 10 (the 10 deferred).
 
 **No restructurings needed.** Every hit was a straight `#[must_use]` add; no borderline cases required `#[allow]` or signature changes. Diff is purely additive.
+
+## 2026-04-17 — TAUD test-suite audit
+
+**Wrote:** `proposals/TAUD-test-quality-audit.md`. Investigation only — zero `src/`/`tests/` edits.
+
+**Top 3 most alarming findings:**
+1. `tests/spin_polarization.rs:239` — `test_fe_ferromagnetic_fixed_moment` is a direct clone of the bug SPNC just fixed. SCF is known (post-SPNC) to diverge on this PP, but `match result { Ok=>assert, Err=>eprintln }` means the test passes anyway. The `Ok` arm is unreachable. Either delete or invert to `assert!(result.is_err())`.
+2. `tests/parallel_consistency.rs:178,238` — both serial-vs-parallel SCF tests guard their real assertions with `if let (Ok, Ok)`. A regression in either path makes the test pass silently. Kerker variant is particularly exposed.
+3. `tests/gpu_consistency.rs:406-407` — `(Err(e1), Err(e2)) => eprintln!("both did not converge")` treats simultaneous GPU+CPU divergence as a pass condition. That is a critical bug, not a pass condition.
+
+**Counts:** 5 critical silent-pass, 8 tolerance gaps, 1 confirmed stale `#[ignore]` (kb_projector test_vloc — VERF landed), 8 conditional stale (QE validation, gated on VGCMP), 3 convergence-criterion blind spots.
+
+**Fix plan:** 5 PR-sized chunks (A-E) grouped in the proposal. Each < 1 hr. Total ~5 follow-up PRs to address everything actionable; 2 items deferred (fe_debug.rs deletion waits for VGCMP Phase 2; 8 QE-validation `#[ignore]`s unlock as VGCMP phases close).
+
+**Quality gate:** N/A (investigation only, no code change). Branch `TAUD/test-quality-audit` off `origin/main`.
