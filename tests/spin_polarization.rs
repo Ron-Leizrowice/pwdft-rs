@@ -103,67 +103,72 @@ fn test_si_nspin2_matches_nspin1() {
 
 #[test]
 fn test_fe_spin_xc_consistency_regression() {
-    // SPXC regression test: |E_HF - E_KS| for a spin-polarized system must be
-    // significantly smaller with the SPXC fix than without it.
+    // Combined SPXC + SPNC regression test.
     //
-    // The bug (see proposals/SPXC-spin-xc-consistency.md) was in run_scf_spin:
-    // `exc_r` was computed from INPUT spin densities (depends on zeta_in) but
-    // integrated against `rho_xc_total` from the OUTPUT total density. The
-    // `vxc_up/down` were similarly from INPUT while `rho_up/down_sym` were OUTPUT.
-    // This mixed input-derived quantities with output densities in E_KS.
+    // SPXC (proposals/completed/SPXC-spin-xc-consistency.md) fixed an
+    // input/output mismatch in the spin-polarized E_xc: `exc_r` was from INPUT
+    // spin densities while `rho_xc_total` and `rho_up/down_sym` were OUTPUT.
+    // SPNC (proposals/SPNC-spin-per-density-convergence.md) fixed the nspin=2
+    // convergence criterion to use per-spin max(||Δρ_up||, ||Δρ_down||)
+    // instead of the total-density ||Δρ_total||, so that spin polarization
+    // (zeta) is actually driven to self-consistency.
     //
-    // The fix recomputes (exc_r_out, vxc_up/down_out) from OUTPUT spin densities
-    // for E_KS (matching what run_scf already does), and keeps the INPUT-derived
-    // quantities for E_HF.
+    // This test exercises nspin=2 on Si with a nonzero starting_magnetization
+    // so the spin XC machinery and per-spin mixing are fully active during
+    // SCF, then relaxes (no tot_magnetization constraint) to the physically
+    // correct non-magnetic ground state. At convergence, |E_HF - E_KS| must
+    // be O(Δρ²), i.e. sub-meV at conv_threshold=1e-6.
     //
-    // Empirical |E_HF - E_KS| at convergence for Fe BCC, fixed mag=2, 4x4x4 k,
-    // 15 Ry cutoff, starting_magnetization=0.5:
-    //   Pre-fix:  ~22.2 eV  (E_KS ≈ -3108.67 eV,  244 iters)
-    //   Post-fix: ~13.0 eV  (E_KS ≈ -3099.46 eV,  244 iters)
+    // Historical baseline (Fe BCC fixed-mag=2 on the same nc/lda/Fe.upf, 4×4×4
+    // k, 15 Ry, starting_magnetization=0.5, conv=1e-6, max_iter=300):
+    //   Pre-SPXC, total-only criterion:        |HF-KS| ≈ 22.2 eV (falsely "converged")
+    //   Post-SPXC, total-only criterion:       |HF-KS| ≈ 13.0 eV (falsely "converged")
+    //   Post-SPXC+SPNC, per-spin criterion:    SCF correctly refuses to converge —
+    //     per-channel Δρ locks at ≈0.254 because this pseudopotential does not
+    //     support a stable fixed-mag=2 state (LDA ground state is nonmagnetic).
+    //     The old total-only metric hid this limit cycle by cancelling +ε/−ε
+    //     between the up and down channels.
     //
-    // The residual 13 eV gap is a separate issue: the nspin=2 convergence
-    // criterion uses only rho_total (not per-spin), so zeta (spin polarization)
-    // is not driven to self-consistency. |HF-KS| will remain O(delta_zeta) until
-    // that convergence check is corrected.
-    //
-    // This regression test asserts |HF-KS| < 18 eV, a threshold comfortably
-    // between the pre-fix (~22.2) and post-fix (~13.0) values.
-    let crystal = fe_bcc();
+    // The Fe fixed-mag case is therefore documented but not tested here — it
+    // would require a different pseudopotential or a better mixer. The Si
+    // probe below is the right system to pin the HF-KS quadratic convergence
+    // property this test is named for.
+    let _ = env_logger::builder().is_test(true).try_init();
+    let crystal = si_crystal();
     let pp = pwdft_rs::pseudopotential::load(
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("pseudopotentials/nc/lda/Fe.upf"),
+            .join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
-    let ecut = 15.0 * 13.605_693_122_994; // 15 Ry in eV
-    let basis = BasisSet::new(&crystal.lattice, ecut);
-    let kpoints = pwdft_rs::kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+    let basis = BasisSet::new(&crystal.lattice, 100.0);
+    let kpoints = gamma_only();
 
     let mut starting_mag = std::collections::HashMap::new();
-    starting_mag.insert("Fe".to_string(), 0.5);
+    starting_mag.insert("Si".to_string(), 0.2);
 
     let params = scf::ScfParams {
-        n_bands: 10,
-        max_iter: 300,
+        n_bands: 4,
+        max_iter: 60,
         conv_threshold: 1e-6,
         energy_threshold: 1e-6,
-        mixing_beta: 0.2,
-        mixing_ndim: 8,
-        smearing_sigma: 0.02 * 13.605_693_122_994, // 0.02 Ry in eV
+        mixing_beta: 0.3,
+        mixing_ndim: 4,
+        smearing_sigma: 0.05,
         ecutrho_ratio: 4,
-        mixing_mode: MixingMode::Kerker { q_tf: None },
+        fft_grid: Some([16, 16, 16]),
+        mixing_mode: MixingMode::Plain,
         nspin: 2,
-        tot_magnetization: Some(2.0),
+        tot_magnetization: None,
         starting_magnetization: starting_mag,
         ..Default::default()
     };
 
-    let symmetry = pwdft_rs::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
-    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, Some(&symmetry))
-        .expect("Fe spin-polarized SCF must converge for SPXC regression test");
+    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, None)
+        .expect("Si nspin=2 SCF must converge for SPXC+SPNC regression test");
 
     let hf_diff = (result.harris_foulkes_energy - result.total_energy).abs();
     eprintln!(
-        "SPXC regression: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.3e} eV  ({} iters, M={:.4})",
+        "SPXC+SPNC regression (Si nspin=2): E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.3e} eV  ({} iters, M={:.4})",
         result.total_energy,
         result.harris_foulkes_energy,
         hf_diff,
@@ -171,19 +176,26 @@ fn test_fe_spin_xc_consistency_regression() {
         result.magnetization,
     );
 
-    // Pre-fix: |HF-KS| ~22.2 eV. Post-fix: ~13.0 eV.
-    // Assert well below the pre-fix value to detect regression.
+    // Quadratic-convergence assertion. Pre-SPXC: |HF-KS| was many eV even at
+    // self-consistency due to E_xc using input `exc_r` vs output rho. Post-SPXC
+    // (total-only criterion): |HF-KS| still O(delta_zeta) because spin channels
+    // not driven to consistency. Post-SPXC+SPNC: should be O(delta_rho^2),
+    // sub-microelectronvolt on a well-behaved non-magnetic system.
+    //
+    // Empirical post-SPNC |HF-KS| = 7.19e-7 eV at conv_threshold=1e-6 (23 iters).
+    // Threshold set at ~14x empirical (1e-5 eV) for platform/compiler headroom.
     assert!(
-        hf_diff < 18.0,
-        "Spin-polarized |E_HF - E_KS| = {hf_diff:.3e} eV exceeds 18 eV. \
-         Pre-SPXC-fix baseline was ~22.2 eV; a value in that range indicates \
-         the spin XC consistency fix has regressed."
+        hf_diff < 1.0e-5,
+        "SPXC+SPNC regression: Si nspin=2 |E_HF - E_KS| = {hf_diff:.3e} eV exceeds 1e-5 eV. \
+         This system converges to ~7e-7 eV with both fixes in place. A value of many eV \
+         indicates SPXC (XC input/output mismatch) has regressed; a value of O(0.01) eV \
+         or larger suggests SPNC (per-spin convergence criterion) has regressed."
     );
 
-    // Also confirm magnetization is fixed at 2.0 (sanity).
+    // Sanity: Si is non-magnetic — free-moment relaxation must drive M to 0.
     assert!(
-        (result.magnetization - 2.0).abs() < 0.5,
-        "Fe fixed M=2 should give M≈2, got {:.4}",
+        result.magnetization < 0.05,
+        "Si should relax to non-magnetic (M≈0), got {:.4}",
         result.magnetization
     );
 }

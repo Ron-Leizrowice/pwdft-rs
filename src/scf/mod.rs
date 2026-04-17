@@ -636,7 +636,15 @@ fn run_scf_spin(
         // 7. Convergence check
         let rho_total_new: Vec<f64> = rho_up_sym.iter().zip(rho_down_sym.iter())
             .map(|(&u, &d)| u + d).collect();
-        let delta = density_diff(&rho_total_r, &rho_total_new, ctx.omega, ctx.n_grid);
+        // SPNC: use per-spin max, not total-density diff. A spin-flip fluctuation
+        // (+ε in rho_up, −ε in rho_down) is invisible to the total but keeps
+        // zeta_in ≠ zeta_out, which leaves E_xc[rho, zeta] inconsistent and
+        // spoils the O(Δρ²) convergence of |E_HF − E_KS|. Per-spin max is
+        // strictly stronger than total and keeps the scalar `conv_threshold`
+        // semantics unchanged. See proposals/SPNC-spin-per-density-convergence.md.
+        let delta_up = density_diff(&rho_up_r, &rho_up_sym, ctx.omega, ctx.n_grid);
+        let delta_down = density_diff(&rho_down_r, &rho_down_sym, ctx.omega, ctx.n_grid);
+        let delta = delta_up.max(delta_down);
         last_delta = delta;
 
         // Energy from new density
@@ -711,10 +719,10 @@ fn run_scf_spin(
             "E={e_total:.4} eV  Δρ={delta:.1e}  M={mag:.2} μB"
         ));
         info!(
-            "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e}  M={:.3} μB",
+            "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e} (↑{:.2e} ↓{:.2e})  M={:.3} μB",
             iter + 1, e_total, e_harris, hf_diff,
             de.map_or("N/A".to_string(), |de| format!("{de:.2e}")),
-            delta, mag
+            delta, delta_up, delta_down, mag
         );
 
         // Warn if density converged but Harris-Foulkes difference is large

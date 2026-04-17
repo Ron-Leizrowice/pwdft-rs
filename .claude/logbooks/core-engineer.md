@@ -136,3 +136,26 @@ PR on `SPXC/spin-xc-consistency` branch. Implements the exact fix from the propo
 - `qe_validation.rs` Si/C tests fail on main too; not caused by SPXC.
 - Clippy clean, 173 lib + 44 integration (excl. qe_validation) tests pass.
 - Tangential: nspin=2 convergence metric should include `density_diff(rho_up_in, rho_up_new)` and `density_diff(rho_down_in, rho_down_new)`, not just rho_total. Worth a proposal.
+
+## 2026-04-17 — SPNC implemented
+
+Branch `SPNC/per-spin-convergence`. Proposal + implementation + test update.
+
+**Code change** (`src/scf/mod.rs::run_scf_spin`): replace the total-density delta at line 639 with `max(density_diff(rho_up_r, rho_up_sym), density_diff(rho_down_r, rho_down_sym))`. Added per-channel delta to info log (`Δρ=... (↑... ↓...)`) so future debugging sees channel behavior directly. Also added `env_logger::builder().is_test(true).try_init()` to the regression test so `RUST_LOG=info cargo test -- --nocapture` shows iterations.
+
+**Empirical surprise — Fe fixed-mag=2 does NOT converge under per-spin criterion:**
+- Pre-SPNC (total-only, SPXC in place): "converged" at iter 244 with Δρ_total=1e-6, |HF-KS|=13.03 eV.
+- Post-SPNC (per-spin max): **ConvergenceFailure** — both channels pinned at `Δρ_up = Δρ_down = 0.254` from iter ~5 onwards (steady-state limit cycle). Total density stable (dE~3e-7), so the previous "convergence" was a +ε/−ε spin flip cancelling into the total.
+- Root cause: fixed-mag=2 is not a stable SCF fixed point for this PP (LDA Fe ground state is non-magnetic; test comment already noted "this PP favours non-magnetic Fe"). Independent Anderson mixers on up/down cannot co-ordinate the inter-channel charge transfer that would close the gap. Fixing this needs a coupled-channel mixer or a different PP — out of SPNC scope.
+
+**Regression test reframed:** repurposed `test_fe_spin_xc_consistency_regression` to **Si nspin=2** (starting_mag=0.2, free mag, 100 eV ecut). Si is non-magnetic, relaxes to M=0, and the spin XC machinery is fully exercised during SCF iterations. Demonstrates true O(Δρ²) quadratic convergence with SPXC+SPNC in place:
+- **|HF-KS| = 7.19e-7 eV at conv=1e-6, 23 iters, M=0.0**.
+- Assertion threshold: 1e-5 eV (~14× empirical, platform headroom).
+- Test comment documents the Fe fixed-mag history and why it's now an unsuitable regression target (pathological mixer oscillation).
+
+**Tests:** 220 pass, 9 ignored (pre-existing QE validation + kb_projector vloc), 0 fail. Clippy clean.
+
+**Follow-up candidates (not in this PR, good fodder for future proposals):**
+- Coupled-channel nspin=2 mixer (mix `(ρ_total, m)` instead of `(ρ_up, ρ_down)`) — QE does this via `mix_rho` which takes the full nspin-component vector as one residual. Would unblock Fe fixed-mag.
+- Revisit `test_fe_ferromagnetic_fixed_moment` — passes vacuously (gated on `Ok`, SCF always returns Err). Either remove or swap to a ferromagnetic-stable PP.
+- Adaptive spin mixing `mix_beta` separate from charge `mix_beta` — standard QE setting, damps spin oscillations independently of charge.
