@@ -190,3 +190,59 @@ as deliverable D1 in the proposal.
   for byte-identical QE comparison. Suggested ID: `MPSH`.
 
 Proposal: `proposals/SYKP-symmetry-ibz-audit.md` (status: documented).
+
+---
+
+## 2026-04-17 — VGCMP Phase 3 (D_ij) cross-check — PASS
+
+Third of three PP form-factor checks. Si.upf D_ij vs independent Python parse.
+
+### Verdict
+
+**max |Δ| = 0.000e+00 Ry (bit-exact, 36 elements).** Both Rust and Python
+produce the same 6×6 row-major reshape; the Ry→eV conversion at
+`src/pseudopotential/upf.rs:77-78` is a plain scalar multiply.
+
+### Key numbers
+
+- D_ij is **strictly diagonal** for Si ONCVPSP LDA (not merely block-diagonal
+  in l). QE absorbs the within-l-block rotation into χ(r).
+- Diagonal values (Ry): +11.132, +1.714, +5.452, +1.260, −4.250, −0.889
+  for (l=0,0,1,1,2,2).
+
+### Combined VGCMP verdict — Phases 1+2+3 all pass
+
+| Phase | Quantity | max \|Δ\| | tol |
+|-------|----------|-----------|-----|
+| 1 | V_local(G) | 2.8e−9 Ry | 1e−4 Ry |
+| 2 | β_l(q) | 3.0e−12 Bohr^(3/2) | 1e−4 Bohr^(3/2) |
+| 3 | D_ij | 0.0 Ry | 1e−12 eV |
+
+The Si 13.43 eV gap is **not in any of the three PP form factors**.
+It must be in (a) assembly — structure factor, (2l+1)/(4π) angular,
+1/Ω prefactor, D_ij summation pattern, or (b) outside the PP pipeline
+(Ewald, kinetic convention, symmetry at Γ, SCF convergence).
+
+### Phase 4 plan (next session)
+
+Branch `VGCMP/phase4-hamiltonian`. At Γ, pick two G-vectors, assemble
+`H_{G_A, G_B}` = kinetic + local + non-local three ways:
+
+1. Python reference using the already-validated Phase 1/2/3 data in
+   native QE units (Ry, Bohr).
+2. pwdft-rs internal: extract the matrix element from
+   `NonlocalPotential::add_to_hamiltonian` output at (G_A, G_B).
+3. Component-by-component comparison: kinetic vs local vs non-local
+   separately, so failure pinpoints the sub-term.
+
+Pass threshold < 1e-4 Ry per term.
+
+### Tangential notes
+
+- If Phase 4 also passes, the bug is outside the PP pipeline. Prime
+  suspects ranked: (i) Ewald sign or prefactor for diamond structures,
+  (ii) initial-density SAD pathology for covalent bonds, (iii)
+  symmetry breaking at Γ for l=2 projectors.
+- Consider adding a `core_charge` / NLCC phase-4b cross-check if
+  Phase 4 passes — some QE errors show up only for PPs with NLCC.
+

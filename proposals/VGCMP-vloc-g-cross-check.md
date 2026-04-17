@@ -235,3 +235,60 @@ If Phase 3 also passes, the Si 13.43 eV gap is **outside** the pseudopotential m
 ### No bugs filed in `src/`
 
 The existing `bessel_transform_projector` implementation (`src/potential/nonlocal.rs:223-246`) and UPF projector unit conversion (`src/pseudopotential/upf.rs:54-73`) are numerically correct to machine precision against the independent reference. No changes to production code were made in this session.
+
+## 2026-04-17 — Phase 3 Result
+
+**Verdict: D_ij passes bit-exactly. The Si 13.43 eV gap is NOT in the KB coupling matrix.**
+
+### Artifacts
+
+- `scripts/validate/dij_reference.py` — manual UPF v2 parser; extracts `<PP_DIJ>` block and per-projector `angular_momentum`, reshapes the 36-value flat list row-major into a 6×6 matrix in Ry. Also asserts block-diagonality in l as a sanity check.
+- `scripts/validate/dij_si_reference.csv` — committed golden file: 36 rows (i, j, dij_ry) in row-major order.
+- `tests/vgcmp_dij_cross_check.rs` — Rust test loads Si.upf via `pseudopotential::load`, divides each `pp.dij` entry by `RY_TO_EV` to recover the native UPF value, and asserts element-wise agreement to < 1e-12 eV absolute. Prints full 6×6 Rust and Python matrices on every run.
+
+### Numerical result (Si ONCVPSP LDA, 6 projectors: l = 0, 0, 1, 1, 2, 2)
+
+**max |Δ| = 0.000e+00 Ry (0.000e+00 eV) across all 36 matrix elements.** The Ry→eV conversion at `src/pseudopotential/upf.rs:77-78` is a single scalar multiply, and Rust + Python agree bit-exactly. Well below the 1e-12 eV pass threshold.
+
+#### D_ij matrix for Si (Ry, row-major from UPF `<PP_DIJ>`)
+
+|          | j=0 (l=0)    | j=1 (l=0)    | j=2 (l=1)    | j=3 (l=1)    | j=4 (l=2)    | j=5 (l=2)    |
+|----------|--------------|--------------|--------------|--------------|--------------|--------------|
+| i=0 (l=0)| +1.113192e+01| 0            | 0            | 0            | 0            | 0            |
+| i=1 (l=0)| 0            | +1.713932e+00| 0            | 0            | 0            | 0            |
+| i=2 (l=1)| 0            | 0            | +5.452221e+00| 0            | 0            | 0            |
+| i=3 (l=1)| 0            | 0            | 0            | +1.259656e+00| 0            | 0            |
+| i=4 (l=2)| 0            | 0            | 0            | 0            | −4.249609e+00| 0            |
+| i=5 (l=2)| 0            | 0            | 0            | 0            | 0            | −8.892088e−01|
+
+### Interpretation
+
+1. **D_ij is strictly diagonal** — not merely block-diagonal in l. ONCVPSP generates two projectors per l-channel (designed for transferability across energy windows); QE's ONCVPSP diagonalization routine has already absorbed any within-l-block rotation into the χ(r) projectors (see `qe-7.5/upflib/init_us_1.f90`), so the coefficient matrix that sits in the KB separable form is pure diagonal. This matches the expectation that KB non-local potentials for norm-conserving PPs have the simple form `V_NL = Σᵢ |β_i⟩ D_ii ⟨β_i|`.
+2. The parser at `src/pseudopotential/upf.rs:77-78` correctly flattens 36 row-major values and applies `dij_ry[k] * RY_TO_EV` element-wise. No sign error, no row/column transposition, no bytes lost in parsing.
+3. **D_ij is not the source of the 13.43 eV Si gap.** Combined with Phase 1 (V_local(G), max |Δ| = 2.8e−9 Ry) and Phase 2 (β_l(q), max |Δ| = 3.0e−12 Bohr^(3/2)), **all three pseudopotential form factors now carry a clean bill of health against an independent Python reference.**
+
+### Diagnostic implication
+
+The combined 1/2/3 verdict is strong: if the Si 13.43 eV gap is anywhere in the **per-term** pseudopotential data (local potential, non-local projectors, coupling matrix), it has evaded three independent 10⁻⁹–10⁻¹² Ry checks. That is vanishingly unlikely. The bug must live in one of:
+
+- The **assembly step** — how the form factors are combined into `H_{G,G'}` at a given k-point. This includes:
+  - Structure factor `S(G−G') = Σ_atoms exp(−i(G−G')·τ_atom)` (sign, conjugation convention)
+  - Non-local angular factor `(2l+1)/(4π) · P_l(cos θ_{k+G, k+G'})`
+  - The `1/Ω` volume normalization, and the `4π/√Ω` KB prefactor inside `bessel_transform_projector`
+  - The row/col indexing of D_ij during the `V_NL = Σᵢⱼ ⟨G|β_i⟩ D_ij ⟨β_j|G'⟩` double sum
+- **Outside the PP pipeline** entirely: Ewald sign/prefactor, kinetic energy convention (ħ²/2m with which unit of m), symmetry-breaking at Γ, SCF convergence criterion, or initial-density (SAD) pathology that never escapes a local minimum for Si.
+
+### Recommended next step — Phase 4: assembled H_{G,G'}
+
+Open follow-up branch `VGCMP/phase4-hamiltonian`. Approach:
+
+1. At Γ for a 2-atom Si FCC primitive cell, pick two specific G-vectors G_A, G_B (e.g. G_A = (0,0,0), G_B = first shell at |G|² = 3·(2π/a)²).
+2. **Python reference:** using the already-validated Python V_local(G), β_l(q), D_ij from phases 1–3, assemble `H_{G_A, G_B}` = kinetic + local + non-local by hand, evaluated at each term per the analytic formula. Keep in QE native (Ry, Bohr) units.
+3. **pwdft-rs side:** extend `NonlocalPotential::add_to_hamiltonian` (or build a thin test harness) to extract the matrix element at exactly (G_A, G_B). Compare to the Python reference, element by element (local only, non-local only, full).
+4. **Pass criterion:** < 1e-4 Ry absolute per term. If passes, the bug is outside the PP pipeline. If fails, the Phase 4 component-level comparison pinpoints the exact sub-term (local-only diff vs non-local-only diff).
+
+Rationale for proceeding to Phase 4 regardless of this clean Phase 3: the assembly step — structure factor, (2l+1)/(4π) angular factor, 1/Ω volume factor, and the summation pattern — has not been verified. The three form factors being correct in isolation is necessary but insufficient; the wiring between them is a separate code path with its own sign and index pitfalls.
+
+### No bugs filed in `src/`
+
+The existing UPF D_ij parser (`src/pseudopotential/upf.rs:77-78`) is bit-exactly correct against the independent reference. No changes to production code were made in this session.
