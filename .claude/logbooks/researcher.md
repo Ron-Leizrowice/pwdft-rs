@@ -246,3 +246,98 @@ Pass threshold < 1e-4 Ry per term.
 - Consider adding a `core_charge` / NLCC phase-4b cross-check if
   Phase 4 passes — some QE errors show up only for PPs with NLCC.
 
+## 2026-04-17 — VGCMP Phase 4: assembled H[G,G] at k=Γ cleared
+
+**Verdict: Hamiltonian assembly passes. The Si 13.4 eV gap is NOT in
+the kinetic + V_NL diagonal assembly path.**
+
+### Artifacts
+- `scripts/validate/vgcmp_phase4_assembled_h.py` — independent Python
+  reassembly of kinetic + V_NL diagonal from Phase 1/2/3 form factors.
+- `scripts/validate/vgcmp_phase4_reference.csv` — 5-shell reference.
+- `tests/vgcmp_assembled_h_cross_check.rs` — two tests: (a) ħ²/(2m)
+  convention self-consistency, (b) shell-by-shell diagonal comparison
+  using `hamiltonian::build_kinetic` + `NonlocalPotential::add_to_hamiltonian`
+  (V_eff=0 on the FFT grid strictly isolates kinetic + V_NL).
+
+### Numerics (Si FCC Γ, a=5.431 Å, ecut=200 eV, 5 shells |G|²=0,3,4,8,11)
+
+| term    | max \|Δ\| (Ry) | max \|Δ\| (eV) | tol (Ry) |
+|---------|----------------|----------------|----------|
+| kinetic | 2.89e−10       | 3.9e−9         | 1e−4     |
+| V_NL    | 3.97e−14       | 5.4e−13        | 1e−4     |
+| H_diag  | 2.89e−10       | 3.9e−9         | 1e−4     |
+
+Kinetic residual is 7e−11 relative — pure CODATA-vs-SI drift between
+`HBAR2_OVER_2M` (SI-derived, 3.8099821159 eV·Å²) and `RY_TO_EV·BOHR_TO_ANG²`
+(QE convention, 3.8099821161 eV·Å²). V_NL is at pure ULP noise (1e-14).
+
+### Combined VGCMP verdict — all four phases pass
+
+| Phase | Quantity                      | max \|Δ\|                      |
+|-------|-------------------------------|--------------------------------|
+| 1     | V_local(G)                    | 2.8e−9 Ry                      |
+| 2     | β_l(q)                        | 3.0e−12 Bohr^(3/2)             |
+| 3     | D_ij                          | 0.0 Ry                         |
+| 4     | H_diag[G,G] (kinetic + V_NL)  | 2.9e−10 Ry / 3.9e−9 eV         |
+
+**The Si 13.4 eV gap is outside the entire PP → H assembly pipeline.**
+
+### Diagnostic implication — where to look next
+
+With the pseudopotential machinery cleared end-to-end, the remaining
+suspects for the Si 13.4 eV gap (in decreasing a-priori likelihood):
+
+1. **V_local(G=0) bookkeeping in total energy** — pwdft-rs
+   (`src/scf/context.rs:93-94`) explicitly zeroes `v_local_fft[0]` and
+   stores `v_local_g0` separately; the orientation log from 2026-04-16
+   already flagged this ("total_energy docstring omits V_local(G=0)·N_el
+   correction"). Need to **verify** that the E_local accounting in
+   `total_energy()` includes this compensating term at the same
+   magnitude QE expects.
+2. **Ewald sign/prefactor for diamond** — Fe BCC matches to 0.02 eV,
+   Si FCC mismatches by 13.4 eV. Geometry-dependent difference is
+   suspicious. Si: 2 atoms/primitive cell (diamond basis); Fe: 1
+   atom/primitive (BCC). Double-counting in Ewald per-atom summation
+   is plausible.
+3. **SAD initial density pathology** — Si is covalent, Fe is metallic.
+   If SAD's spherical-atom start lands SCF in a different local min
+   for Si but not Fe, the residual could be a convergence artifact.
+4. **SCF non-convergence at low ecut** — orientation log shows C
+   diamond does not converge at ecut=30 Ry; Si may be similarly
+   marginally under-converged at ecut=15 Ry.
+
+### Recommended next step — VGCMP Phase 5: energy-component audit
+
+Open branch `VGCMP/phase5-energy-accounting`. Approach:
+
+1. Run Si SCF in pwdft-rs at **ecut=30 Ry** (matches
+   `qe_validation/si_scf.in`). Log each component: E_band, E_kinetic,
+   E_local, E_local_G0_shift, E_nonlocal, E_Hartree, E_xc, E_ewald.
+2. Extract the same components from QE via
+   `grep -E 'one-electron|Hartree|xc contribution|ewald' qe_validation/si_scf.out`.
+3. Tabulate side-by-side. The 13.4 eV discrepancy should localize to
+   one or two specific terms — pattern-match against candidates in
+   the diagnostic list above.
+4. Pay particular attention to:
+   - The V_local(G=0)·N_el background shift.
+   - The Ewald pair sum for diamond.
+   - Whether SCF converges to the same eigenvalues as QE even if
+     total E differs.
+
+### Tangential — test/lint hygiene
+
+- Phase 4 test takes 0.29 s at `cargo test`.
+- Full suite (`cargo test`): all 173 active + 8 VERF-blocked ignored,
+  clippy `--all-targets` clean.
+- `hamiltonian::build_kinetic` is equivalent to
+  `scf::potentials::build_hamiltonian_with_v_eff` at `V_eff_fft = 0`
+  (same `HBAR2_OVER_2M * |k+G|²` diagonal) — reused it rather than
+  exposing the crate-private helper.
+
+### No bugs filed in `src/`
+
+The existing `build_kinetic` + `NonlocalPotential::add_to_hamiltonian`
+pipeline is numerically correct to machine precision against the
+independent reference. No production code changed this session.
+
