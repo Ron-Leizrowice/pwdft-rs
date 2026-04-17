@@ -1,5 +1,7 @@
 use num_complex::Complex64;
 
+use crate::error::{PwdftError, Result};
+
 /// Result of diagonalizing a Hermitian matrix.
 pub struct EigenResult {
     /// Eigenvalues in ascending order.
@@ -16,45 +18,57 @@ pub struct EigenResult {
 /// Uses faer's `self_adjoint_eigen` (dense, O(n³) LAPACK-equivalent).
 /// Only the lower triangle of H is read.
 ///
-/// # Panics
-/// Panics if the matrix is not square or if the eigendecomposition fails.
-pub fn diagonalize_hermitian(h: &faer::Mat<Complex64>) -> EigenResult {
+/// # Errors
+/// Returns `PwdftError::Eigensolver` if the matrix is not square or if faer
+/// fails to compute the eigendecomposition.
+pub fn diagonalize_hermitian(h: &faer::Mat<Complex64>) -> Result<EigenResult> {
     let n = h.nrows();
-    assert_eq!(n, h.ncols(), "matrix must be square");
+    if n != h.ncols() {
+        return Err(PwdftError::Eigensolver {
+            size: n,
+            detail: format!("matrix is not square: {}x{}", n, h.ncols()),
+        });
+    }
 
     if n == 0 {
-        return EigenResult {
+        return Ok(EigenResult {
             eigenvalues: vec![],
             eigenvectors: faer::Mat::zeros(0, 0),
-        };
+        });
     }
 
     let decomp = h
         .self_adjoint_eigen(faer::Side::Lower)
-        .expect("faer eigendecomposition failed");
+        .map_err(|_| PwdftError::Eigensolver {
+            size: n,
+            detail: "faer returned no eigendecomposition".into(),
+        })?;
 
     let s_col = decomp.S().column_vector();
     let eigenvalues: Vec<f64> = (0..n).map(|i| s_col[i].re).collect();
     let eigenvectors = decomp.U().to_owned();
 
-    EigenResult {
+    Ok(EigenResult {
         eigenvalues,
         eigenvectors,
-    }
+    })
 }
 
 /// Diagonalize and return only the lowest `n_bands` eigenvalues/eigenvectors.
-pub fn diagonalize_lowest(h: &faer::Mat<Complex64>, n_bands: usize) -> EigenResult {
-    let full = diagonalize_hermitian(h);
+///
+/// # Errors
+/// Returns `PwdftError::Eigensolver` if the eigendecomposition fails.
+pub fn diagonalize_lowest(h: &faer::Mat<Complex64>, n_bands: usize) -> Result<EigenResult> {
+    let full = diagonalize_hermitian(h)?;
     let n = n_bands.min(full.eigenvalues.len());
 
     let eigenvalues = full.eigenvalues[..n].to_vec();
     let eigenvectors = full.eigenvectors.subcols(0, n).to_owned();
 
-    EigenResult {
+    Ok(EigenResult {
         eigenvalues,
         eigenvectors,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -74,7 +88,7 @@ mod tests {
             Complex64::new(3.0, 0.0), Complex64::new(1.0, 0.0),
             Complex64::new(1.0, 0.0), Complex64::new(3.0, 0.0),
         ]);
-        let result = diagonalize_hermitian(&h);
+        let result = diagonalize_hermitian(&h).unwrap();
         assert!(relative_eq!(result.eigenvalues[0], 2.0, epsilon = 1e-10));
         assert!(relative_eq!(result.eigenvalues[1], 4.0, epsilon = 1e-10));
     }
@@ -88,7 +102,7 @@ mod tests {
             Complex64::new(1.0, 0.0), i,
             -i, Complex64::new(1.0, 0.0),
         ]);
-        let result = diagonalize_hermitian(&h);
+        let result = diagonalize_hermitian(&h).unwrap();
         assert!(relative_eq!(result.eigenvalues[0], 0.0, epsilon = 1e-10));
         assert!(relative_eq!(result.eigenvalues[1], 2.0, epsilon = 1e-10));
     }
@@ -101,7 +115,7 @@ mod tests {
             Complex64::new(1.0, 0.0) - i, Complex64::new(3.0, 0.0), Complex64::new(1.0, 0.0),
             Complex64::new(0.0, 0.0), Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0),
         ]);
-        let result = diagonalize_hermitian(&h);
+        let result = diagonalize_hermitian(&h).unwrap();
 
         // Check Hv = λv for each eigenpair
         for idx in 0..3 {
@@ -130,7 +144,7 @@ mod tests {
             Complex64::new(0.0, 0.0), Complex64::new(5.0, 0.0), Complex64::new(0.0, 0.0),
             Complex64::new(0.0, 0.0), Complex64::new(0.0, 0.0), Complex64::new(9.0, 0.0),
         ]);
-        let result = diagonalize_lowest(&h, 2);
+        let result = diagonalize_lowest(&h, 2).unwrap();
         assert_eq!(result.eigenvalues.len(), 2);
         assert!(relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-10));
         assert!(relative_eq!(result.eigenvalues[1], 5.0, epsilon = 1e-10));

@@ -67,15 +67,15 @@ pub fn load(path: &Path) -> Result<PseudopotentialData> {
 /// Find the pseudopotential matching an atom's atomic number.
 ///
 /// Matches by converting the PP element symbol to an atomic number.
-/// Panics if no match is found — callers should validate PP coverage at startup.
-pub fn find_for_atom<'a>(z: u32, pseudopotentials: &[&'a PseudopotentialData]) -> &'a PseudopotentialData {
+/// Returns `None` if no matching pseudopotential is loaded.
+pub fn find_for_atom<'a>(z: u32, pseudopotentials: &[&'a PseudopotentialData]) -> Option<&'a PseudopotentialData> {
     pseudopotentials
         .iter()
         .find(|pp| {
             crate::atoms::from_symbol(&pp.element)
                 .is_some_and(|e| e.atomic_number() == z)
         })
-        .expect("no pseudopotential found for atom")
+        .copied()
 }
 
 impl PseudopotentialData {
@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn test_find_for_atom() {
         let pp = load(&si_pp_path()).unwrap();
-        let found = find_for_atom(14, &[&pp]);
+        let found = find_for_atom(14, &[&pp]).unwrap();
         assert_eq!(found.element, "Si");
         assert!((found.z_valence - 4.0).abs() < 1e-10);
     }

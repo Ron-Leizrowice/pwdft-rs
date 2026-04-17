@@ -1,6 +1,7 @@
 use crate::{
     basis::BasisSet,
     eigensolver::dense,
+    error::Result,
     hamiltonian,
     kpoints::KPoint,
 };
@@ -19,19 +20,22 @@ pub struct BandStructure {
 ///
 /// For each k-point, builds the Hamiltonian and diagonalizes it,
 /// keeping the lowest `n_bands` eigenvalues.
+///
+/// # Errors
+/// Returns `PwdftError::Eigensolver` if any eigendecomposition fails.
 pub fn compute_band_structure(
     basis: &BasisSet,
     kpoints: &[KPoint],
     distances: &[f64],
     n_bands: usize,
     v_eff: Option<&dyn Fn(usize, usize) -> num_complex::Complex64>,
-) -> BandStructure {
+) -> Result<BandStructure> {
     let mut eigenvalues = Vec::with_capacity(kpoints.len());
     let mut labels = Vec::new();
 
     for (i, kp) in kpoints.iter().enumerate() {
         let h = hamiltonian::build_hamiltonian(basis, &kp.k, v_eff);
-        let result = dense::diagonalize_lowest(&h, n_bands);
+        let result = dense::diagonalize_lowest(&h, n_bands)?;
         eigenvalues.push(result.eigenvalues);
 
         if let Some(ref label) = kp.label {
@@ -39,11 +43,11 @@ pub fn compute_band_structure(
         }
     }
 
-    BandStructure {
+    Ok(BandStructure {
         distances: distances.to_vec(),
         labels,
         eigenvalues,
-    }
+    })
 }
 
 impl BandStructure {
@@ -111,7 +115,7 @@ mod tests {
             label: Some("Γ".into()),
         };
 
-        let bs = compute_band_structure(&basis, &[gamma], &[0.0], 10, None);
+        let bs = compute_band_structure(&basis, &[gamma], &[0.0], 10, None).unwrap();
 
         // At Γ, lowest eigenvalue should be 0 (G=0, |k+G|=0)
         assert!(
@@ -144,7 +148,7 @@ mod tests {
             label: None,
         };
 
-        let bs = compute_band_structure(&basis, &[kp], &[0.0], 5, None);
+        let bs = compute_band_structure(&basis, &[kp], &[0.0], 5, None).unwrap();
         let expected_lowest = HBAR2_OVER_2M * k.norm_squared();
 
         assert!(

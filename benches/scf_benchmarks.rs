@@ -65,11 +65,11 @@ fn bench_eigensolver(c: &mut Criterion) {
 
         // Build a realistic Hamiltonian (kinetic + nonlocal, not just diagonal)
         let mut h = hamiltonian::build_kinetic(&basis, &k);
-        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]);
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
         vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
         group.bench_function(format!("faer_eigen_n{n}"), |b| {
-            b.iter(|| black_box(dense::diagonalize_hermitian(black_box(&h))));
+            b.iter(|| black_box(dense::diagonalize_hermitian(black_box(&h)).unwrap()));
         });
     }
 
@@ -98,12 +98,12 @@ fn bench_hamiltonian(c: &mut Criterion) {
 
         group.bench_function(format!("vnl_new_n{n}"), |b| {
             b.iter(|| {
-                black_box(NonlocalPotential::new(&crystal, &basis, &k_offgamma, &[&pp]));
+                black_box(NonlocalPotential::new(&crystal, &basis, &k_offgamma, &[&pp]).unwrap());
             });
         });
 
         let h = hamiltonian::build_kinetic(&basis, &k_gamma);
-        let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &[&pp]);
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &[&pp]).unwrap();
 
         group.bench_function(format!("vnl_apply_n{n}"), |b| {
             b.iter(|| {

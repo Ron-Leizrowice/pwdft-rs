@@ -112,7 +112,7 @@ fn test_eigenvalues_match_analytic_at_high_sym_points() {
     for (label, frac) in &high_sym {
         let k = frac_to_cart(*frac, &lattice);
         let h = hamiltonian::build_hamiltonian(&basis, &k, None);
-        let result = dense::diagonalize_lowest(&h, N_BANDS);
+        let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
         let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
 
         for (i, (got, expected)) in result
@@ -270,7 +270,7 @@ fn test_band_continuity() {
         },
     ];
     let (kpts, distances) = kpoints::high_symmetry_path(&path, 100, &lattice);
-    let bs = bandstructure::compute_band_structure(&basis, &kpts, &distances, 8, None);
+    let bs = bandstructure::compute_band_structure(&basis, &kpts, &distances, 8, None).unwrap();
 
     // Check that each band varies smoothly between adjacent k-points.
     // For 100 points along Γ-X, the maximum energy change per step should be small.
@@ -315,7 +315,7 @@ fn test_eigenvalues_are_sorted_diagonal() {
         diag.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
         // Diagonalize
-        let result = dense::diagonalize_hermitian(&h);
+        let result = dense::diagonalize_hermitian(&h).unwrap();
 
         // All eigenvalues should match the sorted diagonal exactly
         for (i, (got, expected)) in result
@@ -343,7 +343,7 @@ fn test_eigenvector_reconstruction() {
     let k = frac_to_cart([0.3, 0.1, 0.2], &lattice);
 
     let h = hamiltonian::build_hamiltonian(&basis, &k, None);
-    let result = dense::diagonalize_hermitian(&h);
+    let result = dense::diagonalize_hermitian(&h).unwrap();
     let n = basis.len();
 
     // Verify H V = V Λ, i.e. H v_i = λ_i v_i for each eigenpair
@@ -378,7 +378,7 @@ fn test_gamma_numerical_values() {
     let result = dense::diagonalize_lowest(
         &hamiltonian::build_hamiltonian(&basis, &k, None),
         N_BANDS,
-    );
+    ).unwrap();
 
     let kappa_sq = (2.0 * std::f64::consts::PI / SI_A).powi(2);
 
@@ -421,7 +421,7 @@ fn test_diamond_c_eigenvalues_at_gamma() {
     let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
 
     let h = hamiltonian::build_hamiltonian(&basis, &k, None);
-    let result = dense::diagonalize_lowest(&h, N_BANDS);
+    let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
 
     for (i, (&computed, &expected)) in result
         .eigenvalues
@@ -464,7 +464,7 @@ fn test_bcc_fe_eigenvalues_at_gamma() {
     let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
 
     let h = hamiltonian::build_hamiltonian(&basis, &k, None);
-    let result = dense::diagonalize_lowest(&h, N_BANDS);
+    let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
 
     for (i, (&computed, &expected)) in result
         .eigenvalues
@@ -506,7 +506,7 @@ fn test_bcc_fe_band_continuity() {
         let t = ik as f64 / (n_kpts - 1) as f64;
         let k = gamma * (1.0 - t) + k_end * t;
         let h = hamiltonian::build_hamiltonian(&basis, &k, None);
-        let result = dense::diagonalize_lowest(&h, n_bands);
+        let result = dense::diagonalize_lowest(&h, n_bands).unwrap();
 
         if let Some(ref prev) = prev_eigenvalues {
             for (ib, (&ev_cur, &ev_prev)) in result.eigenvalues.iter().zip(prev.iter()).enumerate().take(n_bands) {
@@ -539,7 +539,7 @@ fn test_diamond_c_off_gamma() {
     let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
 
     let h = hamiltonian::build_hamiltonian(&basis, &k, None);
-    let result = dense::diagonalize_lowest(&h, N_BANDS);
+    let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
 
     for (i, (&computed, &expected)) in result
         .eigenvalues

@@ -11,6 +11,7 @@ use rayon::prelude::*;
 use crate::{
     basis::BasisSet,
     crystal::Crystal,
+    error::{PwdftError, Result},
     kpoints::KPoint,
     potential::nonlocal::NonlocalPotential,
     pseudopotential::PseudopotentialData,
@@ -52,6 +53,9 @@ pub(crate) struct ScfContext<'a> {
 impl<'a> ScfContext<'a> {
     /// Build the SCF context: precompute everything that doesn't change
     /// between iterations.
+    ///
+    /// # Errors
+    /// Returns `PwdftError::MissingPseudopotential` if any atom lacks a loaded PP.
     pub fn new(
         crystal: &'a Crystal,
         basis: &'a BasisSet,
@@ -59,12 +63,20 @@ impl<'a> ScfContext<'a> {
         pseudopotentials: &'a [&'a PseudopotentialData],
         params: &'a ScfParams,
         symmetry: Option<&'a crate::symmetry::SymmetryInfo>,
-    ) -> Self {
+    ) -> Result<Self> {
         let omega = crystal.lattice.volume();
         let n_electrons: f64 = crystal
             .atoms
             .iter()
-            .map(|a| crate::pseudopotential::find_for_atom(a.z, pseudopotentials).z_valence)
+            .map(|a| {
+                crate::pseudopotential::find_for_atom(a.z, pseudopotentials)
+                    .map(|pp| pp.z_valence)
+                    .ok_or_else(|| PwdftError::MissingPseudopotential(
+                        format!("Z={} not found in loaded pseudopotentials", a.z)
+                    ))
+            })
+            .collect::<Result<Vec<f64>>>()?
+            .into_iter()
             .sum();
 
         info!("SCF: {n_electrons} electrons, {omega:.3} ų cell volume, nspin={}", params.nspin);
@@ -77,7 +89,7 @@ impl<'a> ScfContext<'a> {
         let g_to_fft = grid.basis_to_fft(basis);
 
         // V_local with G=0 excluded
-        let mut v_local_fft = potentials::compute_v_local(crystal, &grid, pseudopotentials, omega);
+        let mut v_local_fft = potentials::compute_v_local(crystal, &grid, pseudopotentials, omega)?;
         let v_local_g0 = v_local_fft[0].re;
         v_local_fft[0] = Complex64::new(0.0, 0.0);
         info!("V_local(G=0) = {v_local_g0:.6} eV (excluded from Hamiltonian)");
@@ -99,16 +111,17 @@ impl<'a> ScfContext<'a> {
         }
 
         // Cache V_NL per k-point
-        let vnl_cache: Vec<NonlocalPotential> = kpoints
+        let vnl_cache: Result<Vec<NonlocalPotential>> = kpoints
             .par_iter()
             .map(|kp| NonlocalPotential::new(crystal, basis, &kp.k, pseudopotentials))
             .collect();
+        let vnl_cache = vnl_cache?;
 
         let e_ewald = crate::ewald::ewald_energy(crystal, pseudopotentials);
         let kpt_weights: Vec<f64> = kpoints.iter().map(|kp| kp.weight).collect();
         let spin_factor = 2.0 / params.nspin as f64;
 
-        Self {
+        Ok(Self {
             crystal,
             basis,
             kpoints,
@@ -128,6 +141,6 @@ impl<'a> ScfContext<'a> {
             n_grid,
             kpt_weights,
             spin_factor,
-        }
+        })
     }
 }

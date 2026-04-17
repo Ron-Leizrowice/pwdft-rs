@@ -10,6 +10,7 @@ use crate::{
     basis::BasisSet,
     consts::HBAR2_OVER_2M,
     crystal::Crystal,
+    error::{PwdftError, Result},
     pseudopotential::PseudopotentialData,
 };
 
@@ -21,19 +22,22 @@ pub(crate) fn compute_v_local(
     grid: &FftGrid,
     pseudopotentials: &[&PseudopotentialData],
     omega: f64,
-) -> Vec<Complex64> {
+) -> Result<Vec<Complex64>> {
     let atom_data: Vec<(Vector3<f64>, &PseudopotentialData)> = crystal
         .atoms
         .iter()
         .map(|atom| {
-            let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
-            (atom.cart_position(&crystal.lattice), pp)
+            let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials)
+                .ok_or_else(|| PwdftError::MissingPseudopotential(
+                    format!("Z={} not found in loaded pseudopotentials", atom.z)
+                ))?;
+            Ok((atom.cart_position(&crystal.lattice), pp))
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     let dims = grid.dims;
     let recip = grid.recip.clone();
-    (0..grid.total_size())
+    Ok((0..grid.total_size())
         .into_par_iter()
         .map(|idx| {
             let g = g_vector_at_dims(idx, dims, &recip);
@@ -48,7 +52,7 @@ pub(crate) fn compute_v_local(
             }
             v
         })
-        .collect()
+        .collect())
 }
 
 /// Compute NLCC core density on the real-space FFT grid.
@@ -69,7 +73,12 @@ pub(crate) fn compute_core_density(
     let mut rho_core_g = vec![Complex64::new(0.0, 0.0); n_grid];
 
     for atom in &crystal.atoms {
-        let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials);
+        // SAFETY: if we reached this point, ScfContext::new already validated
+        // that all atoms have matching pseudopotentials. A missing PP here
+        // would be a programming error, not a user input error.
+        let Some(pp) = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials) else {
+            continue;
+        };
         if !pp.has_nlcc() || pp.core_charge.is_empty() {
             continue;
         }
