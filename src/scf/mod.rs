@@ -182,6 +182,7 @@ pub struct EnergyComponents {
 /// - `total_energy`: E = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0)·N_el
 /// - `free_energy`: F = E - TS (Mermin functional, variational at finite σ)
 /// - `energy_sigma0`: E₀ = (E + F)/2 (best estimate of T=0 energy)
+#[derive(Debug)]
 pub struct ScfResult {
     /// Kohn-Sham total energy (no entropy).
     pub total_energy: f64,

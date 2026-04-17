@@ -14,6 +14,13 @@ use pwdft_rs::{
     potential::xc,
 };
 
+// Reference values for Si SCF with this PP (Si.upf, ecut=100 eV, FFT 16³,
+// Γ-only, 4 bands). See `test_gpu_vs_cpu_scf_eigenvalues` for the physical
+// justification of each tolerance. Hoisted to module-level consts (DBGC) so
+// all tests that share this configuration reference one source of truth.
+const SI_REFERENCE_TOTAL_EV: f64 = -198.8926;
+const SI_REFERENCE_FERMI_EV: f64 = 6.969;
+
 fn si_crystal() -> Crystal {
     let a = 5.431;
     Crystal {
@@ -291,13 +298,12 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
     // ×1e-3 variance. Tolerance ±0.1 eV is ~100× the observed run-to-run
     // variance, tight enough to catch any >0.1 eV regression but not so
     // tight that f32 noise flakes the test.
-    let si_total_energy_ev = -198.8926_f64;
-    let e_diff = (gpu_result.total_energy - si_total_energy_ev).abs();
+    let e_diff = (gpu_result.total_energy - SI_REFERENCE_TOTAL_EV).abs();
     assert!(
         e_diff < 0.1,
         "GPU total energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
         gpu_result.total_energy,
-        si_total_energy_ev,
+        SI_REFERENCE_TOTAL_EV,
         e_diff
     );
 
@@ -308,13 +314,12 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
     // (HOMO ~ 5.969 eV at Γ, E_F sits ~1 eV above). Tolerance ±0.1 eV
     // matches the total-energy scale and catches any smearing/band-count
     // regression.
-    let si_fermi_energy_ev = 6.969_f64;
-    let ef_diff = (gpu_result.fermi_energy - si_fermi_energy_ev).abs();
+    let ef_diff = (gpu_result.fermi_energy - SI_REFERENCE_FERMI_EV).abs();
     assert!(
         ef_diff < 0.1,
         "GPU Fermi energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
         gpu_result.fermi_energy,
-        si_fermi_energy_ev,
+        SI_REFERENCE_FERMI_EV,
         ef_diff
     );
 
@@ -569,13 +574,12 @@ fn test_gpu_scf_kerker_converges() {
     // TAUD finding 2.8: duplicate of 2.5 — replace 200-eV zip-code check with
     // specific value ± tolerance. Empirical Si total energy with Kerker
     // (same mesh as test_gpu_vs_cpu_scf_eigenvalues) = -198.8926 eV.
-    let si_total_energy_ev = -198.8926_f64;
-    let e_diff = (r.total_energy - si_total_energy_ev).abs();
+    let e_diff = (r.total_energy - SI_REFERENCE_TOTAL_EV).abs();
     assert!(
         e_diff < 0.1,
         "GPU+Kerker total energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
         r.total_energy,
-        si_total_energy_ev,
+        SI_REFERENCE_TOTAL_EV,
         e_diff
     );
 }
