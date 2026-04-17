@@ -91,22 +91,41 @@ impl PseudopotentialData {
 
     /// Compute V_local(G) via spherical Bessel transform.
     ///
-    /// V_local(G) = (4π/Ω) ∫₀^∞ r² [V_local(r) + Z_val e²/r] sin(Gr)/(Gr) dr
-    ///              - (4π/Ω) Z_val e² / G²
+    /// For G = 0 (matches QE `vloc_mod.f90:158-163`):
+    ///   V_local(0) = (4π/Ω) ∫₀^∞ r² [V_local(r) + Z e²/r] dr
     ///
-    /// The Coulomb singularity is handled by subtracting -Z_val/r analytically:
-    /// the bracketed term [V_local(r) + Z_val e²/r] is short-ranged.
+    /// For G ≠ 0 we use the erf-subtracted form (QE `vloc_mod.f90:136-148`):
+    ///   V_local(G) = (4π/Ω) ∫₀^∞ [r·V_local(r) + Z e²·erf(r)] · sin(Gr)/G dr
+    ///                - (4π/Ω) Z e² · exp(-G²/4) / G²
     ///
-    /// For G=0, the integral is:
-    /// V_local(G=0) = (4π/Ω) ∫₀^∞ r² [V_local(r) + Z_val e²/r] dr
+    /// The decomposition splits V_local(r) = short(r) − Z·e²·erf(r)/r, where
+    /// `short(r) = V_local(r) + Z·e²·erf(r)/r` is bounded at r=0 because
+    /// erf(r)/r → 2/√π as r→0. FT[−Z·e²·erf(r)/r] = −4π·Z·e²·exp(−G²/4)/G².
     ///
-    /// Units: returns eV (potential in reciprocal space per unit cell).
+    /// This is mathematically equivalent to the bare-Coulomb decomposition
+    /// V(r) = [V(r) + Z·e²/r] − Z·e²/r, but numerically more robust: the
+    /// bare form has a 1/r divergence near r=0 that only the r² factor tames,
+    /// producing very large (billions of eV) values at the first radial grid
+    /// points for high-Z PPs. The erf form has a bounded short-range integrand
+    /// everywhere. For the PPs currently in use (Si, Fe, C), both forms agree
+    /// to machine precision once Simpson's rule is applied over the log mesh
+    /// (see `tests/vloc_erf_consistency.rs`).
+    ///
+    /// Units: r in Å, g_norm in Å⁻¹, returns eV (potential in reciprocal
+    /// space per unit cell). The erf Gaussian width is 1 Å (matching the G
+    /// units), which is a different convention from QE's 1 Bohr, but yields
+    /// identical V_local(G) values because the decomposition is exact for any
+    /// Gaussian width.
     pub fn v_local_of_g(&self, g_norm: f64, omega: f64) -> f64 {
         use crate::consts::E2_COULOMB as E2;
         use crate::numerics::simpson_integrate;
 
+        let four_pi = 4.0 * std::f64::consts::PI;
+
         if g_norm < 1e-12 {
             // G = 0 case: ∫ r² [V_loc(r) + Z e²/r] dr
+            // (Bare Coulomb subtraction here matches QE. The bracketed term is
+            // short-ranged because V_loc(r) → −Z·e²/r as r→∞.)
             let integrand: Vec<f64> = self.r_grid.iter().zip(self.v_local.iter())
                 .map(|(&r, &v)| {
                     let v_short = v + self.z_valence * E2 / r.max(1e-20);
@@ -114,13 +133,28 @@ impl PseudopotentialData {
                 })
                 .collect();
             let integral = simpson_integrate(&integrand, &self.rab);
-            4.0 * std::f64::consts::PI / omega * integral
+            four_pi / omega * integral
         } else {
-            // G ≠ 0: ∫ r² [V_loc(r) + Z e²/r] sin(Gr)/(Gr) dr - 4π Z e² / (Ω G²)
-            let integrand: Vec<f64> = self.r_grid.iter().zip(self.v_local.iter())
+            // G ≠ 0: erf-subtracted integrand (bounded everywhere).
+            //   integrand[i] = r²·[V_loc(r) + Z·e²·erf(r)/r]·sin(Gr)/(Gr)
+            //                ≡ [r·V_loc(r) + Z·e²·erf(r)]·sin(Gr)/G
+            // At r=0: r·V_loc(r) = 0 and Z·e²·erf(0) = 0, so integrand(0) = 0.
+            let two_over_sqrt_pi = 2.0 / std::f64::consts::PI.sqrt();
+            let integrand: Vec<f64> = self
+                .r_grid
+                .iter()
+                .zip(self.v_local.iter())
                 .map(|(&r, &v)| {
+                    // erf(r)/r with small-r limit 2/√π.
+                    let erf_over_r = if r < 1e-20 {
+                        two_over_sqrt_pi
+                    } else {
+                        puruspe::erf(r) / r
+                    };
+                    // Smooth short-range part: V_loc(r) + Z·e²·erf(r)/r
+                    let v_short = v + self.z_valence * E2 * erf_over_r;
+                    // sin(Gr)/(Gr) with series fallback for small Gr.
                     let gr = g_norm * r;
-                    let v_short = v + self.z_valence * E2 / r.max(1e-20);
                     let sinc = if gr < 1e-10 {
                         1.0 - gr * gr / 6.0
                     } else {
@@ -130,9 +164,9 @@ impl PseudopotentialData {
                 })
                 .collect();
             let integral = simpson_integrate(&integrand, &self.rab);
-            4.0 * std::f64::consts::PI / omega * integral
-                - 4.0 * std::f64::consts::PI * self.z_valence * E2
-                    / (omega * g_norm * g_norm)
+            let g2 = g_norm * g_norm;
+            four_pi / omega * integral
+                - four_pi * self.z_valence * E2 * (-g2 / 4.0).exp() / (omega * g2)
         }
     }
 

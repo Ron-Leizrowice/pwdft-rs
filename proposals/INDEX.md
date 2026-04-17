@@ -8,10 +8,10 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| VERF | V_local erf Coulomb Subtraction | small | medium | — | — |
-| QEDX | Systematic Energy Discrepancy vs QE | large | high | — | QEVL |
+| VGCMP | V_local(G) & KB projector cross-check vs QE | medium | low | VERF | QEDX, QEVL |
+| QEDX | Systematic Energy Discrepancy vs QE | large | high | VGCMP | QEVL |
 
-**2026-04-17:** VERF attempted — negative result. erf subtraction gives numerically identical Si/Fe energies vs current bare-Coulomb-with-Simpson approach. The 13.4 eV Si gap has a different root cause (see VERF proposal). QEDX still open; new candidates: KB projector handling, V_local(G) cross-check vs QE.
+**2026-04-17:** VERF landed (cosmetic but adopted) — now on the QE erf-subtraction convention, with a regression test pinning bare-Coulomb↔erf equivalence. Still does NOT close the Si 13.4 eV gap. VGCMP opened to isolate the residual discrepancy at the form-factor level (V_local(G), β_l(q), D_ij) before touching the assembled Hamiltonian.
 
 ### High — Foundation & Code Quality
 
@@ -90,12 +90,14 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | SDED | Deduplicate Settings Enums |
 | BROY | Broyden Mixing (core algorithm; adaptive beta deferred) |
 | ERRH | Error Handling Cleanup |
+| VERF | V_local erf Coulomb Subtraction (landed as QE convention; regression test only) |
 
 ## Notes
 
-- **QEDX** is a tracking proposal — actual fixes are SIMP (done) + VERF. Archive QEDX when VERF lands.
-- **VERF** is now unblocked (SIMP completed). Next critical path item — expected to close the remaining 13.4 eV Si discrepancy.
-- **SIMP** result: Fe BCC validation passes. Si still 13.4 eV off (needs VERF's erf subtraction).
+- **QEDX** is a tracking proposal — SIMP + VERF are done; VGCMP is now the active investigation. Archive QEDX when VGCMP completes.
+- **VERF** (done): landed the QE erf-subtraction convention. Numerically equivalent to bare-Coulomb on our current log mesh — the change is adopted for alignment with QE and robustness for future high-Z PPs, not as a fix. Added `tests/vloc_erf_consistency.rs` to pin the equivalence.
+- **VGCMP** (new): active investigation into the Si 13.4 eV gap via form-factor-level cross-check against QE (V_local(G), β_l(q), D_ij).
+- **SIMP** result: Fe BCC validation passes. Si still 13.4 eV off — VGCMP will determine where.
 - **SPXC** found during HRFK: spin-polarized E_KS mixes input exc_r with output rho_xc_total.
 - **CFGN** all dependencies satisfied (DDUP + SIMP done).
 - **BROY** landed core algorithm only; adaptive-beta and periodic Pulay deferred to follow-ups.
