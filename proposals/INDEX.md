@@ -34,7 +34,6 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| SOPT | Drop `Option<&SymmetryInfo>` from `ScfContext` | small | low | — | — |
 | DBGC | `ScfResult` Debug derive + GPU-test reference-value const (TAUD nits) | small | low | — | — |
 
 ### Low / Deferred
@@ -104,6 +103,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | TAUD | Test Suite Quality Audit (5 PRs landed; PR D uncovered VLQR follow-up) |
 | QLN2 | GPU + benches lint follow-up (closes the CLIP `--features gpu` gap) |
 | CIGP | Document `--features gpu` in clippy CI gate (CLAUDE.md + agent defs) |
+| SOPT | Drop `Option<&SymmetryInfo>` from `ScfContext` (incl. P1+TR regression test) |
 
 ## Notes
 
@@ -115,5 +115,5 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 - **BROY** landed core algorithm only; adaptive-beta (MXBA) and periodic Pulay (PRPL) follow-ups are now open proposals.
 - **NLCC** audit (2026-04-17): all code paths verified correct against QE `v_of_rho.f90`. Hartree excludes core, electron count excludes core, LSDA splits core/2 per spin, XC uses val+core with val-only double-counting. No bug. Proposal is documentation + integration test against an NLCC element (Fe).
 - **HD5I** references deleted `src/input.rs` — update to YAML Settings when implementing.
-- **SOPT** (new 2026-04-17): refactor `ScfContext.symmetry: Option<&SymmetryInfo>` to always-present (identity fallback). Every material has identity group; Option encodes a setting not a structural fact.
+- **SOPT** (done 2026-04-17): refactored `ScfContext.symmetry: Option<&SymmetryInfo>` to always-present with identity-only fallback. Review caught a P1+TR regression in the initial `is_trivial()` short-circuit in main.rs; fixed by dropping the branch and tightening the predicate. Regression test pins the behavior.
 - **ITEV** (new 2026-04-17, Performance Engineer): Post-FFTB/FMAD profiling shows eigensolver at 85-90% of SCF user CPU (n_pw=259: 56 ms/call; n_pw=725: 836 ms/call). `faer 0.24` ships `matrix_free::eigen::partial_self_adjoint_eigen` (implicitly-restarted Arnoldi, matrix-free via `LinOp`, warm-start via `v0`). Supersedes DVSN's hand-rolled Davidson plan. Projected 2.5-4× SCF wall-time speedup at production sizes. WFRX becomes the warm-start knob.
