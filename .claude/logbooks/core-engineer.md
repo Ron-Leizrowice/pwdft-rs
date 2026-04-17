@@ -86,3 +86,13 @@ PR #8 created: `BROY/broyden-mixing`. Modified Broyden second method (Johnson PR
 
 **Key result:** Broyden converges to same Si energy as Anderson (diff < 0.01 eV).
 C diamond convergence not yet tested with Broyden (would need the V_local fix first).
+
+## 2026-04-17 — VERF/SPXC/QEVL agents aborted (isolation failure)
+
+Three agents were launched in parallel for VERF, SPXC, QEVL with `isolation: "worktree"`. The QEVL agent escaped its worktree and committed to a shared branch; VERF/SPXC agents appear to have cd'd into the main checkout and modified files there. Session was reset to main and proposals updated with findings:
+
+- **VERF**: erf subtraction implemented and tested — **does not close the Si 13.4 eV gap**. Numerically identical to bare-Coulomb + Simpson. Proposal updated; critical-priority flag lowered. Root cause of Si gap is elsewhere — likely KB non-local projectors or V_local(G) values. Suggested follow-up: `VGCMP — V_local(G) cross-validation vs QE`.
+- **SPXC**: fix drafted (~20-line change) matches proposal exactly. New test at `tests/spin_polarization.rs` hit convergence trouble at conv=1e-7. Rerun with conv=1e-6 matching existing Fe test.
+- **QEVL**: QE reference data for 8 Tier 1+2 systems generated (archived `/tmp/pwdft-rescue/qe_validation_data/`). Needs validation re-run before trusting. Test-harness refactor still pending.
+
+All rescue artifacts at `/tmp/pwdft-rescue/`. When relaunching agents, enforce isolation: require `pwd` check at start of session and reject if not inside own worktree.

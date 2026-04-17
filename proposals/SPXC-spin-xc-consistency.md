@@ -132,3 +132,22 @@ Harris-Foulkes. Fix is small and should be done.
 
 Discovered by Core Engineer during HRFK implementation (2026-04-16).
 Logged in `.claude/logbooks/core-engineer.md`.
+
+## 2026-04-17 — Attempt 1: Partial
+
+A Core Engineer agent drafted the fix (archived at `/tmp/pwdft-rescue/SPXC-attempt.diff`, ~20-line change in `src/scf/mod.rs`). The implementation matches the "Recommended Fix" section above exactly: recomputes `(exc_r_out, vxc_up_r_out, vxc_down_r_out)` from the OUTPUT spin densities after `density_r_to_g`, uses the OUTPUT triple in the E_KS integration, keeps INPUT-derived quantities for E_HF.
+
+A new regression test was started at `tests/spin_polarization.rs` (archived at `/tmp/pwdft-rescue/SPXC-tests.diff`, 52-55 lines). The test exercises BCC Fe at nspin=2 and asserts |E_HF - E_KS| decreases quadratically with decreasing `conv_threshold`.
+
+### Issue encountered
+
+With `conv_threshold = 1e-7` the Fe BCC test failed to converge in 120 iterations. The existing `test_fe_ferromagnetic_fixed_moment` uses `conv_threshold = 1e-6` and does converge. It is unclear whether this is:
+- A genuine convergence issue introduced by the fix (unlikely — the change only affects energy accounting post-density-update)
+- An artifact of the tighter threshold (Anderson mixing's default history depth may be insufficient)
+- Test-scaffolding noise (the agent reported SCF bailing out at ~12 ms per iteration, which suggests an early exit not a real iteration)
+
+### Recommended Next Step
+
+1. Re-implement the fix (the ~20-line change is straightforward and was correct on inspection).
+2. Write the regression test with `conv_threshold = 1e-6` matching the existing Fe test; verify |E_HF - E_KS| improves at least one order of magnitude vs baseline at that threshold.
+3. Defer tight-threshold (1e-7) convergence investigation to a separate proposal if mixing history depth turns out to be the issue.

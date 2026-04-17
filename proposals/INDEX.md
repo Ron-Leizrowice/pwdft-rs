@@ -8,8 +8,10 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| VERF | V_local erf Coulomb Subtraction | small | medium | — | QEVL |
-| QEDX | Systematic Energy Discrepancy vs QE | large | high | VERF | QEVL |
+| VERF | V_local erf Coulomb Subtraction | small | medium | — | — |
+| QEDX | Systematic Energy Discrepancy vs QE | large | high | — | QEVL |
+
+**2026-04-17:** VERF attempted — negative result. erf subtraction gives numerically identical Si/Fe energies vs current bare-Coulomb-with-Simpson approach. The 13.4 eV Si gap has a different root cause (see VERF proposal). QEDX still open; new candidates: KB projector handling, V_local(G) cross-check vs QE.
 
 ### High — Foundation & Code Quality
 

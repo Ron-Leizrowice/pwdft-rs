@@ -132,3 +132,35 @@ cargo clippy -q --all-targets
 ## Estimated Effort
 
 1-2 hours. Only modifies the G != 0 branch of a single function. The erf function is already available via `puruspe`.
+
+## 2026-04-17 — Attempt 1: Negative Result
+
+A Core Engineer agent implemented the exact change proposed above (full patch archived at `/tmp/pwdft-rescue/VERF-attempt.diff`, ~70 lines in `src/pseudopotential/mod.rs`). Full test suite ran with the change applied:
+
+| System | QE (eV) | Ours before | Ours after VERF | Δ vs QE |
+|--------|---------|-------------|-----------------|---------|
+| Si diamond | -231.61 | -218.18 | -218.18 | **13.43 eV (unchanged)** |
+| Fe BCC | -3059.46 | -3059.44 | -3059.44 | 0.02 eV (no regression) |
+| C diamond | — | does not converge | does not converge | — |
+
+All other 200+ unit tests pass; clippy clean. The change is algebraically correct but numerically identical to the current bare-Coulomb approach.
+
+### Why VERF alone doesn't help
+
+The two decompositions are mathematically equivalent by construction. The numerical advantage of erf subtraction requires that the radial quadrature be stressed by the `1/r` integrand near the origin. Post-SIMP (Simpson's rule over log-mesh) the current bare-Coulomb integrand is already handled to ~1e-6 precision — the `r²` factor is enough to tame the `1/r` growth at the first few grid points on the log mesh. The erf form gives the same integral to machine precision.
+
+### Implication for the Si 13.4 eV gap
+
+**VERF is NOT the root cause.** The Si/QE discrepancy must come from elsewhere. Candidates to investigate in order of likelihood:
+
+1. **Kleinman–Bylander non-local projectors** — `D_ij` handling for UPF files where QE diagonalized the raw `h^l_ij` block and absorbed the rotation. Tests 05/06/08/10 pass, but cross-k-point or cross-l mixing may differ.
+2. **NLCC (core density)** — Fe passes because NLCC was already cross-checked for that PP; Si has no NLCC, so this is unlikely to be the cause.
+3. **Ewald parameters** — alpha, G-cutoff, real-space shell — but Fe passes, which has far more Ewald contribution per-atom, so unlikely.
+4. **Kinetic G-set truncation** — cutoff-sphere vs cutoff-FFT-grid mismatch. Worth checking that |G|² ≤ 2·ecut for wavefunctions is applied identically to QE.
+5. **Local pseudopotential tail** — comparing `V_local(G)` values for the first 20 G-shells against QE numerically is the smoking-gun test.
+
+### Recommended Next Step
+
+Before keeping the VERF code change, add a test that directly compares `V_local(G)` values for Si's first 20 G-shells against QE's `vloc.dat` output. If they agree to ~1e-6 Ry (expected), VERF is confirmed cosmetic and the proposal should be **archived as not-needed**. If they disagree, then there is a deeper bug in either quadrature or the PP data ingestion, and VERF belongs on the fix path.
+
+Either way, **the Si 13.4 eV gap requires a different proposal**. Suggest opening `VGCMP — V_local(G) cross-validation vs QE` to pinpoint the source.
