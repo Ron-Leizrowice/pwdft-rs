@@ -17,7 +17,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
 | CCMX | Coupled-Channel Mixer for nspin=2 (mix (ρ_total, m)) | medium | medium | — | — |
-| TAUD | Test Suite Quality Audit — PRs B–E remaining (B, C, D, E) | medium | low | — | — |
+| VLQR | V_local QE Reference Data Re-extraction (TAUD PR D follow-up) | small | low | — | — |
 
 ### Medium — Enhancements & Performance
 
@@ -32,6 +32,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | SOPT | Drop `Option<&SymmetryInfo>` from `ScfContext` | small | low | — | — |
 | QLN2 | Quality Lints — GPU + Benches Follow-up (QLNT spillover) | small | low | — | — |
+| DBGC | `ScfResult` Debug derive + GPU-test reference-value const (TAUD nits) | small | low | — | — |
 
 ### Low / Deferred
 
@@ -97,12 +98,13 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | FFTB | FFT Buffer Reuse (23–33% speedup on `fft/scf_iter_20x_*`) |
 | FMAD | Fused Multiply-Add via `suboptimal_flops` (-3 to -4% on `lda_xc_grid_*`) |
 | QLNT | Tier-1 Quality Lints (11 new lints, 15 fixes; GPU spillover → QLN2) |
+| TAUD | Test Suite Quality Audit (5 PRs landed; PR D uncovered VLQR follow-up) |
 
 ## Notes
 
 - **VGCMP** (active): Phases 1-3 ruled out V_local(G), β_l(q), D_ij as the source of the 13.4 eV Si gap. Phase 4 will cross-check the assembled Hamiltonian element + Ewald/symmetry/SCF.
 - **CCMX** (active): Independent Anderson mixers on `(ρ↑, ρ↓)` can't converge Fe fixed-mag=2 (limit cycle). Fix is to mix `(ρ_total, m)` instead, matching QE's `rhoz_or_updw` basis change.
-- **TAUD** (active): PR A merged (5 silent-pass SCF tests hardened). PRs B (invert Fe fixed-mag test), C (tolerance tightening), D (unignore vloc QE comparison), E (`ConvergenceFailure` variant match) remain.
+- **TAUD** (done): all 5 PRs landed. PR D uncovered a sign-flipped V_local in the test's QE Cube reference (NOT in our Rust code — VGCMP Phase 1 already proved Rust correct). Captured as VLQR. Test re-`#[ignore]`'d with diagnostic numbers in the reason string.
 - **XCPR** (active): Step 1+2 (XC grid parallelization) merged. Step 3 (spin-channel `rayon::join`) remains.
 - **CFGN** all dependencies satisfied (DDUP + SIMP done).
 - **BROY** landed core algorithm only; adaptive-beta and periodic Pulay deferred to follow-ups.
