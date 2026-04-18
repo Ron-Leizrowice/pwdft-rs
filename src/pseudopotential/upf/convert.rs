@@ -61,8 +61,7 @@ pub(super) fn parse_body(content: &str) -> Result<PseudopotentialData> {
     let mut beta_projectors = Vec::with_capacity(n_proj);
     for i in 1..=n_proj {
         let tag = format!("PP_BETA.{i}");
-        let l = extract_beta_angular_momentum(content, &tag)
-            .ok_or_else(|| PwdftError::Parse(format!("missing angular_momentum in {tag}")))?;
+        let l = extract_beta_angular_momentum(content, &tag)?;
 
         let beta_r_ry = extract_data_block(content, &tag, mesh_size)?;
         // UPF stores χ(r) = r · β(r) in Bohr^{-1/2} (no energy dimension).
@@ -410,5 +409,82 @@ mod tests {
             (rho_g - expected).abs() < 1.0e-4,
             "Fe ρ_core(first shell) = {rho_g:.8e}, expected {expected:.8e} e/Å³"
         );
+    }
+
+    // UPFV: parse-time rejection of negative `angular_momentum`.
+    //
+    // `extract_beta_angular_momentum` returned `Option<i32>` before UPFV,
+    // which happily accepted `-1`, `-2`, … — values that are physically
+    // meaningless and would later propagate as an out-of-bounds index
+    // into the spherical-harmonic tables inside `NonlocalPotential::new`.
+    // The runtime `assert!(proj.l >= 0)` in that constructor (landed with
+    // CAST, PR #56) stays as defense-in-depth; these regression tests
+    // guard the parser-level early exit with a clearer
+    // `PwdftError::InvalidInput` message.
+    //
+    // Positive integers (0, 1, 2, 3, …) are unaffected — `test_parse_header`
+    // and `test_dij_matrix_size` above already exercise that path.
+
+    use crate::error::PwdftError;
+    use super::super::xml::extract_beta_angular_momentum;
+
+    #[test]
+    fn test_extract_beta_l_rejects_negative() {
+        // Minimal PP_BETA-shaped tag with a negative angular_momentum.
+        let content = r#"<PP_BETA.1 type="real" index="1" angular_momentum="-1" >
+        1.0 2.0 3.0
+        </PP_BETA.1>"#;
+        let err = extract_beta_angular_momentum(content, "PP_BETA.1")
+            .expect_err("negative angular_momentum must be rejected");
+        match err {
+            PwdftError::InvalidInput(msg) => {
+                assert!(
+                    msg.contains("angular_momentum") && msg.contains("-1"),
+                    "expected message to mention angular_momentum and -1, got: {msg}"
+                );
+            }
+            other => panic!("expected PwdftError::InvalidInput, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_extract_beta_l_accepts_zero_and_positive() {
+        for (raw, expected) in [("0", 0_i32), ("1", 1), ("2", 2), ("3", 3)] {
+            let content = format!(
+                r#"<PP_BETA.1 index="1" angular_momentum="{raw}" >
+                </PP_BETA.1>"#
+            );
+            let l = extract_beta_angular_momentum(&content, "PP_BETA.1")
+                .expect("non-negative angular_momentum must parse");
+            assert_eq!(l, expected);
+        }
+    }
+
+    /// End-to-end regression: a malformed UPF (a real Si ONCV file with
+    /// the PP_BETA.1 angular_momentum flipped from 0 to −1) must fail
+    /// `parse_body` with `PwdftError::InvalidInput`, not a later internal
+    /// error from unit conversion or the D_ij block.
+    #[test]
+    fn test_parse_rejects_negative_angular_momentum_in_upf() {
+        let raw = si_content();
+        assert!(
+            raw.contains(r#"angular_momentum="0""#),
+            "test assumes Si.upf has at least one angular_momentum=\"0\" projector"
+        );
+        let corrupted = raw.replacen(
+            r#"angular_momentum="0""#,
+            r#"angular_momentum="-1""#,
+            1,
+        );
+        let err = parse(&corrupted).expect_err("corrupted UPF must fail to parse");
+        match err {
+            PwdftError::InvalidInput(msg) => {
+                assert!(
+                    msg.contains("angular_momentum"),
+                    "expected InvalidInput mentioning angular_momentum, got: {msg}"
+                );
+            }
+            other => panic!("expected PwdftError::InvalidInput, got {other:?}"),
+        }
     }
 }

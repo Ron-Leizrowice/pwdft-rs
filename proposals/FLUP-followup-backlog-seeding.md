@@ -221,26 +221,38 @@ would-be-links to private items. No text rewrites, just mechanical fixes.
 
 **Acceptance criterion:** `cargo doc --no-deps` emits zero warnings.
 
-### UPFV — Parse-time validation for UPF `angular_momentum`
+### ~~UPFV — Parse-time validation for UPF `angular_momentum`~~ (landed)
 
-- **Role:** Researcher or Core Engineer
-- **Priority:** low, **Complexity:** small, **Risk:** low
-- **Source:** CAST code review, PR #56 nit 2.
+~~- **Role:** Researcher or Core Engineer~~
+~~- **Priority:** low, **Complexity:** small, **Risk:** low~~
+~~- **Source:** CAST code review, PR #56 nit 2.~~
 
-`src/pseudopotential/upf/xml.rs::extract_beta_angular_momentum` returns
-`am_str.trim().parse().ok()`, which happily accepts `-1`, `-2`, etc.
-CAST added a runtime assertion in `NonlocalPotential::new` (real
-belt-and-suspenders, not vacuous), but a parser-level
-`PwdftError::InvalidInput("angular_momentum must be non-negative")`
-would (a) fail fast at UPF load time instead of at projector-build
-time and (b) give a clearer error message ("bad UPF file" vs "internal
-assertion"). Add a regression test that synthesizes a malformed UPF
-with `angular_momentum="-1"` and asserts the parse returns
-`PwdftError::InvalidInput`.
+~~`src/pseudopotential/upf/xml.rs::extract_beta_angular_momentum` returns~~
+~~`am_str.trim().parse().ok()`, which happily accepts `-1`, `-2`, etc.~~
+~~CAST added a runtime assertion in `NonlocalPotential::new` (real~~
+~~belt-and-suspenders, not vacuous), but a parser-level~~
+~~`PwdftError::InvalidInput("angular_momentum must be non-negative")`~~
+~~would (a) fail fast at UPF load time instead of at projector-build~~
+~~time and (b) give a clearer error message ("bad UPF file" vs "internal~~
+~~assertion"). Add a regression test that synthesizes a malformed UPF~~
+~~with `angular_momentum="-1"` and asserts the parse returns~~
+~~`PwdftError::InvalidInput`.~~
 
-**Acceptance criterion:** parse of a malformed UPF fails with a
-domain-specific error string; `NonlocalPotential::new` runtime assert
-remains as defense-in-depth.
+~~**Acceptance criterion:** parse of a malformed UPF fails with a~~
+~~domain-specific error string; `NonlocalPotential::new` runtime assert~~
+~~remains as defense-in-depth.~~
+
+Landed: `extract_beta_angular_momentum` now returns
+`Result<i32, PwdftError>`; negative values map to
+`PwdftError::InvalidInput`, missing / unparseable to `PwdftError::Parse`.
+CAST's `NonlocalPotential::new` `assert!(proj.l >= 0)` stays as
+defense-in-depth. Regression tests
+`test_extract_beta_l_rejects_negative`,
+`test_extract_beta_l_accepts_zero_and_positive`, and
+`test_parse_rejects_negative_angular_momentum_in_upf` in
+`src/pseudopotential/upf/convert.rs::tests` pin both the helper-level
+rejection and the end-to-end UPF path (Si ONCV file with
+`angular_momentum="0"` → `angular_momentum="-1"` substitution).
 
 ### FGRD — Explicit FFT-grid upper-bound check
 

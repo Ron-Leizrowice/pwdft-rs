@@ -15,14 +15,39 @@ pub(super) fn extract_attr<'a>(content: &'a str, attr_name: &str) -> Option<&'a 
     Some(&content[start..end])
 }
 
-/// Extract angular_momentum from a PP_BETA tag.
-pub(super) fn extract_beta_angular_momentum(content: &str, tag: &str) -> Option<i32> {
-    // Find the tag opening
-    let tag_start = content.find(&format!("<{tag}"))?;
-    let tag_end = content[tag_start..].find('>')? + tag_start;
+/// Extract `angular_momentum` from a PP_BETA tag.
+///
+/// Returns `Err(PwdftError::InvalidInput)` when the value parses as a
+/// negative integer (physically meaningless; would later propagate as an
+/// out-of-bounds index into the spherical-harmonic tables inside
+/// `NonlocalPotential::new`), and `Err(PwdftError::Parse)` when the tag
+/// or attribute is missing or the integer is unparseable. Rejecting at
+/// load time keeps the failure mode "bad UPF file" rather than an
+/// internal assertion deep in the solver (UPFV, 2026-04-18).
+///
+/// Zero (s-channel) and positive integers parse unchanged.
+pub(super) fn extract_beta_angular_momentum(content: &str, tag: &str) -> Result<i32> {
+    let tag_start = content
+        .find(&format!("<{tag}"))
+        .ok_or_else(|| PwdftError::Parse(format!("missing tag <{tag}>")))?;
+    let tag_end = content[tag_start..]
+        .find('>')
+        .ok_or_else(|| PwdftError::Parse(format!("malformed tag <{tag}>")))?
+        + tag_start;
     let tag_content = &content[tag_start..tag_end];
-    let am_str = extract_attr(tag_content, "angular_momentum")?;
-    am_str.trim().parse().ok()
+    let am_str = extract_attr(tag_content, "angular_momentum").ok_or_else(|| {
+        PwdftError::Parse(format!("missing angular_momentum attribute in {tag}"))
+    })?;
+    let l: i32 = am_str
+        .trim()
+        .parse()
+        .map_err(|e| PwdftError::Parse(format!("angular_momentum parse error in {tag}: {e}")))?;
+    if l < 0 {
+        return Err(PwdftError::InvalidInput(format!(
+            "{tag}: angular_momentum must be non-negative (got {l})"
+        )));
+    }
+    Ok(l)
 }
 
 /// Extract a block of floating-point data between `<TAG ...>` and `</TAG>`.
