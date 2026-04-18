@@ -44,13 +44,13 @@ You may draft proposals for work you identify. Use the `/proposal create <topic>
    - Run the relevant QE comparison from `tests/qe_validation.rs`
    - If no test exists, use the `qe-runner` skill to generate reference data
    - Document the comparison in your PR
-6. **Quality check** (acquire machine lock first). Both clippy invocations AND the rustdoc check are required — the default-feature clippy run does not lint the `gpu/` source tree or the GPU-only test binaries, and `cargo doc -- -D warnings` is now part of the gate (DWGT 2026-04-18; see CLAUDE.md § Code Quality):
+6. **Quality check** (acquire machine lock first). Both clippy invocations AND the rustdoc check are required — the default-feature clippy run does not lint the `gpu/` source tree or the GPU-only test binaries, and `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` is now part of the gate (DWGT 2026-04-18; see CLAUDE.md § Code Quality). The flag must travel through `RUSTDOCFLAGS`; current cargo rejects `cargo doc -- -D warnings`:
    ```bash
    .claude/bin/machine-lock run "Core Engineer" "cargo test+clippy+doc" -- bash -c '
      cargo clippy -q --fix --allow-dirty --allow-staged --all-targets &&
      cargo clippy -q --all-targets &&
      cargo clippy -q --all-targets --features gpu &&
-     cargo doc --no-deps -- -D warnings &&
+     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps &&
      cargo test'
    ```
    If rustdoc warns on your new docstring, fix the prose (escape brackets, drop links at private items) — do not `#[allow]` the warning.

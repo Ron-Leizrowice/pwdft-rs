@@ -61,7 +61,7 @@ When implementing approved documentation proposals:
 - **Acquire the machine lock** before running `cargo test --doc` or `cargo doc` (see CLAUDE.md "Machine Coordination").
 - Documentation-only changes should not change any code behavior
 - `cargo test --doc` to verify doc examples compile
-- `cargo doc --no-deps -- -D warnings` to verify docs build cleanly — **this is now part of the mandatory quality gate (DWGT 2026-04-18)**, not an optional check. Any new docstring that breaks an intra-doc link, leaves a bracket unescaped, or links at a private item fails CI. Fix the prose; do not `#[allow]` rustdoc warnings.
+- `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` to verify docs build cleanly — **this is now part of the mandatory quality gate (DWGT 2026-04-18)**, not an optional check. Any new docstring that breaks an intra-doc link, leaves a bracket unescaped, or links at a private item fails CI. Fix the prose; do not `#[allow]` rustdoc warnings. (The `-D warnings` flag must travel through the `RUSTDOCFLAGS` env var; current cargo rejects it when passed after `--`.)
 
 ### The math-complete docstring target shape
 

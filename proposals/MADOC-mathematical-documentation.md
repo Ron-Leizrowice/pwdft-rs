@@ -40,7 +40,7 @@ paper without opening the body.
 
 ## Relationship to DLNT / DWGT (lint gates)
 
-The EM has drafted FLUP/DWGT (add `cargo doc --no-deps -- -D warnings` to
+The EM has drafted FLUP/DWGT (add `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` to
 the quality gate) and is considering a follow-up DLNT (enable
 `missing_docs` + `missing_errors_doc` + `missing_panics_doc` as `warn`).
 **MADOC is the content half; DLNT is the lint half**. They are
