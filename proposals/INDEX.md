@@ -52,6 +52,7 @@ _No active entries (WFRX Technique 1 landed as PR #99; Technique 2 gated on ITEV
 |----|-------|-----------|------|------------|--------|
 | CLSS | `cast_lossless` + Doc Hygiene | small | low | — | — |
 | HKIN | Drop unused `Option<&dyn Fn>` V_eff param from `build_hamiltonian` + `compute_band_structure` (zero `Some` call sites) | trivial | low | — | — |
+| TRCE | Migrate `log` + `env_logger` → `tracing` + `tracing-subscriber` (span timing, structured events, indicatif integration) | small | low | — | — |
 | DVSN | Iterative Eigensolver (Davidson / LOBPCG) — SUPERSEDED BY ITEV | large | medium | — | — |
 | HD5I | HDF5 Restart and Structured Output | large | medium | — | — |
 | SPRS | Sparse Matrix Support | large | medium | DVSN | — |
