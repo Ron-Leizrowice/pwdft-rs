@@ -22,6 +22,8 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
+| MPSH | Monkhorst-Pack shift alignment with QE convention (closes 4 light-atom `#[ignore]`s) | small-medium | low | — | VQEF |
+| VGCH | Heavy-atom V_local(G) residual — post-VGCMP continuation (closes 5 Z>14 `#[ignore]`s) | medium-large | medium | — | VQEF |
 | VQEF | Full LDA+PBE QE validation matrix (8 systems × 2 functionals) — roadmap | medium | low | VGCMP, GGAP, QELK | — |
 
 ### Medium — Enhancements & Performance
