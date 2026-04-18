@@ -22,6 +22,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | MADOC | Mathematical documentation push (phased; MADOC-A first) | large | low | — | DLNT |
 | GGAP | GGA/PBE exchange-correlation functional (phased A–F; ~9–13 CE-days) | large | medium | — | — |
 | TYPE | Numeric-type efficiency audit (i32→i8 rotations, i32→i16 Miller, dead index_map) | small | low | — | — |
+| ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; phased) | medium | low | — | — |
 
 ### Low / Deferred
 
