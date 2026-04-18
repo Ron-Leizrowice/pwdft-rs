@@ -616,6 +616,23 @@ pub(crate) fn xc_energy_bare(rho_xc: &[f64], exc_r: &[f64], omega: f64) -> f64 {
 ///     ewald      contribution = e_ewald
 /// ```
 ///
+/// ## Density convention
+///
+/// Every Kohn-Sham term (`e_hartree`, `e_xc`, `e_kinetic`, `e_local`,
+/// `e_nonlocal`) is evaluated on the **post-PCFX symmetrized output
+/// density**, not the raw band-reconstructed density. Both drivers
+/// symmetrize via `symmetry::density::symmetrize_density_g`
+/// immediately after `density::compute_density` (step 6b in
+/// `scf::driver` / `scf::driver_spin`) and before any energy call
+/// consumes ρ. Reordering symmetrize-vs-diagonalize, or inserting an
+/// energy evaluation between raw reconstruction and symmetrization,
+/// would silently break the direct-sum identity above: pre-PCFX the
+/// symmetry residual on the output density was up to ~1.2 eV on Si
+/// (proposal `PCFX`). The `e_ewald` ion-ion term is density-
+/// independent and unaffected. The separate Harris-Foulkes estimator
+/// (`harris_foulkes_energy` in this module) is the one deliberate
+/// exception and uses the *input* density.
+///
 /// Computed once on the final (converged) iteration in both driver
 /// paths with one extra pass over wavefunctions, the local PP on the
 /// FFT grid, and the non-local operator. Not used inside the SCF hot

@@ -294,12 +294,27 @@ pub fn lda_xc_spin_grid(
 
 /// Spin-polarized Slater exchange.
 ///
+/// Energy density per electron:
+/// ```text
 /// ε_x = (1/2)[(1+ζ)·ε_x(2ρ_up) + (1-ζ)·ε_x(2ρ_down)]
-/// where ε_x(ρ) = -(3/4)(3ρ/π)^{1/3} is the unpolarized exchange per electron.
+/// ```
+/// where `ε_x(ρ) = -(3/4)(3ρ/π)^{1/3}` is the unpolarized exchange per
+/// electron (evaluated at the scaled argument `2ρ_σ`).
 ///
-/// V_x_σ = (4/3)·ε_x(2ρ_σ)·2^{1/3}  [derivative of the spin-scaled exchange]
+/// Potential for spin channel σ (derivation):
+/// ```text
+/// E_x^σ[ρ_σ] = ρ_σ · ε_x(2ρ_σ)
+/// V_x_σ      = δE_x/δρ_σ
+///            = ε_x(2ρ_σ) + ρ_σ · 2 · (dε_x/du)|_{u=2ρ_σ}
+///            = ε_x(2ρ_σ) + u · (dε_x/du)|_{u=2ρ_σ}
+///            = ε_x(2ρ_σ) + ε_x(2ρ_σ)/3           [since ε_x ∝ u^{1/3} ⇒ u·dε_x/du = ε_x/3]
+///            = (4/3) · ε_x(2ρ_σ)
+/// ```
+/// i.e. the spin-channel exchange potential is `(4/3)·ε_x(2ρ_σ)` — no
+/// `2^{1/3}` factor; that factor would appear only if the derivation were
+/// expressed in terms of `ε_x(ρ_σ)` (unscaled argument) via the chain rule.
 ///
-/// Returns (ε_x, V_x_up, V_x_down) in eV.
+/// Returns `(ε_x, V_x_up, V_x_down)` in eV.
 fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
@@ -312,9 +327,10 @@ fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     let rho_up_bohr = rho_up * bohr3;
     let rho_down_bohr = rho_down * bohr3;
 
-    // Exchange energy per electron for each spin channel (fully polarized formula)
-    // ε_x(ρ_σ) for a single spin channel = -(3/4)(6ρ_σ/π)^{1/3}
-    // This is the exchange of a fully-polarized gas with density ρ_σ
+    // Exchange energy per electron for each spin channel (fully polarized formula).
+    // We store ε_x(2ρ_σ) = -(3/4)(6ρ_σ/π)^{1/3}, i.e. the unpolarized
+    // ε_x(u) = -(3/4)(3u/π)^{1/3} evaluated at the scaled argument u = 2ρ_σ.
+    // This is the exchange per electron of a fully-polarized gas of density ρ_σ.
     let ex_up_ha = if rho_up_bohr > crate::consts::RHO_FLOOR {
         -0.75 * (6.0 * rho_up_bohr / PI).cbrt()
     } else {
@@ -330,7 +346,9 @@ fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     let rho_bohr = rho * bohr3;
     let ex_ha = rho_up_bohr.mul_add(ex_up_ha, rho_down_bohr * ex_down_ha) / rho_bohr;
 
-    // Potentials: V_x_σ = d(ρ·ε_x)/dρ_σ = (4/3)·ε_x(ρ_σ)
+    // Potentials: V_x_σ = δ(ρ·ε_x)/δρ_σ = (4/3)·ε_x(2ρ_σ).
+    // `ex_up_ha` / `ex_down_ha` already hold ε_x(2ρ_σ) (see derivation in
+    // the function docstring); multiply by 4/3 to get V_x_σ.
     let vx_up_ha = (4.0 / 3.0) * ex_up_ha;
     let vx_down_ha = (4.0 / 3.0) * ex_down_ha;
 

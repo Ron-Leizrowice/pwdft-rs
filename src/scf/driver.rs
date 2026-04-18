@@ -36,6 +36,34 @@
 //! for validation against QE's `pw.x` output). All internal quantities
 //! are in eV / Å / e·Å⁻³; see [`crate::consts`] for the unit factors.
 //!
+//! ## Density convention for VGC5 energy terms
+//!
+//! All [`EnergyComponents`] Kohn-Sham terms — `e_hartree`, `e_xc`,
+//! `e_kinetic`, `e_local`, `e_nonlocal`, and the assembled `e_total`
+//! — are evaluated on the **post-PCFX symmetrized output density**
+//! produced at step 6, *not* on the raw band-reconstructed density.
+//! Step 6 (`density::compute_density`) returns the raw band sum;
+//! `symmetrize_density_g` immediately rewrites it in place, and every
+//! energy call that follows (`hartree_energy`, `xc_energy_corrected`,
+//! `kinetic_expectation`, `local_pp_energy_grid`, `nonlocal_expectation`)
+//! consumes the symmetrized density. The spin driver mirrors this order.
+//!
+//! A future maintainer who reorders symmetrize-vs-diagonalize, or who
+//! inserts an energy evaluation between `compute_density` and
+//! `symmetrize_density_g`, would silently break the direct-sum
+//! identity documented on [`EnergyComponents`]:
+//!
+//! ```text
+//! e_band = e_kinetic + e_local + e_nonlocal + 2·e_hartree + e_vxc
+//! ```
+//!
+//! Pre-PCFX the symmetry residual on the output density was as large
+//! as ~1.2 eV on Si (see proposal `PCFX`, `symmetry::density::g_space`).
+//! The Harris-Foulkes estimator is the one deliberate exception: it
+//! uses the *input* density (`rho_g` from the previous mix output) and
+//! the corresponding input V_xc / ε_xc, because HF's O(Δρ²)
+//! stationarity argument is stated about the input density.
+//!
 //! Shared helpers (`diagonalize_dispatch`, `compute_occupations`,
 //! `scf_progress_bar`) are `pub(super)` for reuse by `driver_spin`.
 
