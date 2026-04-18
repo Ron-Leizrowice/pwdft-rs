@@ -42,16 +42,12 @@ pub struct GpuAccelerator {
 }
 
 /// Pre-allocated GPU buffers for a fixed grid size.
-#[allow(dead_code)] // real_bufs/real_staging reserved for LDA XC pooled path
 struct BufferPool {
     n_grid: usize,
     /// Complex buffers: 2 × n_grid f32 values
     complex_bufs: Vec<wgpu::Buffer>,
-    /// Real buffers: n_grid f32 values (for LDA XC pooled path)
-    real_bufs: Vec<wgpu::Buffer>,
-    /// Staging buffers for readback
+    /// Staging buffer for complex readback
     complex_staging: wgpu::Buffer,
-    real_staging: wgpu::Buffer,
     /// Precomputed |G|² on GPU (doesn't change between SCF iterations)
     g_squared_buf: Option<wgpu::Buffer>,
 }
@@ -135,7 +131,6 @@ impl GpuAccelerator {
     /// Also uploads the static |G|² array that doesn't change between iterations.
     pub fn prepare_buffers(&mut self, n_grid: usize, g_squared: &[f64]) {
         let complex_size = (2 * n_grid * std::mem::size_of::<f32>()) as u64;
-        let real_size = (n_grid * std::mem::size_of::<f32>()) as u64;
 
         // Allocate 5 complex storage buffers (enough for hartree + v_eff inputs/output)
         let complex_bufs: Vec<wgpu::Buffer> = (0..5)
@@ -149,28 +144,9 @@ impl GpuAccelerator {
             })
             .collect();
 
-        // Allocate 3 real storage buffers (rho_r, exc_r, vxc_r)
-        let real_bufs: Vec<wgpu::Buffer> = (0..3)
-            .map(|i| {
-                self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some(&format!("pool_real_{i}")),
-                    size: real_size,
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
-                    mapped_at_creation: false,
-                })
-            })
-            .collect();
-
         let complex_staging = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pool_complex_staging"),
             size: complex_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-
-        let real_staging = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("pool_real_staging"),
-            size: real_size,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -182,9 +158,7 @@ impl GpuAccelerator {
         self.pool = Some(BufferPool {
             n_grid,
             complex_bufs,
-            real_bufs,
             complex_staging,
-            real_staging,
             g_squared_buf: Some(g_squared_buf),
         });
 
