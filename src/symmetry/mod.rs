@@ -221,9 +221,11 @@ mod tests {
         };
 
         let grid = [4_u32, 4, 4];
-        let full = crate::kpoints::monkhorst_pack(grid[0], grid[1], grid[2], &crystal.lattice);
+        let shift = crate::kpoints::KGridShift::GammaCentered;
+        let full =
+            crate::kpoints::monkhorst_pack(grid[0], grid[1], grid[2], shift, &crystal.lattice);
         let s = SymmetryInfo::identity_only();
-        let reduced = kpoints::reduce_kpoints(&full, grid, &s, &crystal.lattice);
+        let reduced = kpoints::reduce_kpoints(&full, grid, shift, &s, &crystal.lattice);
 
         assert_eq!(
             reduced.len(),

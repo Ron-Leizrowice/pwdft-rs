@@ -268,7 +268,16 @@ fn test_ccmx_fe_free_magnetization_converges() {
     .unwrap();
     let ecut = 15.0 * 13.605_693_122_994; // 15 Ry
     let basis = BasisSet::new(&crystal.lattice, ecut);
-    let kpoints = pwdft_rs::kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+    // Preserve the MP-1976 shifted grid this CCMX convergence test was
+    // pinned on; swapping to Γ-centered alters the SCF trajectory and the
+    // pinned iteration count / magnetization assertions.
+    let kpoints = pwdft_rs::kpoints::monkhorst_pack(
+        4,
+        4,
+        4,
+        pwdft_rs::kpoints::KGridShift::MP1976,
+        &crystal.lattice,
+    );
 
     let mut starting_mag = std::collections::HashMap::new();
     starting_mag.insert("Fe".to_string(), 0.5);
@@ -387,7 +396,16 @@ fn test_fe_ferromagnetic_fixed_moment() {
     ).unwrap();
     let ecut = 15.0 * 13.605_693_122_994; // 15 Ry
     let basis = BasisSet::new(&crystal.lattice, ecut);
-    let kpoints = pwdft_rs::kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+    // MP-1976 shifted grid — this test's expected `ConvergenceFailure`
+    // trajectory was pinned on it; the failure mode we assert against is
+    // k-mesh sensitive.
+    let kpoints = pwdft_rs::kpoints::monkhorst_pack(
+        4,
+        4,
+        4,
+        pwdft_rs::kpoints::KGridShift::MP1976,
+        &crystal.lattice,
+    );
 
     let params = scf::ScfParams {
         n_bands: 8,

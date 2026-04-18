@@ -66,7 +66,15 @@ fn test_mxba_fe_documents_adaptive_failure() {
     .unwrap();
     let ecut = 15.0 * 13.605_693_122_994;
     let basis = BasisSet::new(&crystal.lattice, ecut);
-    let kpoints = pwdft_rs::kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+    // Preserve the shifted MP-1976 grid this test was pinned against — the
+    // documented failure trajectory is sensitive to the exact sample.
+    let kpoints = pwdft_rs::kpoints::monkhorst_pack(
+        4,
+        4,
+        4,
+        pwdft_rs::kpoints::KGridShift::MP1976,
+        &crystal.lattice,
+    );
 
     let mut starting_mag = std::collections::HashMap::new();
     starting_mag.insert("Fe".to_string(), 0.5);
