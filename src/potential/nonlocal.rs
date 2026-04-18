@@ -692,6 +692,207 @@ mod tests {
         assert!(f5.abs() < f0.abs());
     }
 
+    /// Defense-in-depth m-channel pin on V_NL (VNMT, 2026-04-18).
+    ///
+    /// The complementary check to `test_ylm_addition_theorem`: addition
+    /// theorem only pins the *sum* `Σ_m Y_{l,m}(q̂₁)·Y_{l,m}(q̂₂)` against
+    /// a Legendre identity, so it would still pass if a future edit
+    /// shuffled normalization between m-channels in a way that leaves
+    /// the sum (or the sum's Legendre equivalent) invariant under the
+    /// `q̂₁ = q̂₂` special case. This test instead pins
+    /// `H_NL[G₁, G₂]` at a chosen (non-degenerate) G-vector pair where
+    /// three m-channels (m=0, +1, +2) each contribute a *distinct,
+    /// individually hand-computed* amount — a normalization error on
+    /// any single m-slot (including the √2-sensitive `(l=2, m=+2)`
+    /// case called out by the VNLM review) shifts the total detectably.
+    ///
+    /// ## Setup
+    ///
+    /// * Simple cubic lattice with `a = 2π` Å, so the reciprocal
+    ///   lattice is `b_i = ê_i` and integer Miller indices coincide
+    ///   with Cartesian G-vectors in 1/Å.
+    /// * Single Si atom at the origin → structure factor
+    ///   `exp(-iG·τ) = 1` for every G.
+    /// * `D_ij` zeroed everywhere except the diagonal entry on the
+    ///   first `l=2` projector (row-major index `4 · 6 + 4 = 28`
+    ///   of Si ONCV's 6-projector layout `[s,s,p,p,d,d]`). This
+    ///   leaves exactly one `l=2` radial channel alive; its
+    ///   contribution sums over all five `m ∈ {-2,-1,0,+1,+2}`.
+    /// * k = Γ, so q = G.
+    /// * G₁ = (1, 0, 1) · 1/Å, G₂ = (2, 0, 1) · 1/Å. Both have
+    ///   φ = 0 and positive z-component, so Y_{2,-1} and Y_{2,-2}
+    ///   vanish on both (leaving three live m-channels).
+    ///
+    /// ## Hand-computed reference
+    ///
+    /// With `ch = (atom=0, proj=4, m)`:
+    ///
+    /// ```text
+    /// B[G, ch(m)]  = (1/√Ω) · F₄(|G|) · Y_{2,m}(Ĝ)
+    /// (D·B^H)[ch(m), G] = D_{44} · conj(B[G, ch(m)]) = D_{44} · B[G, ch(m)]
+    ///   (B is real here — τ=0 → phase=1 and Y_{l,m} is real)
+    /// H_NL[G₁, G₂] = Σ_m B[G₁, ch(m)] · (D·B^H)[ch(m), G₂]
+    ///              = (D_{44}/Ω) · F₄(|G₁|) · F₄(|G₂|) · Σ_m Y_{2,m}(Ĝ₁)·Y_{2,m}(Ĝ₂)
+    /// ```
+    ///
+    /// Per-m breakdown (QE `ylmr2` convention — see `real_sph_harmonics` above):
+    ///   * Y_{2,0}    = ½ · √(5 / 4π) · (3cos²θ − 1)
+    ///   * Y_{2,+1}   = −√(15/4π)    · cosθ sinθ cos φ
+    ///   * Y_{2,-1}   = −√(15/4π)    · cosθ sinθ sin φ
+    ///   * Y_{2,+2}   =  √(15/16π)   · sin²θ cos(2φ)
+    ///   * Y_{2,-2}   =  √(15/16π)   · sin²θ sin(2φ)
+    ///
+    /// G₁ = (1,0,1):  |G₁| = √2, cosθ = 1/√2, sinθ = 1/√2, φ = 0
+    ///   * Y_{2,0}(Ĝ₁)  = ½ · √(5/4π) · (3/2 − 1)   = ¼ · √(5/4π)
+    ///   * Y_{2,+1}(Ĝ₁) = −√(15/4π)   · ½ · 1       = −½ · √(15/4π)
+    ///   * Y_{2,-1}(Ĝ₁) = 0                           (sin φ = 0)
+    ///   * Y_{2,+2}(Ĝ₁) =  √(15/16π)  · ½ · 1       =  ½ · √(15/16π)
+    ///   * Y_{2,-2}(Ĝ₁) = 0                           (sin 2φ = 0)
+    ///
+    /// G₂ = (2,0,1):  |G₂| = √5, cosθ = 1/√5, sinθ = 2/√5, φ = 0
+    ///   * Y_{2,0}(Ĝ₂)  = ½ · √(5/4π) · (3/5 − 1)   = −1/5 · √(5/4π)
+    ///   * Y_{2,+1}(Ĝ₂) = −√(15/4π)   · 2/5 · 1     = −2/5 · √(15/4π)
+    ///   * Y_{2,-1}(Ĝ₂) = 0
+    ///   * Y_{2,+2}(Ĝ₂) =  √(15/16π)  · 4/5 · 1     =  4/5 · √(15/16π)
+    ///   * Y_{2,-2}(Ĝ₂) = 0
+    ///
+    /// Products and sum:
+    ///   * m=0:   ¼ · √(5/4π) · (−1/5) · √(5/4π)           = −(1/20) · 5/(4π)  = −1/(16π)
+    ///   * m=+1:  (−½) · √(15/4π) · (−2/5) · √(15/4π)      =  (1/5)  · 15/(4π) =  12/(16π) = 3/(4π)
+    ///   * m=-1:  0
+    ///   * m=+2:  ½ · √(15/16π) · (4/5) · √(15/16π)        =  (2/5)  · 15/(16π) = 6/(16π) = 3/(8π)
+    ///   * m=-2:  0
+    ///   * Σ_m = (−1 + 12 + 6) / (16π) = 17/(16π)
+    ///
+    /// Sanity via addition theorem:
+    ///   cosθ₁₂ = Ĝ₁·Ĝ₂ = (1·2 + 0·0 + 1·1) / (√2·√5) = 3/√10
+    ///   (2l+1)/(4π) · P_2(cosθ₁₂) = 5/(4π) · (3·(9/10) − 1)/2
+    ///                             = 5/(4π) · 17/20 = 17/(16π)  ✓
+    ///
+    /// Expected:
+    ///   H_NL[G₁, G₂] = (D_{44}/Ω) · F₄(√2) · F₄(√5) · 17/(16π)
+    ///
+    /// `F_4` is a Bessel transform of the Si UPF radial projector;
+    /// we compute it via the same `bessel_transform_projector` helper
+    /// the production path uses (NOT part of the "defense" — any bug
+    /// in that function would also affect the production V_NL), so
+    /// the angular Y_{2,m} pin is what this test actually guards.
+    ///
+    /// Tolerance 1e-10 (ULP headroom; the whole pipeline is scalar
+    /// f64 on a handful of values).
+    #[test]
+    fn test_single_channel_l2_m_isolation() {
+        use crate::pseudopotential::load;
+        use std::path::PathBuf;
+
+        // 1. Load Si ONCV PP and zero D_ij except diagonal entry for
+        //    the first l=2 projector (projector index 4, row-major
+        //    offset 4·6 + 4 = 28 in the 6×6 D matrix).
+        let si_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pseudopotentials/nc/lda/Si.upf");
+        let mut pp = load(&si_path).expect("Si UPF must load");
+        assert_eq!(pp.n_projectors(), 6, "Si ONCV PP expected 6 projectors");
+        assert_eq!(pp.beta_projectors[4].l, 2, "projector 4 must be l=2");
+
+        // Preserve the original D_{44} value before zeroing the rest.
+        let d44 = pp.dij[4 * 6 + 4];
+        assert!(d44.abs() > 1e-6, "Si ONCV D_{{44}} must be nontrivial, got {d44}");
+        pp.dij.iter_mut().for_each(|d| *d = 0.0);
+        pp.dij[4 * 6 + 4] = d44;
+
+        // 2. Cubic lattice a = 2π → b_i = ê_i. G-vectors are integer
+        //    Cartesian triples in 1/Å.
+        let a = 2.0 * PI;
+        let lattice = crate::crystal::Lattice::new(
+            Vector3::new(a, 0.0, 0.0),
+            Vector3::new(0.0, a, 0.0),
+            Vector3::new(0.0, 0.0, a),
+        );
+        let omega = lattice.volume(); // (2π)³
+
+        // ecut = 50 eV > HBAR2_OVER_2M · |(2,0,1)|² = 3.81 · 5 ≈ 19 eV
+        // comfortably includes G₁=(1,0,1), G₂=(2,0,1).
+        let basis = BasisSet::new(&lattice, 50.0);
+        let g1_idx = basis
+            .index_of(1, 0, 1)
+            .expect("G=(1,0,1) must be in basis");
+        let g2_idx = basis
+            .index_of(2, 0, 1)
+            .expect("G=(2,0,1) must be in basis");
+        // Sanity: confirm the Cartesian coordinates (the assumption that
+        // the cubic reciprocal lattice is the identity on Miller indices).
+        assert!(
+            relative_eq!(basis.g_vectors()[g1_idx], Vector3::new(1.0, 0.0, 1.0), epsilon = 1e-12)
+        );
+        assert!(
+            relative_eq!(basis.g_vectors()[g2_idx], Vector3::new(2.0, 0.0, 1.0), epsilon = 1e-12)
+        );
+
+        // Single Si atom at origin: τ = 0 → phase = 1 for all G.
+        let crystal = crate::crystal::Crystal {
+            atoms: vec![crate::crystal::Atom::new(14, [0.0, 0.0, 0.0])],
+            lattice,
+        };
+
+        // 3. Assemble V_NL at Γ via the production path.
+        let k = Vector3::new(0.0, 0.0, 0.0);
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp])
+            .expect("NonlocalPotential::new");
+
+        let n_pw = basis.len();
+        let mut h: Mat<Complex64> = Mat::zeros(n_pw, n_pw);
+        vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
+        let h_g1_g2 = h[(g1_idx, g2_idx)];
+
+        // 4. Compute the expected value by hand — Σ_m Y_{2,m}(Ĝ₁)·Y_{2,m}(Ĝ₂) = 17/(16π).
+        //    The two radial form factors F₄(|G|) are evaluated via the
+        //    same Bessel-transform helper the production code calls.
+        let fpi = 4.0 * PI;
+        // Per-m products, re-computed explicitly from the QE convention (see doc comment).
+        //   m=0:   ¼ · √(5/4π) · (−1/5) · √(5/4π) = −(1/20) · (5/4π) = −1/(16π)
+        let y_m0 = -1.0 / (16.0 * PI);
+        //   m=+1:  (−½) · √(15/4π) · (−2/5) · √(15/4π) = (1/5) · (15/4π) = 3/(4π) = 12/(16π)
+        let y_mp1 = 3.0 / fpi;
+        //   m=+2:  ½ · √(15/16π) · (4/5) · √(15/16π) = (2/5) · (15/16π) = 3/(8π) = 6/(16π)
+        let y_mp2 = 3.0 / (8.0 * PI);
+        let ang_sum = y_m0 + y_mp1 + y_mp2;
+        // Consistency check with the closed-form addition theorem sum.
+        assert!(
+            relative_eq!(ang_sum, 17.0 / (16.0 * PI), epsilon = 1e-14),
+            "per-m sum mismatch: got {ang_sum}, closed form {}",
+            17.0 / (16.0 * PI)
+        );
+
+        let g1_norm = (2.0_f64).sqrt();
+        let g2_norm = (5.0_f64).sqrt();
+        let f4_g1 = bessel_transform_projector(
+            &pp.r_grid,
+            &pp.rab,
+            &pp.beta_projectors[4].values,
+            2,
+            g1_norm,
+        );
+        let f4_g2 = bessel_transform_projector(
+            &pp.r_grid,
+            &pp.rab,
+            &pp.beta_projectors[4].values,
+            2,
+            g2_norm,
+        );
+
+        let expected = Complex64::new(d44 / omega * f4_g1 * f4_g2 * ang_sum, 0.0);
+
+        // 5. The computed and expected matrix elements must agree to
+        //    ULP-ish precision; any per-m Y_{l,m} normalization error
+        //    throws this off by ≥ ~1e-2 · |expected|.
+        let diff = (h_g1_g2 - expected).norm();
+        let scale = expected.norm().max(1.0);
+        assert!(
+            diff < 1e-10 * scale,
+            "H_NL[G1,G2] mismatch: got {h_g1_g2}, expected {expected}, diff={diff}, scale={scale}"
+        );
+    }
+
     /// Verify the spherical-harmonic addition theorem on a realistic
     /// q-vector pair:
     ///   Σ_m Y_lm(q̂₁) Y_lm(q̂₂) = (2l+1)/(4π) · P_l(q̂₁·q̂₂)
