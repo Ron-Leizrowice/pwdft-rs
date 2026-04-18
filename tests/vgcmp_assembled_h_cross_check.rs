@@ -40,6 +40,13 @@
 //! If the CSV is missing, the test prints a skip message and passes; the
 //! CSV is committed as a generated artifact so CI does not depend on Python.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
 use std::fs;
 use std::path::PathBuf;
 

@@ -22,6 +22,13 @@
 //! pin line for context — they are useful to see the impact of NCFX at
 //! a glance and help anyone re-running the audit in the future.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
 use nalgebra::Vector3;
 use pwdft_rs::{
     basis::BasisSet,

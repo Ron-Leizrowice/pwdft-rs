@@ -76,6 +76,19 @@ cast_possible_truncation = "warn"
 cast_possible_wrap = "warn"
 cast_sign_loss = "warn"
 
+# --- ERR2 Phase 0: panic-family enforcement in production code ---
+# `warn` (not `deny`) so the pre-PR `-D warnings` clippy gate still blocks
+# regressions while individual surviving sites can carry a line-level
+# `#[allow(clippy::expect_used, reason = "BUG: <invariant>")]` following CAST's
+# discipline. Tests in `src/` (inside `mod tests`) and all of `tests/` and
+# `benches/` carry module- or file-level `#[allow]` banners — tests are allowed
+# to panic.
+# P3 (3-month soak) may promote `unwrap_used` to `deny` once production
+# conversions land in P1/P2. See proposals/ERR2-panic-free-production-audit.md.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+
 [profile.release]
 opt-level = 3
 lto = "thin"

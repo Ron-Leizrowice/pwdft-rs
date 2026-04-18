@@ -32,6 +32,13 @@
 //! We convert the Rust-side F back to Bohr^(3/2) for apples-to-apples and
 //! assert per-row agreement to **< 1e-4 Bohr^(3/2) absolute**.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
 use std::fs;
 use std::path::PathBuf;
 

@@ -22,6 +22,13 @@
 //! this end-to-end SCF test is marked `#[ignore]` by default so CI stays
 //! green. Run explicitly with `cargo test -- --ignored` to exercise.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
 use nalgebra::Vector3;
 use pwdft_rs::{
     basis::BasisSet,

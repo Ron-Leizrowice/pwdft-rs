@@ -3,6 +3,13 @@
 //! Validates that nspin=2 produces correct results and matches nspin=1
 //! in the unpolarized limit.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
 use nalgebra::Vector3;
 use pwdft_rs::{
     basis::BasisSet,

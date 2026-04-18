@@ -13,6 +13,13 @@
 //!
 //! Run with: cargo test --test kb_projector_validation -- --nocapture
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
 use std::f64::consts::PI;
 use std::path::PathBuf;
 

@@ -26,6 +26,13 @@
 //! Re-enable by running `cargo test test_mxba_fe_documents_adaptive_failure
 //! -- --include-ignored --nocapture` and inspecting the per-iteration β log.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
 use pwdft_rs::{basis::BasisSet, crystal::Crystal, scf, scf::mixing::MixingMode};
 
 fn fe_bcc() -> Crystal {

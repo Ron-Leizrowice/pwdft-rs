@@ -31,6 +31,7 @@ pub const HBAR2_OVER_2M: f64 =
     HBAR_SI * HBAR_SI / (2.0 * M_E) * EV_PER_J * ANG_PER_M * ANG_PER_M;
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, reason = "ERR2 § Phase 0: in-src test modules are allowed to panic")]
 mod tests {
     use super::*;
     use approx::relative_eq;
