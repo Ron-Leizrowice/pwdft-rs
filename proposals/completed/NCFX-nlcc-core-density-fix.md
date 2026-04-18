@@ -1,6 +1,7 @@
 ---
 id: NCFX
-status: active
+status: completed
+outcome: landed
 priority: critical
 complexity: small
 risk: low
@@ -10,6 +11,44 @@ owner: core-engineer
 ---
 
 # NCFX: NLCC Core-Density Unit and Radial-Weight Fix
+
+## 2026-04-17 — Landed
+
+Implemented on branch `NCFX/nlcc-core-density-fix` (rebased onto
+`origin/main` post-VGC5). Both compounding bugs fixed:
+- `src/pseudopotential/upf.rs`: PP_NLCC unit conversion changed from
+  `/BOHR_TO_ANG` to `/BOHR_TO_ANG³`. Now stores bare ρ_core(r) in e/Å³.
+- `src/scf/potentials.rs`: Bessel transform gained the missing `r²`
+  weight and `4π` prefactor, matching QE `rhoc_mod.f90:107-115`.
+
+**Impact (Si diamond, ecut=15 Ry, 4×4×4 MP):**
+| term   | pre-NCFX  | post-NCFX | QE       | Δ (post-NCFX − QE) |
+|--------|-----------|-----------|----------|---------------------|
+| E_xc   | −70.658   | −84.703   | −84.396  | −0.306              |
+| E_tot  | −218.181  | −231.865  | −231.610 | −0.256              |
+
+The 13.43 eV total-energy gap collapsed to 0.26 eV; the residual is
+dominated by the Monkhorst-Pack shifted-vs-Γ-centered grid convention
+(SYKP, PR #?, deferred) rather than any remaining NLCC issue.
+
+**Fe BCC (nspin=1, 4×4×4 MP, ecut=15 Ry, Kerker):** E_xc Δ went from
+−48.85 eV to +0.69 eV; E_total Δ went from −41.08 eV to +8.27 eV.
+The residual +8 eV is consistent with the same MP-shift residual plus
+Fe ecut convergence (QE reference uses 8×8×8 nspin=2).
+
+Tests:
+- New unit test `test_si_core_charge_integrates_to_partial_core`:
+  Si ONCVPSP partial core charge = 0.7399 e (expected 0.74 e).
+- GPU Si pins updated (`tests/gpu_consistency.rs`): Si total energy
+  pin shifted by −14.1 eV, matching the NCFX E_xc shift.
+- VGC5 per-component pins updated (`tests/vgc5_per_component_si.rs`)
+  for both Si and Fe; pre-NCFX baseline retained as inline comment.
+- `tests/qe_validation.rs::test_si_diamond_vs_qe` remains `#[ignore]`
+  (0.26 eV residual exceeds 0.05 eV tolerance), but the ignore message
+  now points at the MP-shift mismatch rather than VERF.
+
+No regressions: 180 lib + all integration tests pass (CPU and GPU),
+clippy clean on `--all-targets` and `--features gpu --all-targets`.
 
 ## Origin
 

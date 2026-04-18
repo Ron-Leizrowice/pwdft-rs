@@ -34,7 +34,13 @@ pub struct PseudopotentialData {
     /// May be empty if not provided by the pseudopotential.
     pub rho_atom: Vec<f64>,
     /// Nonlinear core correction (NLCC) charge density on radial grid.
-    /// Stores 4πr²ρ_core(r) in e/Å. Empty if NLCC is not present.
+    ///
+    /// Stores the bare volumetric density ρ_core(r) in e/Å³ (NOT 4πr²·ρ,
+    /// which is the PP_RHOATOM convention). The downstream radial Bessel
+    /// transform in `scf::potentials::compute_core_density` multiplies by
+    /// r² and 4π; see also QE `upflib/rhoc_mod.f90:107-115`.
+    ///
+    /// Empty if the pseudopotential has no NLCC (`core_correction="F"`).
     pub core_charge: Vec<f64>,
 }
 

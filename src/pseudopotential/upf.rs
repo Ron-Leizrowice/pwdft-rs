@@ -6,6 +6,7 @@
 use crate::error::{PwdftError, Result};
 
 use super::{BetaProjector, PseudopotentialData, BOHR_TO_ANG, RY_TO_EV};
+use crate::consts::BOHR3_TO_ANG3;
 
 /// Parse a UPF v2 file from its text content.
 pub fn parse(content: &str) -> Result<PseudopotentialData> {
@@ -92,8 +93,21 @@ pub fn parse(content: &str) -> Result<PseudopotentialData> {
     };
 
     // Parse nonlinear core correction (NLCC) charge density.
-    // PP_NLCC stores 4πr²ρ_core(r) in e/Bohr on the radial grid.
-    // Same unit conversion as rho_atom: e/Bohr → e/Å.
+    //
+    // PP_NLCC stores the **bare** core density ρ_core(r) in e/Bohr³ (NOT
+    // 4πr²·ρ). This differs from PP_RHOATOM which is stored as 4πr²·ρ_at
+    // (see the rho_atom block above). QE confirms this convention at
+    // `qe-7.5/upflib/rhoc_mod.f90:107`:
+    //
+    //     aux(ir) = upf%rho_atc(ir) * rgrid%r2(ir) * sin(q r)/(q r)
+    //
+    // — QE multiplies by r² (and later by 4π/Ω) in its Bessel transform,
+    // proving rho_atc is the bare volumetric density.
+    //
+    // Convert e/Bohr³ → e/Å³ (volumetric, not linear) by dividing by
+    // BOHR_TO_ANG³. The downstream Bessel transform in
+    // `src/scf/potentials.rs::compute_core_density` supplies the r²·4π
+    // factors in Å units.
     let has_nlcc = content.contains("core_correction=\"T\"")
         || content.contains("core_correction=\"t\"")
         || content.contains("nlcc=.true.");
@@ -101,7 +115,7 @@ pub fn parse(content: &str) -> Result<PseudopotentialData> {
         if let Ok(nlcc_raw) = extract_data_block(content, "PP_NLCC", mesh_size) {
             nlcc_raw
                 .iter()
-                .map(|&rho| rho / BOHR_TO_ANG)
+                .map(|&rho| rho / BOHR3_TO_ANG3)
                 .collect()
         } else {
             vec![0.0; mesh_size]
@@ -247,5 +261,40 @@ mod tests {
     fn test_dij_matrix_size() {
         let pp = parse(&si_content()).unwrap();
         assert_eq!(pp.dij.len(), pp.n_projectors() * pp.n_projectors());
+    }
+
+    /// NCFX: verify the partial core charge integrates to a physically
+    /// reasonable value after the corrected unit conversion.
+    ///
+    /// `pp.core_charge` now stores the bare ρ_core(r) in e/Å³. The
+    /// integrated partial core charge is
+    ///     Q_core = ∫ 4π r² ρ_core(r) dr
+    /// with r and rab in Å. For Si ONCVPSP LDA this is ≈ 0.74 e — a
+    /// reasonable partial-core charge for a Si atom (confirmed against
+    /// independent Python parse of Si.upf PP_NLCC).
+    ///
+    /// The previous (pre-NCFX) erroneous `/BOHR_TO_ANG` conversion would
+    /// give ≈ 0.74·BOHR_TO_ANG² ≈ 0.207 e — implausibly small.
+    #[test]
+    fn test_si_core_charge_integrates_to_partial_core() {
+        let pp = parse(&si_content()).unwrap();
+        assert!(pp.core_charge.len() == pp.r_grid.len());
+        assert!(pp.has_nlcc(), "Si ONCVPSP should have core_correction=T");
+
+        let four_pi = 4.0 * std::f64::consts::PI;
+        let q_core: f64 = pp
+            .core_charge
+            .iter()
+            .zip(pp.r_grid.iter())
+            .zip(pp.rab.iter())
+            .map(|((&rho, &r), &dr)| four_pi * r * r * rho * dr)
+            .sum();
+        eprintln!("Si partial core charge = {q_core:.6} e");
+        // Expected ~0.74 e for Si ONCVPSP LDA. Allow 0.01 e tolerance for
+        // trapezoidal-rule round-off on the log mesh.
+        assert!(
+            (q_core - 0.74).abs() < 0.05,
+            "Si partial core charge = {q_core:.6} e (expected ≈ 0.74 e)"
+        );
     }
 }

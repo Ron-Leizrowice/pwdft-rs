@@ -2,6 +2,36 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-18 — NCFX landed (critical-path fix)
+
+Branch `NCFX/nlcc-core-density-fix` (rebased onto `origin/main` post-VGC5).
+Both compounding bugs fixed as diagnosed in VGC5:
+
+1. **`src/pseudopotential/upf.rs`** — PP_NLCC conversion: `/BOHR_TO_ANG` → `/BOHR3_TO_ANG3`. PP_NLCC stores bare ρ_core(r) in e/Bohr³ (not 4πr²·ρ in e/Bohr); QE `rhoc_mod.f90:107` explicitly multiplies by r² in its Bessel transform, confirming the convention.
+2. **`src/scf/potentials.rs::compute_core_density`** — Integrand now has `r²` weight and `4π` prefactor, matching QE `init_tab_rhc`.
+
+**Key numbers:**
+- Si diamond (ecut=15 Ry, 4×4×4): E_total −218.18 → −231.87 eV (QE: −231.61). Gap: **13.43 → 0.26 eV** (52× reduction). E_xc residual dropped from +13.74 eV to −0.31 eV.
+- Fe BCC (nspin=1, 4×4×4): E_total −3101.24 → −3051.89 eV. E_xc residual: −48.85 → +0.69 eV.
+- Si partial core charge: 0.7399 e (pinned, expected 0.74 e for Si ONCVPSP).
+
+**Residual 0.26 eV on Si** attributed to Monkhorst-Pack shifted-vs-Γ-centered grid (SYKP): QE uses `4 4 4 0 0 0` (Γ-centered), pwdft-rs hard-codes shifted MP-1976. Γ eigenvalues differ by ~1 eV consistent with different k-meshes. Test `test_si_diamond_vs_qe` remains `#[ignore]`; ignore message updated to point at SYKP/MPSH.
+
+**Tests updated:**
+- New unit test: `test_si_core_charge_integrates_to_partial_core` in `src/pseudopotential/upf.rs`.
+- GPU pins in `tests/gpu_consistency.rs`: Si total −198.8926 → −213.0283 eV; Si E_F 6.969 → 6.709 eV (same −14.1 eV shift as CPU).
+- VGC5 pins in `tests/vgc5_per_component_si.rs`: Si + Fe pins refreshed; pre-NCFX baselines retained inline as comments.
+- Removed `PRE-NCFX` label from module header; test now a post-NCFX regression guard.
+
+**Tests status:** 180 lib + all integration pass (CPU and GPU). Clippy clean on `--all-targets` and `--features gpu --all-targets`.
+
+**Flagged for follow-up:**
+- Si VGC5 self-check `Σ(components) − E_total = 1.18 eV` — was present pre-NCFX too (PCRS territory).
+- Si one-electron residual vs QE: +2.00 eV (was +2.38 pre-NCFX). Small improvement; tracked by VGCMP/PCRS.
+- Si E_hartree residual vs QE: −0.79 eV (was −1.51 pre-NCFX). Same — improvement but non-zero.
+- Fe residual +8.27 eV on E_total: MP-shift + ecut convergence. Not NCFX domain.
+- `tests/qe_validation.rs::test_fe_bcc_fm_vs_qe` (nspin=2 Kerker 8×8×8) does not converge in 80 iters post-NCFX. Pre-NCFX it passed at −3059.44 eV; this is likely CCMX-class behavior (independent ↑/↓ Anderson can't cope with the newly-exposed magnetic landscape). Reason on `#[ignore]` still fine; worth noting that Fe now needs CCMX to converge cleanly rather than benefiting from accidental XC cancellation.
+
 ## 2026-04-16 — Orientation + KBTF (PR #1)
 
 - DDUP/SIMP/VERF/HRFK proposals verified accurate; ERRH needed line refresh; CFGN blocked on DDUP+SIMP.
