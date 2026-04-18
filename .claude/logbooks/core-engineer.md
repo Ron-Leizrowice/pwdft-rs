@@ -2,6 +2,27 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-18 — TACC-I submitted (PR #54)
+
+Branch `TACC-I/ignore-reasons-and-fe-debug` from origin/main. TACC findings #2 + #3 (finding #1 deferred until MXBA lands).
+
+**Finding #2 — 6 `#[ignore]` reason strings in `tests/qe_validation.rs`:** all six previously cited archived VERF. Ran `--ignored --nocapture` once to harvest current pwdft-rs values, then rewrote:
+- C (Z=6) → SYKP: stalls at Δρ ≈ 4.1e-6 / 80 iters.
+- Al (Z=13) → SYKP: ~73 meV residual on 8×8×8 (E = -64.197 eV vs -64.269 eV; barely fails 50 meV tol).
+- GaAs (Z=31+33) → VGCMP: ~33.6 eV.
+- Cu (Z=29 semicore) → VGCMP: ~16.2 eV.
+- NaCl (Cl Z=17) → VGCMP: ~7.7 eV.
+- MgO (Mg semicore) → VGCMP: ~10.1 eV.
+2× SYKP / 4× VGCMP. File-header VERF narrative refreshed too. No test newly passes — nothing un-ignored.
+
+**Finding #3:** deleted `tests/fe_debug.rs` (223 LOC, 6 tests — 5 weak/dead, superseded by VGCMP Phases 1-4). Migrated `test_fe_ewald_energy` → `qe_validation.rs::test_fe_bcc_ewald_vs_qe` (new Ewald section, <0.01 eV tol vs -171.779_065_80 Ry). Verified green.
+
+**Quality gate:** clippy default+gpu clean, `cargo test --release` + `--features gpu` green, migrated Ewald passes.
+
+**TACC proposal stays active** (finding #1 open — deferred until MXBA lands). No production-code changes.
+
+**Surprises:** Al at ≈73 meV is closest-to-passing of all ignored QE validation tests; if SYKP/MPSH lands it will almost certainly pass. Flagged for EM in PR body.
+
 ## 2026-04-18 — MODR-D landed (PR #47)
 
 Branch `MODR-D/upf-folder` from `origin/main@9a5e9e9`. Pure-move: `src/pseudopotential/upf.rs` (467 LOC) → `src/pseudopotential/upf/{mod,xml,convert}.rs`. Git detected `upf.rs → upf/convert.rs` as 86% rename.
