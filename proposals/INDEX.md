@@ -20,7 +20,8 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
 | VNLM | V_NL Hamiltonian assembly via single GEMM | small-medium | low | — | — |
 | MADOC | Mathematical documentation push (phased; MADOC-A first) | large | low | — | DLNT |
-| GGAP | GGA/PBE exchange-correlation functional (phased A–F; ~9–13 CE-days) | large | medium | — | — |
+| GGAP | GGA/PBE exchange-correlation functional (phased A–F; ~9–13 CE-days) | large | medium | — | HYBR |
+| HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP | — |
 | TYPE | Numeric-type efficiency audit (i32→i8 rotations, i32→i16 Miller, dead index_map) | small | low | — | — |
 | ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; phased) | medium | low | — | — |
 

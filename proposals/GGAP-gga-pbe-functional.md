@@ -306,6 +306,20 @@ radial integrals — all our work is grid FFTs. No quadrature concerns.
 
 ## API shape
 
+### HYBR compatibility note (EM-applied 2026-04-18)
+
+Phase A's `XcFunctional` dispatch must remain a **data** enum (variants
+hold parameters, not closures or trait objects). The hybrid-functional
+proposal HYBR (`proposals/HYBR-hybrid-functional-support.md`, landed
+2026-04-18) extends the enum with variants that need access to the
+wavefunction basis during Hamiltonian construction — if Phase A embeds
+the semilocal computation inside a closure, that path isn't reachable
+from HYBR's Fock integrator (the closure only sees ρ, never ψ). Keep
+`match xc_functional { ... }` dispatch strictly data-driven. `eval` /
+`eval_spin` should take `&XcFunctional` parameters, not `Box<dyn ...>`
+trait objects, and must not move the functional into `Fn`-typed fields.
+See HYBR §3 for the three specific architectural traps to avoid.
+
 ### The dispatcher
 
 We follow the **enum-dispatch pattern** (matches `MixingMode`/`Mixer`
