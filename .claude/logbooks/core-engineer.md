@@ -2,6 +2,20 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-18 — MXB3: AdaptiveBeta::update Fe-trajectory unit test (PR #71)
+
+Direct unit test in `src/scf/mixing/mod.rs::adaptive_beta_tests` feeding a synthetic 80-iter residual sequence to reproduce the Fe CCMX β-floor failure mode documented by `tests/mxba_adaptive_beta_fe.rs`.
+
+**Sequence:** 10-iter plateau at 0.34 (monitor silent — ratios ≈ 1.0 hit the hysteresis band), then 70 iters oscillating `[0.34·1.3, 0.34·0.9]`. The alternating ratios (1.444 damp / 0.692 band) chain damps every 2 iters while making the 3-iter < 0.5 restore streak architecturally unreachable.
+
+**β schedule (hand-verified against the code):** 0.3 → 0.21 → 0.147 → 0.103 → 0.072 → 0.0504 → 0.0353 → 0.0247 → 0.0173 → clamped at 0.015 by iter 27; stays at 0.015 through iter 80.
+
+**Defense-in-depth assertion:** `max_good_streak < restore_window` — if a future MXB2 tuning change relaxes `restore_threshold` from 0.5 to 0.8, this test will fail loudly instead of silently no-oping, reminding whoever's on the branch to rework the multipliers.
+
+**Clippy landmine:** `assert_eq!(float, float)` trips `clippy::float_cmp` even on exact constants. Switched to `(a - b).abs() < 1e-15` pattern — project convention anyway per CLAUDE.md `approx::relative_eq!`, but for sanity-pin of compile-time constants the `< 1e-15` form is fine.
+
+**Not touched:** `tests/mxba_adaptive_beta_fe.rs` (per task: integration test stays as-is, this is its cheap companion). `AdaptiveBeta` logic/API (per task: test-only).
+
 ## 2026-04-18 — VNMT: FLUP brief was architecturally wrong (PR #62)
 
 Added `test_single_channel_l2_m_isolation` in `src/potential/nonlocal.rs::tests` with hand-computed reference.
