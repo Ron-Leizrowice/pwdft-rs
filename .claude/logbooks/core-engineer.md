@@ -2,6 +2,28 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-18 — CCMX landed (PR #43)
+
+Branch `CCMX/coupled-channel`, rebased onto origin/main (post-PRPL/MODR/NCFX).
+
+**Implementation** (`src/scf/mod.rs::run_scf_spin`): replaced `mixer_up`/`mixer_down` with `mixer_total`/`mixer_mag`. Forward basis change `(ρ↑, ρ↓) → (ρ_total, m)` before mix call; inverse after. Matches QE `rhoz_or_updw` (scf_mod.f90:1360-1414). Kerker disabled on `mixer_mag`; match handles all 4 MixingMode variants (Plain, Kerker, Broyden, PeriodicPulay) by flipping kerker off while preserving period.
+
+**Key numbers — Fe BCC 4×4×4 nspin=2 free-mag starting_mag=0.5, 15 Ry, Kerker:**
+- Pre-CCMX: Δρ limit cycle at 0.254 for 200+ iters, |HF-KS| ≈ 13 eV.
+- Post-CCMX: **14 iters**, Δρ=5.7e-4, |HF-KS|=1.06e-4 eV, M=0 μB.
+
+8×8×8 trace: energy stable to 6 decimals by iter 11; |HF-KS|=5e-5 eV; Δρ then enters a numerical-noise floor (spikes between 1e-8 and 3e-5 as Anderson history becomes rank-deficient — the existing singular-pivot guard handles this gracefully).
+
+**New regression test:** `tests/spin_polarization.rs::test_ccmx_fe_free_magnetization_converges`. Fails hard if mixer topology reverts (|HF-KS|<1e-3 eV, M<0.05, iters<80).
+
+**Tests status:** 191 lib + all integration CPU pass, 194 lib + all GPU pass. 8 pre-existing ignored. Clippy clean both `--all-targets` feature sets.
+
+**Unchanged:** Si nspin=2 regression still sub-μeV |HF-KS| (basis change is exact). `test_fe_ferromagnetic_fixed_moment` still correctly ConvergenceFailure (fixed-mag=2 not a fixed point for this PP, regardless of mixer).
+
+**Flagged for follow-up:**
+- `tests/qe_validation.rs::test_fe_bcc_fm_vs_qe` now converges cleanly but stays `#[ignore]` pending VGCMP (9.5 eV heavy-atom V_local gap).
+- Δρ wobble at numerical-noise floor in tight-tolerance 8×8×8 Fe runs. Energy + |HF-KS| pinned, so benign; MXBA adaptive-beta could damp Anderson history sooner. Not a correctness issue.
+
 ## 2026-04-18 — PRPL nits (PR #39, rebased on NCFX)
 
 Two APPROVE-WITH-NITS follow-ups applied on top of PR #39:
