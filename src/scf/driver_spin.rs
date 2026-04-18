@@ -118,11 +118,11 @@ pub(crate) fn run_scf_spin(
     }
     let mut mixer_total = mixing::Mixer::new(
         ctx.params.mixing_beta, ctx.params.mixing_ndim, &ctx.params.mixing_mode,
-        Some(&ctx.g_squared), ctx.n_electrons, ctx.omega,
+        Some(&ctx.g_squared), ctx.n_electrons, ctx.omega, ctx.params.adaptive_beta,
     );
     let mut mixer_mag = mixing::Mixer::new(
         ctx.params.mixing_beta, ctx.params.mixing_ndim, &mag_mixing_mode,
-        Some(&ctx.g_squared), ctx.n_electrons, ctx.omega,
+        Some(&ctx.g_squared), ctx.n_electrons, ctx.omega, ctx.params.adaptive_beta,
     );
 
     let mut e_prev: Option<f64> = None;
@@ -364,7 +364,13 @@ pub(crate) fn run_scf_spin(
             hf_diff,
             de,
             delta,
-            spin: Some(SpinIterationFields { delta_up, delta_down, magnetization: mag }),
+            beta: ctx.params.adaptive_beta.then(|| mixer_total.current_beta()),
+            spin: Some(SpinIterationFields {
+                delta_up,
+                delta_down,
+                magnetization: mag,
+                mag_beta: ctx.params.adaptive_beta.then(|| mixer_mag.current_beta()),
+            }),
         });
 
         // Warn if density converged but Harris-Foulkes difference is large

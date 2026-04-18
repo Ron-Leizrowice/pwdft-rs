@@ -1,14 +1,52 @@
 ---
 id: MXBA
-status: active
+status: completed
 priority: medium
 complexity: medium
 risk: medium
 depends_on: []
 blocks: []
+outcome: landed-default-off
 ---
 
 # MXBA: Adaptive Mixing Beta
+
+## Completion note (2026-04-18)
+
+Landed as opt-in (default `adaptive_beta = false`). Implementation uses the
+Eyert 1996 §3.3 residual-norm monitor in `src/scf/mixing/mod.rs`
+(`AdaptiveBeta` helper) plugged into both `AndersonMixer::push_history`
+and `BroydenMixer::mix`. `PeriodicPulayMixer` inherits via its inner
+Anderson. `Mixer::current_beta()` exposes the effective β for logging;
+the SCF iteration line in both `run_scf` and `run_scf_spin` now prints
+β (and `(tot, mag)` for nspin=2).
+
+**Defaults chosen:**
+- `growth_threshold = 1.2`, `damp_factor = 0.7`
+- `restore_threshold = 0.5`, `restore_window = 3`
+- `β_min = max(0.05·β_start, 0.01)`, clamp ceiling = β_start
+
+**Default `adaptive_beta = false`.** Empirical finding: on Fe BCC CCMX
+(the existing `test_ccmx_fe_free_magnetization_converges` regression)
+adaptive β *hurts*. The residual plateaus at Δρ ≈ 0.34 for the first
+~5 iters while Anderson accumulates DIIS history; the monitor reads
+this as "slow convergence" and damps β all the way to β_min ≈ 0.017,
+at which point the DIIS extrapolation is starved and the SCF cannot
+escape. Fixed-β 0.3 + Anderson DIIS converges the same system in 14
+iters. Documented failure: `tests/mxba_adaptive_beta_fe.rs`
+(`#[ignore]`d, asserts the failure so a change to the monitor that
+fixes this case will fire loudly). The user opt-in path leaves the
+existing integration test suite byte-identical.
+
+**Followup ideas (not in this PR):**
+- Tune growth_threshold and restore_threshold on a metallic test case
+  where β adaptation actually helps (e.g. C diamond 30 Ry plain mixing,
+  per the proposal's original motivation — blocked on that system
+  converging reproducibly).
+- Consider skipping adaptive updates during a "DIIS warm-up" window
+  (first `max_history` iterations) to avoid damping before the
+  Anderson extrapolator has enough history to do useful work.
+- Per-channel adaptive tuning for nspin=2 (total vs magnetization).
 
 ## Problem
 

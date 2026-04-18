@@ -17,6 +17,10 @@ pub(super) struct SpinIterationFields {
     pub delta_up: f64,
     pub delta_down: f64,
     pub magnetization: f64,
+    /// Effective β of the magnetization-channel mixer. `None` with MXBA off —
+    /// at fixed β the value is redundant with the user input and logging it
+    /// every iter is noise. `Some(β)` only when the Eyert monitor is active.
+    pub mag_beta: Option<f64>,
 }
 
 /// Per-iteration SCF progress record.
@@ -30,6 +34,10 @@ pub(super) struct IterationReport {
     /// `None` on the first iteration (no previous energy).
     pub de: Option<f64>,
     pub delta: f64,
+    /// Effective β of the (ρ_total) mixer when the Eyert residual-norm monitor
+    /// is active (MXBA). `None` at fixed β — the user-configured value is
+    /// constant across iterations so logging it is noise.
+    pub beta: Option<f64>,
     /// Spin-specific fields; `None` for nspin=1.
     pub spin: Option<SpinIterationFields>,
 }
@@ -37,20 +45,25 @@ pub(super) struct IterationReport {
 /// Emit one progress-bar update and one `info!` line for an SCF iteration.
 pub(super) fn log_iteration(pb: &ProgressBar, r: &IterationReport) {
     pb.set_position((r.iter + 1) as u64);
+    let de_str = r
+        .de
+        .map_or("N/A".to_string(), |de| format!("{de:.2e}"));
     match &r.spin {
         None => {
             pb.set_message(format!(
                 "E={:.4} eV  Δρ={:.1e}",
                 r.e_total, r.delta
             ));
+            let beta_str = r.beta.map_or(String::new(), |b| format!("  β={b:.3}"));
             info!(
-                "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e}",
+                "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e}{}",
                 r.iter + 1,
                 r.e_total,
                 r.e_harris,
                 r.hf_diff,
-                r.de.map_or("N/A".to_string(), |de| format!("{de:.2e}")),
-                r.delta
+                de_str,
+                r.delta,
+                beta_str,
             );
         }
         Some(sp) => {
@@ -58,17 +71,22 @@ pub(super) fn log_iteration(pb: &ProgressBar, r: &IterationReport) {
                 "E={:.4} eV  Δρ={:.1e}  M={:.2} μB",
                 r.e_total, r.delta, sp.magnetization
             ));
+            let beta_str = match (r.beta, sp.mag_beta) {
+                (Some(tot), Some(mag)) => format!("  β=(tot {tot:.3}, mag {mag:.3})"),
+                _ => String::new(),
+            };
             info!(
-                "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e} (↑{:.2e} ↓{:.2e})  M={:.3} μB",
+                "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e} (↑{:.2e} ↓{:.2e})  M={:.3} μB{}",
                 r.iter + 1,
                 r.e_total,
                 r.e_harris,
                 r.hf_diff,
-                r.de.map_or("N/A".to_string(), |de| format!("{de:.2e}")),
+                de_str,
                 r.delta,
                 sp.delta_up,
                 sp.delta_down,
-                sp.magnetization
+                sp.magnetization,
+                beta_str,
             );
         }
     }

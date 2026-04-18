@@ -210,6 +210,14 @@ pub struct ElectronSettings {
     /// Only consulted when `mixing_mode == periodic_pulay` or
     /// `periodic_pulay_kerker`; ignored otherwise. Must be ≥ 1. Default: 3.
     pub pulay_period: usize,
+    /// Enable adaptive mixing β (Eyert 1996, §3.3 residual-norm monitor).
+    ///
+    /// When `true`, β is damped when the residual norm grows and restored
+    /// toward `mixing_beta` when it decreases steadily for three
+    /// consecutive iterations. Default `false` preserves the pre-MXBA
+    /// fixed-β behaviour for existing inputs. See
+    /// `src/scf/mixing/mod.rs` module docs for the rule and thresholds.
+    pub adaptive_beta: bool,
     /// Number of spin channels: 1 (unpolarized) or 2 (collinear spin-polarized).
     pub nspin: usize,
     /// Starting magnetization per atom type (fractional, -1 to 1).
@@ -230,6 +238,7 @@ impl Default for ElectronSettings {
             occupations: OccupationType::default(),
             mixing_mode: MixingModeType::default(),
             pulay_period: 3,
+            adaptive_beta: false,
             nspin: 1,
             starting_magnetization: HashMap::new(),
             tot_magnetization: None,
@@ -473,6 +482,7 @@ impl Settings {
                 .electrons
                 .mixing_mode
                 .to_scf_mode(self.electrons.pulay_period),
+            adaptive_beta: self.electrons.adaptive_beta,
             nspin: self.electrons.nspin,
             starting_magnetization: self.electrons.starting_magnetization.clone(),
             tot_magnetization: self.electrons.tot_magnetization,
@@ -930,6 +940,39 @@ electrons:
         );
         // Default period
         assert_eq!(s.electrons.pulay_period, 3);
+    }
+
+    #[test]
+    fn adaptive_beta_defaults_off_and_parses_from_yaml() {
+        // Default: absent from YAML → `false` (preserves pre-MXBA behaviour).
+        let yaml_no_key = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+electrons:
+  mixing_beta: 0.25
+"#;
+        let s = Settings::from_yaml_str(yaml_no_key).unwrap();
+        assert!(!s.electrons.adaptive_beta, "default must be false");
+        // And the ScfParams round-trip preserves that.
+        let params = s.to_scf_params(8);
+        assert!(!params.adaptive_beta);
+
+        // Explicit opt-in in YAML.
+        let yaml_on = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+electrons:
+  adaptive_beta: true
+"#;
+        let s_on = Settings::from_yaml_str(yaml_on).unwrap();
+        assert!(s_on.electrons.adaptive_beta);
+        assert!(s_on.to_scf_params(8).adaptive_beta);
     }
 
     #[test]

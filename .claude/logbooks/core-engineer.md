@@ -2,6 +2,32 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-18 — MXBA submitted (PR #57)
+
+Branch `MXBA/adaptive-beta`, rebased onto origin/main (post-MODR-B/C/D + VNLM + CAST + DEAD).
+
+**Implementation:** Eyert 1996 §3.3 residual-norm monitor as a private `AdaptiveBeta` helper in `src/scf/mixing/mod.rs`. Hooked into `AndersonMixer::push_history` (top, after Kerker preconditioning) and `BroydenMixer::mix` (same spot). `PeriodicPulayMixer` inherits via inner Anderson. `Mixer::new` gains `adaptive_beta: bool`; `Mixer::current_beta()` exposes β to the driver. New `KerkerSetup<'a>` bundle struct was added to keep mixer constructors inside the `too_many_arguments` limit (the 3 Kerker params now travel together).
+
+**Defaults:** growth_threshold=1.2, damp_factor=0.7, restore_threshold=0.5, restore_window=3, β_min=max(0.05·β_start, 0.01).
+
+**`adaptive_beta` default = false.** Empirical finding: on Fe CCMX (the existing `test_ccmx_fe_free_magnetization_converges`), adaptive β on damps β to β_min≈0.017 during the initial Δρ≈0.34 plateau (first ~5 iters) before Anderson has built DIIS history. Starved DIIS cannot escape the plateau → ConvergenceFailure at iter 80. Fixed-β 0.3 converges in 14 iters (unchanged baseline). Documented failure pinned by `tests/mxba_adaptive_beta_fe.rs` (`#[ignore]`).
+
+**Numbers:**
+- Fe CCMX fixed β=0.3 (default): 14 iters, |HF-KS|=1.06e-4 eV, M=0 μB — bit-identical to CCMX logbook entry.
+- Fe CCMX adaptive β on: ConvergenceFailure after 80 iters, Δρ=0.341.
+
+**Tests status:** 273 CPU + 282 GPU pass, 0 failed. Clippy clean both feature sets. 9 new unit tests (`AdaptiveBeta` logic + per-mixer driven-residual trajectory + backward-compat bit-identical).
+
+**Surprises:**
+- Fe CCMX failure under adaptive β was not anticipated by the proposal text. Root cause: the proposal assumed DIIS is always present to "do most of the work"; in practice DIIS needs `max_history ≥ 2` BEFORE adaptive β sees a residual trajectory it can interpret. Early-iter plateaus confuse Eyert's monitor. This is exactly why VASP/ABINIT/QE don't adapt β inside `mix_rho` — they do it in user scripts with explicit restart logic.
+- `scf::report::IterationReport` is a clean place to pipe β into the per-iteration log; updating both drivers was one edit to `report.rs` + one `.current_beta()` in each driver's `log_iteration` call.
+- Rebase hit expected conflicts: MODR-B split `scf/mod.rs` into driver/driver_spin; my inline edits moved to the new files trivially. INDEX.md conflict was 2-way (CAST had landed; I needed to keep CAST and append MXBA).
+
+**Flagged for follow-up:**
+- Tune Eyert thresholds on a metallic case where adaptive β helps (blocked on C diamond @ 30 Ry plain mixing converging). A fat follow-up proposal, not trivial.
+- DIIS warm-up window (suppress monitor for first `max_history` iters). May be a quick mitigation of the Fe CCMX failure — if a warm-up window fixes the Fe regression, adaptive could become the default.
+- VNLM proposal file is still in `proposals/` but the code landed as PR #49 (INDEX shows it in Active + Completed-equivalents). Core Engineer hand-off to EM to reconcile.
+
 ## 2026-04-18 — CAST submitted (PR #56)
 
 Branch `CAST/numeric-cast-audit` from `origin/main` (post DOCS #53, TACC-I #54, DEAD #55 landings). Enabled the three `cast_*` correctness lints in `Cargo.toml`; walked ~148 hits.

@@ -10,6 +10,8 @@ use ndarray::{Array1, ArrayView1};
 
 use crate::fft::FFT3D;
 
+use super::AdaptiveBeta;
+use super::KerkerSetup;
 use super::MixingMode;
 use super::kerker::{auto_q_tf_squared, precondition_residual};
 use super::linalg::solve_linear_system;
@@ -30,25 +32,31 @@ use super::linalg::solve_linear_system;
 /// This damps long-wavelength charge sloshing, which is the dominant source of
 /// SCF instability in metals and large-gap systems.
 pub(crate) struct AndersonMixer {
-    beta: f64,
+    /// Current effective β. Mutated each iteration by [`AdaptiveBeta::update`]
+    /// (no-op when adaptive β is disabled, in which case this equals the
+    /// user-configured start β for the entire run).
+    pub(super) beta: f64,
     max_history: usize,
     history_in: Vec<Array1<f64>>,
     history_res: Vec<Array1<f64>>,
     /// Precomputed Kerker weights P(G) for each FFT grid point.
     /// None if plain mixing.
     kerker_weights: Option<Vec<f64>>,
+    /// Residual-norm monitor for adaptive β (Eyert 1996 §3.3). When
+    /// constructed with `adaptive_beta = false` this is a no-op shim.
+    adaptive: AdaptiveBeta,
 }
 
 impl AndersonMixer {
-    /// Create a new mixer. For Kerker mode, pass g_squared (|G|² at each FFT grid point).
+    /// Create a new mixer. For Kerker mode, `kerker_setup.g_squared` must be
+    /// supplied. `adaptive_beta` toggles the Eyert residual-norm monitor.
     #[must_use]
     pub(super) fn new(
         beta: f64,
         max_history: usize,
         mode: &MixingMode,
-        g_squared: Option<&[f64]>,
-        n_electrons: f64,
-        omega: f64,
+        kerker_setup: KerkerSetup<'_>,
+        adaptive_beta: bool,
     ) -> Self {
         let kerker_weights = match mode {
             MixingMode::Plain => None,
@@ -56,11 +64,12 @@ impl AndersonMixer {
                 // SAFETY: Callers must pass g_squared when using Kerker mode.
                 // AndersonMixer::new is called from ScfContext which always provides
                 // g_squared when mixing_mode is Kerker.
-                let g2 = g_squared
+                let g2 = kerker_setup
+                    .g_squared
                     .expect("BUG: Kerker mode requires g_squared to be provided by caller");
                 let q_tf_sq = match q_tf {
                     Some(q) => q * q,
-                    None => auto_q_tf_squared(n_electrons, omega),
+                    None => auto_q_tf_squared(kerker_setup.n_electrons, kerker_setup.omega),
                 };
                 let weights: Vec<f64> = g2
                     .iter()
@@ -88,7 +97,14 @@ impl AndersonMixer {
             history_in: Vec::new(),
             history_res: Vec::new(),
             kerker_weights,
+            adaptive: AdaptiveBeta::new(adaptive_beta, beta),
         }
+    }
+
+    /// Current effective β (after any adaptive update applied so far).
+    #[must_use]
+    pub(super) fn current_beta(&self) -> f64 {
+        self.beta
     }
 
     /// Mix input density with output density.
@@ -121,6 +137,18 @@ impl AndersonMixer {
             raw_residual.to_vec()
         };
         let residual = Array1::from(residual);
+
+        // Adaptive β (Eyert 1996 §3.3): update β from the ratio of this
+        // iteration's residual norm to the previous one. The residual here
+        // is the *Kerker-preconditioned* residual when Kerker is on
+        // (G=0 zeroed + damped long-wavelength components) — that's the
+        // right quantity to feed the monitor because it is the one β
+        // multiplies in the linear step. With Kerker off it's the raw
+        // density residual. No-op when `adaptive_beta = false`; otherwise
+        // the next DIIS / linear step will use the updated β for the
+        // entire combination.
+        let residual_norm = residual.dot(&residual).sqrt();
+        self.beta = self.adaptive.update(residual_norm, self.beta);
 
         self.history_in.push(rho_in_arr.to_owned());
         self.history_res.push(residual);
@@ -245,31 +273,31 @@ impl PeriodicPulayMixer {
         max_history: usize,
         period: usize,
         kerker: bool,
-        g_squared: Option<&[f64]>,
-        n_electrons: f64,
-        omega: f64,
+        kerker_setup: KerkerSetup<'_>,
+        adaptive_beta: bool,
     ) -> Self {
         assert!(period >= 1, "PeriodicPulayMixer: period must be >= 1");
-        // The inner Anderson mixer owns the (optional) Kerker weights and the
-        // history. We ask for Kerker mode iff `kerker == true`.
+        // The inner Anderson mixer owns the (optional) Kerker weights, the
+        // history, and the adaptive-β monitor. We ask for Kerker mode iff
+        // `kerker == true`.
         let inner_mode = if kerker {
             MixingMode::Kerker { q_tf: None }
         } else {
             MixingMode::Plain
         };
-        let anderson = AndersonMixer::new(
-            beta,
-            max_history,
-            &inner_mode,
-            g_squared,
-            n_electrons,
-            omega,
-        );
+        let anderson =
+            AndersonMixer::new(beta, max_history, &inner_mode, kerker_setup, adaptive_beta);
         Self {
             anderson,
             period,
             iteration: 0,
         }
+    }
+
+    /// Current effective β on the inner Anderson mixer.
+    #[must_use]
+    pub(super) fn current_beta(&self) -> f64 {
+        self.anderson.current_beta()
     }
 
     /// Mix input density with output density using Periodic Pulay.
@@ -319,10 +347,28 @@ impl PeriodicPulayMixer {
 mod tests {
     use super::*;
 
+    /// Default Kerker context for tests without a |G|² grid.
+    fn plain_ctx() -> KerkerSetup<'static> {
+        KerkerSetup {
+            g_squared: None,
+            n_electrons: 8.0,
+            omega: 40.0,
+        }
+    }
+
+    /// Kerker context with an explicit |G|² grid for tests exercising Kerker.
+    fn kerker_ctx(g2: &[f64]) -> KerkerSetup<'_> {
+        KerkerSetup {
+            g_squared: Some(g2),
+            n_electrons: 8.0,
+            omega: 40.0,
+        }
+    }
+
     #[test]
     fn test_linear_mixing_plain() {
         let mut fft = FFT3D::new(2, 2, 2);
-        let mut mixer = AndersonMixer::new(0.3, 4, &MixingMode::Plain, None, 8.0, 40.0);
+        let mut mixer = AndersonMixer::new(0.3, 4, &MixingMode::Plain, plain_ctx(), false);
         let rho_in = vec![1.0; 8];
         let rho_out = vec![2.0; 8];
         let result = mixer.mix(&rho_in, &rho_out, &mut fft);
@@ -343,10 +389,11 @@ mod tests {
             .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
             .collect();
         let mut mixer = AndersonMixer::new(
-            0.3, 4,
+            0.3,
+            4,
             &MixingMode::Kerker { q_tf: Some(1.0) },
-            Some(&g_squared),
-            8.0, 40.0,
+            kerker_ctx(&g_squared),
+            false,
         );
 
         // Uniform residual (all G=0 component) should be heavily suppressed
@@ -373,10 +420,11 @@ mod tests {
             .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 * 0.5 })
             .collect();
         let mut mixer = AndersonMixer::new(
-            0.3, 4,
+            0.3,
+            4,
             &MixingMode::Kerker { q_tf: Some(1.0) },
-            Some(&g_squared),
-            8.0, 40.0,
+            kerker_ctx(&g_squared),
+            false,
         );
 
         let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
@@ -402,16 +450,16 @@ mod tests {
         let rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.1 * (i as f64 * 0.3).sin()).collect();
         let rho_out: Vec<f64> = (0..n).map(|i| 1.0 + 0.2 * (i as f64 * 0.3).sin()).collect();
 
-        let mut mixer_plain = AndersonMixer::new(
-            0.3, 4, &MixingMode::Plain, None, 8.0, 40.0,
-        );
+        let mut mixer_plain =
+            AndersonMixer::new(0.3, 4, &MixingMode::Plain, plain_ctx(), false);
         let result_plain = mixer_plain.mix(&rho_in, &rho_out, &mut fft);
 
         let mut mixer_kerker = AndersonMixer::new(
-            0.3, 4,
+            0.3,
+            4,
             &MixingMode::Kerker { q_tf: Some(0.001) }, // tiny q_TF
-            Some(&g_squared),
-            8.0, 40.0,
+            kerker_ctx(&g_squared),
+            false,
         );
         let result_kerker = mixer_kerker.mix(&rho_in, &rho_out, &mut fft);
 
@@ -435,10 +483,11 @@ mod tests {
             .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
             .collect();
         let mut mixer = AndersonMixer::new(
-            0.3, 4,
+            0.3,
+            4,
             &MixingMode::Kerker { q_tf: Some(1000.0) }, // huge q_TF
-            Some(&g_squared),
-            8.0, 40.0,
+            kerker_ctx(&g_squared),
+            false,
         );
 
         let rho_in = vec![1.0; n];
@@ -461,8 +510,8 @@ mod tests {
         let mut fft1 = FFT3D::new(2, 2, 2);
         let mut fft2 = FFT3D::new(2, 2, 2);
 
-        let mut mixer1 = AndersonMixer::new(0.3, 4, &MixingMode::Plain, None, 8.0, 40.0);
-        let mut mixer2 = AndersonMixer::new(0.3, 4, &MixingMode::Plain, None, 8.0, 40.0);
+        let mut mixer1 = AndersonMixer::new(0.3, 4, &MixingMode::Plain, plain_ctx(), false);
+        let mut mixer2 = AndersonMixer::new(0.3, 4, &MixingMode::Plain, plain_ctx(), false);
 
         let rho_in = vec![1.0; 8];
         let rho_out = vec![2.0; 8];
@@ -584,8 +633,8 @@ mod tests {
         let mut fft_b = FFT3D::new(4, 4, 4);
         let n = 64;
 
-        let mut anderson = AndersonMixer::new(0.3, 4, &MixingMode::Plain, None, 8.0, 40.0);
-        let mut pp = PeriodicPulayMixer::new(0.3, 4, 1, false, None, 8.0, 40.0);
+        let mut anderson = AndersonMixer::new(0.3, 4, &MixingMode::Plain, plain_ctx(), false);
+        let mut pp = PeriodicPulayMixer::new(0.3, 4, 1, false, plain_ctx(), false);
 
         let mut rho_a: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
         let mut rho_b = rho_a.clone();
@@ -618,7 +667,7 @@ mod tests {
         let n = 64;
         let beta = 0.3;
 
-        let mut pp = PeriodicPulayMixer::new(beta, 4, usize::MAX, false, None, 8.0, 40.0);
+        let mut pp = PeriodicPulayMixer::new(beta, 4, usize::MAX, false, plain_ctx(), false);
 
         let mut rho_pp: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
         let mut rho_ref = rho_pp.clone();
@@ -655,7 +704,7 @@ mod tests {
         // step or a linear step.
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
-        let mut pp = PeriodicPulayMixer::new(0.3, 8, 3, false, None, 8.0, 40.0);
+        let mut pp = PeriodicPulayMixer::new(0.3, 8, 3, false, plain_ctx(), false);
 
         let mut rho: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
 
@@ -689,8 +738,8 @@ mod tests {
         let n = 64;
         let beta = 0.3;
 
-        let mut pp3 = PeriodicPulayMixer::new(beta, 8, 3, false, None, 8.0, 40.0);
-        let mut pp_inf = PeriodicPulayMixer::new(beta, 8, usize::MAX, false, None, 8.0, 40.0);
+        let mut pp3 = PeriodicPulayMixer::new(beta, 8, 3, false, plain_ctx(), false);
+        let mut pp_inf = PeriodicPulayMixer::new(beta, 8, usize::MAX, false, plain_ctx(), false);
 
         // Use the SAME density for both — synthetic output depends on rho_in
         // so we feed the reference density to both to keep inputs identical.
@@ -752,7 +801,7 @@ mod tests {
     fn periodic_pulay_first_iteration_is_linear_mixing() {
         // Before any Pulay step, output must equal ρ_in + β·R (plain linear).
         let mut fft = FFT3D::new(2, 2, 2);
-        let mut pp = PeriodicPulayMixer::new(0.3, 4, 3, false, None, 8.0, 40.0);
+        let mut pp = PeriodicPulayMixer::new(0.3, 4, 3, false, plain_ctx(), false);
         let rho_in = vec![1.0; 8];
         let rho_out = vec![2.0; 8];
         let result = pp.mix(&rho_in, &rho_out, &mut fft);
@@ -776,7 +825,7 @@ mod tests {
             .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
             .collect();
         let mut pp =
-            PeriodicPulayMixer::new(0.3, 4, 3, true, Some(&g_squared), 8.0, 40.0);
+            PeriodicPulayMixer::new(0.3, 4, 3, true, kerker_ctx(&g_squared), false);
 
         let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
 
@@ -798,7 +847,7 @@ mod tests {
         // Pulay steps.
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
-        let mut pp = PeriodicPulayMixer::new(0.5, 8, 3, false, None, 8.0, 40.0);
+        let mut pp = PeriodicPulayMixer::new(0.5, 8, 3, false, plain_ctx(), false);
 
         let target: Vec<f64> = (0..n).map(|i| 1.0 + 0.1 * (i as f64 * 0.3).sin()).collect();
         let mut rho: Vec<f64> = vec![1.0; n];
@@ -920,5 +969,114 @@ mod tests {
                  expects both to converge. Plain error: {e_plain}; PeriodicPulay error: {e_prpl}"
             ),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // MXBA: adaptive β unit tests (Anderson + PeriodicPulay paths)
+    // -----------------------------------------------------------------------
+
+    /// Drive a mixer with a residual sequence whose norm is prescribed by the
+    /// caller: at each iteration, the test overrides ρ_out so that
+    /// ‖ρ_out - ρ_in‖₂ ≈ `target_norm`. Returns the β reported after each call.
+    fn drive_mixer_with_norms(
+        mixer: &mut AndersonMixer,
+        fft: &mut FFT3D,
+        norms: &[f64],
+    ) -> Vec<f64> {
+        let n = 8;
+        let mut rho_in = vec![1.0; n];
+        let mut betas = Vec::with_capacity(norms.len());
+        for (k, &target) in norms.iter().enumerate() {
+            // Pick a unit-variation residual direction.
+            let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
+            let unit = (1.0_f64 / (n as f64).sqrt()) * sign;
+            // Residual magnitude `target` distributed evenly => norm = target.
+            let rho_out: Vec<f64> = rho_in.iter().map(|&r| r + target * unit).collect();
+            rho_in = mixer.mix(&rho_in, &rho_out, fft);
+            betas.push(mixer.current_beta());
+        }
+        betas
+    }
+
+    #[test]
+    fn anderson_adaptive_beta_damps_on_growth() {
+        // With adaptive β on, a growing residual sequence must damp β below
+        // the user-configured start.
+        let mut fft = FFT3D::new(2, 2, 2);
+        let mut mixer = AndersonMixer::new(0.5, 4, &MixingMode::Plain, plain_ctx(), true);
+        // Norms ramp by 1.5x each step > growth_threshold 1.2.
+        let norms = [1.0, 1.5, 2.25, 3.375, 5.0625, 7.59];
+        let betas = drive_mixer_with_norms(&mut mixer, &mut fft, &norms);
+        // First two iters: no ratio / one ratio update at most → β may still
+        // equal start. By iter 3 β must be strictly below start.
+        assert!(
+            *betas.last().unwrap() < 0.5 - 1e-6,
+            "adaptive β did not damp under growth: trajectory {betas:?}"
+        );
+        // β should be monotonically non-increasing on a strictly growing
+        // residual sequence.
+        for w in betas.windows(2) {
+            assert!(
+                w[1] <= w[0] + 1e-12,
+                "β increased under residual growth: {} -> {}",
+                w[0],
+                w[1]
+            );
+        }
+    }
+
+    #[test]
+    fn anderson_adaptive_beta_restores_toward_start() {
+        // A sharply decreasing residual sequence should restore β toward β_start.
+        // We first damp β via a growth phase, then test that a decrease phase
+        // restores it. This exercises the full growth→restore cycle in one
+        // mixer instance.
+        let mut fft = FFT3D::new(2, 2, 2);
+        let mut mixer = AndersonMixer::new(0.5, 4, &MixingMode::Plain, plain_ctx(), true);
+
+        // Phase 1: two growth steps (damps β twice).
+        let growth = [1.0, 1.5, 2.25];
+        let _ = drive_mixer_with_norms(&mut mixer, &mut fft, &growth);
+        let damped = mixer.current_beta();
+        assert!(
+            damped < 0.5 - 1e-6,
+            "prerequisite failed: β not damped by growth phase: {damped}"
+        );
+
+        // Phase 2: five strong decreases → restore_window=3 triggers once.
+        let decrease = [1.0, 0.1, 0.01, 0.001, 0.0001];
+        let betas = drive_mixer_with_norms(&mut mixer, &mut fft, &decrease);
+        assert!(
+            *betas.last().unwrap() > damped + 1e-6,
+            "adaptive β did not restore under sustained decrease: start={damped}, \
+             trajectory={betas:?}"
+        );
+        // Clamp check: no β exceeds β_start.
+        for &b in &betas {
+            assert!(b <= 0.5 + 1e-12, "β exceeded β_start=0.5: {b}");
+        }
+    }
+
+    #[test]
+    fn periodic_pulay_propagates_adaptive_beta() {
+        // The Pulay wrapper must forward adaptive_beta to the inner Anderson
+        // mixer. Verify via current_beta() after a growth-inducing sequence.
+        let mut fft = FFT3D::new(2, 2, 2);
+        let mut pp = PeriodicPulayMixer::new(0.5, 4, 3, false, plain_ctx(), true);
+        let n = 8;
+        let mut rho_in = vec![1.0; n];
+        // Feed growing residuals: iter k has norm 1.5^k.
+        for k in 0..6 {
+            let target = 1.5_f64.powi(k);
+            let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
+            let unit = sign / (n as f64).sqrt();
+            let rho_out: Vec<f64> = rho_in.iter().map(|&r| r + target * unit).collect();
+            rho_in = pp.mix(&rho_in, &rho_out, &mut fft);
+        }
+        assert!(
+            pp.current_beta() < 0.5 - 1e-6,
+            "PeriodicPulay did not propagate adaptive β damp; got {}",
+            pp.current_beta()
+        );
     }
 }

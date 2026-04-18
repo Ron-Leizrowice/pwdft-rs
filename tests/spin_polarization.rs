@@ -244,6 +244,15 @@ fn test_ccmx_fe_free_magnetization_converges() {
     // `ScfResult.final_delta` is not currently exposed; adding it would
     // enable a tighter pathology-specific assertion (Δρ ≈ 0.254 vs ≈ 1e-3).
     // Flagged as a Core Engineer follow-up on MODR Phase B.
+    //
+    // MXBA note (2026-04-18): this test runs at the default
+    // `adaptive_beta = false`. Empirically, turning adaptive β on
+    // (`adaptive_beta: true`) on this exact system damps β below β_min
+    // before Anderson builds useful DIIS history and the SCF fails to
+    // converge inside 80 iterations. The documented failure mode is
+    // pinned by `tests/mxba_adaptive_beta_fe.rs`
+    // (`test_mxba_fe_documents_adaptive_failure`, `#[ignore]`). Do not
+    // flip the default to `true` without tuning Eyert thresholds first.
     let crystal = fe_bcc();
     let pp = pwdft_rs::pseudopotential::load(
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
