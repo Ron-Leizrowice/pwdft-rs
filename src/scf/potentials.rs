@@ -154,9 +154,12 @@ pub(crate) fn build_hamiltonian_with_v_eff(
     let miller_idx = basis.miller_indices();
     for i in 0..n {
         for j in 0..n {
-            let dn1 = miller_idx[i][0] - miller_idx[j][0];
-            let dn2 = miller_idx[i][1] - miller_idx[j][1];
-            let dn3 = miller_idx[i][2] - miller_idx[j][2];
+            // Miller entries are `i16` (TYPE-A). Widen to `i32` before
+            // subtraction so differences cannot overflow even at the
+            // i16 boundary; `miller_to_idx` takes `i32` natively.
+            let dn1 = i32::from(miller_idx[i][0]) - i32::from(miller_idx[j][0]);
+            let dn2 = i32::from(miller_idx[i][1]) - i32::from(miller_idx[j][1]);
+            let dn3 = i32::from(miller_idx[i][2]) - i32::from(miller_idx[j][2]);
             let fft_idx = miller_to_idx(grid_dims, dn1, dn2, dn3);
             h[(i, j)] += v_eff_fft[fft_idx];
         }

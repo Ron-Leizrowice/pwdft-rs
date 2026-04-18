@@ -49,7 +49,10 @@ pub fn check_grid_compatibility(dims: [usize; 3], symmetry: &SymmetryInfo) -> bo
         let r = &op.rotation;
         for i in 0..3 {
             for j in 0..3 {
-                if (r[i][j] * ns[j]) % ns[i] != 0 {
+                // `r[i][j]` is `i8` (TYPE-A); widen to `i32` for the product
+                // with the FFT dim. Compatibility test is `i32`-sized
+                // regardless of storage width.
+                if (i32::from(r[i][j]) * ns[j]) % ns[i] != 0 {
                     return false;
                 }
             }

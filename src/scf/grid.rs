@@ -51,8 +51,17 @@ impl FftGrid {
             d
         } else {
             let miller = basis.miller_indices();
+            // Miller entries are stored as `i16` (TYPE-A); widen to `i32`
+            // for the `fft_grid_size` API which takes `i32`. The widen is
+            // lossless and folds into the load on aarch64.
             let n_max: Vec<i32> = (0..3)
-                .map(|dim| miller.iter().map(|m| m[dim].abs()).max().unwrap_or(0))
+                .map(|dim| {
+                    miller
+                        .iter()
+                        .map(|m| i32::from(m[dim].abs()))
+                        .max()
+                        .unwrap_or(0)
+                })
                 .collect();
             #[allow(
                 clippy::cast_possible_truncation,
@@ -92,10 +101,14 @@ impl FftGrid {
     }
 
     pub fn basis_to_fft(&self, basis: &BasisSet) -> Vec<usize> {
+        // Miller entries are `i16` (TYPE-A); widen to `i32` for the
+        // FFT-index wrap arithmetic, which needs room for `n + N`.
         basis
             .miller_indices()
             .iter()
-            .map(|&[n1, n2, n3]| self.miller_to_idx(n1, n2, n3))
+            .map(|&[n1, n2, n3]| {
+                self.miller_to_idx(i32::from(n1), i32::from(n2), i32::from(n3))
+            })
             .collect()
     }
 }

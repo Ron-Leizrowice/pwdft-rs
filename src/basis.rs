@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use nalgebra::Vector3;
 
 use crate::{consts::HBAR2_OVER_2M, crystal::Lattice};
@@ -8,9 +6,14 @@ pub struct BasisSet {
     /// G-vectors in Cartesian coordinates (1/Å).
     pw: Vec<Vector3<f64>>,
     /// Integer Miller indices (n1, n2, n3) for each G-vector.
-    miller: Vec<[i32; 3]>,
-    /// Map from (n1, n2, n3) → index in pw/miller vectors.
-    index_map: HashMap<(i32, i32, i32), usize>,
+    ///
+    /// Stored as `[i16; 3]` per TYPE-A. `i16`'s range `[-32 768, 32 767]`
+    /// covers every physically reasonable `ecut · Ω` combination with
+    /// three orders of magnitude to spare — reaching i16 overflow would
+    /// require `ecut` beyond `10^7 Ry`. All arithmetic on Miller indices
+    /// (rotation, FFT-index mapping, k+G) widens to `i32` at the read
+    /// site to preserve overflow-free behavior.
+    miller: Vec<[i16; 3]>,
     /// Plane-wave energy cutoff (eV).
     ecut: f64,
 }
@@ -50,28 +53,33 @@ impl BasisSet {
 
         let mut pw = Vec::new();
         let mut miller = Vec::new();
-        let mut index_map = HashMap::new();
+
+        // Miller indices are narrowed from i32 to i16 for storage; the
+        // enumeration driver (n1/n2/n3) remains i32 to keep the loop
+        // bounds and intermediate arithmetic overflow-safe for any
+        // physically meaningful ecut. `i16::try_from` is infallible under
+        // the proposal's argument (ecut > 10^7 Ry is non-physical); the
+        // panic path is a guard against a caller who passes an absurdly
+        // large lattice.
+        let to_i16 = |n: i32| {
+            i16::try_from(n).expect(
+                "BasisSet::new: Miller index exceeds i16 range; ecut must be below 10^7 Ry",
+            )
+        };
 
         for n1 in -n1_max..=n1_max {
             for n2 in -n2_max..=n2_max {
                 for n3 in -n3_max..=n3_max {
                     let g = n1 as f64 * b1 + n2 as f64 * b2 + n3 as f64 * b3;
                     if g.norm_squared() <= g_max_sq {
-                        let idx = pw.len();
                         pw.push(g);
-                        miller.push([n1, n2, n3]);
-                        index_map.insert((n1, n2, n3), idx);
+                        miller.push([to_i16(n1), to_i16(n2), to_i16(n3)]);
                     }
                 }
             }
         }
 
-        Self {
-            pw,
-            miller,
-            index_map,
-            ecut,
-        }
+        Self { pw, miller, ecut }
     }
 
     #[must_use]
@@ -96,15 +104,37 @@ impl BasisSet {
     }
 
     /// Access integer Miller indices for each G-vector.
+    ///
+    /// Stored as `[i16; 3]` for cache density (TYPE-A). Callers that feed
+    /// the values into `i32`-sized arithmetic (rotation, FFT index wrap,
+    /// `miller_to_idx`) should widen with `i32::from(m[k])` — the
+    /// widening is infallible and typically folds into the load.
     #[must_use]
-    pub fn miller_indices(&self) -> &[[i32; 3]] {
+    pub fn miller_indices(&self) -> &[[i16; 3]] {
         &self.miller
     }
 
-    /// O(1) lookup: given Miller indices, return the index into the basis.
+    /// Linear lookup: given Miller indices, return the index into the basis.
+    ///
+    /// `O(n_pw)` scan. Retained as public API because it is used by a
+    /// handful of unit and integration tests for G-vector pin assertions
+    /// (`index_of(0, 0, 0)`, small-shell sanity probes); production SCF
+    /// paths work in the opposite direction (`miller_to_idx` on an FFT
+    /// grid), so the former `HashMap<(i32, i32, i32), usize>` cache was
+    /// ~30 kB of dead memory at `n_pw = 725`. The linear scan's cost
+    /// (~n_pw comparisons per call, a handful of calls per test run) is
+    /// invisible next to SCF wall time.
+    ///
+    /// Accepts `i32` so out-of-range queries return `None` naturally
+    /// (no narrowing panic at the boundary).
     #[must_use]
     pub fn index_of(&self, n1: i32, n2: i32, n3: i32) -> Option<usize> {
-        self.index_map.get(&(n1, n2, n3)).copied()
+        // `try_into` folds out-of-i16-range queries into a `None` result,
+        // matching the pre-TYPE-A `HashMap::get` semantics.
+        let n1: i16 = n1.try_into().ok()?;
+        let n2: i16 = n2.try_into().ok()?;
+        let n3: i16 = n3.try_into().ok()?;
+        self.miller.iter().position(|m| m == &[n1, n2, n3])
     }
 
     /// Kinetic energy (eV) for each G-vector: (ℏ²/2m)|G|².
@@ -177,15 +207,20 @@ mod tests {
         let basis = si_basis(200.0);
         // Very large indices should not be in the basis
         assert!(basis.index_of(100, 100, 100).is_none());
+        // Values outside i16 range also return None, not panic
+        assert!(basis.index_of(100_000, 0, 0).is_none());
     }
 
     #[test]
     fn test_miller_indices_consistency() {
         let basis = si_basis(200.0);
         assert_eq!(basis.g_vectors().len(), basis.miller_indices().len());
-        // Every miller index should roundtrip through the map
+        // Every miller index should roundtrip through the linear scan
         for (i, &[n1, n2, n3]) in basis.miller_indices().iter().enumerate() {
-            assert_eq!(basis.index_of(n1, n2, n3), Some(i));
+            assert_eq!(
+                basis.index_of(i32::from(n1), i32::from(n2), i32::from(n3)),
+                Some(i)
+            );
         }
     }
 }

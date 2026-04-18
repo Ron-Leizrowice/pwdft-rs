@@ -77,19 +77,21 @@ pub fn symmetrize_density(rho: &mut [f64], dims: [usize; 3], symmetry: &Symmetry
                         iz as f64 / nz as f64,
                     ];
 
-                    // Apply S⁻¹: f' = R⁻¹·f + τ_inv
+                    // Apply S⁻¹: f' = R⁻¹·f + τ_inv.
+                    // `r_inv[i][j]` is `i8` (TYPE-A); `f64::from` is the
+                    // lossless widening for a small signed integer.
                     let fp = [
-                        r_inv[0][0] as f64 * f[0]
-                            + r_inv[0][1] as f64 * f[1]
-                            + r_inv[0][2] as f64 * f[2]
+                        f64::from(r_inv[0][0]) * f[0]
+                            + f64::from(r_inv[0][1]) * f[1]
+                            + f64::from(r_inv[0][2]) * f[2]
                             + tau_inv[0],
-                        r_inv[1][0] as f64 * f[0]
-                            + r_inv[1][1] as f64 * f[1]
-                            + r_inv[1][2] as f64 * f[2]
+                        f64::from(r_inv[1][0]) * f[0]
+                            + f64::from(r_inv[1][1]) * f[1]
+                            + f64::from(r_inv[1][2]) * f[2]
                             + tau_inv[1],
-                        r_inv[2][0] as f64 * f[0]
-                            + r_inv[2][1] as f64 * f[1]
-                            + r_inv[2][2] as f64 * f[2]
+                        f64::from(r_inv[2][0]) * f[0]
+                            + f64::from(r_inv[2][1]) * f[1]
+                            + f64::from(r_inv[2][2]) * f[2]
                             + tau_inv[2],
                     ];
 

@@ -22,7 +22,6 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | MADOC | Mathematical documentation push (phased; MADOC-A first) | large | low | — | DLNT |
 | GGAP | GGA/PBE exchange-correlation functional (phased A–F; ~9–13 CE-days) | large | medium | — | HYBR |
 | HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP | — |
-| TYPE | Numeric-type efficiency audit (i32→i8 rotations, i32→i16 Miller, dead index_map) | small | low | — | — |
 | ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; phased) | medium | low | — | — |
 
 ### Low / Deferred
@@ -105,6 +104,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | CAST | Numeric Cast Safety Audit (3 correctness lints enabled; ~148 sites triaged; 4 assertion-guarded rewrites) |
 | MXBA | Adaptive Mixing Beta (Eyert 1996 residual-norm monitor; opt-in, default off — hurts Fe CCMX) |
 | TACC | Test Accuracy + Relevance Audit (findings #2–#6 landed via TACC-I; finding #1 fixed in TACC-II) |
+| TYPE | Numeric-type audit Phase A — i32→i8 SpaceGroupOp rotations + i32→i16 Miller + dead `index_map` (5% on `symmetrize_density_g`) |
 
 ## Notes
 

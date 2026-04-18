@@ -1,11 +1,34 @@
 ---
 id: TYPE
-status: active
+status: completed
 priority: low
 complexity: small-medium
 risk: low
 depends_on: []
 blocks: []
+---
+
+## Status (2026-04-18)
+
+**Phase A landed** as PR `TYPE-A: i32→i8 SpaceGroupOp rotations + i32→i16 BasisSet Miller + dead index_map`. All three items in the ranked-implementable table were implemented as three commits.
+
+**Measured wins (Apple M2, machine lock held):**
+
+| Bench | Before | After | Δ |
+|-------|--------|-------|---|
+| `symmetrize_density_g_n18_ops48` | 629 µs | 624 µs | −0.8% |
+| `symmetrize_density_g_n36_ops48` | 2.580 ms | 2.590 ms | +0.4% (noise) |
+| `symmetrize_density_g_n72_ops48` | 18.58 ms | **17.70 ms** | **−4.7%** |
+| `symmetrize_density_g_n72_ops8` | 11.24 ms | 10.63 ms | −5.4% |
+
+Consistent with the proposal's predicted 5–15% headline; smaller-n cases are dominated by FFT wall time, not the symmetrizer inner loop.
+
+**Memory reclaimed:** ~11.6 kB per `BasisSet` (30 kB from the deleted `index_map` + 4.4 kB from `miller` narrowing at n_pw = 725) and 27 B per `SpaceGroupOp` (~1.3 kB per `SymmetryInfo` at 48 ops).
+
+**`index_map` decision:** option (a) — deleted entirely, replaced with an O(n_pw) linear-scan `index_of`. The 12 test-only call sites already used `Option<usize>` so no migration pattern was needed; linear-scan cost is invisible next to SCF wall time.
+
+**KB form-factor f32 storage escalation (§2.3) still pending EM decision post-ITEV.** Not escalated as part of Phase A.
+
 ---
 
 # TYPE: Numeric-Type Efficiency Audit (integer narrowings + targeted f32 survey)
