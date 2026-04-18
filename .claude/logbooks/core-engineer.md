@@ -21,6 +21,22 @@ Branch `MODR-D/upf-folder` from `origin/main@9a5e9e9`. Pure-move: `src/pseudopot
 
 MODR: A ✅ (PR #46), D ✅ (PR #47). B (split `scf/mod.rs`) and C (symmetry/density folder) still open — concurrent agents likely in flight.
 
+## 2026-04-18 — MODR-C submitted (PR #48)
+
+Branch `MODR-C/symmetry-density-folder` from origin/main (post-MODR-A).
+Pure-move refactor: `src/symmetry/density.rs` (~770 LOC) → `src/symmetry/density/{mod,real_space,g_space}.rs`. Git detected `density.rs → g_space.rs` rename (61% similarity).
+
+**Layout:**
+- `mod.rs` (~85): facade with `pub use real_space::symmetrize_density;` + `pub use g_space::symmetrize_density_g;` + shared helpers `check_grid_compatibility` / `compatible_grid_dims`.
+- `real_space.rs` (~240): legacy `#[deprecated]` symmetrizer + `frac_to_grid_idx` + 7 tests.
+- `g_space.rs` (~435): G-space symmetrizer + Miller helpers + 6 tests (incl. PCFX 18³ idempotency).
+
+**No visibility tightenings.** Considered narrowing to `pub(super)` on the sub-module symbols and re-exporting as `pub`, but the simpler "`pub fn` at source, `pub use` at facade" pattern matches Phase A and keeps `pub` as the single source of truth. `symmetry/mod.rs` untouched — call sites use `density::<name>` which resolves equivalently through a folder-with-mod.rs.
+
+**Tests:** 14/14 density tests pass, correctly routed under `symmetry::density::{real_space,g_space}::tests`. Full suite 209 CPU + 212 GPU pass, clippy clean both feature sets. 9 pre-existing `#[ignore]`.
+
+**Surprises:** none. `#[allow(deprecated)]` on the facade's `pub use` needed explicitly — the re-export alone without the attr fires the deprecation warning through the module boundary.
+
 ## 2026-04-18 — MODR-A landed (PR #46)
 
 Branch `MODR-A/split-mixing` from `origin/main@eb54d69`. Pure-move refactor: `src/scf/mixing.rs` (971 LOC) → `src/scf/mixing/{mod,anderson,broyden,kerker,linalg}.rs`. `AndersonMixer` + `PeriodicPulayMixer` co-located in `anderson.rs` (periodic wrapper pokes Anderson private fields).
