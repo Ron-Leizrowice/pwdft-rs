@@ -356,10 +356,14 @@ impl NonlocalPotential {
 /// for l > 0 so the product is zero anyway) and Y_00 = 1/√(4π).
 #[allow(
     clippy::cast_sign_loss,
-    reason = "lmax is a non-negative angular-momentum bound; the debug_assert on output length and caller-side assert in NonlocalPotential::new enforce lmax >= 0"
+    reason = "lmax is a non-negative angular-momentum bound; the release-mode assert! on the next line enforces lmax >= 0 even when caller-side guards are absent"
 )]
 fn real_sph_harmonics(q: &Vector3<f64>, lmax: i32, out: &mut [f64]) {
-    debug_assert!(lmax >= 0, "real_sph_harmonics: lmax must be non-negative, got {lmax}");
+    // Release-mode guard (not debug_assert!): this function is private today
+    // but future callers could bypass the NonlocalPotential::new check, and
+    // the `(lmax + 1) * (lmax + 1) as usize` at the next line wraps silently
+    // on a negative lmax. One branch per call vs. hundreds of FLOPs is cheap.
+    assert!(lmax >= 0, "real_sph_harmonics: lmax must be non-negative, got {lmax}");
     debug_assert_eq!(out.len(), ((lmax + 1) * (lmax + 1)) as usize);
     let fpi = 4.0 * PI;
     let inv_sqrt_fpi = (1.0 / fpi).sqrt();
