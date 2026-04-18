@@ -115,3 +115,33 @@ algebraically-lowest. Keep dense backend as selectable fallback.
 - Wait for EM decision on ITEV priority/approval.
 - If ITEV approved: Phase 1 wrapper + correctness tests.
 - If blocked: consider V_NL blocked-matmul as a parallel-track proposal.
+
+## 2026-04-18 — ITEV Phase 1+2 landed (PR #45)
+
+**Scope:** Wrapper (`src/eigensolver/iterative.rs`) + SCF dispatch + YAML switch + 8 correctness tests. Default still Dense. Iterative is opt-in.
+
+**Correctness proven (unit-level):**
+- 8 tests pass, incl. real Si diamond Γ-point H (n_pw=89, triple-degenerate valence) vs dense to < 1e-6 eV.
+- Degeneracy collapse fixed via `n_request = max(n_bands+4, 1.5*n_bands)`, keep lowest n_bands after over-request.
+- Shift strategy: tight per-row Gershgorin bound (`max_i (diag_i + Σ_{j≠i} |H_{ij}|) + ε`). Initial loose shift caused Lanczos reorthogonalization hangs; tightening resolved them for single calls.
+
+**BLOCKER: upstream faer 0.24 bug.** `operator/self_adjoint_eigen/iterate_lanczos` (lines 42-59) inner Gram-Schmidt loop spins indefinitely when a Krylov vector becomes numerically null. Reproduces non-deterministically on multi-iteration Si SCF at n_pw=89 — single calls are fine, SCF hangs after ~3-10 iters. Confirmed via `sample`: stuck in `norm_l2_simd_pairwise_rows`. No user-code workaround; we need upstream fix or a replacement (SPRS matrix-free).
+
+**What this means for ITEV:**
+- Bench `iterative_cold_n{N}` would hang; disabled.
+- End-to-end SCF integration test is `#[ignore]`d.
+- Cannot flip default to Iterative until upstream fixed.
+- Correctness scaffolding is in place — the shift/over-request/fallback logic is validated and ready.
+
+**Measurements (sample-based, n=89 Si H, single call):**
+- Iterative: 2-5 ms per diagonalize (consistent).
+- Dense: similar at this size (n < 100 dense Hessenberg dominates).
+- True speedup only visible at n_pw ≥ 259 — where the SCF hang also manifests, so benchmarking blocked.
+
+**Tangential ideas:**
+- File issue upstream against faer re: `iterate_lanczos` reorthogonalization fragility; link to Horst & Meurant (2000) on selective reorthogonalization.
+- Alternative: implement our own matrix-free partial eigensolver (SPRS could revive DVSN's Davidson-style plan on top of our own LinOp). Bigger scope.
+- Alternative: investigate LOBPCG via faer or hand-rolled — avoids Lanczos entirely.
+- V_NL blocked-matmul remains a parallel-track target (29 ms at n_pw=725, #2 bottleneck after eigensolve).
+
+**Files touched:** src/eigensolver/{iterative.rs (new), mod.rs}, src/scf/mod.rs, src/settings.rs, benches/scf_benchmarks.rs, tests/itev_iterative_eigensolver.rs (new), Cargo.toml (+ dyn-stack).

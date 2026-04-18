@@ -14,6 +14,11 @@
 //! backend remains the default; users who enable `Iterative` should be
 //! prepared to fall back to `Dense` if they observe non-termination.
 //!
+//! FIXME(faer-upstream): upstream issue not yet filed. When filed, paste
+//! the tracking URL here and in the integration test's `#[ignore]`
+//! reason string at `tests/itev_iterative_eigensolver.rs`. Grep for
+//! `FIXME(faer-upstream)` to find all three sites.
+//!
 //! The SCF loop only needs the `n_bands` lowest eigenpairs of the Kohn-Sham
 //! Hamiltonian, but the dense solver (`src/eigensolver/dense.rs`) computes all
 //! `n_pw` eigenpairs and discards >99% of them. For production `n_pw` (≥200)

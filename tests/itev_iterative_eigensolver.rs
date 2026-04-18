@@ -97,7 +97,7 @@ fn run_si_scf(kind: EigensolverKind) -> ScfResult {
 /// invocation — the only concern covered by this integration test is
 /// the many-iteration full SCF path.
 #[test]
-#[ignore]
+#[ignore = "blocked by faer 0.24 iterate_lanczos infinite-loop in Gram-Schmidt reorthogonalization — see module-level doc on src/eigensolver/iterative.rs and FIXME(faer-upstream) comments"]
 fn itev_iterative_matches_dense_si_total_energy() {
     let dense = run_si_scf(EigensolverKind::Dense);
     let iterative = run_si_scf(EigensolverKind::Iterative);

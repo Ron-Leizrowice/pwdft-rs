@@ -268,9 +268,18 @@ fn diagonalize_dispatch(
             ) {
                 Ok(r) => Ok(r),
                 Err(e) => {
-                    log::warn!(
-                        "iterative eigensolver failed ({e}); falling back to dense"
-                    );
+                    // Fires per-k-point per-SCF-iteration on persistent failure;
+                    // warn once, downgrade the rest to debug to avoid log spam.
+                    static ITERATIVE_FALLBACK_WARNED: std::sync::atomic::AtomicBool =
+                        std::sync::atomic::AtomicBool::new(false);
+                    if !ITERATIVE_FALLBACK_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        log::warn!(
+                            "iterative eigensolver failed ({e}); falling back to dense \
+                             (subsequent failures on this run will be logged at debug level)"
+                        );
+                    } else {
+                        log::debug!("iterative eigensolver failed ({e}); falling back to dense");
+                    }
                     dense::diagonalize_lowest(h, n_bands)
                 }
             }
