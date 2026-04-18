@@ -145,3 +145,45 @@ algebraically-lowest. Keep dense backend as selectable fallback.
 - V_NL blocked-matmul remains a parallel-track target (29 ms at n_pw=725, #2 bottleneck after eigensolve).
 
 **Files touched:** src/eigensolver/{iterative.rs (new), mod.rs}, src/scf/mod.rs, src/settings.rs, benches/scf_benchmarks.rs, tests/itev_iterative_eigensolver.rs (new), Cargo.toml (+ dyn-stack).
+
+## 2026-04-18 — VNLM landed (PR #49)
+
+**Scope:** `src/potential/nonlocal.rs` only. Replaced nested (ig,jg,i,j)
+scalar loop with `H += B · D · B^H` single-GEMM. Expanded KB projector
+matrix B has one channel per (atom, projector, m); D is block-diagonal;
+addition theorem `Σ_m Y_lm Y*_lm = (2l+1)/(4π) P_l(cos θ)` makes it exact.
+
+**Measured (Apple M2, lock held):**
+
+| n_pw | vnl_apply | vnl_apply | speedup | vnl_new | vnl_new |
+|------|-----------|-----------|---------|---------|---------|
+|      | before    | after     |         | before  | after   |
+| 89   | 398 µs    | 80 µs     | 5.0×    | 5.41 ms | 7.08 ms |
+| 259  | 3.18 ms   | 776 µs    | 4.1×    | 15.5 ms | 21.0 ms |
+| 725  | 27.4 ms   | 5.24 ms   | 5.2×    | 43.2 ms | 78.5 ms |
+
+Profile matched logbook claim exactly (27 ms ≈ 29 ms). Ratio logbook
+quoted was slightly higher at measurement time; current n_pw=725 is 27 ms.
+
+**Surprise:** `vnl_new` regressed ~1.5× because we now build the full B
+and D·B^H at construction. One-time cost per k-point (cached in
+`ScfContext.vnl_cache`). Break-even at ~2 SCF iters; 15-iter SCF net
+2.9× faster V_NL per k-point. Worth it.
+
+**Correctness:** 265 tests pass both feature flags. Analytic G=0 check
+(tol 1e-8), hermiticity (1e-10), shell degeneracy (1e-8), Python
+reference cross-check all pass. Added `test_ylm_addition_theorem` pinning
+the algebraic identity to 1e-12.
+
+**Implementation note:** real Y_lm table built per k-point via QE's
+ylmr2 recurrence. Only lmax = max-over-PPs l. Memory ~n_pw × (lmax+1)²
+f64 + 2 × n_pw × n_channels complex — ~200 KB at n_pw=725 — negligible.
+
+**Tangential ideas:**
+- vnl_new regression is from B-fill + D·B^H construction loops. Could
+  parallelize with rayon over atoms or use a blocked matmul for D·B^H.
+  Not worth it — we're below 80 ms at n_pw=725 and it's already out of
+  the SCF hot path.
+- Next perf target after eigensolver: profile whole-SCF again post-ITEV
+  (when iterative fixes land) to see if V_NL moved off the podium.
+- ITEV upstream faer issue still blocking iterative eigen — independent.

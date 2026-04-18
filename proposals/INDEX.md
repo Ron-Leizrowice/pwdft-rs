@@ -19,6 +19,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
 | MXBA | Adaptive Mixing Beta (BROY follow-up — Eyert 1996 residual-monitor rule) | medium | medium | — | — |
+| VNLM | V_NL Hamiltonian assembly via single GEMM | small-medium | low | — | — |
 
 ### Low / Deferred
 
