@@ -44,9 +44,12 @@ After finishing a batch of work, always run:
 cargo clippy -q --fix --allow-dirty --allow-staged --all-targets
 cargo clippy -q --all-targets                  # default-feature warnings
 cargo clippy -q --all-targets --features gpu   # GPU feature warnings
+cargo doc --no-deps -- -D warnings             # rustdoc is error-clean
 cargo test                                     # verify nothing broke
 ```
 Both clippy invocations are required: without `--features gpu`, the `gpu/` source tree and the GPU-only test binaries are not linted, so warnings accumulate silently (QLN2 caught an `uninlined_format_args` violation in `tests/gpu_consistency.rs` that had slipped past the default-feature gate for weeks). Fix auto-fixable warnings, address remaining ones. Do not suppress codesmell warnings like `too_many_arguments` — refactor the code instead.
+
+`cargo doc --no-deps -- -D warnings` is now part of the gate (RDOC 2026-04-18). Any new docstring that breaks an intra-doc link, leaves a bracket unescaped, or links at a private item will fail the gate — either fix the prose or drop the link. Do not `#[allow]` rustdoc warnings.
 
 ## Architecture
 
