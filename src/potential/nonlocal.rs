@@ -120,12 +120,27 @@ impl NonlocalPotential {
         let q_vecs: Vec<Vector3<f64>> = g_vecs.iter().map(|g| k + g).collect();
         let q_norms: Vec<f64> = q_vecs.iter().map(|q| q.norm()).collect();
 
+        // Angular momentum `l` is a non-negative quantum number by physics
+        // (l ∈ {0, 1, 2, 3} for s/p/d/f). A negative `proj.l` would be a
+        // malformed pseudopotential (the UPF parser takes whatever integer
+        // is in `angular_momentum=` verbatim). Reaching this code with any
+        // negative `l` would silently blow up an allocation via sign-loss;
+        // we assert here to turn it into a clean panic.
         let mut lmax: i32 = 0;
         for pp in pseudopotentials {
             for proj in &pp.beta_projectors {
+                assert!(
+                    proj.l >= 0,
+                    "NonlocalPotential::new: beta projector has negative angular momentum l={}",
+                    proj.l
+                );
                 lmax = lmax.max(proj.l);
             }
         }
+        #[allow(
+            clippy::cast_sign_loss,
+            reason = "lmax is the maximum of all beta-projector `l` values, each asserted non-negative above"
+        )]
         let ylm_stride = ((lmax + 1) * (lmax + 1)) as usize; // (lmax+1)^2 entries per G
         let mut ylm = vec![0.0_f64; n_pw * ylm_stride];
         for (ig, q) in q_vecs.iter().enumerate() {
@@ -211,7 +226,12 @@ impl NonlocalPotential {
             let mut starts = Vec::with_capacity(ls.len());
             for &l in ls {
                 starts.push(n_channels);
-                n_channels += (2 * l + 1) as usize;
+                #[allow(
+                    clippy::cast_sign_loss,
+                    reason = "each projector's l asserted non-negative at the start of new()"
+                )]
+                let l_channels = (2 * l + 1) as usize;
+                n_channels += l_channels;
             }
             atom_channel_starts.push(starts);
         }
@@ -224,6 +244,10 @@ impl NonlocalPotential {
             let ff = &form_factor_by_atom[iatom];
             let starts = &atom_channel_starts[iatom];
             for (iproj, &l) in ls.iter().enumerate() {
+                #[allow(
+                    clippy::cast_sign_loss,
+                    reason = "each projector's l asserted non-negative at the start of new()"
+                )]
                 let l_usize = l as usize;
                 let base_lm = l_usize * l_usize; // starting index of (l, m=-l) in ylm row
                 let ff_row = &ff[iproj];
@@ -266,6 +290,10 @@ impl NonlocalPotential {
                     if d_scaled.abs() < 1e-20 {
                         continue;
                     }
+                    #[allow(
+                        clippy::cast_sign_loss,
+                        reason = "each projector's l asserted non-negative at the start of new()"
+                    )]
                     let l_usize = ls[i] as usize;
                     for m_off in 0..(2 * l_usize + 1) {
                         let ci = starts[i] + m_off;
@@ -326,7 +354,12 @@ impl NonlocalPotential {
 ///
 /// At |q| = 0, q̂ is undefined; we set Y_lm = 0 for l > 0 (physical: F_i(0) = 0
 /// for l > 0 so the product is zero anyway) and Y_00 = 1/√(4π).
+#[allow(
+    clippy::cast_sign_loss,
+    reason = "lmax is a non-negative angular-momentum bound; the debug_assert on output length and caller-side assert in NonlocalPotential::new enforce lmax >= 0"
+)]
 fn real_sph_harmonics(q: &Vector3<f64>, lmax: i32, out: &mut [f64]) {
+    debug_assert!(lmax >= 0, "real_sph_harmonics: lmax must be non-negative, got {lmax}");
     debug_assert_eq!(out.len(), ((lmax + 1) * (lmax + 1)) as usize);
     let fpi = 4.0 * PI;
     let inv_sqrt_fpi = (1.0 / fpi).sqrt();
@@ -660,6 +693,10 @@ mod tests {
     ///   Σ_m Y_lm(q̂₁) Y_lm(q̂₂) = (2l+1)/(4π) · P_l(q̂₁·q̂₂)
     /// This is the identity that makes the GEMM-lifted KB assembly exact.
     #[test]
+    #[allow(
+        clippy::cast_sign_loss,
+        reason = "test-only: lmax ranges over 0..=5 by construction"
+    )]
     fn test_ylm_addition_theorem() {
         let qs = [
             Vector3::new(0.3, 0.7, -0.5),

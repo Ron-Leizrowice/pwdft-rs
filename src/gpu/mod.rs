@@ -129,6 +129,10 @@ impl GpuAccelerator {
 
     /// Pre-allocate persistent GPU buffers for a given grid size.
     /// Also uploads the static |G|² array that doesn't change between iterations.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "GPU mixed-precision strategy (module doc): f64→f32 conversion at the CPU→GPU boundary is intentional; see `GpuAccelerator` documentation"
+    )]
     pub fn prepare_buffers(&mut self, n_grid: usize, g_squared: &[f64]) {
         let complex_size = (2 * n_grid * std::mem::size_of::<f32>()) as u64;
 
@@ -189,6 +193,10 @@ impl GpuAccelerator {
     /// V_H(G) = 4πe² × ρ(G) / |G|² for |G|² > 0, else 0.
     ///
     /// Uses pooled buffers if `prepare_buffers` was called; otherwise allocates fresh.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "GPU mixed-precision: f64→f32 at CPU→GPU boundary is intentional; n_grid <= 512^3 (~1.3e8) fits in u32::MAX (~4.3e9) for all physical inputs"
+    )]
     pub fn hartree_potential(
         &self,
         rho_g: &[Complex64],
@@ -277,6 +285,10 @@ impl GpuAccelerator {
     }
 
     /// Compute V_eff = V_local + V_H + V_xc on GPU.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "GPU mixed-precision: f64→f32 at CPU→GPU boundary is intentional; n_grid <= 512^3 fits in u32::MAX"
+    )]
     pub fn v_eff_assembly(
         &self,
         v_local: &[Complex64],
@@ -337,6 +349,10 @@ impl GpuAccelerator {
     ///
     /// Input: real-space density ρ(r) in e/Å³.
     /// Output: (ε_xc(r), V_xc(r)) in eV.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "GPU mixed-precision: f64→f32 at CPU→GPU boundary is intentional; n_grid <= 512^3 fits in u32::MAX"
+    )]
     pub fn lda_xc(&self, rho_r: &[f64]) -> (Vec<f64>, Vec<f64>) {
         let n_grid = rho_r.len();
         let rho_f32: Vec<f32> = rho_r.iter().map(|&v| v as f32).collect();
@@ -448,6 +464,10 @@ impl GpuAccelerator {
 // --- f64 ↔ f32 conversion helpers ---
 
 /// Convert Complex64 slice to interleaved f32 pairs [re0, im0, re1, im1, ...].
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "GPU mixed-precision boundary: f64→f32 conversion at CPU→GPU boundary is intentional; see module-level docs"
+)]
 fn complex_to_f32_pairs(data: &[Complex64]) -> Vec<f32> {
     let mut out = Vec::with_capacity(data.len() * 2);
     for c in data {

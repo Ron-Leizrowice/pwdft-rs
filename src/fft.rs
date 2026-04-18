@@ -129,6 +129,14 @@ impl FFT3D {
 /// performance; arbitrary sizes may be much slower.
 #[must_use]
 pub fn fft_grid_size(n_max: i32) -> usize {
+    // n_max is a non-negative Miller-index bound; assert here so a negative
+    // value (which would wrap to a huge usize and loop effectively forever)
+    // surfaces as a clean panic instead of a hang.
+    assert!(n_max >= 0, "fft_grid_size: n_max must be non-negative, got {n_max}");
+    #[allow(
+        clippy::cast_sign_loss,
+        reason = "n_max asserted non-negative on the previous line"
+    )]
     let min_n = (2 * n_max + 1) as usize;
     let mut n = min_n;
     loop {

@@ -37,16 +37,35 @@ pub struct KPoint {
 #[must_use]
 pub fn monkhorst_pack(n1: u32, n2: u32, n3: u32, lattice: &Lattice) -> Vec<KPoint> {
     let recip = lattice.reciprocal();
-    let ntotal = (n1 * n2 * n3) as f64;
+    let ntotal = f64::from(n1 * n2 * n3);
     let weight = 1.0 / ntotal;
 
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "ntotal = n1*n2*n3 with each n_i a small MP mesh count (typically <= 64); f64->usize via truncation is exact for integer-valued f64s below 2^52"
+    )]
     let mut kpoints = Vec::with_capacity(ntotal as usize);
     for i1 in 0..n1 {
         for i2 in 0..n2 {
             for i3 in 0..n3 {
-                let f1 = (2 * i1 as i32 - n1 as i32 + 1) as f64 / (2.0 * n1 as f64);
-                let f2 = (2 * i2 as i32 - n2 as i32 + 1) as f64 / (2.0 * n2 as f64);
-                let f3 = (2 * i3 as i32 - n3 as i32 + 1) as f64 / (2.0 * n3 as f64);
+                // MP mesh counts (n_i, i_i) are bounded by O(100) in practice;
+                // i32 casts here cannot wrap for any physical input.
+                #[allow(
+                    clippy::cast_possible_wrap,
+                    reason = "MP mesh counts bounded by O(100); u32 < i32::MAX trivially"
+                )]
+                let f1 = f64::from(2 * i1 as i32 - n1 as i32 + 1) / (2.0 * f64::from(n1));
+                #[allow(
+                    clippy::cast_possible_wrap,
+                    reason = "MP mesh counts bounded by O(100); u32 < i32::MAX trivially"
+                )]
+                let f2 = f64::from(2 * i2 as i32 - n2 as i32 + 1) / (2.0 * f64::from(n2));
+                #[allow(
+                    clippy::cast_possible_wrap,
+                    reason = "MP mesh counts bounded by O(100); u32 < i32::MAX trivially"
+                )]
+                let f3 = f64::from(2 * i3 as i32 - n3 as i32 + 1) / (2.0 * f64::from(n3));
 
                 let k = f1 * recip.a + f2 * recip.b + f3 * recip.c;
                 kpoints.push(KPoint {
