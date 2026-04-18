@@ -2,6 +2,18 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-18 — VNMT submitted (PR #62)
+
+Branch `VNMT/m-isolation-test` from origin/main (post-TACC-II/RDOC/G0SH/PERF/FLUP-add). Rebased clean through origin/main auto-merges.
+
+- Test-only PR: new `test_single_channel_l2_m_isolation` in `src/potential/nonlocal.rs::tests`. 273 → 274 tests passing, clippy both feature sets clean.
+- Hand-computed ref: `H_NL[(1,0,1),(2,0,1)] = (D_{44}/Ω) · F₄(√2) · F₄(√5) · 17/(16π) = −1.003063e-6 eV` on the Si ONCV + cubic-a=2π test cell.
+- Sanity-verified by temporarily multiplying `Y_{2,+2}` by √2 inside `real_sph_harmonics`: residual 3.5e-7 ≫ 1e-10 tolerance. Break reverted before commit.
+
+**Shape deviation from FLUP.** FLUP said "single (l, m) channel via D_ij zap", but the production `NonlocalPotential` ties all m values to the same `D_{ij}` for a given (radial-projector-pair, same-l) slot — physics of the KB form. So true single-m isolation via D_ij alone is architecturally unreachable without synthesizing a non-physical projector. Landed as a **three-live-m pin** (m=0, +1, +2 all nonzero at chosen G-vectors with φ=0; m=-1, -2 zero) with each Y_{2,m} value hand-computed individually in a 90-line doc block. Still catches √2-on-one-m bugs.
+
+**Flagged for follow-up:** none.
+
 ## 2026-04-18 — MXBA submitted (PR #57)
 
 Branch `MXBA/adaptive-beta`, rebased onto origin/main (post-MODR-B/C/D + VNLM + CAST + DEAD).
