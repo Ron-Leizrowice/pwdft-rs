@@ -87,7 +87,7 @@ For each symmetry operation S = {R|τ}:
 Before symmetrizing, verifies `R_{ij} × n_j ≡ 0 (mod n_i)` for all
 operations, ensuring rotation maps grid points to grid points exactly.
 
-**Code:** `src/symmetry/density.rs`
+**Code:** `src/symmetry/density/` (`g_space.rs` is the SCF default; `real_space.rs` is the legacy `nint`-based form, kept deprecated for unit-test compatibility).
 
 ### Properties
 

@@ -6,13 +6,15 @@ Designed for real research on macOS (Apple Silicon). The code prioritizes correc
 
 ## Features
 
-- **Self-consistent field (SCF) solver** with Anderson/Pulay density mixing and optional Kerker preconditioning
+- **Self-consistent field (SCF) solver** with four density-mixing algorithms: Anderson/Pulay (DIIS), modified Broyden (Johnson PRB 38, 12807), Periodic Pulay (Banerjee et al. JCTC 12, 3053), and plain linear. Any mixer can be combined with Kerker preconditioning for long-wavelength residual damping
+- **Nonlinear core correction (NLCC)** -- Louie-Froyen-Cohen prescription for pseudopotentials with `core_correction="T"`, with core density entering XC only (not Hartree, not valence count)
 - **Norm-conserving pseudopotentials** -- reads Quantum ESPRESSO UPF v2 format directly
 - **Kleinman-Bylander non-local projectors** -- separable form with arbitrary angular momentum via spherical harmonic recurrence
-- **Exchange-correlation** -- Perdew-Zunger LDA (Ceperley-Alder parametrization)
-- **Crystal symmetry** -- automatic space group detection, irreducible Brillouin zone reduction, density symmetrization, time-reversal symmetry
-- **Collinear spin polarization** -- two spin channels with configurable starting magnetization and optional fixed total magnetization
+- **Exchange-correlation** -- Perdew-Zunger LDA (Ceperley-Alder parametrization), spin-polarized variant for LSDA
+- **Crystal symmetry** -- automatic space group detection, irreducible Brillouin zone reduction, G-space phase-factor density symmetrization (exact for non-symmorphic groups), time-reversal symmetry
+- **Collinear spin polarization** -- two spin channels with configurable starting magnetization and optional fixed total magnetization; coupled-channel (ρ_total, m) mixing so both channels share residual history
 - **Smearing schemes** -- Fermi-Dirac, Gaussian, Methfessel-Paxton, Marzari-Vanderbilt cold smearing, and fixed occupations
+- **Dual eigensolver backends** -- full dense (faer `SelfAdjointEigen`, default) and an experimental iterative partial solver (faer Arnoldi/Krylov-Schur, opt-in via `scf.eigensolver: iterative`)
 - **Free-electron band structures** -- band paths along high-symmetry directions with TSV output
 - **GPU acceleration** (optional) -- Metal/Vulkan compute via wgpu for Hartree potential, LDA XC, and V_eff assembly; f32 on GPU, f64 on CPU, with automatic fallback
 - **Ewald summation** -- ion-ion electrostatic energy via reciprocal-space Ewald
@@ -102,11 +104,17 @@ scf:
   conv_threshold: 1.0e-7               # RMS density change in e/A^3 (default: 1e-6)
   energy_threshold: 1.0e-5             # Energy change in eV (default: 1e-5)
   n_bands: 8                           # Number of Kohn-Sham bands (default: auto)
+  eigensolver: dense                    # dense (default) | iterative
+                                        #   iterative = faer Arnoldi/Krylov-Schur
+                                        #   (experimental; see CLAUDE.md)
 
 electrons:
   mixing_beta: 0.3                      # Density mixing parameter (default: 0.3)
   mixing_ndim: 8                        # Anderson/Pulay history depth (default: 8)
-  mixing_mode: plain                    # plain | kerker (default: plain)
+  mixing_mode: plain                    # plain | kerker | broyden | broyden_kerker
+                                        #   | periodic_pulay | periodic_pulay_kerker
+                                        #   (default: plain)
+  pulay_period: 3                       # Period k for periodic_pulay variants (default: 3)
   smearing: fermi_dirac                 # fermi_dirac | gaussian | methfessel_paxton
                                         #   | cold | fixed (default: fermi_dirac)
   smearing_width: 0.05                  # Smearing width in eV (default: 0.05)
@@ -176,37 +184,57 @@ src/
   atoms.rs              Element data for Z = 1..92 (symbols, atomic numbers).
 
   pseudopotential/
-    upf.rs              QE UPF v2 parser -> PseudopotentialData (local V, beta projectors, D_ij).
+    mod.rs              PseudopotentialData struct, v_local_of_g helper.
+    upf/
+      mod.rs            parse(&str) entry point for UPF v2 files.
+      xml.rs            Text-level helpers (extract_attr, extract_data_block).
+      convert.rs        Ry->eV / Bohr->Angstrom unit conversion, PP_RHOATOM, PP_NLCC.
 
   potential/
     local.rs            Local pseudopotential on FFT grid (spherical Bessel transform).
     hartree.rs          Hartree potential from Poisson equation in reciprocal space.
-    xc.rs               Perdew-Zunger LDA exchange-correlation.
+    xc.rs               Perdew-Zunger LDA exchange-correlation (spin-restricted and LSDA).
     nonlocal.rs         Kleinman-Bylander separable non-local potential.
 
   scf/
-    mod.rs              run_scf() -- the main SCF loop.
+    mod.rs              run_scf() dispatcher, ScfParams, ScfResult.
+    driver.rs           Non-spin (nspin=1) SCF hot loop.
+    driver_spin.rs      Spin-polarized (nspin=2) SCF hot loop with coupled-channel mixing.
+    report.rs           Per-iteration progress logging and final energy summary.
     density.rs          Charge density construction from wavefunctions.
     initial_density.rs  Superposition of atomic densities (SAD) for initial guess.
-    mixing.rs           Anderson/Pulay mixing with optional Kerker preconditioning.
+    mixing/
+      mod.rs            MixingMode enum + Mixer dispatcher.
+      anderson.rs       Anderson/Pulay (DIIS) + Periodic Pulay mixers.
+      broyden.rs        Modified Broyden mixer (Johnson PRB 38, 12807).
+      kerker.rs         Kerker preconditioner + Thomas-Fermi q_TF estimator.
+      linalg.rs         Small dense Gauss-elimination solver for the DIIS system.
     smearing.rs         Fermi-Dirac, Gaussian, Methfessel-Paxton, cold smearing.
-    energy.rs           Total energy components (kinetic, Hartree, XC, local, non-local, Ewald).
+    energy.rs           Total energy components + EnergyComponents struct (VGC5 breakdown).
     context.rs          Per-iteration SCF state.
     grid.rs             FFT grid setup from cutoff or explicit dimensions.
-    potentials.rs       Hamiltonian assembly (kinetic + V_eff + V_NL).
+    potentials.rs       Hamiltonian assembly (kinetic + V_eff + V_NL), core-density setup.
 
   eigensolver/
-    dense.rs            Hermitian eigendecomposition via faer.
+    mod.rs              EigensolverKind enum (Dense, Iterative).
+    dense.rs            Full faer Hermitian eigendecomposition (default).
+    iterative.rs        Partial Arnoldi/Krylov-Schur solver (ITEV, opt-in, experimental).
 
   ewald.rs              Ewald summation for ion-ion electrostatic energy.
   fft.rs                3D FFT wrapper (ndrustfft). Zero unsafe code.
+  numerics.rs           Simpson / radial quadrature utilities.
   hamiltonian.rs        Hamiltonian matrix construction.
   bandstructure.rs      Free-electron band structure computation.
 
   symmetry/
+    mod.rs              SymmetryInfo + top-level helpers.
+    operations.rs       SpaceGroupOp {R|tau} representation.
     detect.rs           Space group detection from crystal structure.
     kpoints.rs          k-point reduction to irreducible Brillouin zone.
-    density.rs          Charge density symmetrization.
+    density/
+      mod.rs            Facade + grid-compatibility helpers.
+      real_space.rs     Legacy nint-based real-space symmetrizer (deprecated).
+      g_space.rs        G-space phase-factor symmetrizer (PCFX; SCF default).
 
   gpu/                  (behind "gpu" feature flag)
     mod.rs              wgpu compute pipeline, buffer pool, GPU/CPU dispatch.
@@ -218,25 +246,29 @@ src/
 
 ### SCF loop
 
-The self-consistent field loop in `src/scf/mod.rs` (`run_scf`) implements the standard Kohn-Sham DFT algorithm:
+`scf::run_scf` in `src/scf/mod.rs` is a thin validation-and-dispatch layer. The actual hot loop lives in `src/scf/driver.rs` (`run_scf_unpolarized`, `nspin=1`) and `src/scf/driver_spin.rs` (`run_scf_spin`, `nspin=2`). Both implement the standard Kohn-Sham DFT algorithm:
 
 ```
 1. Build V_local on FFT grid (spherical Bessel transform of pseudopotential)
+   If any PP has NLCC, also build rho_core(r) on the grid (enters XC only)
 2. Initialize electron density via SAD (superposition of atomic densities)
 3. For each iteration:
-   a. Solve Poisson equation -> V_Hartree
-   b. Evaluate XC functional -> V_xc (Perdew-Zunger LDA)
+   a. Solve Poisson equation -> V_Hartree (from valence density only)
+   b. Evaluate XC functional -> V_xc (Perdew-Zunger LDA, on rho_val + rho_core if NLCC)
    c. Assemble V_eff = V_local + V_Hartree + V_xc
    d. Build Hamiltonian H = T_kinetic + V_eff + V_NL (Kleinman-Bylander)
-   e. Diagonalize H at each k-point (faer, parallelized over k with rayon)
-   f. Determine Fermi energy and occupations (Fermi-Dirac smearing)
+   e. Diagonalize H at each k-point (faer dense or iterative, parallelized with rayon)
+   f. Determine Fermi energy and occupations (Fermi-Dirac or other smearing)
    g. Reconstruct density from occupied wavefunctions
-   h. Check convergence (both density RMS and energy change)
-   i. Mix input/output densities (Anderson or Pulay, with optional Kerker)
+   h. Symmetrize density in G-space (phase-factor form; exact for non-symmorphic groups)
+   i. Check convergence (both density RMS and energy change)
+   j. Mix input/output densities: Anderson, Broyden, or Periodic Pulay
+      (with optional Kerker preconditioning)
 4. Compute total energy = E_kinetic + E_local + E_nonlocal + E_Hartree + E_xc + E_Ewald
+   with NLCC double-counting subtraction when core correction is active
 ```
 
-Convergence requires both the density change (RMS in e/A^3) and the energy change (eV) to fall below their respective thresholds.
+The spin driver uses coupled-channel mixing in the (rho_total, m) basis rather than on (rho_up, rho_down) independently, so the two channels share residual history. Convergence requires both the density change (RMS in e/A^3) and the energy change (eV) to fall below their respective thresholds. Each driver also returns an `EnergyComponents` breakdown (per-term energies + the Harris-Foulkes stationary estimator) as a diagnostic.
 
 ### GPU strategy
 
@@ -284,8 +316,8 @@ All dependencies are pure Rust. No system libraries, BLAS, LAPACK, or FFTW requi
 ### Running tests
 
 ```bash
-cargo test                                    # All tests (~177, ~24s)
-cargo test --features gpu                     # Include GPU tests (~186, ~28s)
+cargo test                                    # All tests (~265, ~24s)
+cargo test --features gpu                     # Include GPU tests (~268, ~28s)
 cargo test test_name                          # Single test by name
 cargo test --test free_electron_bands         # Single integration test file
 cargo test -- --nocapture                     # Show stdout/stderr

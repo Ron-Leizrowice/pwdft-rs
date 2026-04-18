@@ -23,8 +23,8 @@
 //!
 //! `ρ_core` itself is built on the FFT grid by
 //! [`scf::potentials::compute_core_density`](super::potentials::compute_core_density)
-//! from the PP's `PP_NLCC` block (see `src/pseudopotential/upf.rs` for
-//! the storage-unit convention — bare ρ_core(r) in e/Å³, *not* the
+//! from the PP's `PP_NLCC` block (see `src/pseudopotential/upf/convert.rs`
+//! for the storage-unit convention — bare ρ_core(r) in e/Å³, *not* the
 //! 4πr²·ρ convention used by `PP_RHOATOM`).
 
 use nalgebra::Vector3;

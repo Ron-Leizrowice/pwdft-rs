@@ -12,7 +12,7 @@ Known issues encountered during development and their fixes.
 **Fix:** Parse `PP_NLCC`, Bessel-transform to FFT grid, add to density before
 XC evaluation. See Proposal 25.
 
-**Code:** `src/scf/mod.rs:193` (core density addition)
+**Code:** `src/scf/driver.rs` / `src/scf/driver_spin.rs` (core density added via `add_core_density` before each XC call).
 
 ## 2. V_local(G=0) Convention
 

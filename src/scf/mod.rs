@@ -41,7 +41,7 @@ use self::grid::FftGrid;
 /// **26**, 1738 (1982)) is enabled automatically whenever the UPF file
 /// has `core_correction="T"`. The invariants (ρ_core in XC only, not
 /// Hartree; not counted as valence; split evenly between spin channels
-/// in LSDA) are pinned by unit tests in `src/pseudopotential/upf.rs` and
+/// in LSDA) are pinned by unit tests in `src/pseudopotential/upf/` and
 /// the integration regression guard `test_fe_bcc_xc_nlcc_regression_guard`
 /// in `tests/qe_validation.rs`. See
 /// `proposals/completed/NCFX-nlcc-core-density-fix.md` and

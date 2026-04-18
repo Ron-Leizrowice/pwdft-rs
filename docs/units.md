@@ -31,7 +31,7 @@ All values verified against CODATA 2018 recommended values.
 ## UPF Unit Conversion Chain
 
 UPF files (Quantum ESPRESSO format) use Rydberg atomic units internally.
-Conversion happens at parse time in `src/pseudopotential/upf.rs`:
+Conversion happens at parse time in `src/pseudopotential/upf/convert.rs`:
 
 | Quantity | UPF unit | Conversion | Internal unit |
 |----------|----------|------------|---------------|

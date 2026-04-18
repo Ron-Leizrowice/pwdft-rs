@@ -85,7 +85,7 @@ Tested: P(1)=1, P(-1)=(-1)^l, orthogonality ∫P_l P_m = 2δ/(2l+1).
 For norm-conserving pseudopotentials, D_ij is stored in PP_DIJ block of UPF
 (in Ry, converted to eV at parse time).
 
-**Code:** `src/pseudopotential/upf.rs:77-78`
+**Code:** `src/pseudopotential/upf/convert.rs` (`PP_DIJ` block — Ry→eV scalar multiply).
 
 ## Dimensional Analysis
 
