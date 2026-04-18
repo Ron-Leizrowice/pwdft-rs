@@ -2,6 +2,21 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-18 — CAST submitted (PR #56)
+
+Branch `CAST/numeric-cast-audit` from `origin/main` (post DOCS #53, TACC-I #54, DEAD #55 landings). Enabled the three `cast_*` correctness lints in `Cargo.toml`; walked ~148 hits.
+
+- 44 `#[allow(..., reason = "...")]` annotations across 18 files (most function-level covering a cluster).
+- 4 assertion-guarded rewrites: `fft_grid_size` (n_max >= 0), `NonlocalPotential::new` (proj.l >= 0 loop), `real_sph_harmonics` (debug_assert lmax >= 0). These catch malformed UPF / negative Miller bounds that would otherwise silently blow up allocations. Not "wrong physics" bugs — "silent hang/abort instead of clean panic" defensiveness wins.
+- ~7 stylistic rewrites `(x as f64)` → `f64::from(x)` in kpoints + symmetry/kpoints.
+
+Rebase mid-session: VNLM/DEAD/TACC-I landed while I was working. Stashed, fast-forwarded local branch to origin/main, popped stash — one conflict (fe_debug.rs deleted by TACC-I, accepted deletion). After rebase, 9 new CAST hits appeared from VNLM's rewrite of `src/potential/nonlocal.rs` — all `l as usize` / `lmax+1 as usize`; resolved as the assertion-guarded rewrites above.
+
+**Quality gate:** clippy default+gpu clean (was 174 + 205 warnings before); `cargo test --release` 258/0/9, `--features gpu` 267/0/9.
+
+**Flagged for follow-up (add to PR body too):**
+- `src/pseudopotential/upf/convert.rs` accepts negative `angular_momentum` verbatim. The new assert in `NonlocalPotential::new` is a safety net; parse-time validation error would be cleaner. Small proposal for Code Reviewer / Researcher.
+
 ## 2026-04-18 — TACC-I submitted (PR #54)
 
 Branch `TACC-I/ignore-reasons-and-fe-debug` from origin/main. TACC findings #2 + #3 (finding #1 deferred until MXBA lands).
