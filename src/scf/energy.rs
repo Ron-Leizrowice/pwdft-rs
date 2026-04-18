@@ -142,6 +142,19 @@ pub(crate) fn harris_foulkes_energy(
     e_band - e_hartree_in + e_xc_corrected_in + e_ewald
 }
 
+/// Add the `V_local(G=0) · N_electrons` uniform-background shift.
+///
+/// The G=0 component of the local pseudopotential is zeroed in
+/// `v_local_fft` (see `ScfContext::new`) so the Hamiltonian matrix
+/// elements remain finite. The constant background it represents is
+/// then added back to the total and Harris-Foulkes energies as
+/// `V_local(G=0) · N_el`. See proposals NCFX / VGCMP for the
+/// derivation; this helper collapses the expression duplicated across
+/// the spin and non-spin drivers into a single named site.
+pub(crate) fn with_g0_shift(energy: f64, ctx: &super::context::ScfContext<'_>) -> f64 {
+    energy + ctx.v_local_g0 * ctx.n_electrons
+}
+
 // ---------------------------------------------------------------------------
 // Density utilities
 // ---------------------------------------------------------------------------
