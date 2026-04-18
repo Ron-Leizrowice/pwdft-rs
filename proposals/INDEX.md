@@ -27,7 +27,6 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
 | MXBA | Adaptive Mixing Beta (BROY follow-up — Eyert 1996 residual-monitor rule) | medium | medium | — | — |
 | PRPL | Periodic Pulay Mixing (BROY follow-up — Banerjee et al. JCTC 2016) | small | low | — | — |
-| NLCC | Nonlinear Core Correction Audit (docs + test coverage; no bug found) | small | low | — | — |
 
 ### Low / Deferred
 
@@ -103,6 +102,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | DBGC | `ScfResult` Debug derive + GPU reference consts (TAUD nits) |
 | PCRS | Per-Component Energy Residual Investigation (traced 1.2 eV to non-symmorphic τ symmetrization → PCFX) |
 | NCFX | NLCC Core-Density Unit and Radial-Weight Fix (closes the 13.4 eV Si gap: 13.43 → 0.26 eV) |
+| NLCC | NLCC Audit: Part A/B/C — ρ_core(G) unit tests, Fe E_xc regression guard, LFC docs |
 
 ## Notes
 
@@ -112,7 +112,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 - **XCPR** (done 2026-04-17): Steps 1+2 (XC grid) + Step 3 (spin-channel `rayon::join`) all landed. Step 3 speedup 1.12–1.24× (faer's internal gemm already saturates 8 cores during eigensolve); ceiling ~2× after ITEV drops per-k eigensolve cost.
 - **CFGN** all dependencies satisfied (DDUP + SIMP done).
 - **BROY** landed core algorithm only; adaptive-beta (MXBA) and periodic Pulay (PRPL) follow-ups are now open proposals.
-- **NLCC** audit (2026-04-17): code-path audit against QE `v_of_rho.f90` verified Hartree/electron-count/LSDA-split/XC-double-counting invariants. **NCFX** (now landed) fixed the underlying storage-convention bug (`PP_NLCC` bare ρ_core in e/Bohr³, not 4πr²·ρ in e/Bohr) + missing r²·4π in the Bessel FT. The NLCC audit's Part A/B/C (unit tests, Fe integration, docs) is now unblocked.
+- **NLCC** audit (2026-04-18, done): Part A/B/C landed — 4 `ρ_core(G)` unit tests for Si/Fe in `src/pseudopotential/upf.rs` (Python/SciPy reference at `scripts/validate/rho_core_g_reference.py`), `test_fe_bcc_xc_nlcc_regression_guard` E_xc defensive guard in `tests/qe_validation.rs` (|Δ_xc| = 0.692 eV vs QE, pre-NCFX baseline 48.85 eV), and LFC references + NLCC invariants added to module docstrings for `scf::energy`, `scf::mod::ScfParams`, `PseudopotentialData::core_charge`, and CLAUDE.md SCF loop section.
 - **HD5I** references deleted `src/input.rs` — update to YAML Settings when implementing.
 - **SOPT** (done 2026-04-17): refactored `ScfContext.symmetry: Option<&SymmetryInfo>` to always-present with identity-only fallback. Review caught a P1+TR regression in the initial `is_trivial()` short-circuit in main.rs; fixed by dropping the branch and tightening the predicate. Regression test pins the behavior.
 - **ITEV** (new 2026-04-17, Performance Engineer): Post-FFTB/FMAD profiling shows eigensolver at 85-90% of SCF user CPU (n_pw=259: 56 ms/call; n_pw=725: 836 ms/call). `faer 0.24` ships `matrix_free::eigen::partial_self_adjoint_eigen` (implicitly-restarted Arnoldi, matrix-free via `LinOp`, warm-start via `v0`). Supersedes DVSN's hand-rolled Davidson plan. Projected 2.5-4× SCF wall-time speedup at production sizes. WFRX becomes the warm-start knob.

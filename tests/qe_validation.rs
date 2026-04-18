@@ -522,3 +522,91 @@ fn test_mgo_rocksalt_vs_qe() {
     assert_energy_matches_qe("MgO", &result, -147.235_477_68, 0.1);
     assert_fermi_matches_qe("MgO", &result, 10.2064, 0.1);
 }
+
+// ---------------------------------------------------------------------------
+// NLCC audit (Part B) — defensive E_xc regression guard for Fe
+// ---------------------------------------------------------------------------
+
+/// NLCC audit, Part B: defensive E_xc regression guard on Fe BCC.
+///
+/// This test exercises the NLCC code path end-to-end on an element
+/// where core/valence overlap is large (Fe 3d semicore overlaps 4s/3d
+/// valence). If anyone regresses the NLCC parser or the r²·4π
+/// Bessel-transform weighting fixed by NCFX, this test should trip
+/// *before* any other Fe test because E_xc is the term NLCC affects
+/// most directly.
+///
+/// Post-NCFX measured residual against QE (pre-PCFX, pre-MP-shift fix):
+///   pwdft-rs E_xc = −392.5675 eV   (pin in `tests/vgc5_per_component_si.rs`)
+///   QE        E_xc = −28.904_021_34 Ry = −393.259 eV
+///   Δ_xc     = +0.692 eV  (down from −48.85 eV pre-NCFX — 71× reduction)
+///
+/// We pin the residual |Δ_xc| ≤ 1.0 eV. The 1 eV ceiling is chosen so
+/// that any regression that restores the pre-NCFX bug (which produced
+/// a ~49 eV swing on this same test) is caught immediately, while
+/// leaving headroom for the known Monkhorst-Pack shifted-vs-Γ-centered
+/// residual (tracked in SYKP) and the `nspin=1` ≠ QE `nspin=2`
+/// geometry choice (forced by Fe collapsing to NM under the PseudoDojo
+/// LDA PP at ecut=15 Ry — see `reference_data.toml`).
+///
+/// This test is *defensive*, not an accuracy milestone. Tolerances are
+/// loose by design. The Fe total-energy comparison remains gated by
+/// SYKP/PCFX and stays in `test_fe_bcc_fm_vs_qe` (still `#[ignore]`d).
+#[test]
+fn test_fe_bcc_xc_nlcc_regression_guard() {
+    let crystal = bcc_crystal(2.87, Atom::new(26, [0.0, 0.0, 0.0]));
+    let pp_fe = load_pp("Fe");
+    assert!(
+        pp_fe.has_nlcc(),
+        "Fe UPF must have core_correction=T for this test to exercise NLCC"
+    );
+
+    // nspin=1, 4×4×4 MP — matches `tests/vgc5_per_component_si.rs`
+    // `vgc5_fe_per_component`. The magnetic ground state collapses to NM
+    // at this ecut/PP anyway (see `reference_data.toml`). We construct
+    // ScfParams directly here (instead of `run_qe_comparison`) to use
+    // loose convergence targets that accommodate the GPU f32 precision
+    // floor (CPU reaches 1e-8 in ~80 iters; GPU stalls at ~1e-7 due to
+    // f32 roundoff in Hartree/XC shaders). The looser targets only
+    // affect the last few digits of E_xc — well within the 1 eV
+    // tolerance below.
+    let ecut_ev = 15.0 * RY_TO_EV;
+    let basis = BasisSet::new(&crystal.lattice, ecut_ev);
+    let kpts = kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+
+    let params = ScfParams {
+        n_bands: 12,
+        max_iter: 150,
+        conv_threshold: 1e-6,
+        energy_threshold: 1e-5,
+        mixing_beta: 0.3,
+        mixing_ndim: 8,
+        smearing_sigma: 0.02 * RY_TO_EV,
+        smearing_scheme: SmearingScheme::FermiDirac,
+        ecutrho_ratio: 4,
+        mixing_mode: MixingMode::Kerker { q_tf: None },
+        nspin: 1,
+        starting_magnetization: HashMap::new(),
+        ..Default::default()
+    };
+
+    let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
+    let result = scf::run_scf(&crystal, &basis, &kpts, &[&pp_fe], &params, &symmetry)
+        .expect("Fe SCF should converge");
+
+    let qe_e_xc_ev = -28.904_021_34 * RY_TO_EV;
+    let delta = (result.components.e_xc - qe_e_xc_ev).abs();
+    eprintln!(
+        "  [Fe NLCC] E_xc_pwdft = {:.4} eV,  E_xc_QE = {:.4} eV,  |Δ_xc| = {:.4} eV",
+        result.components.e_xc, qe_e_xc_ev, delta,
+    );
+    // 1 eV ceiling (see docstring). Pre-NCFX would have |Δ_xc| ≈ 49 eV.
+    assert!(
+        delta <= 1.0,
+        "Fe E_xc = {:.4} eV, QE {:.4} eV, |Δ| = {:.4} eV > 1.0 eV — \
+         NLCC regression suspected (pre-NCFX baseline was ~49 eV)",
+        result.components.e_xc,
+        qe_e_xc_ev,
+        delta,
+    );
+}

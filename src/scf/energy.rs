@@ -1,4 +1,31 @@
 //! Total energy computation and density utilities for SCF.
+//!
+//! ## Nonlinear core correction (NLCC)
+//!
+//! Several helpers here — `add_core_density`, `xc_energy_corrected` — are
+//! shared between the standard Kohn-Sham path and the NLCC path. NLCC
+//! (Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982)) restores
+//! the nonlinear coupling
+//! ```text
+//!     E_xc[ρ_val + ρ_core] − E_xc[ρ_val]
+//! ```
+//! that is dropped when the core is frozen and orthogonalized out of the
+//! valence problem. The implementation keeps the core *only* inside the
+//! XC functional:
+//!
+//! - `ρ_val + ρ_core` enters `ε_xc[·]` and `v_xc[·]` (see
+//!   [`xc_energy_corrected`] and QE `PW/src/v_of_rho.f90:511`).
+//! - `ρ_val` alone enters the Hartree source, the electron count, and the
+//!   double-counting integral `∫ ρ_val · v_xc dr`.
+//! - In LSDA, `ρ_core` is spin-unpolarized and split evenly as
+//!   `ρ_core/2` between the two spin channels before being added to each
+//!   `ρ_σ` (see `scf::run_scf_spin`).
+//!
+//! `ρ_core` itself is built on the FFT grid by
+//! [`scf::potentials::compute_core_density`](super::potentials::compute_core_density)
+//! from the PP's `PP_NLCC` block (see `src/pseudopotential/upf.rs` for
+//! the storage-unit convention — bare ρ_core(r) in e/Å³, *not* the
+//! 4πr²·ρ convention used by `PP_RHOATOM`).
 
 use nalgebra::Vector3;
 use num_complex::Complex64;
@@ -51,10 +78,21 @@ pub(crate) fn hartree_energy(rho_g: &[Complex64], g_squared: &[f64], omega: f64)
         * omega
 }
 
-/// XC energy with double-counting correction: E_xc - E_vxc.
+/// XC energy with double-counting correction: E_xc − E_vxc.
 ///
-/// `rho_xc`: density for E_xc (ρ_val + ρ_core if NLCC).
-/// `rho_val`: valence density only for E_vxc double-counting.
+/// For the Kohn-Sham total energy with NLCC
+/// (Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982)):
+/// ```text
+///     E_xc − E_dc = E_xc[ρ_val + ρ_core]  −  ∫ ρ_val · v_xc[ρ_val + ρ_core] d³r
+/// ```
+/// where the XC potential `v_xc` is evaluated on the total density
+/// (val + core) but the double-counting integrand couples it only to
+/// the valence density — the core is frozen and does not appear in the
+/// band sum. Without NLCC, `ρ_core = 0` and the formula collapses to
+/// the usual `E_xc[ρ_val] − ∫ ρ_val · v_xc[ρ_val] d³r`.
+///
+/// - `rho_xc`: density for E_xc (ρ_val + ρ_core if NLCC, else ρ_val).
+/// - `rho_val`: valence density only, used in E_vxc double-counting.
 pub(crate) fn xc_energy_corrected(
     rho_xc: &[f64],
     rho_val: &[f64],
@@ -154,7 +192,17 @@ pub(crate) fn assemble_v_eff(
 }
 
 /// Add NLCC core density to valence density for XC evaluation.
-/// Clamps to non-negative to avoid NaN in XC.
+///
+/// Implements `ρ_xc(r) = max(ρ_val(r) + ρ_core(r), 0)`. If `rho_core` is
+/// empty (no NLCC), returns `rho_val` unchanged.
+///
+/// The clamp protects the LDA XC functional from spurious negative
+/// densities that can arise from FFT-wrap round-off in ρ_core or from
+/// density mixing; without it, `ρ^(1/3)` in the exchange term would
+/// produce NaN. Mirrors QE `PW/src/v_of_rho.f90:511` (adds `rho_core` to
+/// `rho%of_r(ir,1)` before calling `xc_lda`).
+///
+/// Reference: Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982).
 pub(crate) fn add_core_density(rho_val: &[f64], rho_core: &[f64]) -> Vec<f64> {
     if rho_core.is_empty() {
         rho_val.to_vec()

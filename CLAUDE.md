@@ -53,10 +53,10 @@ Both clippy invocations are required: without `--features gpu`, the `gpu/` sourc
 **Entry point:** `src/main.rs` parses CLI args and YAML input (`src/settings.rs`), then either computes a free-electron band structure or runs SCF.
 
 **SCF loop** (`src/scf/mod.rs` — `run_scf()`): the central computation pipeline:
-1. Build local pseudopotential V_local on FFT grid (spherical Bessel transform)
+1. Build local pseudopotential V_local on FFT grid (spherical Bessel transform). If any PP has NLCC (`core_correction="T"`), also build ρ_core(r) on the grid (same Bessel transform; see `scf::potentials::compute_core_density`).
 2. Initialize density via SAD (superposition of atomic densities)
-3. Each iteration: Hartree potential → LDA XC → assemble V_eff → build Hamiltonian (kinetic + V_eff + KB non-local) → diagonalize (faer) → Fermi-Dirac occupations → reconstruct density → check convergence → Anderson/Pulay mixing (with optional Kerker preconditioning)
-4. Compute total energy (kinetic + local + non-local + Hartree + XC + Ewald)
+3. Each iteration: Hartree potential (valence density only) → LDA XC (on ρ_val + ρ_core if NLCC — Louie, Froyen, Cohen, PRB 26, 1738 (1982)) → assemble V_eff → build Hamiltonian (kinetic + V_eff + KB non-local) → diagonalize (faer) → Fermi-Dirac occupations → reconstruct density → check convergence → Anderson/Pulay mixing (with optional Kerker preconditioning)
+4. Compute total energy (kinetic + local + non-local + Hartree + XC + Ewald), with the NLCC double-counting subtraction applied to E_xc when core correction is active.
 
 **Module groups:**
 

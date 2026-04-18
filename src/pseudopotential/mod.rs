@@ -35,12 +35,21 @@ pub struct PseudopotentialData {
     pub rho_atom: Vec<f64>,
     /// Nonlinear core correction (NLCC) charge density on radial grid.
     ///
-    /// Stores the bare volumetric density ρ_core(r) in e/Å³ (NOT 4πr²·ρ,
-    /// which is the PP_RHOATOM convention). The downstream radial Bessel
-    /// transform in `scf::potentials::compute_core_density` multiplies by
-    /// r² and 4π; see also QE `upflib/rhoc_mod.f90:107-115`.
+    /// Stores the **bare volumetric** density ρ_core(r) in e/Å³ (NOT
+    /// 4πr²·ρ, which is the `PP_RHOATOM` convention — see the
+    /// `rho_atom` field above). The downstream radial Bessel transform
+    /// in [`crate::scf::potentials::compute_core_density`] multiplies by
+    /// r² and 4π; see also QE `upflib/rhoc_mod.f90:107-115`
+    /// (`init_tab_rhc`).
     ///
     /// Empty if the pseudopotential has no NLCC (`core_correction="F"`).
+    ///
+    /// Physics: ρ_core enters only `E_xc[ρ_val + ρ_core]` and
+    /// `v_xc[ρ_val + ρ_core]`. It is *not* added to the Hartree source,
+    /// is *not* counted as valence (no contribution to the electron
+    /// count), and in LSDA is split symmetrically as ρ_core/2 per spin
+    /// channel. See [`crate::scf::energy::add_core_density`] and
+    /// Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982).
     pub core_charge: Vec<f64>,
 }
 
