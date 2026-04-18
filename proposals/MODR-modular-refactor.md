@@ -206,13 +206,25 @@ Tests travel with their production code. **No behavior change.**
 
 Size: ~2 h. Risk: low (pure move).
 
-### Phase B — Split `scf/mod.rs` (unblocks CCMX + ITEV + future energy work)
+### ✅ Phase B (PR #49) — Split `scf/mod.rs` (unblocks CCMX + ITEV + future energy work)
 
-Move `run_scf` → `scf/driver.rs`; `run_scf_spin` → `scf/driver_spin.rs`;
+Moved `run_scf` → `scf/driver.rs::run_scf_unpolarized` (pub(crate));
+`run_scf_spin` → `scf/driver_spin.rs::run_scf_spin` (pub(crate));
 per-iteration progress and final-summary logging → `scf/report.rs`
-(one `IterationReport` struct + two free functions). `scf/mod.rs`
-keeps `ScfParams`, `ScfResult`, `EnergyComponents`, `run_scf` as a
-thin dispatcher, and re-exports.
+(`IterationReport` + `log_iteration` + `log_convergence_summary` +
+`log_entropy` + `log_components`, all pub(super)). `scf/mod.rs` now
+carries only `ScfParams`, `ScfResult`, `run_scf` as a thin dispatcher,
+and re-exports `EnergyComponents`. `EnergyComponents` itself moved
+into `scf/energy.rs` along with the helper-pinning unit tests
+(`test_real_to_g_space_*`, `test_assemble_v_eff_adds_correctly`,
+`test_hartree_on_fft_grid_g0_zero`, `test_density_diff_*`) that
+travel with those helpers (which already lived in `scf::energy`).
+
+`mod driver`, `mod driver_spin`, `mod report` are all private — tighter
+than Phase A's `pub mod mixing`, since no external caller needs them.
+The shared helpers `diagonalize_dispatch`, `compute_occupations`,
+`scf_progress_bar` live in `scf::driver` as `pub(super)` and are
+imported sibling-to-sibling by `driver_spin`.
 
 Size: ~3 h. Risk: low–medium (the hot loop is long but the split
 follows a clean seam — spin vs non-spin vs logging).
@@ -302,10 +314,12 @@ only, no unit tests) and `gpu/mod.rs` (dependent on GPU-enabled CI).
    zero-behavior-change) first so PCFX drops into a ready folder.
 
 **Flagged for follow-up (not MODR scope):**
-- `src/scf/mod.rs:418, 428, 808, 820` — the G0-shift expression
+- `src/scf/driver.rs` (e_total/e_harris assembly) and
+  `src/scf/driver_spin.rs` (same pair) — the G0-shift expression
   `+ ctx.v_local_g0 * ctx.n_electrons` is duplicated four times around
   `total_energy` / `harris_foulkes_energy`. A `with_g0_shift()` helper
-  in `scf/energy.rs` would DRY it. **Core Engineer.**
+  in `scf/energy.rs` would DRY it. **Core Engineer.** (Line numbers
+  shifted after MODR-B; search for `v_local_g0 * ctx.n_electrons`.)
 - `src/scf/mixing.rs:446–502` — `solve_linear_system` is a hand-rolled
   Gauss-elimination in a codebase that already links `faer`.
   **Performance Engineer** (swap to faer's LU when MXBA lands).

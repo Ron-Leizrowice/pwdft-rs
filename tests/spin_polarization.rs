@@ -297,7 +297,7 @@ fn test_ccmx_fe_free_magnetization_converges() {
         "CCMX Fe: |E_HF - E_KS| = {hf_diff:.3e} eV exceeds 1e-3 eV. \
          A large value (~13 eV) suggests the coupled-channel mixer has \
          regressed to independent (ρ↑, ρ↓) Anderson — check run_scf_spin \
-         mixing block in src/scf/mod.rs."
+         mixing block in src/scf/driver_spin.rs."
     );
 
     // The limit cycle produced M ≈ 0.05 μB from spurious spin flips; the
