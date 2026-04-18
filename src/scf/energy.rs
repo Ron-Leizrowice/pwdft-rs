@@ -41,7 +41,19 @@ use crate::{
 // Energy computation
 // ---------------------------------------------------------------------------
 
-/// Band energy: E_band = Σ_{n,k} f_{n,k} w_k ε_{n,k}
+/// Sum of occupied Kohn-Sham eigenvalues weighted by k-point and occupation.
+///
+/// ```text
+///     E_band = Σ_{n,k} f_{n,k} · w_k · ε_{n,k}
+/// ```
+/// - `ε_{n,k}` in eV (band index `n`, k-point index `k`);
+/// - `f_{n,k}` dimensionless occupation in `[0, spin_factor]`
+///   (`spin_factor = 2` for nspin=1, `1` for nspin=2);
+/// - `w_k` k-point weight with `Σ_k w_k = 1` (IBZ-reduced; see
+///   [`crate::symmetry::kpoints::reduce_kpoints`]).
+///
+/// E_band is **not** the total KS energy — it double-counts Hartree and
+/// XC. See [`total_energy`] for the corrected expression. Returned in eV.
 pub(crate) fn band_energy(
     eigenvalues: &[Vec<f64>],
     occupations: &[Vec<f64>],
@@ -60,7 +72,25 @@ pub(crate) fn band_energy(
         .sum()
 }
 
-/// Hartree energy: E_H = (ω/2) Σ_G |ρ(G)|² 4πe²/|G|²
+/// Classical electrostatic (Hartree) energy of the electron density,
+/// summed in reciprocal space.
+///
+/// ```text
+///     E_H = (Ω/2) · Σ_{G ≠ 0} |ρ(G)|² · 4πe² / |G|²
+/// ```
+/// Derivation: Parseval on `E_H = (1/2) ∫∫ ρ(r) ρ(r')/|r−r'| d³r d³r'` with
+/// the convention `ρ(r) = (1/Ω) Σ_G ρ(G) e^{iG·r}` and `v_C(G) = 4πe²/|G|²`.
+/// - `rho_g[ig]` complex Fourier coefficient `ρ(G)` in e/Å³ on the FFT
+///   grid; `rho_g[0]` is the G=0 component (average density = N_el / Ω);
+/// - `g_squared[ig]` = `|G|²` in Å⁻² for the same index;
+/// - `omega` cell volume Ω in Å³;
+/// - `4πe² = 4π · E2_COULOMB` with `E2_COULOMB ≈ 14.3996 eV·Å` (see
+///   [`crate::consts::E2_COULOMB`]).
+///
+/// The G=0 divergence is excised: a neutral compensating background from
+/// the ion lattice makes the full electrostatic sum finite. The
+/// compensation is paid back in [`with_g0_shift`] and [`crate::ewald::ewald_energy`].
+/// Returns E_H in eV.
 pub(crate) fn hartree_energy(rho_g: &[Complex64], g_squared: &[f64], omega: f64) -> f64 {
     let fourpi_e2 = 4.0 * std::f64::consts::PI * crate::consts::E2_COULOMB;
     rho_g
@@ -78,21 +108,29 @@ pub(crate) fn hartree_energy(rho_g: &[Complex64], g_squared: &[f64], omega: f64)
         * omega
 }
 
-/// XC energy with double-counting correction: E_xc − E_vxc.
+/// Exchange-correlation energy with the Kohn-Sham double-counting subtraction.
 ///
-/// For the Kohn-Sham total energy with NLCC
-/// (Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982)):
 /// ```text
-///     E_xc − E_dc = E_xc[ρ_val + ρ_core]  −  ∫ ρ_val · v_xc[ρ_val + ρ_core] d³r
+///     E_xc − E_dc = E_xc[ρ_xc] − ∫ ρ_val(r) · v_xc[ρ_xc](r) d³r
 /// ```
-/// where the XC potential `v_xc` is evaluated on the total density
-/// (val + core) but the double-counting integrand couples it only to
-/// the valence density — the core is frozen and does not appear in the
-/// band sum. Without NLCC, `ρ_core = 0` and the formula collapses to
-/// the usual `E_xc[ρ_val] − ∫ ρ_val · v_xc[ρ_val] d³r`.
+/// where `ρ_xc = ρ_val + ρ_core` under NLCC and `ρ_xc = ρ_val` otherwise.
 ///
-/// - `rho_xc`: density for E_xc (ρ_val + ρ_core if NLCC, else ρ_val).
-/// - `rho_val`: valence density only, used in E_vxc double-counting.
+/// The double-counting subtraction removes the `∫ρ·v_xc` piece that is
+/// implicitly present in the band sum `Σ f w ε` (because `v_xc` enters
+/// the Hamiltonian whose eigenvalues are summed). With NLCC, `v_xc` is
+/// evaluated on the total density but the subtrahend integrates against
+/// `ρ_val` only — the core is frozen out of the valence problem and must
+/// not contribute to the band sum
+/// (Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982); see
+/// QE `qe-7.5/PW/src/v_of_rho.f90:511`).
+///
+/// - `rho_xc`, `rho_val`: densities on the FFT grid in e/Å³;
+/// - `exc_r[i]`: energy density per electron `ε_xc(ρ(r_i))` in eV;
+/// - `vxc_r[i]`: XC potential `v_xc(r_i) = δE_xc/δρ(r_i)` in eV;
+/// - `omega`: cell volume Ω in Å³.
+///
+/// The `E_xc[ρ_xc]` piece is `Σ_r ρ_xc(r) · ε_xc(r) · dV` via
+/// [`xc::lda_xc_energy`]. Returns (E_xc − E_dc) in eV.
 pub(crate) fn xc_energy_corrected(
     rho_xc: &[f64],
     rho_val: &[f64],
@@ -113,9 +151,26 @@ pub(crate) fn xc_energy_corrected(
     e_xc - e_vxc
 }
 
-/// Kohn-Sham total energy: E_band - E_H[rho_out] + (E_xc[rho_out] - E_vxc[rho_out]) + E_ewald.
+/// Kohn-Sham total energy assembled from the band sum plus double-counting
+/// corrections, evaluated on the **output** density.
 ///
-/// Uses the OUTPUT density (from new wavefunctions) for double-counting corrections.
+/// ```text
+///     E_KS = E_band − E_H[ρ_out] + (E_xc[ρ_out] − E_vxc[ρ_out]) + E_ion-ion
+/// ```
+/// Derivation: `E_band = Σ f w ε` contains `E_H + E_vxc + E_local + E_nl +
+/// E_kin` (each band eigenvalue equals `⟨ψ|T + V_ext + V_H + V_xc|ψ⟩`),
+/// so `E_H` and `E_vxc` are double-counted and must be removed, leaving
+/// `E_xc` as the genuine functional value plus the ion-ion Ewald sum.
+///
+/// All arguments in eV. Caller is responsible for also applying the
+/// `V_local(G=0) · N_el` compensating shift via [`with_g0_shift`] (the
+/// G=0 of the local PP is zeroed to keep the Hamiltonian diagonal
+/// finite; see [`crate::scf::context::ScfContext::new`] and NCFX).
+///
+/// Using the **output** density for the double-counting terms gives the
+/// variationally exact KS energy once SCF is converged. Away from self-
+/// consistency this estimator is only linear in (ρ_out − ρ_in);
+/// [`harris_foulkes_energy`] gives a better early-iteration estimate.
 pub(crate) fn total_energy(
     e_band: f64,
     e_hartree: f64,
@@ -125,14 +180,27 @@ pub(crate) fn total_energy(
     e_band - e_hartree + e_xc_corrected + e_ewald
 }
 
-/// Harris-Foulkes energy: E_band - E_H[rho_in] + (E_xc[rho_in] - E_vxc[rho_in]) + E_ewald.
+/// Harris-Foulkes non-variational energy estimator, evaluated on the
+/// **input** density.
 ///
-/// Uses the INPUT density for all double-counting corrections but OUTPUT eigenvalues
-/// (from diagonalizing H[rho_in]). This is stationary at self-consistency: first-order
-/// density errors cancel, making E_HF converge quadratically to E_KS.
+/// ```text
+///     E_HF = E_band − E_H[ρ_in] + (E_xc[ρ_in] − E_vxc[ρ_in]) + E_ion-ion
+/// ```
+/// Unlike [`total_energy`], which mixes output eigenvalues with output
+/// density, E_HF pairs the output eigenvalues (from diagonalizing
+/// `H[ρ_in]`) with double-counting terms built from `ρ_in`. The functional
+/// `E_KS[ρ]` is stationary at the self-consistent density, so the first
+/// variation vanishes and
+/// ```text
+///     E_HF − E_KS = O(‖ρ_out − ρ_in‖²).
+/// ```
+/// That quadratic convergence makes `|E_HF − E_total|` a sensitive
+/// self-consistency diagnostic — the driver warns when it stays large
+/// after the density threshold is met.
 ///
-/// Reference: Harris, Phys. Rev. B 31, 1770 (1985);
-///            Foulkes & Haydock, Phys. Rev. B 39, 12520 (1989).
+/// Harris, *Phys. Rev. B* **31**, 1770 (1985);
+/// Foulkes & Haydock, *Phys. Rev. B* **39**, 12520 (1989).
+/// All arguments and return value in eV. Caller applies [`with_g0_shift`].
 pub(crate) fn harris_foulkes_energy(
     e_band: f64,
     e_hartree_in: f64,
@@ -142,15 +210,25 @@ pub(crate) fn harris_foulkes_energy(
     e_band - e_hartree_in + e_xc_corrected_in + e_ewald
 }
 
-/// Add the `V_local(G=0) · N_electrons` uniform-background shift.
+/// Re-add the G=0 uniform-background piece of the local pseudopotential
+/// that was subtracted to keep the Hamiltonian diagonal finite.
 ///
-/// The G=0 component of the local pseudopotential is zeroed in
-/// `v_local_fft` (see `ScfContext::new`) so the Hamiltonian matrix
-/// elements remain finite. The constant background it represents is
-/// then added back to the total and Harris-Foulkes energies as
-/// `V_local(G=0) · N_el`. See proposals NCFX / VGCMP for the
-/// derivation; this helper collapses the expression duplicated across
-/// the spin and non-spin drivers into a single named site.
+/// ```text
+///     E_corrected = E + V_local(G=0) · N_el
+/// ```
+/// where `V_local(G=0) = (1/Ω) ∫ V_local(r) d³r` is the spatial average
+/// of the local PP in eV, and `N_el` is the total valence electron
+/// count (dimensionless). The G=0 component of every local PP diverges
+/// as `−4πZ_α / |G|²` as G→0, so the bare sum is ill-defined. Zeroing
+/// `V_local(G=0)` gauge-shifts the one-body Hamiltonian by a constant;
+/// the constant re-enters here, with the Ewald sum
+/// ([`crate::ewald::ewald_energy`]) providing the matching divergent
+/// ion-ion piece so the total electrostatic energy is cutoff-
+/// independent.
+///
+/// See NCFX / VGCMP proposals for the derivation;
+/// [`crate::scf::context::ScfContext::new`] does the G=0 zeroing.
+/// `energy` and the return value in eV.
 pub(crate) fn with_g0_shift(energy: f64, ctx: &super::context::ScfContext<'_>) -> f64 {
     energy + ctx.v_local_g0 * ctx.n_electrons
 }
@@ -159,7 +237,22 @@ pub(crate) fn with_g0_shift(energy: f64, ctx: &super::context::ScfContext<'_>) -
 // Density utilities
 // ---------------------------------------------------------------------------
 
-/// RMS density difference between two densities.
+/// Volume-averaged RMS density difference, used as the primary SCF
+/// convergence scalar.
+///
+/// ```text
+///     Δρ_rms = sqrt( (1/Ω) · Σ_r |ρ_new(r) − ρ_old(r)|² · dV )
+///            = sqrt( (1/N) · Σ_r |ρ_new(r) − ρ_old(r)|² )
+/// ```
+/// where `dV = Ω / N_grid` is the volume element and `N = N_grid` is
+/// the total number of real-space grid points. Units: e/Å³. The Ω
+/// factor cancels algebraically, so the result is a pure per-grid-point
+/// RMS; it is kept in the signature for dimensional clarity.
+///
+/// Compared element-wise against `ScfParams::conv_threshold`. For
+/// nspin=2 the driver takes `max(Δρ_up, Δρ_down)` rather than the
+/// total-density difference — see SPNC comment in
+/// `scf::driver_spin::run_scf_spin`.
 pub(crate) fn density_diff(rho_old: &[f64], rho_new: &[f64], omega: f64, n_grid: usize) -> f64 {
     let dvol = omega / n_grid as f64;
     let sum_sq: f64 = rho_old
@@ -170,7 +263,19 @@ pub(crate) fn density_diff(rho_old: &[f64], rho_new: &[f64], omega: f64, n_grid:
     (sum_sq / omega).sqrt()
 }
 
-/// FFT density from real space to G-space (normalized).
+/// Forward FFT with the `1/N` normalization convention used throughout
+/// the SCF pipeline.
+///
+/// ```text
+///     ρ(G) = (1/N) · Σ_r ρ(r) · exp(−i G · r)
+/// ```
+/// where `N = n_x · n_y · n_z = fft.total_size()`. This normalization
+/// is the reciprocal of [`crate::fft::FFT3D::inverse`], so a forward
+/// followed by inverse recovers the input exactly. With this
+/// convention `ρ(G=0) = (1/N) Σ_r ρ(r) = ⟨ρ⟩ = N_el / Ω`.
+///
+/// `rho_r` in e/Å³; `rho_g[ig]` returned as a complex coefficient in
+/// e/Å³. Length must equal `fft.total_size()`.
 pub(crate) fn density_r_to_g(fft: &mut FFT3D, rho_r: &[f64], rho_g: &mut [Complex64]) {
     for (i, &r) in rho_r.iter().enumerate() {
         rho_g[i] = Complex64::new(r, 0.0);
@@ -182,14 +287,38 @@ pub(crate) fn density_r_to_g(fft: &mut FFT3D, rho_r: &[f64], rho_g: &mut [Comple
     }
 }
 
-/// Convert real-space array to G-space with FFT normalization.
+/// Owning-allocation convenience wrapper around [`density_r_to_g`].
+///
+/// Identical `1/N`-normalized forward FFT convention; returns a freshly
+/// allocated `Vec<Complex64>` of length `data_r.len()`. Any real-space
+/// field (density, potential, core charge) in the FFT grid's natural
+/// units passes through unchanged — see [`density_r_to_g`] for the
+/// explicit transform and normalization.
 pub(crate) fn real_to_g_space(data_r: &[f64], fft: &mut FFT3D) -> Vec<Complex64> {
     let mut data_g = vec![Complex64::new(0.0, 0.0); data_r.len()];
     density_r_to_g(fft, data_r, &mut data_g);
     data_g
 }
 
-/// Assemble V_eff = V_local + V_H + V_xc.
+/// Element-wise sum of the three local-potential contributions to the
+/// Kohn-Sham effective potential in reciprocal space.
+///
+/// ```text
+///     V_eff(G) = V_local(G) + V_H(G) + V_xc(G)
+/// ```
+/// - `V_local(G)`: ionic local PP (G=0 zeroed; compensated by
+///   [`with_g0_shift`]);
+/// - `V_H(G) = 4πe² · ρ(G) / |G|²`: classical electron repulsion;
+/// - `V_xc(G)`: Fourier transform of the LDA XC potential `v_xc(r)
+///   = δE_xc/δρ`.
+///
+/// All three arrays live on the FFT grid with consistent index ordering;
+/// all entries in eV. Returned `V_eff(G)` is the reciprocal-space
+/// representation folded back onto the wavefunction basis by
+/// [`crate::scf::potentials::build_hamiltonian_with_v_eff`]
+/// to form the Hamiltonian matrix elements
+/// `⟨G | V_eff | G'⟩ = V_eff(G − G')`. The non-local KB term is added
+/// separately; see [`crate::potential::nonlocal::NonlocalPotential::add_to_hamiltonian`].
 pub(crate) fn assemble_v_eff(
     v_local: &[Complex64],
     v_h: &[Complex64],
@@ -228,7 +357,23 @@ pub(crate) fn add_core_density(rho_val: &[f64], rho_core: &[f64]) -> Vec<f64> {
     }
 }
 
-/// Compute Hartree potential on the full FFT grid.
+/// Solve Poisson's equation in reciprocal space on the full FFT grid.
+///
+/// ```text
+///     V_H(G) = 4πe² · ρ(G) / |G|²     (G ≠ 0)
+///     V_H(G=0) = 0
+/// ```
+/// The real-space form `∇² V_H = −4πe² ρ` diagonalizes on plane waves
+/// (`∇² → −|G|²`). The `G=0` component is set to zero: in a neutral
+/// periodic system the electron–electron and electron–ion `G=0` pieces
+/// cancel, and `E_ion-ion` (Ewald) supplies the finite remainder.
+///
+/// - `rho_g`: total electron density in G-space (e/Å³);
+/// - `g_squared[ig]` = |G|² in Å⁻², thresholded by
+///   [`crate::consts::G2_ZERO_THRESHOLD`] to identify G=0;
+/// - `4πe² = 4π · E2_COULOMB` with `E2_COULOMB ≈ 14.3996 eV·Å`.
+///
+/// Returns `V_H(G)` in eV on the same FFT grid.
 pub(crate) fn hartree_on_fft_grid(rho_g: &[Complex64], g_squared: &[f64]) -> Vec<Complex64> {
     use rayon::prelude::*;
     let fourpi_e2 = 4.0 * std::f64::consts::PI * crate::consts::E2_COULOMB;
@@ -250,12 +395,25 @@ pub(crate) fn hartree_on_fft_grid(rho_g: &[Complex64], g_squared: &[f64]) -> Vec
 // Per-component diagnostics (VGC5)
 // ---------------------------------------------------------------------------
 
-/// Kinetic expectation value: Σ_{n,k} f·w·⟨ψ_{n,k}|T|ψ_{n,k}⟩ (eV).
+/// Kinetic-energy expectation value summed over occupied bands and
+/// k-points.
 ///
-/// For plane-wave coefficients c_{n,k}(G) (columns of `wavefunctions[ik]`):
-/// ⟨ψ|T|ψ⟩ = Σ_G |c(G)|² · (ℏ²/2m) · |k+G|²
+/// ```text
+///     E_kin = Σ_{n,k} f_{n,k} · w_k · ⟨ψ_{n,k}| T |ψ_{n,k}⟩
+///           = Σ_{n,k} f_{n,k} · w_k · Σ_G |c_{n,k}(G)|² · (ℏ²/2m) · |k + G|²
+/// ```
+/// The kinetic operator `T = −(ℏ²/2m) ∇²` is diagonal in the plane-wave
+/// basis, giving `⟨k+G|T|k+G'⟩ = (ℏ²/2m) |k+G|² · δ_{G,G'}`.
+/// `ℏ²/(2m) = HBAR2_OVER_2M ≈ 3.810 eV·Å²` ([`crate::consts::HBAR2_OVER_2M`]).
 ///
-/// Coefficients are assumed orthonormal: Σ_G |c(G)|² = 1.
+/// - `c_{n,k}(G)` = `wavefunctions[ik][(ig, nb)]` plane-wave coefficients,
+///   assumed orthonormal in the Bloch sense `Σ_G |c_{n,k}(G)|² = 1`;
+/// - `k + G` in Å⁻¹; `|k+G|²` in Å⁻²;
+/// - band occupation `f_{n,k}` dimensionless (Fermi-Dirac or other;
+///   [`crate::scf::smearing`]);
+/// - k-point weight `w_k` with `Σ_k w_k = 1`.
+///
+/// Returns E_kin in eV. Parallelized over k-points via rayon.
 pub(crate) fn kinetic_expectation(
     basis: &BasisSet,
     k_points: &[Vector3<f64>],
@@ -293,12 +451,25 @@ pub(crate) fn kinetic_expectation(
         .sum()
 }
 
-/// Local-PP expectation (G ≠ 0 piece): ∫ρ(r)·V_local(r)dr (eV).
+/// Electron–ion local-PP energy, integrated on the real-space FFT grid
+/// with the G=0 piece excluded.
 ///
-/// `v_local_fft` is the FFT-grid V_local with its G=0 component already
-/// zeroed (see `ScfContext::new`). The integral is therefore
-///   ∫ρ·V_local(G≠0)dr = Σ_r ρ(r)·V_local(r)·dV.
-/// The compensating `V_local(G=0)·N_el` shift is reported separately.
+/// ```text
+///     E_local(G ≠ 0) = ∫ ρ(r) · V_local(r) d³r  ≈  Σ_r ρ(r) · V_local(r) · dV
+/// ```
+/// with `dV = Ω / N_grid`. `v_local_fft_r` is the inverse FFT of the
+/// reciprocal-space local PP with its G=0 component pre-zeroed by
+/// [`crate::scf::context::ScfContext::new`] (so `∫V_local dV = 0` by
+/// construction). The compensating uniform background is accounted for
+/// separately in `EnergyComponents::e_local_g0_shift` via
+/// [`with_g0_shift`].
+///
+/// - `rho_r`: valence density in e/Å³ (total density in spin-
+///   polarized runs — the local PP is spin-independent);
+/// - `v_local_fft_r`: `V_local(r)` in eV, G=0 removed;
+/// - `omega`: Ω in Å³.
+///
+/// Returns the G ≠ 0 piece of E_local in eV.
 pub(crate) fn local_pp_energy_grid(
     rho_r: &[f64],
     v_local_fft_r: &[f64],
@@ -313,10 +484,26 @@ pub(crate) fn local_pp_energy_grid(
         .sum()
 }
 
-/// Non-local PP expectation: Σ_{n,k} f·w·⟨ψ|V_NL|ψ⟩ (eV).
+/// Non-local (Kleinman-Bylander) pseudopotential energy summed over
+/// occupied states.
 ///
-/// Uses the cached `NonlocalPotential` for each k-point to build an
-/// ephemeral H_NL matrix, then computes ⟨ψ|H_NL|ψ⟩ for each band.
+/// ```text
+///     E_nl = Σ_{n,k} f_{n,k} · w_k · ⟨ψ_{n,k}| V_NL |ψ_{n,k}⟩
+///          = Σ_{n,k} f_{n,k} · w_k · Σ_{G,G'} c*_{n,k}(G) · H_NL(G,G') · c_{n,k}(G')
+/// ```
+/// with the separable KB form
+/// `V_NL = Σ_α Σ_{lm} D_{lm}^{(α)} |β_{lm}^{(α)}⟩⟨β_{lm}^{(α)}|`
+/// (Kleinman & Bylander, *Phys. Rev. Lett.* **48**, 1425 (1982)).
+/// `H_NL(G, G')` is built per k-point by the cached
+/// [`crate::potential::nonlocal::NonlocalPotential::add_to_hamiltonian`];
+/// see the VNLM single-GEMM assembly for the reciprocal-space form.
+///
+/// - `wavefunctions[ik]`: n_pw × n_bands column-major coefficient matrix;
+/// - occupations, k-point weights: same conventions as
+///   [`kinetic_expectation`].
+///
+/// Returns E_nl in eV. Parallelized over k-points via rayon; each
+/// k-point pays an O(n_pw²) matrix-vector cost per band.
 pub(crate) fn nonlocal_expectation(
     basis: &BasisSet,
     crystal: &crate::crystal::Crystal,
@@ -362,8 +549,22 @@ pub(crate) fn nonlocal_expectation(
         .sum()
 }
 
-/// Bare XC energy: ∫ρ(r)·ε_xc(r)dr (eV). Same sign as QE's "xc contribution".
-/// `rho_xc` = ρ_val + ρ_core (for NLCC) or ρ_val otherwise.
+/// Bare (uncorrected) exchange-correlation energy.
+///
+/// ```text
+///     E_xc = ∫ ρ_xc(r) · ε_xc(ρ_xc(r)) d³r  ≈  Σ_r ρ_xc(r) · ε_xc(r) · dV
+/// ```
+/// with `ρ_xc = ρ_val + ρ_core` under NLCC or `ρ_val` otherwise;
+/// `ε_xc[ρ]` is the LDA energy density per electron from
+/// [`crate::potential::xc`] (Perdew-Zunger parametrization of the
+/// Ceperley-Alder Monte Carlo data,
+/// *Phys. Rev. B* **23**, 5048 (1981)).
+///
+/// No Kohn-Sham double-counting subtraction — this is the raw
+/// functional value used in `EnergyComponents::e_xc` for validation
+/// against QE's "xc contribution" line. See [`xc_energy_corrected`] for
+/// the version that enters the total energy.
+/// All arguments in eV / e·Å⁻³ / Å³; returns E_xc in eV.
 pub(crate) fn xc_energy_bare(rho_xc: &[f64], exc_r: &[f64], omega: f64) -> f64 {
     xc::lda_xc_energy(rho_xc, exc_r, omega)
 }
@@ -372,56 +573,88 @@ pub(crate) fn xc_energy_bare(rho_xc: &[f64], exc_r: &[f64], omega: f64) -> f64 {
 // Per-component decomposition (VGC5 diagnostic)
 // ---------------------------------------------------------------------------
 
-/// Per-component energy decomposition of a converged SCF total energy.
+/// Per-term decomposition of the Kohn-Sham total energy (VGC5
+/// diagnostic).
 ///
-/// All values in eV. Identity (at convergence):
-/// ```text
-/// E_total = e_kinetic
-///         + e_local
-///         + e_local_g0_shift   (= V_local(G=0) · N_el)
-///         + e_nonlocal
-///         + e_hartree
-///         + e_xc
-///         + e_ewald
-/// ```
-/// and by the Kohn-Sham double-counting identity:
-/// ```text
-/// e_band = e_kinetic + e_local + e_nonlocal + 2·e_hartree + e_vxc
-/// ```
-/// where `e_vxc = ∫ρ(r)·V_xc(r)dr`. The `V_local(G=0)·N_el` background shift
-/// is the compensating term for zeroing the G=0 component of the local
-/// pseudopotential in the Hamiltonian; see `scf::context::ScfContext::new`.
+/// Intended as a validation handle: each field is an independent direct
+/// evaluation of one term in the KS functional, so their sum is
+/// identical to the result from the double-counting assembly in
+/// `total_energy` only at self-consistency. All fields in eV.
 ///
-/// Mirrors QE's `pw.x` standard-output decomposition:
+/// ## Direct-sum identity (converged density)
+///
 /// ```text
-///   one-electron contribution = e_kinetic + e_local + e_nonlocal + e_local_g0_shift
-///   hartree    contribution = e_hartree
-///   xc         contribution = e_xc
-///   ewald      contribution = e_ewald
+///     E_total = e_kinetic
+///             + e_local
+///             + e_local_g0_shift       (= V_local(G=0) · N_el)
+///             + e_nonlocal
+///             + e_hartree
+///             + e_xc
+///             + e_ewald
 /// ```
-/// Intended for validation (see proposal VGC5) rather than routine SCF use.
-/// Computed on the final iteration by one extra pass over wavefunctions,
-/// V_local on the FFT grid, and the V_NL operator.
+///
+/// ## Kohn-Sham double-counting identity
+///
+/// Each band eigenvalue satisfies
+/// `ε_{n,k} = ⟨ψ_{n,k}| T + V_ext + V_H + V_xc |ψ_{n,k}⟩` (with
+/// `V_ext = V_local + V_NL`), so
+/// ```text
+///     E_band = e_kinetic + e_local + e_nonlocal + 2·e_hartree + e_vxc,
+/// ```
+/// where `e_vxc = ∫ρ(r)·V_xc(r)dr` appears because V_H is self-linear
+/// in ρ (factor of 2) while V_xc is not. The `total_energy` assembly
+/// subtracts the double-counted pieces (`− E_H`, `− E_vxc`) and re-adds
+/// the true functional value `E_xc`; agreement of the two routes
+/// confirms the one-body / two-body accounting.
+///
+/// ## Correspondence with QE `pw.x` output
+///
+/// ```text
+///     one-electron contribution = e_kinetic + e_local + e_nonlocal + e_local_g0_shift
+///     hartree    contribution = e_hartree
+///     xc         contribution = e_xc
+///     ewald      contribution = e_ewald
+/// ```
+///
+/// Computed once on the final (converged) iteration in both driver
+/// paths with one extra pass over wavefunctions, the local PP on the
+/// FFT grid, and the non-local operator. Not used inside the SCF hot
+/// loop.
 #[derive(Debug, Clone)]
 pub struct EnergyComponents {
-    /// Band energy: Σ_{n,k} f_{n,k} w_k ε_{n,k}.
+    /// Weighted sum of occupied Kohn-Sham eigenvalues (eV):
+    /// `Σ_{n,k} f_{n,k} · w_k · ε_{n,k}`.
     pub e_band: f64,
-    /// Kinetic: Σ_{n,k} f·w·⟨ψ|T|ψ⟩ = Σ_{n,k} f·w·Σ_G |c_G|² · ℏ²/(2m)·|k+G|².
+    /// Kinetic-energy expectation `Σ f·w·⟨ψ|T|ψ⟩` in eV, with
+    /// `⟨ψ|T|ψ⟩ = Σ_G |c_{n,k}(G)|² · (ℏ²/2m) · |k+G|²`.
     pub e_kinetic: f64,
-    /// Local PP (G ≠ 0): ∫ρ(r)·V_local(r)dr on the FFT grid (G=0 excluded).
+    /// Electron–ion local-PP energy `∫ρ(r)·V_local(r)d³r` (G ≠ 0 piece,
+    /// eV). The G=0 component of `V_local` is zeroed at setup to keep
+    /// the Hamiltonian diagonal finite; the compensating uniform
+    /// background is stored separately in `e_local_g0_shift`.
     pub e_local: f64,
-    /// Local PP G=0 compensating shift: V_local(G=0)·N_el.
-    /// Constant background subtracted from `v_local_fft` at setup to keep the
-    /// Hamiltonian diagonal finite.
+    /// Uniform-background restoration `V_local(G=0) · N_el` (eV), with
+    /// `V_local(G=0) = (1/Ω) ∫ V_local(r) d³r`. Present in every
+    /// neutral periodic pseudopotential calculation; paired with the
+    /// matching ion-ion Ewald divergence so the total electrostatic
+    /// energy is cutoff-independent.
     pub e_local_g0_shift: f64,
-    /// Non-local (KB separable): Σ_{n,k} f·w·⟨ψ|V_NL|ψ⟩.
+    /// Kleinman-Bylander separable non-local PP energy
+    /// `Σ f·w·⟨ψ|V_NL|ψ⟩` in eV.
     pub e_nonlocal: f64,
-    /// Hartree: (Ω/2) Σ_G |ρ(G)|² · 4πe²/|G|² (from OUTPUT density).
+    /// Classical electrostatic self-energy of the electrons
+    /// `(Ω/2) Σ_{G ≠ 0} |ρ(G)|²·4πe²/|G|²` in eV, evaluated on the
+    /// **output** density (the one produced by the last diagonalization).
     pub e_hartree: f64,
-    /// XC energy: ∫ρ(r)·ε_xc(r)dr (from OUTPUT density; same sign as QE's
-    /// "xc contribution"). NLCC: ρ here is ρ_val + ρ_core.
+    /// Bare exchange-correlation energy `∫ρ_xc(r)·ε_xc(r)d³r` in eV from
+    /// the output density, with `ρ_xc = ρ_val + ρ_core` under NLCC and
+    /// `ρ_xc = ρ_val` otherwise. Sign and normalization match QE's
+    /// "xc contribution" line.
     pub e_xc: f64,
-    /// Ewald ion-ion energy (spin- and density-independent).
+    /// Ewald ion-ion electrostatic energy in eV; independent of the
+    /// electron density and of spin, so computed once in
+    /// `ScfContext::new` and copied through every iteration. See
+    /// [`crate::ewald::ewald_energy`].
     pub e_ewald: f64,
 }
 

@@ -1,12 +1,59 @@
-//! Spin-polarized (nspin=2) self-consistent field driver.
+//! Spin-polarized (nspin=2) self-consistent field driver (LSDA).
 //!
-//! Two independent spin channels with spin-dependent XC, shared Hartree
-//! and V_local. CCMX: the mixer operates in the (ρ_total, m) basis rather
-//! than on (ρ↑, ρ↓) independently, so the two channels see each other's
-//! residual history.
+//! Solves the spin-polarized Kohn-Sham equations
+//! ```text
+//!     ( −(ℏ²/2m) ∇² + V_eff^σ[ρ_↑, ρ_↓] + V_NL ) ψ_{n,k,σ} = ε_{n,k,σ} ψ_{n,k,σ}
+//!     V_eff^σ[ρ_↑, ρ_↓](r) = V_local(r) + V_H[ρ_↑ + ρ_↓](r) + V_xc^σ[ρ_↑, ρ_↓](r)
+//!     ρ_σ(r) = Σ_{n,k} f_{n,k,σ} · w_k · |ψ_{n,k,σ}(r)|²        (σ ∈ {↑, ↓})
+//! ```
+//! Hartree and `V_local` depend on the total density `ρ = ρ_↑ + ρ_↓`
+//! (spin-independent operators); LSDA exchange-correlation `V_xc^σ`
+//! depends on both channels through the local spin polarization
+//! `ζ(r) = (ρ_↑ − ρ_↓) / ρ` (see
+//! [`crate::potential::xc::lda_xc_spin_grid`]; Perdew-Zunger LSDA
+//! interpolation). Under NLCC the frozen core charge is spin-unpolarized
+//! and added as `ρ_core / 2` to each channel before evaluating `V_xc^σ`.
+//!
+//! ## CCMX: coupled-channel mixer on (ρ_total, m)
+//!
+//! Mixing `(ρ_↑, ρ_↓)` as two independent DIIS/Broyden streams decouples
+//! two channels that are physically coupled through `V_H` and `V_xc`;
+//! the independent histories let the channels oscillate in antiphase
+//! without ever seeing each other's residuals, stalling convergence on
+//! magnetic systems.
+//!
+//! CCMX (following QE's `rhoz_or_updw`,
+//! `qe-7.5/PW/src/scf_mod.f90:1360-1414`) mixes in the change-of-basis
+//! ```text
+//!     ρ_total = ρ_↑ + ρ_↓,      m = ρ_↑ − ρ_↓
+//! ```
+//! the "charge + magnetization" representation that diagonalizes the
+//! symmetric / antisymmetric part of the Hartree + XC response. The
+//! mixed quantities are inverted back via
+//! `ρ_↑ = (ρ_total + m) / 2,  ρ_↓ = (ρ_total − m) / 2`. Each basis
+//! channel has its own DIIS/Broyden history, but the residuals couple
+//! through a well-conditioned 2×2 rotation so the two physical channels
+//! no longer drift independently.
+//!
+//! Kerker preconditioning
+//! `K(G) = |G|² / (|G|² + q_TF²)` is the Thomas-Fermi charge-charge
+//! response and has no meaning for the magnetization channel (no
+//! long-wavelength charge-sloshing mode to damp). CCMX therefore applies
+//! Kerker only to the `ρ_total` mixer and runs the `m` mixer with Kerker
+//! disabled; the downgrade is logged once per run.
+//!
+//! ## Convergence (SPNC)
+//!
+//! Per-spin RMS difference `max(Δρ_↑, Δρ_↓)` is compared to
+//! `conv_threshold` — strictly stronger than the total-density
+//! difference, and essential: a spin-flip fluctuation `(+ε, −ε)` is
+//! invisible to the total but leaves `ζ` inconsistent between input and
+//! output, spoiling the O(Δρ²) Harris-Foulkes convergence.
 //!
 //! Shared primitives (`diagonalize_dispatch`, `compute_occupations`,
-//! `scf_progress_bar`) are imported from `scf::driver`.
+//! `scf_progress_bar`) are imported from `scf::driver`. All energies in
+//! eV; densities in e/Å³; magnetization `m(r)` in e/Å³ (its spatial
+//! integral `∫m(r)d³r` is the total magnetic moment in units of μ_B).
 
 use log::info;
 use num_complex::Complex64;
@@ -32,12 +79,23 @@ use super::potentials::build_hamiltonian_with_v_eff;
 use super::report::{log_components, log_convergence_summary, log_iteration, IterationReport, SpinIterationFields};
 use super::{ScfParams, ScfResult, context, density, initial_density, mixing, smearing};
 
-/// Spin-polarized SCF loop (nspin=2).
+/// Run the spin-polarized (nspin=2) LSDA SCF loop; see the module header
+/// for the equations, CCMX coupled-channel mixer, and SPNC per-spin
+/// convergence criterion.
 ///
-/// Two spin channels with independent densities, XC potentials, and
-/// Hamiltonians. Hartree and V_local are spin-independent (computed from
-/// total density ρ↑ + ρ↓). V_xc is spin-dependent via LSDA.
-/// NLCC core charge is split equally between channels: ρ_core/2 per spin.
+/// Two spin channels `σ ∈ {↑, ↓}` with independent densities, LSDA XC
+/// potentials, and k-point Hamiltonians. Hartree and `V_local` are
+/// spin-independent (functions of `ρ_↑ + ρ_↓`); NLCC core charge splits
+/// evenly (`ρ_core / 2` per channel). Total magnetization
+/// `M = ∫(ρ_↑ − ρ_↓) d³r` in μ_B; can be optimized freely or constrained
+/// via `ScfParams::tot_magnetization`. `xc_evaluator` is the data-enum
+/// XC dispatcher built by `run_scf` (currently LSDA Perdew-Zunger only;
+/// GGA spin support lands in GGAP Phase C).
+///
+/// Precondition: `params.nspin == 2` (caller dispatches). Returns a
+/// populated [`ScfResult`] with per-component [`EnergyComponents`] and
+/// `nspin = 2`; errors with [`crate::error::PwdftError::ConvergenceFailure`]
+/// if either channel fails to converge within `max_iter`.
 pub(crate) fn run_scf_spin(
     crystal: &Crystal,
     basis: &BasisSet,

@@ -1,10 +1,40 @@
 //! Non-spin-polarized (nspin=1) self-consistent field driver.
 //!
-//! Single hot loop over SCF iterations:
-//! Hartree → LDA XC → V_eff → diagonalize at each k-point → Fermi
-//! occupations → reconstruct density → symmetrize → check convergence →
-//! mix. On convergence, the final pass computes the per-component
-//! energy decomposition (VGC5) and returns a populated [`ScfResult`].
+//! Solves the Kohn-Sham equations
+//! ```text
+//!     ( −(ℏ²/2m) ∇² + V_eff[ρ](r) + V_NL ) ψ_{n,k}(r) = ε_{n,k} ψ_{n,k}(r)
+//!     V_eff[ρ](r) = V_local(r) + V_H[ρ](r) + V_xc[ρ](r)
+//!     ρ(r)        = Σ_{n,k} f_{n,k} · w_k · |ψ_{n,k}(r)|²
+//! ```
+//! by fixed-point iteration on `ρ`. Each iteration:
+//!
+//! 1. `V_H(G) = 4πe² · ρ(G) / |G|²` — Poisson in G-space
+//!    ([`crate::scf::energy::hartree_on_fft_grid`]).
+//! 2. `(ε_xc(r), v_xc(r))` from Perdew-Zunger LDA on
+//!    `ρ_val(r) + ρ_core(r)` (NLCC if any PP carries `PP_NLCC`;
+//!    Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982)).
+//! 3. Assemble `V_eff(G) = V_local(G) + V_H(G) + V_xc(G)` and build
+//!    per-k Hamiltonians; add the separable Kleinman-Bylander non-local
+//!    operator (Kleinman & Bylander, *Phys. Rev. Lett.* **48**, 1425
+//!    (1982)).
+//! 4. Diagonalize for the lowest `n_bands` eigenpairs (dense faer or
+//!    partial Arnoldi; see [`crate::eigensolver`]).
+//! 5. Fermi-Dirac / Methfessel-Paxton / cold occupations satisfying
+//!    `Σ_{n,k} f_{n,k} · w_k = N_el / spin_factor`.
+//! 6. Reconstruct the output density and symmetrize in G-space via
+//!    analytic fractional-translation phase factors (PCFX).
+//! 7. Convergence: density RMS plus energy-change threshold. The
+//!    diagnostic Harris-Foulkes estimator (stationary in density error,
+//!    Harris, *Phys. Rev. B* **31**, 1770 (1985)) is tracked against the
+//!    KS total; a large residual at "convergence" flags a premature
+//!    threshold.
+//! 8. Density mixing (Anderson / Broyden / Periodic Pulay with optional
+//!    Kerker preconditioning).
+//!
+//! On convergence the final pass assembles
+//! [`crate::scf::energy::EnergyComponents`] (VGC5 per-term decomposition
+//! for validation against QE's `pw.x` output). All internal quantities
+//! are in eV / Å / e·Å⁻³; see [`crate::consts`] for the unit factors.
 //!
 //! Shared helpers (`diagonalize_dispatch`, `compute_occupations`,
 //! `scf_progress_bar`) are `pub(super)` for reuse by `driver_spin`.
@@ -77,7 +107,19 @@ pub(super) fn diagonalize_dispatch(
     }
 }
 
-/// Compute occupation numbers for all k-points from eigenvalues and Fermi energy.
+/// Map each eigenvalue to its occupation via the configured smearing
+/// scheme.
+///
+/// ```text
+///     f_{n,k} = spin_factor · g((ε_{n,k} − ε_F) / σ)
+/// ```
+/// with `g` one of Fermi-Dirac, Gaussian, Methfessel-Paxton-N, or cold
+/// smearing (selected by `SmearingScheme`; see
+/// [`crate::scf::smearing::occupation`]). `σ = sigma` in eV is the
+/// broadening width; `ε_F` in eV is the Fermi level located by
+/// [`crate::scf::smearing::find_fermi_energy`] so that
+/// `Σ_{n,k} f_{n,k} · w_k = N_el / spin_factor`.
+/// `spin_factor = 2` in nspin=1 (degenerate channels) and `1` in nspin=2.
 pub(super) fn compute_occupations(
     eigenvalues: &[Vec<f64>],
     scheme: smearing::SmearingScheme,
@@ -132,11 +174,19 @@ pub(super) fn scf_progress_bar(max_iter: usize) -> indicatif::ProgressBar {
     pb
 }
 
-/// Run the non-spin-polarized (nspin=1) SCF loop.
+/// Run the non-spin-polarized (nspin=1) Kohn-Sham SCF loop; see the
+/// module header for the equations and per-iteration pipeline.
+///
+/// On convergence returns a populated [`ScfResult`] with total, Harris-
+/// Foulkes, free, and σ→0 energies in eV, the converged eigenvalues,
+/// Fermi level, final density in G-space, and the VGC5
+/// [`EnergyComponents`] decomposition. `xc_evaluator` is pre-constructed
+/// by `run_scf` and held by value here; the driver dispatches XC kernels
+/// through it on each iteration.
 ///
 /// Precondition: `params.nspin == 1` (caller dispatches on nspin).
-/// `xc_evaluator` is pre-constructed by `run_scf` and held by value here;
-/// the driver dispatches XC kernels through it on each iteration.
+/// Errors with [`crate::error::PwdftError::ConvergenceFailure`] if the
+/// density RMS criterion is not met within `max_iter` iterations.
 pub(crate) fn run_scf_unpolarized(
     crystal: &Crystal,
     basis: &BasisSet,
