@@ -127,6 +127,55 @@ Net V_NL cost per k-point over 15 SCF iterations at n_pw = 725:
 - After : `78 + 15 × 5.24 = 157 ms`
 - **Overall: 2.9× faster**
 
+## Note 2026-04-19 — `vnl_new` regression was bench noise (VNLT)
+
+The 1.4–1.8× `vnl_new` regression reported in the table above did NOT
+reproduce on any post-VNLM measurement. Investigated under FLUP entry VNLT
+(`proposals/FLUP-followup-backlog-seeding.md`).
+
+Evidence:
+
+- `benches/scf_benchmarks.rs` is byte-identical between the VNLM merge
+  (`8579061`) and today's HEAD (bench name `hamiltonian/vnl_new_n725`,
+  Si FCC offgamma fixture, criterion defaults).
+- Only two commits have touched `src/potential/nonlocal.rs` since VNLM:
+  - `1291729` (CAST, 2026-04-18): four `#[allow(clippy::cast_sign_loss, reason=…)]`
+    attributes plus two runtime `assert!(l >= 0)` guards (one per projector,
+    one per `real_sph_harmonics` call). Attributes are zero-cost at runtime;
+    the asserts fire O(n_projectors) times per `vnl_new`, well below any
+    measurable wall-time effect at n_pw = 725.
+  - `6840237` (RDOC, 2026-04-18): one-line docstring edit. No code effect.
+- Clean re-bench on current main, Apple M2, machine-locked, three runs,
+  criterion `--measurement-time` 6 s / 100 samples (same config as PERF):
+  - run 1: 44.37 ms [44.28, 44.51]
+  - run 2: 44.36 ms [44.30, 44.45], p = 0.93 vs run 1
+  - run 3: 44.23 ms [44.19, 44.28], p = 0.00 but within noise threshold
+  All three runs fall within ±0.3 % of each other — stable at ~44.3 ms.
+- PERF's 2026-04-18 pass independently measured 43.41 ms
+  (`proposals/completed/PERF-2026-04-18-benchmark-pass.md`), matching the
+  pre-VNLM baseline of 42.33 ms to within 2.5 %.
+
+Conclusion: the 78.5 ms `vnl_new_n725` in the VNLM PR #49 bench table was
+a single-run criterion outlier (no preserved CI bounds in the PR body).
+VNLM is a **pure wall-time win** with no amortization caveat — break-even
+is 0 SCF iterations, not 2. The "Overall: 2.9× faster" figure above
+underestimates the real per-k-point speedup; using today's numbers the
+15-iter cumulative V_NL cost is:
+
+- Before: `42 + 15 × 27.4 = 453 ms`
+- After : `44 + 15 × 3.75 = 100 ms`
+- **Overall: 4.5× faster per k-point over 15 SCF iterations**
+
+The "break-even ≥ 2 SCF iters" amortization disclaimer in the proposal
+body above is therefore stale. VNLM is unconditionally faster per k-point
+than the pre-VNLM implementation, including for single-shot (non-SCF)
+band-structure calculations that construct V_NL once and apply it once.
+
+As a follow-on: FLUP entry **VNLB** (block-wise `D·B^H` construction to
+drop `vnl_new_n725` below 55 ms) was motivated by the apparent 78 → 43 ms
+gap. Because no regression exists, VNLB is struck from FLUP — see the
+VNLB entry in `proposals/FLUP-followup-backlog-seeding.md`.
+
 ## Validation plan
 
 1. All existing tests pass with original `relative_eq!` tolerances. Critical
