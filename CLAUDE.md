@@ -142,7 +142,7 @@ cargo test
 - Cargo.toml uses `>=` version specifiers (not `^` or exact).
 - Rust edition 2024. Release profile: opt-level 3, thin LTO.
 - Floating-point comparisons use `approx::relative_eq!` in tests.
-- Physical constants in `consts.rs` (Hartree atomic units: energies in Ry, lengths in Bohr).
+- Internal units are **eV for energies, Å for lengths, e/Å³ for densities** — used by SCF arrays, `EnergyComponents`, Hamiltonian assembly, and every routine downstream of pseudopotential parsing. Conversion constants in `consts.rs` (`HA_TO_EV`, `RY_TO_EV`, `BOHR_TO_ANG`, `BOHR3_TO_ANG3`, `E2_COULOMB` in eV·Å, `HBAR2_OVER_2M` in eV·Å²). Ry/Bohr appear **only** at the UPF unit boundary in `src/pseudopotential/upf/convert.rs`, which converts PP_LOCAL (Ry→eV), PP_DIJ (Ry→eV), PP_R/PP_RAB (Bohr→Å), PP_RHOATOM (e/Bohr→e/Å), and PP_NLCC (e/Bohr³→e/Å³) before the data enters the engine.
 - Input files are YAML (see `examples/`), parsed via serde_yaml_ng into `Settings`.
 - Pure Rust stack: faer (eigensolver), ndrustfft (FFT), nalgebra (geometry), ndarray (grid ops).
 - No system dependencies required for default build. GPU requires wgpu feature flag.
