@@ -2,6 +2,21 @@
 
 Entries: date, metrics (actual counts), findings, proposals affected. Track quality trends over time.
 
+## 2026-04-19 — TRV2 fresh test-suite review
+
+Wrote `proposals/TRV2-test-suite-review-2026-04-19.md`. PR #91. Targeted gaps TACC/TAUD left. 15 findings, 5 categories.
+
+Counts: Cat1=5 (physics gap), Cat2=1, Cat3=3 (brittle), Cat4=2 (org), Cat5=4 (bench). 6-PR fix sequence.
+
+Top-3 Cat1 gaps (true physics coverage holes):
+1. **MADOC band-sum identity** `E_band = e_kin + e_loc + e_nl + 2·e_H + e_vxc` documented `src/scf/energy.rs:596-608` but unpinned. VGC5 self-check is trivial (`Σ = total` by construction). Factor-2 Hartree bug would pass.
+2. **CCMX basis-change round-trip** inlined `src/scf/driver_spin.rs:537-577`, zero `#[test]`. Sign-swap on ρ↓ branch that converges wrong evades all assertions.
+3. **NLCC Cu/Mn blind** — NCFX fix is universal; pins are Si/Fe only (`convert.rs:305/332/369/395`). 7 other LDA PPs have `core_correction=T`.
+
+Fix PRs sequenced biggest-win-first: PR 1 MADOC (~80 LOC) → PR 2 CCMX helper extract (~40) → PR 3 NLCC Cu/Mn (~40) → PR 4 GPU nspin=2 (~70) → PR 5 fixture dedup (~700 net deletion) → PR 6 bench expansion (~100).
+
+Incidental: `benches/scf_benchmarks.rs:69` has stale Accelerate TMO comment (no Accelerate in stack post-faer). Flagged for §5.1.
+
 ## 2026-04-19 — FLP2 FLUP sweep
 
 Reconciled `proposals/FLUP-followup-backlog-seeding.md` against main at commit `1f568be`. PR #89 (FLP2/flup-sweep-2026-04-19).
