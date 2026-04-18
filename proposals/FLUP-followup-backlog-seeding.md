@@ -31,6 +31,7 @@ seeded when).
 - **Still live (larger):** MXB2 (Fe CCMX retune, small-medium), ITVF (tracker, blocked on faer 0.25).
 - **Still live (performance investigation):** EIGV, EIGW (bench-noise triage; may self-resolve on next bench pass).
 - **Added 2026-04-19:** TYPE-AX (5 `try_from` expect sites flagged by ERR2 P0 report).
+- **Added 2026-04-18 (TRV2-F3 wake):** FLP3 (NLCC ρ_core(G) parametric expansion — 60 unpinned PPs; defensive, ~1 day).
 
 ## Entries
 
@@ -328,6 +329,73 @@ module scope) would document intent for the next reader.
 **Acceptance criterion:** both literals replaced by named constants
 with a one-line docstring each explaining the physical/numerical
 motivation.
+
+### FLP3 — NLCC ρ_core(G) regression: parameterize over all 64 NLCC-active PPs
+
+- **Role:** Code Reviewer (refactor) + Researcher (reference-value generation)
+- **Priority:** medium (defensive — no known regression), **Complexity:** small, **Risk:** low
+- **Source:** TRV2-F3 agent correction on PR #96 (landed 2026-04-18).
+
+TRV2's Finding #3 originally estimated "~7 NLCC-active PPs" blind. The
+actual count from `grep -l 'core_correction="T"' pseudopotentials/nc/lda/*.upf`
+is **64**. PR #96 landed Cu + Mn regression coverage on top of the
+existing Si + Fe pins, bringing the hand-coded total to 4 elements
+(8 tests: {Si, Fe, Cu, Mn} × {G=0, first shell}). **60 NLCC-active
+pseudopotentials remain unpinned.**
+
+NCFX (PR #40) fixed a universal bug class in the NLCC path — the
+unit conversion (e/Bohr³ → e/Å³) and the r²·4π radial weight — that
+applies identically to all 64 NLCC pseudos. The regression risk for
+the 60 unpinned elements is the same class the inline tests were
+written to catch; blind coverage is precisely the situation NCFX was
+created to close.
+
+**Scope:**
+
+1. Refactor the 8 hand-coded `test_{si,fe,cu,mn}_rho_core_of_g_{zero,first_shell}`
+   tests at `src/pseudopotential/upf/convert.rs:305-554` into a single
+   parameterized test driven by a static table of
+   `[(element, cell_type, a_Å, ref_g0_e_per_ang3, ref_g_shell_1_e_per_ang3), ...]`
+   rows. The Rust test iterates the table, loads the matching UPF,
+   builds the appropriate cell (FCC for the Si/Cu family, BCC for the
+   Fe/Mn family — same pattern PR #96 already uses), integrates
+   `rho_core(G)` with the existing trapezoidal quadrature, and asserts
+   each row at the Fe-matching 1e-4 e/Å³ tolerance.
+2. Extend `scripts/validate/rho_core_g_reference.py` (currently emits
+   rows for Si, Fe, Cu, Mn — 24 rows in `rho_core_g_reference.csv`) to
+   iterate all 64 NLCC-active pseudos and emit reference rows for each.
+   Cell convention: reuse the existing FCC/BCC auto-selection heuristic
+   PR #96 established; pick a defensible lattice constant per element
+   (experimental `a` from standard tables or any value that puts the
+   first shell in a well-resolved G-range — the reference calc is
+   self-consistent with whatever lattice the Rust test reads from the
+   table).
+3. The parameterized test should list all 64 element names in the
+   table so a missing-row panic is loud if Python and Rust drift.
+
+**Acceptance criterion:**
+
+- Single parameterized `test_nlcc_rho_core_of_g_all_elements` (or
+  similar) iterates all 64 NLCC-active PPs; each passes at ≤ 1e-4 e/Å³.
+- `scripts/validate/rho_core_g_reference.csv` contains 64 × 2 = 128
+  rows (G=0 + first shell per element).
+- The 8 existing hand-coded tests are either deleted (subsumed by the
+  parameterized path) or retained as the four most load-bearing rows
+  (Si, Fe, Cu, Mn) with a comment pointing at the parameterized table
+  for the rest.
+- No change to `compute_core_density` semantics; all other NLCC tests
+  (Si core-charge integral, NLCC SCF integration tests) remain
+  bit-identical.
+
+**Cost estimate:** ~0.5 CE-day for the Rust-side refactor and table
+wiring; ~0.5 Researcher-day to run
+`scripts/validate/rho_core_g_reference.py` end-to-end over all 64
+elements once (output is checked-in CSV — one-time cost, then
+deterministic).
+
+**Why not a standalone proposal:** the work is bounded (< 1 CE-day),
+mechanical, and closes a coverage gap from a just-landed PR rather than
+introducing new physics. FLUP is the right home.
 
 ### ~~MXB1 — Verify Eyert §3.3 vs §5 threshold constants~~ (struck 2026-04-18)
 
