@@ -65,6 +65,14 @@ pub struct ScfParams {
     pub fft_grid: Option<[usize; 3]>,
     /// Mixing mode: plain Anderson or Kerker-preconditioned.
     pub mixing_mode: mixing::MixingMode,
+    /// Enable adaptive mixing β (Eyert 1996, §3.3 residual-norm monitor).
+    ///
+    /// When `true`, β is damped when the residual norm grows and restored
+    /// toward `mixing_beta` when it decreases steadily. When `false`
+    /// (default), β stays fixed at `mixing_beta` for the entire run —
+    /// reproducing the pre-MXBA behavior bit-for-bit. See
+    /// `src/scf/mixing/mod.rs` module docs for the full rule and defaults.
+    pub adaptive_beta: bool,
     /// Number of spin channels: 1 (unpolarized) or 2 (collinear spin-polarized).
     pub nspin: usize,
     /// Starting magnetization per atom type (fractional, -1 to 1).
@@ -138,6 +146,7 @@ impl Default for ScfParams {
             ecutrho_ratio: 4,
             fft_grid: None,
             mixing_mode: mixing::MixingMode::Plain,
+            adaptive_beta: false,
             nspin: 1,
             starting_magnetization: std::collections::HashMap::new(),
             tot_magnetization: None,
@@ -215,6 +224,7 @@ pub fn run_scf(
     } else {
         driver::run_scf_unpolarized(crystal, basis, kpoints, pseudopotentials, params, symmetry)
     }
+
 }
 
 #[cfg(test)]

@@ -2,6 +2,8 @@
 
 use crate::fft::FFT3D;
 
+use super::AdaptiveBeta;
+use super::KerkerSetup;
 use super::kerker::{auto_q_tf_squared, precondition_residual};
 use super::linalg::solve_linear_system;
 
@@ -21,6 +23,9 @@ use super::linalg::solve_linear_system;
 /// This is a quasi-Newton method that builds an approximate inverse Jacobian
 /// from the iteration history, without storing the full N×N matrix.
 pub(crate) struct BroydenMixer {
+    /// Current effective β. Mutated each iteration by [`AdaptiveBeta::update`]
+    /// (no-op when adaptive β is disabled, in which case this equals the
+    /// user-configured start β for the entire run).
     beta: f64,
     max_history: usize,
     /// History of input density differences: dv_i = ρ_in_{i+1} - ρ_in_i
@@ -34,6 +39,8 @@ pub(crate) struct BroydenMixer {
     /// Precomputed Kerker weights P(G) for each FFT grid point.
     /// None if no Kerker preconditioning.
     kerker_weights: Option<Vec<f64>>,
+    /// Residual-norm monitor for adaptive β (Eyert 1996 §3.3).
+    adaptive: AdaptiveBeta,
 }
 
 impl BroydenMixer {
@@ -41,18 +48,23 @@ impl BroydenMixer {
     ///
     /// If `kerker` is true, Kerker preconditioning is applied to the residual
     /// before the Broyden update (like QE's default behavior).
+    ///
+    /// `adaptive_beta = true` activates the Eyert (1996) residual-norm
+    /// monitor, which damps β when ‖R‖ grows and restores it toward the
+    /// configured start when ‖R‖ decreases steadily. `false` keeps β fixed.
     #[must_use]
     pub(super) fn new(
         beta: f64,
         max_history: usize,
         kerker: bool,
-        g_squared: Option<&[f64]>,
-        n_electrons: f64,
-        omega: f64,
+        kerker_setup: KerkerSetup<'_>,
+        adaptive_beta: bool,
     ) -> Self {
         let kerker_weights = if kerker {
-            let g2 = g_squared.expect("Broyden+Kerker mode requires g_squared");
-            let q_tf_sq = auto_q_tf_squared(n_electrons, omega);
+            let g2 = kerker_setup
+                .g_squared
+                .expect("Broyden+Kerker mode requires g_squared");
+            let q_tf_sq = auto_q_tf_squared(kerker_setup.n_electrons, kerker_setup.omega);
             let weights: Vec<f64> = g2
                 .iter()
                 .map(|&g2_val| {
@@ -76,7 +88,14 @@ impl BroydenMixer {
             prev_rho_in: None,
             prev_residual: None,
             kerker_weights,
+            adaptive: AdaptiveBeta::new(adaptive_beta, beta),
         }
+    }
+
+    /// Current effective β (after any adaptive update applied so far).
+    #[must_use]
+    pub(super) fn current_beta(&self) -> f64 {
+        self.beta
     }
 
     /// Mix input density with output density using modified Broyden's method.
@@ -98,6 +117,18 @@ impl BroydenMixer {
         } else {
             raw_residual
         };
+
+        // Adaptive β (Eyert 1996 §3.3): update β from the ratio of this
+        // iteration's (preconditioned) residual norm to the previous one.
+        // No-op when `adaptive_beta = false`; otherwise the Broyden step
+        // below uses the updated β for both the linear combination and
+        // the correction terms.
+        let residual_norm = residual
+            .iter()
+            .map(|&r| r * r)
+            .sum::<f64>()
+            .sqrt();
+        self.beta = self.adaptive.update(residual_norm, self.beta);
 
         // If we have history from the previous iteration, compute differences
         if let (Some(prev_in), Some(prev_res)) = (&self.prev_rho_in, &self.prev_residual) {
@@ -182,11 +213,27 @@ impl BroydenMixer {
 mod tests {
     use super::*;
 
+    fn plain_ctx() -> KerkerSetup<'static> {
+        KerkerSetup {
+            g_squared: None,
+            n_electrons: 8.0,
+            omega: 40.0,
+        }
+    }
+
+    fn kerker_ctx(g2: &[f64]) -> KerkerSetup<'_> {
+        KerkerSetup {
+            g_squared: Some(g2),
+            n_electrons: 8.0,
+            omega: 40.0,
+        }
+    }
+
     #[test]
     fn test_broyden_first_iteration_is_linear() {
         // On the first call, Broyden should reduce to simple linear mixing
         let mut fft = FFT3D::new(2, 2, 2);
-        let mut mixer = BroydenMixer::new(0.3, 4, false, None, 8.0, 40.0);
+        let mut mixer = BroydenMixer::new(0.3, 4, false, plain_ctx(), false);
         let rho_in = vec![1.0; 8];
         let rho_out = vec![2.0; 8];
         let result = mixer.mix(&rho_in, &rho_out, &mut fft);
@@ -203,7 +250,7 @@ mod tests {
         // Run 5 iterations and verify all results are finite
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
-        let mut mixer = BroydenMixer::new(0.3, 4, false, None, 8.0, 40.0);
+        let mut mixer = BroydenMixer::new(0.3, 4, false, plain_ctx(), false);
 
         let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
         let rho_target: Vec<f64> = (0..n).map(|i| 1.0 + 0.02 * (i as f64).cos()).collect();
@@ -223,7 +270,7 @@ mod tests {
         let g_squared: Vec<f64> = (0..n)
             .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
             .collect();
-        let mut mixer = BroydenMixer::new(0.3, 4, true, Some(&g_squared), 8.0, 40.0);
+        let mut mixer = BroydenMixer::new(0.3, 4, true, kerker_ctx(&g_squared), false);
 
         let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
         let rho_target: Vec<f64> = (0..n).map(|i| 1.0 + 0.02 * (i as f64).cos()).collect();
@@ -241,7 +288,7 @@ mod tests {
         // output = target), Broyden should converge toward the target.
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
-        let mut mixer = BroydenMixer::new(0.5, 8, false, None, 8.0, 40.0);
+        let mut mixer = BroydenMixer::new(0.5, 8, false, plain_ctx(), false);
 
         let target: Vec<f64> = (0..n).map(|i| 1.0 + 0.1 * (i as f64 * 0.3).sin()).collect();
         let mut rho_in: Vec<f64> = vec![1.0; n];
@@ -267,7 +314,7 @@ mod tests {
     fn test_broyden_history_trimming() {
         // With max_history=2, we should never store more than 2 entries
         let mut fft = FFT3D::new(2, 2, 2);
-        let mut mixer = BroydenMixer::new(0.3, 2, false, None, 8.0, 40.0);
+        let mut mixer = BroydenMixer::new(0.3, 2, false, plain_ctx(), false);
 
         let n = 8;
         let mut rho_in = vec![1.0; n];
@@ -349,5 +396,111 @@ mod tests {
                 // Both failed to converge — acceptable for this cheap Gamma-only test
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // MXBA: adaptive β unit tests for BroydenMixer
+    // -----------------------------------------------------------------------
+
+    /// Drive a Broyden mixer with residuals of prescribed norms.
+    fn drive_broyden_with_norms(
+        mixer: &mut BroydenMixer,
+        fft: &mut FFT3D,
+        norms: &[f64],
+    ) -> Vec<f64> {
+        let n = 8;
+        let mut rho_in = vec![1.0; n];
+        let mut betas = Vec::with_capacity(norms.len());
+        for (k, &target) in norms.iter().enumerate() {
+            let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
+            let unit = sign / (n as f64).sqrt();
+            let rho_out: Vec<f64> = rho_in.iter().map(|&r| r + target * unit).collect();
+            rho_in = mixer.mix(&rho_in, &rho_out, fft);
+            betas.push(mixer.current_beta());
+        }
+        betas
+    }
+
+    #[test]
+    fn broyden_adaptive_beta_damps_on_growth() {
+        let mut fft = FFT3D::new(2, 2, 2);
+        let mut mixer = BroydenMixer::new(0.5, 4, false, plain_ctx(), true);
+        let norms = [1.0, 1.5, 2.25, 3.375, 5.0625, 7.59];
+        let betas = drive_broyden_with_norms(&mut mixer, &mut fft, &norms);
+        assert!(
+            *betas.last().unwrap() < 0.5 - 1e-6,
+            "adaptive β did not damp under growth: trajectory {betas:?}"
+        );
+        for w in betas.windows(2) {
+            assert!(
+                w[1] <= w[0] + 1e-12,
+                "β increased under growth: {} -> {}",
+                w[0],
+                w[1]
+            );
+        }
+    }
+
+    #[test]
+    fn broyden_adaptive_beta_restores_after_damp() {
+        let mut fft = FFT3D::new(2, 2, 2);
+        let mut mixer = BroydenMixer::new(0.5, 4, false, plain_ctx(), true);
+
+        let growth = [1.0, 1.5, 2.25];
+        let _ = drive_broyden_with_norms(&mut mixer, &mut fft, &growth);
+        let damped = mixer.current_beta();
+        assert!(
+            damped < 0.5 - 1e-6,
+            "prerequisite failed: Broyden β not damped: {damped}"
+        );
+
+        let decrease = [1.0, 0.1, 0.01, 0.001, 0.0001];
+        let betas = drive_broyden_with_norms(&mut mixer, &mut fft, &decrease);
+        assert!(
+            *betas.last().unwrap() > damped + 1e-6,
+            "Broyden β did not restore: start={damped}, trajectory={betas:?}"
+        );
+        for &b in &betas {
+            assert!(b <= 0.5 + 1e-12, "β exceeded β_start=0.5: {b}");
+        }
+    }
+
+    #[test]
+    fn broyden_adaptive_disabled_is_bit_identical() {
+        // Backward compatibility: adaptive_beta=false must yield the same
+        // output as the pre-MXBA code path.
+        let mut fft_ref = FFT3D::new(4, 4, 4);
+        let mut fft_twin = FFT3D::new(4, 4, 4);
+        let n = 64;
+        let mut ref_mixer = BroydenMixer::new(0.3, 4, false, plain_ctx(), false);
+        let mut twin_mixer = BroydenMixer::new(0.3, 4, false, plain_ctx(), false);
+        let mut rho_ref: Vec<f64> =
+            (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
+        let mut rho_twin = rho_ref.clone();
+        for iter in 1..=6 {
+            let decay = 0.5_f64.powi(iter);
+            let rho_out_ref: Vec<f64> = rho_ref
+                .iter()
+                .enumerate()
+                .map(|(k, &r)| r + decay * 0.1 * (k as f64 * 0.37 + iter as f64).sin())
+                .collect();
+            let rho_out_twin: Vec<f64> = rho_twin
+                .iter()
+                .enumerate()
+                .map(|(k, &r)| r + decay * 0.1 * (k as f64 * 0.37 + iter as f64).sin())
+                .collect();
+            let a = ref_mixer.mix(&rho_ref, &rho_out_ref, &mut fft_ref);
+            let b = twin_mixer.mix(&rho_twin, &rho_out_twin, &mut fft_twin);
+            for (k, (&x, &y)) in a.iter().zip(b.iter()).enumerate() {
+                assert!(
+                    (x - y).abs() < 1e-15,
+                    "iter {iter} elem {k}: Broyden backward-compat diverged"
+                );
+            }
+            rho_ref = a;
+            rho_twin = b;
+        }
+        assert!((ref_mixer.current_beta() - 0.3).abs() < 1e-15);
+        assert!((twin_mixer.current_beta() - 0.3).abs() < 1e-15);
     }
 }

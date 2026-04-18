@@ -150,6 +150,7 @@ pub(crate) fn run_scf_unpolarized(
         Some(&ctx.g_squared),
         ctx.n_electrons,
         ctx.omega,
+        ctx.params.adaptive_beta,
     );
     let mut eigenvalues_all: Vec<Vec<f64>>;
     let mut fermi_energy;
@@ -298,6 +299,7 @@ pub(crate) fn run_scf_unpolarized(
             hf_diff,
             de,
             delta,
+            beta: mixer.current_beta(),
             spin: None,
         });
 

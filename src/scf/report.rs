@@ -17,6 +17,8 @@ pub(super) struct SpinIterationFields {
     pub delta_up: f64,
     pub delta_down: f64,
     pub magnetization: f64,
+    /// Effective β of the magnetization-channel mixer.
+    pub mag_beta: f64,
 }
 
 /// Per-iteration SCF progress record.
@@ -30,6 +32,10 @@ pub(super) struct IterationReport {
     /// `None` on the first iteration (no previous energy).
     pub de: Option<f64>,
     pub delta: f64,
+    /// Current effective β of the (ρ_total) mixer. With adaptive β off this
+    /// is the user-configured start value for the entire run; with MXBA
+    /// active it reflects the latest Eyert residual-norm-monitor update.
+    pub beta: f64,
     /// Spin-specific fields; `None` for nspin=1.
     pub spin: Option<SpinIterationFields>,
 }
@@ -44,13 +50,14 @@ pub(super) fn log_iteration(pb: &ProgressBar, r: &IterationReport) {
                 r.e_total, r.delta
             ));
             info!(
-                "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e}",
+                "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e}  β={:.3}",
                 r.iter + 1,
                 r.e_total,
                 r.e_harris,
                 r.hf_diff,
                 r.de.map_or("N/A".to_string(), |de| format!("{de:.2e}")),
-                r.delta
+                r.delta,
+                r.beta,
             );
         }
         Some(sp) => {
@@ -59,7 +66,7 @@ pub(super) fn log_iteration(pb: &ProgressBar, r: &IterationReport) {
                 r.e_total, r.delta, sp.magnetization
             ));
             info!(
-                "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e} (↑{:.2e} ↓{:.2e})  M={:.3} μB",
+                "SCF iter {:>3}: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.2e}  dE={:>10}  Δρ={:.2e} (↑{:.2e} ↓{:.2e})  M={:.3} μB  β=(tot {:.3}, mag {:.3})",
                 r.iter + 1,
                 r.e_total,
                 r.e_harris,
@@ -68,7 +75,9 @@ pub(super) fn log_iteration(pb: &ProgressBar, r: &IterationReport) {
                 r.delta,
                 sp.delta_up,
                 sp.delta_down,
-                sp.magnetization
+                sp.magnetization,
+                r.beta,
+                sp.mag_beta,
             );
         }
     }
