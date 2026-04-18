@@ -293,26 +293,21 @@ and a runtime `assert!` at `src/scf/grid.rs::FftGrid::new`. The seven
 "asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`"
 instead of "<= ~512 per axis in practice". See PR FGRD.
 
-### MXB1 — Verify Eyert §3.3 vs §5 threshold constants
+### ~~MXB1 — Verify Eyert §3.3 vs §5 threshold constants~~ (struck 2026-04-18)
 
 - **Role:** Researcher
 - **Priority:** low, **Complexity:** small, **Risk:** low
 - **Source:** MXBA code review, PR #57 flagged follow-up.
 
-The coded `AdaptiveBeta` defaults in `src/scf/mixing/mod.rs:112-169` are
-`(growth_threshold=1.2, damp_factor=0.7, restore_threshold=0.5, restore_window=3)`.
-The archived proposal (`proposals/completed/MXBA-adaptive-mixing-beta.md`)
-cites Eyert 1996 §5 with constants `(γ_up=1.2, γ_down=0.5, c_down=0.8, c_up=1.0)`
-— a different set (§5 says "damp when ratio > 1.0"; code says "ratio > 1.2").
-Without paper access the reviewer couldn't tell whether §3.3 prescribes the
-stricter thresholds or whether the agent chose them empirically. Get the
-paper, verify, and either update the citation or the constants. If
-empirically chosen, document the sweep that justified them.
-
-**Acceptance criterion:** MXBA proposal's archived `Notes` section cites
-the correct Eyert section + table for the default thresholds; if the
-constants were empirical, adds a reproducible sweep script in
-`scripts/validate/`.
+Resolved by citation-fix amendment in
+`proposals/completed/MXBA-adaptive-mixing-beta.md` (Note, 2026-04-18).
+The code implements the §3.3 residual-norm monitor (matching its own
+docstrings); the §5 block + constants `(γ_up=1.2, γ_down=0.5, c_down=0.8,
+c_up=1.0)` in the archived proposal were a draft residue, superseded
+during implementation and never rewritten. Paper full text was not
+accessible, so the exact equation number within §3.3 remains unverified
+(noted in the amendment). The constants appear empirically tuned; a
+sweep script is recommended as part of MXB2, not MXB1.
 
 ### MXB2 — Re-diagnose MXBA Fe failure + retune
 

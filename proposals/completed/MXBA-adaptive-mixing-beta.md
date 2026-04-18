@@ -265,3 +265,25 @@ invariant.
 3. All existing mixing tests pass unchanged when adaptive β is off.
 4. Documentation: mixing.rs module docstring explains the Eyert rule and cites
    J. Comp. Phys. 124, 271 (1996).
+
+## Note (2026-04-18, MXB1 verification)
+
+The coded recipe in `src/scf/mixing/mod.rs` (hysteresis band `[restore_threshold,
+growth_threshold] = [0.5, 1.2]`, multiplicative `damp_factor = 0.7` applied on
+`ratio > 1.2`, symmetric restore `β ← β/damp_factor` only after a
+`restore_window = 3` streak of `ratio < 0.5`) does **not** match the §5
+formula quoted above (γ_up=1.2, γ_down=0.5, c_down=0.8, c_up=1.0, damp on
+`ratio > 1.0`). It matches the §3.3 "residual-norm monitor" sketch that the
+implementation's own docstrings (`src/scf/mixing/mod.rs:31-42, 80-87`;
+`anderson.rs:45`; `broyden.rs:42, 121`) consistently cite. The §5 block in
+this archived proposal is a draft residue — the constants were superseded
+during implementation and the citation was not updated.
+
+**Paper full text was not accessible** (ScienceDirect preview only; no
+open preprint; secondary sources confirm the paper exists but don't
+reprint §3.3/§5). So the section label "§3.3" is carried over from the
+code's own comments, and the *exact* equation number remains unverified.
+The constants themselves appear empirically tuned (no sweep script
+currently recorded) — recommend MXB2 author add
+`scripts/validate/mxba_eyert_sweep.py` when re-tuning. Escalate to EM
+if a verbatim paper quote is required.
