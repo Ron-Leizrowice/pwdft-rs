@@ -451,6 +451,17 @@ pub(crate) fn run_scf_unpolarized(
             // above; use `rho_g` here (the final-iteration density in G-space).
             let e_hartree_term = hartree_energy(&rho_g, &ctx.g_squared, ctx.omega);
             let e_xc_term = xc_energy_bare(&rho_new_for_xc, &exc_r, ctx.omega);
+            // XC double-counting ∫ρ_val · V_xc d³r on the OUTPUT density —
+            // same integral `xc_energy_corrected` subtracts from E_xc. The
+            // valence density `rho_r_new` is integrated (core excluded),
+            // mirroring the `rho_val` parameter of `xc_energy_corrected`
+            // and appearing as `e_vxc` in the band-sum identity.
+            let dvol = ctx.omega / ctx.n_grid as f64;
+            let e_vxc_term: f64 = rho_r_new
+                .iter()
+                .zip(vxc_r_energy.iter())
+                .map(|(&rho, &vxc)| rho * vxc * dvol)
+                .sum();
             let e_ewald_term = ctx.e_ewald;
 
             let components = EnergyComponents {
@@ -461,6 +472,7 @@ pub(crate) fn run_scf_unpolarized(
                 e_nonlocal,
                 e_hartree: e_hartree_term,
                 e_xc: e_xc_term,
+                e_vxc: e_vxc_term,
                 e_ewald: e_ewald_term,
             };
 
