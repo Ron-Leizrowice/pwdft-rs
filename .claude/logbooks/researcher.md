@@ -2,6 +2,22 @@
 
 Entries: date, what was validated, discrepancies found (with numbers), references used. Physics findings only — not code quality or docs.
 
+## 2026-04-18 — VQEF roadmap (PR #82) — proposal only
+
+Scoped the 8 × 2 (system × functional) QE validation matrix as a gating roadmap. Current state at `origin/main` 0520c8c = **0 GREEN / 8 YELLOW / 8 RED** out of 16 cells. All 7 `#[ignore]` markers in `tests/qe_validation.rs` attributed to one of:
+
+- **MPSH (unfiled)** — Si/C/Al residuals 0.26 eV / non-convergence / 73 meV; MP shifted vs Γ-centered grid. 1 CE-day fix (shift param in `KPointSettings`). Recommended P1 in the critical path.
+- **VGCMP Phase 5 (active)** — Fe/GaAs/Cu/NaCl/MgO residuals 9.5 / 33.6 / 16.2 / 7.7 / 10.1 eV. Note MgO's 10 eV attributed to Mg 2s/2p semicore PP (not high Z per se).
+- **GGAP B+C+D (draft)** — all 8 PBE cells; no PBE code yet, dispatcher Phase A in flight.
+
+**Fe FM decision: Path C** — accept NM under LDA (PseudoDojo NC/LDA drives collapse at any reasonable ecut), validate FM under PBE only with PseudoDojo NC/PBE Fe at ecut=50 Ry, target M = 2.22 μB ± 0.05. Both tests coexist.
+
+**`pseudopotentials/nc/pbe/` verified present with all 8 target elements** (72 PPs total). No external downloads. `qe_validation/pseudo-pbe/` symlink is a VQEF deliverable.
+
+Total VQEF-owned work: ~7 res-days + 1 CE-day (QE ref generation + test arms + VGC5 cross-checks). Grand total incl. upstream MPSH + VGCMP Phase 5 + GGAP B-D: ~20-25 working days, compressible to ~3 calendar weeks with 2 parallel agents.
+
+**Next handoff:** EM approval → file MPSH as a separate CE proposal (SYKP §D2 has the shape already drafted).
+
 ## 2026-04-18 — CFGN re-scope (PR #78) — proposal only
 
 Walked `src/` against `origin/main` @ `0be9290`. Census of user-facing numeric knobs shrinks from original ~25 to 10–12 after honoring NCFX (4 `1e-30` XC floors → `RHO_FLOOR` done), MODR (every file path drifted), CAST (invariants reinforce existing Settings shape — 0 new knobs), MXBA (AdaptiveBeta tunables = don't expose; Eyert paper defaults with test-encoded interactions).
