@@ -14,7 +14,7 @@
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SymmOp {
     /// 3×3 integer rotation/reflection matrix in fractional coordinates.
-    /// Row-major: rotation[i][j] is element (i,j).
+    /// Row-major: `rotation[i][j]` is element (i,j).
     pub rotation: [[i32; 3]; 3],
 }
 

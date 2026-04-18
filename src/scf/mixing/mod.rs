@@ -22,7 +22,7 @@
 //!   Periodic Pulay. Damps long-wavelength density residuals to prevent charge
 //!   sloshing: P(G) = |G|² / (|G|² + q_TF²).
 //!
-//! Use [`Mixer`] as the unified interface — it dispatches to the right algorithm
+//! Use `Mixer` as the unified interface — it dispatches to the right algorithm
 //! based on [`MixingMode`].
 //!
 //! ## Adaptive mixing β

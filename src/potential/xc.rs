@@ -70,7 +70,7 @@ pub fn lda_xc(rho: f64) -> XcPoint {
 ///
 /// Each point is an independent evaluation, so this is embarrassingly
 /// parallel. We fall back to the sequential path below
-/// [`XC_PARALLEL_THRESHOLD`] because rayon's per-region dispatch overhead
+/// `XC_PARALLEL_THRESHOLD` because rayon's per-region dispatch overhead
 /// dominates on very small grids.
 pub fn lda_xc_grid(rho_r: &[f64]) -> (Vec<f64>, Vec<f64>) {
     if rho_r.len() < XC_PARALLEL_THRESHOLD {
@@ -227,7 +227,7 @@ pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> XcSpinPoint {
 ///
 /// Returns (exc_r, vxc_up_r, vxc_down_r) in eV.
 ///
-/// Parallelized for grids at or above [`XC_PARALLEL_THRESHOLD`] points.
+/// Parallelized for grids at or above `XC_PARALLEL_THRESHOLD` points.
 /// Rayon's `unzip` handles only 2-tuples, so we unzip into an
 /// ((exc, vxc_up), vxc_down) shape and then flatten.
 pub fn lda_xc_spin_grid(

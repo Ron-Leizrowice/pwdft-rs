@@ -26,7 +26,7 @@ use self::grid::FftGrid;
 /// Parameters controlling the self-consistent field iteration.
 ///
 /// The SCF loop solves the Kohn-Sham equations iteratively:
-/// 1. Construct V_eff = V_local + V_Hartree[ρ_val] + V_xc[ρ_val + ρ_core]
+/// 1. Construct `V_eff = V_local + V_Hartree[ρ_val] + V_xc[ρ_val + ρ_core]`
 ///    (the core charge ρ_core enters only V_xc, via the NLCC path; it is
 ///    *not* added to the Hartree source and *not* counted as valence).
 /// 2. Diagonalize H = T + V_eff + V_NL at each k-point
@@ -177,7 +177,7 @@ pub struct ScfResult {
     pub energy_sigma0: f64,
     /// Entropy contribution T*S in eV.
     pub entropy_ts: f64,
-    /// Eigenvalues indexed as [spin_k_index][band].
+    /// Eigenvalues indexed as `[spin_k_index][band]`.
     /// For nspin=1: length = n_kpoints. For nspin=2: length = 2 * n_kpoints
     /// (spin-up k-points followed by spin-down k-points).
     pub eigenvalues: Vec<Vec<f64>>,

@@ -67,7 +67,7 @@ pub struct Settings {
 /// Crystal structure definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemSettings {
-    /// Lattice vectors in Angstroms: [[ax,ay,az],[bx,by,bz],[cx,cy,cz]].
+    /// Lattice vectors in Angstroms: `[[ax,ay,az],[bx,by,bz],[cx,cy,cz]]`.
     pub lattice: [[f64; 3]; 3],
 
     /// Atomic positions in fractional (crystal) coordinates.

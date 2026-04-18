@@ -161,7 +161,7 @@ already has (Si Γ-only at n_pw=89) and paste the issue URL into the
 `tests/itev_iterative_eigensolver.rs`. One-PR action, not worth a
 proposal — just do it.
 
-### RDOC — Clean up 15 pre-existing rustdoc warnings
+### ~~RDOC — Clean up 15 pre-existing rustdoc warnings~~ (done)
 
 - **Role:** Technical Writer
 - **Priority:** low, **Complexity:** small, **Risk:** low

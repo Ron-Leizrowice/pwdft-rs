@@ -93,7 +93,7 @@ struct TypeCache {
 
 impl NonlocalPotential {
     /// Precompute projector form factors for a given k-point and assemble
-    /// the cached `(B, D·B^H)` pair used by [`add_to_hamiltonian`].
+    /// the cached `(B, D·B^H)` pair used by [`Self::add_to_hamiltonian`].
     ///
     /// For each projector i with angular momentum l:
     /// F_i(|k+G|) = 4π ∫ [r·β_i(r)] j_l(|k+G|·r) r dr
