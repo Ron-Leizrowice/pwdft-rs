@@ -13,15 +13,18 @@
 //!
 //! ## Why some tests are `#[ignore]`d
 //!
-//! As of 2026-04-17 the Si diamond test disagrees with QE by ~13.4 eV (see
-//! proposals/VERF-vloc-erf-subtraction.md, "2026-04-17 — Attempt 1"). The
-//! root cause is not yet isolated — candidates include KB projector `D_ij`
-//! handling, kinetic G-set truncation, and local-PP tail. Until that gap
-//! closes, Tier 2 systems with higher Z are expected to inherit similar
-//! systematic offsets, so every test that asserts tight (<0.05 eV) agreement
-//! is `#[ignore]`d with an explanatory comment. The ignored tests are still
-//! compiled and can be unblocked after the Si root cause is fixed by
-//! removing the attribute.
+//! Post-NCFX (2026-04-18) the Si residual dropped from ~13.4 eV to ~23 meV;
+//! the remaining residual is attributed to the Monkhorst-Pack shifted-vs-
+//! Γ-centered grid convention (tracked in SYKP — `src/kpoints.rs::monkhorst_pack`
+//! hard-codes MP-1976 shift while QE uses Γ-centered grids). Light-atom
+//! (Z ≤ 14) and wide-gap systems inherit the same SYKP grid residual.
+//! Heavy-atom (Z > 14) systems carry an additional ≈9.5 eV V_local(G)
+//! discrepancy tracked under VGCMP (continuing cross-check past the Phase
+//! 1-4 work that closed the assembly pipeline on Si). Each `#[ignore]`
+//! reason cites the specific blocker (SYKP or VGCMP) plus the measured
+//! pwdft-rs and QE values. Drop an `#[ignore]` once both codes sample the
+//! same grid (SYKP/MPSH) or the V_local(G) heavy-atom residual closes
+//! (VGCMP).
 
 use nalgebra::Vector3;
 use pwdft_rs::{
@@ -264,12 +267,17 @@ fn test_si_diamond_vs_qe() {
 ///
 /// QE ref: E = -23.843_439_10 Ry, E_F = 15.8873 eV, 9 iters, ecut = 30 Ry.
 ///
-/// Ignored: as of 2026-04-17 SCF does not converge in 80 iterations at this
-/// parameter set (pwdft-rs stalls at Δρ ≈ 4e-7). Likely a mixing/grid issue,
-/// tracked alongside the Si root-cause investigation — C should fall out as
-/// that work progresses.
+/// Ignored: SCF does not converge at this parameter set — pwdft-rs stalls
+/// at Δρ ≈ 4.1e-6 after 80 iterations (VERF did not close the gap; VERF
+/// landed cosmetic-only and is archived). Attribution: the Monkhorst-Pack
+/// shifted-vs-Γ-centered grid convention that dominates the Si residual
+/// (tracked in SYKP: `src/kpoints.rs::monkhorst_pack` hard-codes MP-1976
+/// shift while QE uses Γ-centered `4 4 4 0 0 0`). Unlike Si the wider C
+/// gap leaves the mixer short of conv_threshold inside max_iter. C is
+/// Z=6 (light) so no VGCMP heavy-atom dependency. Drop `#[ignore]` once
+/// SYKP/MPSH lands and both codes sample the same grid.
 #[test]
-#[ignore = "SCF stalls before conv_threshold; tracked with VERF"]
+#[ignore = "SYKP: MP shifted-vs-Γ grid mismatch keeps SCF from reaching conv_threshold; pwdft-rs stalls at Δρ ≈ 4.1e-6 after 80 iters (QE converges in 9)"]
 fn test_c_diamond_vs_qe() {
     let crystal = fcc_crystal(
         3.567,
@@ -302,9 +310,21 @@ fn test_c_diamond_vs_qe() {
 /// QE ref: E = -4.723_717_90 Ry, E_F = 7.6130 eV, 6 iters, ecut = 15 Ry,
 /// 8x8x8 k-grid, degauss = 0.02 Ry, Kerker (QE `local-TF`).
 ///
-/// Ignored: depends on VERF/Si root-cause fix (Z=13 is close to Si Z=14).
+/// Ignored: post-NCFX residual is ≈73 meV — just above the 50 meV tolerance.
+/// Attribution is the Monkhorst-Pack shifted-vs-Γ-centered grid convention
+/// tracked in SYKP (QE uses Γ-centered `8 8 8 0 0 0`; pwdft-rs hard-codes
+/// the shifted MP-1976 convention in `src/kpoints.rs::monkhorst_pack`).
+/// Al is Z=13 (light) — no VGCMP heavy-atom dependency; behavior mirrors
+/// Si (Z=14, ~23 meV residual). Drop `#[ignore]` once SYKP/MPSH lands.
+/// VERF did not close the Si gap and is archived — replacing the old
+/// VERF attribution with SYKP.
+///
+/// Reference values (for year-later readers):
+///   pwdft-rs: E = −64.1968 eV
+///   QE:       E = −64.2695 eV  (−4.723_717_90 Ry)
+///   residual: ~73 meV
 #[test]
-#[ignore = "depends on VERF/Si root-cause fix"]
+#[ignore = "SYKP: MP shifted-vs-Γ residual ≈73 meV on Al 8×8×8; pwdft-rs E = -64.197 eV, QE = -64.269 eV (tolerance 50 meV)"]
 fn test_al_fcc_vs_qe() {
     let crystal = fcc_crystal(4.05, vec![Atom::new(13, [0.0, 0.0, 0.0])]);
     let pp_al = load_pp("Al");
@@ -388,10 +408,19 @@ fn test_fe_bcc_fm_vs_qe() {
 ///
 /// QE ref: E = -307.928_895_02 Ry, E_F = 6.5212 eV, 11 iters, ecut = 20 Ry.
 ///
-/// Ignored pending VERF/Si fix; Ga (Z=31) and As (Z=33) are both heavy
-/// enough that the Si-scale offset is expected to appear here.
+/// Ignored: both Ga (Z=31) and As (Z=33) are heavy-atom Z>14 — residual is
+/// dominated by the V_local(G) heavy-atom discrepancy tracked in VGCMP
+/// (cross-check against QE beyond the Phase 1-4 work that closed the
+/// assembly pipeline; ~9.5 eV seen on Fe BCC carries over and compounds
+/// across two heavy species here). VERF did not close the Si gap and is
+/// archived — replacing the old VERF attribution with VGCMP.
+///
+/// Reference values (for year-later readers):
+///   pwdft-rs: E = −4155.9543 eV
+///   QE:       E = −4189.5860 eV  (−307.928_895_02 Ry)
+///   residual: ~33.6 eV
 #[test]
-#[ignore = "depends on VERF/Si root-cause fix"]
+#[ignore = "VGCMP: heavy-atom V_loc residual ≈33.6 eV on GaAs (Z=31+33); pwdft-rs E = -4155.954 eV, QE = -4189.586 eV"]
 fn test_gaas_zincblende_vs_qe() {
     let crystal = fcc_crystal(
         5.653,
@@ -427,9 +456,19 @@ fn test_gaas_zincblende_vs_qe() {
 /// QE ref: E = -356.736_028_69 Ry, E_F = 19.2056 eV, 9 iters, ecut = 25 Ry,
 /// 8x8x8 k-grid, degauss = 0.02 Ry, Kerker (QE `local-TF`).
 ///
-/// Ignored pending VERF/Si fix.
+/// Ignored: Cu is Z=29 heavy-atom — residual is dominated by the V_local(G)
+/// heavy-atom discrepancy tracked in VGCMP (cross-check against QE beyond
+/// the Phase 1-4 work that closed the assembly pipeline; ~9.5 eV seen on
+/// Fe BCC carries over here). Cu has 3s/3p/3d semicore so the heavy-atom
+/// V_loc effect is pronounced. VERF did not close the Si gap and is
+/// archived — replacing the old VERF attribution with VGCMP.
+///
+/// Reference values (for year-later readers):
+///   pwdft-rs: E = −4837.4659 eV
+///   QE:       E = −4853.6409 eV  (−356.736_028_69 Ry)
+///   residual: ~16.2 eV
 #[test]
-#[ignore = "depends on VERF/Si root-cause fix"]
+#[ignore = "VGCMP: heavy-atom V_loc residual ≈16.2 eV on Cu (Z=29, 3s/3p/3d semicore); pwdft-rs E = -4837.466 eV, QE = -4853.641 eV"]
 fn test_cu_fcc_vs_qe() {
     let crystal = fcc_crystal(3.61, vec![Atom::new(29, [0.0, 0.0, 0.0])]);
     let pp_cu = load_pp("Cu");
@@ -460,9 +499,19 @@ fn test_cu_fcc_vs_qe() {
 /// QE ref: E = -119.779_703_03 Ry, E_F = 3.4704 eV, 9 iters, ecut = 25 Ry.
 /// Na at (0,0,0), Cl at (½,½,½) in the FCC primitive cell.
 ///
-/// Ignored pending VERF/Si fix.
+/// Ignored: Cl is Z=17 (heavy, Z>14) — residual is dominated by the
+/// V_local(G) heavy-atom discrepancy tracked in VGCMP (cross-check
+/// against QE beyond the Phase 1-4 work that closed the assembly
+/// pipeline; ~9.5 eV seen on Fe BCC carries over here). VERF did not
+/// close the Si gap and is archived — replacing the old VERF attribution
+/// with VGCMP.
+///
+/// Reference values (for year-later readers):
+///   pwdft-rs: E = −1621.9441 eV
+///   QE:       E = −1629.6859 eV  (−119.779_703_03 Ry)
+///   residual: ~7.7 eV
 #[test]
-#[ignore = "depends on VERF/Si root-cause fix"]
+#[ignore = "VGCMP: heavy-atom V_loc residual ≈7.7 eV on NaCl (Cl Z=17); pwdft-rs E = -1621.944 eV, QE = -1629.686 eV"]
 fn test_nacl_rocksalt_vs_qe() {
     let crystal = fcc_crystal(
         5.614,
@@ -498,9 +547,19 @@ fn test_nacl_rocksalt_vs_qe() {
 /// QE ref: E = -147.235_477_68 Ry, E_F = 10.2064 eV, 8 iters, ecut = 30 Ry.
 /// Mg at (0,0,0), O at (½,½,½) in the FCC primitive cell.
 ///
-/// Ignored pending VERF/Si fix.
+/// Ignored: measured residual (~10 eV) is at the VGCMP heavy-atom V_local
+/// scale despite nominal Z<14 — the Mg ONCV LDA PP includes 2s/2p
+/// semicore which triggers the same V_local(G) heavy-atom discrepancy
+/// (tracked in VGCMP, cross-check against QE beyond the Phase 1-4 work
+/// that closed the assembly pipeline). VERF did not close the Si gap
+/// and is archived — replacing the old VERF attribution with VGCMP.
+///
+/// Reference values (for year-later readers):
+///   pwdft-rs: E = −1993.1458 eV
+///   QE:       E = −2003.2407 eV  (−147.235_477_68 Ry)
+///   residual: ~10.1 eV
 #[test]
-#[ignore = "depends on VERF/Si root-cause fix"]
+#[ignore = "VGCMP: heavy-atom V_loc residual ≈10.1 eV on MgO (Mg semicore PP); pwdft-rs E = -1993.146 eV, QE = -2003.241 eV"]
 fn test_mgo_rocksalt_vs_qe() {
     let crystal = fcc_crystal(
         4.212,
@@ -616,5 +675,39 @@ fn test_fe_bcc_xc_nlcc_regression_guard() {
         result.components.e_xc,
         qe_e_xc_ev,
         delta,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Ewald energy (component-level)
+// ---------------------------------------------------------------------------
+
+/// Ewald ion-ion energy for Fe BCC vs QE reference (<0.01 eV tolerance).
+///
+/// Migrated from the now-deleted `tests/fe_debug.rs` (TACC finding #3: the
+/// only surviving test from the Fe 210 eV diagnostic file — the other five
+/// were superseded by VGCMP Phases 1-4 or were zip-code/dead assertions).
+///
+/// QE reference: PseudoDojo Fe LDA (Z_val=16), BCC a=2.87 Å
+///   ewald contribution = -171.779_065_80 Ry
+///
+/// This test pins the Ewald summation convergence on a heavy-Z_val cell.
+/// It is feature-independent of NCFX/CCMX/VGCMP and should stay green
+/// unless `src/ewald.rs` regresses.
+#[test]
+fn test_fe_bcc_ewald_vs_qe() {
+    let crystal = bcc_crystal(2.87, Atom::new(26, [0.0, 0.0, 0.0]));
+    let pp_fe = load_pp("Fe");
+
+    let e_ewald = pwdft_rs::ewald::ewald_energy(&crystal, &[&pp_fe]);
+    let qe_ewald = -171.779_065_80 * RY_TO_EV;
+
+    eprintln!("  [Fe Ewald] pwdft = {e_ewald:.6} eV,  QE = {qe_ewald:.6} eV");
+    let diff = (e_ewald - qe_ewald).abs();
+    eprintln!("  [Fe Ewald] |Δ| = {diff:.6} eV");
+
+    assert!(
+        diff < 0.01,
+        "Fe Ewald energy {e_ewald:.4} eV differs from QE {qe_ewald:.4} eV by {diff:.4} eV"
     );
 }
