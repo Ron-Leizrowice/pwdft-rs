@@ -120,24 +120,32 @@ this is the pathology-specific regression guard the review flagged.
 asserts on it; at least one more convergence test (Si Γ-only or the
 BROY regression) also asserts a reasonable `final_delta` upper bound.
 
-### VNMT — m-isolation defense-in-depth test for V_NL
+### ~~VNMT — m-isolation defense-in-depth test for V_NL~~ (landed)
 
-- **Role:** Core Engineer
-- **Priority:** low, **Complexity:** small, **Risk:** low
-- **Source:** VNLM code review, Step 2 of the VNLM proposal's validation
-  plan that never landed.
+~~- **Role:** Core Engineer~~
+~~- **Priority:** low, **Complexity:** small, **Risk:** low~~
+~~- **Source:** VNLM code review, Step 2 of the VNLM proposal's validation~~
+~~  plan that never landed.~~
 
-Add an integration or unit test that pins a single-(l, m)-channel V_NL
-matrix element: build a test `NonlocalPotential` with `D_ij = 0` except
-for one `(l=2, m=+2)` entry, then assemble H at two specific G-vectors
-and compare to a hand-computed value using the known real-Y_lm formula.
-Any future edit to `real_sph_harmonics` or the shift-and-flip matmul
-builder that wrongly normalizes a single m-channel (e.g. √2 off on
-m≠0) would be caught — the addition-theorem test only pins sums over m.
+~~Add an integration or unit test that pins a single-(l, m)-channel V_NL~~
+~~matrix element: build a test `NonlocalPotential` with `D_ij = 0` except~~
+~~for one `(l=2, m=+2)` entry, then assemble H at two specific G-vectors~~
+~~and compare to a hand-computed value using the known real-Y_lm formula.~~
+~~Any future edit to `real_sph_harmonics` or the shift-and-flip matmul~~
+~~builder that wrongly normalizes a single m-channel (e.g. √2 off on~~
+~~m≠0) would be caught — the addition-theorem test only pins sums over m.~~
 
-**Acceptance criterion:** new test passes post-landing; manually
-breaking the `(l=2,m=+2)` normalization (e.g. multiplying by √2)
-makes the test fail with an intelligible error message.
+~~**Acceptance criterion:** new test passes post-landing; manually~~
+~~breaking the `(l=2,m=+2)` normalization (e.g. multiplying by √2)~~
+~~makes the test fail with an intelligible error message.~~
+
+Landed as `src/potential/nonlocal.rs::tests::test_single_channel_l2_m_isolation`
+(multi-m pin with hand-computed per-m breakdown for three live channels —
+m=0, +1, +2 — since Si ONCV PP's D_ij is diagonal in m by construction,
+so a pure single-m-only test is architecturally unreachable without
+synthesizing a non-physical projector). Manual-break sanity check
+(multiply `Y_{2,+2}` by √2) triggered a 3.5e-7 residual vs 1e-10
+tolerance, confirming detectability. See PR VNMT.
 
 ### ITVF — Flip ITEV default to `Iterative` post-faer-upstream-fix
 
