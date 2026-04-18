@@ -26,12 +26,14 @@ seeded when).
 
 ## Entries
 
-### G0SH — DRY the V_local(G=0) shift expression
+### ~~G0SH — DRY the V_local(G=0) shift expression~~
 
 - **Role:** Core Engineer
 - **Priority:** low, **Complexity:** small, **Risk:** low
 - **Source:** MODR audit ("Flagged for follow-up" section of
   `proposals/completed/MODR-modular-refactor.md`); re-surfaced by MODR-B.
+- **Status:** done — `scf::energy::with_g0_shift` helper landed; 4 arithmetic
+  sites in `scf/driver.rs` and `scf/driver_spin.rs` now route through it.
 
 The expression `+ ctx.v_local_g0 * ctx.n_electrons` appears four times
 around total-energy and Harris-Foulkes computations — originally at

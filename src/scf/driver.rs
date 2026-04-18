@@ -27,7 +27,7 @@ use super::energy::{
     EnergyComponents, add_core_density, assemble_v_eff, band_energy, density_diff,
     density_r_to_g, harris_foulkes_energy, hartree_energy, hartree_on_fft_grid,
     kinetic_expectation, local_pp_energy_grid, nonlocal_expectation,
-    real_to_g_space, total_energy, xc_energy_bare, xc_energy_corrected,
+    real_to_g_space, total_energy, with_g0_shift, xc_energy_bare, xc_energy_corrected,
 };
 use super::potentials::build_hamiltonian_with_v_eff;
 use super::report::{log_components, log_convergence_summary, log_entropy, log_iteration, IterationReport};
@@ -268,21 +268,21 @@ pub(crate) fn run_scf_unpolarized(
         let e_band = band_energy(&eigenvalues_all, &occupations, &ctx.kpt_weights);
 
         // Kohn-Sham energy: double-counting from OUTPUT density
-        let e_total = total_energy(
+        let e_total = with_g0_shift(total_energy(
             e_band,
             hartree_energy(&rho_g_new, &ctx.g_squared, ctx.omega),
             xc_energy_corrected(&rho_new_for_xc, &rho_r_new, &exc_r, &vxc_r_energy, ctx.omega),
             ctx.e_ewald,
-        ) + ctx.v_local_g0 * ctx.n_electrons;
+        ), &ctx);
 
         // Harris-Foulkes energy: double-counting from INPUT density
         // rho_g, rho_for_xc, exc_r_in, vxc_r are all from the input density
-        let e_harris = harris_foulkes_energy(
+        let e_harris = with_g0_shift(harris_foulkes_energy(
             e_band,
             hartree_energy(&rho_g, &ctx.g_squared, ctx.omega),
             xc_energy_corrected(&rho_for_xc, &rho_r, &exc_r_in, &vxc_r, ctx.omega),
             ctx.e_ewald,
-        ) + ctx.v_local_g0 * ctx.n_electrons;
+        ), &ctx);
 
         let hf_diff = (e_harris - e_total).abs();
 

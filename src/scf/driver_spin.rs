@@ -26,7 +26,7 @@ use super::energy::{
     EnergyComponents, add_core_density, assemble_v_eff, band_energy, density_diff,
     density_r_to_g, harris_foulkes_energy, hartree_energy, hartree_on_fft_grid,
     kinetic_expectation, local_pp_energy_grid, nonlocal_expectation, real_to_g_space,
-    total_energy, xc_energy_bare,
+    total_energy, with_g0_shift, xc_energy_bare,
 };
 use super::potentials::build_hamiltonian_with_v_eff;
 use super::report::{log_components, log_convergence_summary, log_iteration, IterationReport, SpinIterationFields};
@@ -323,12 +323,12 @@ pub(crate) fn run_scf_spin(
         let e_band = band_energy(&eigenvalues_all, &occ_all, &weights_all);
 
         // Kohn-Sham energy: double-counting from OUTPUT density
-        let e_total = total_energy(
+        let e_total = with_g0_shift(total_energy(
             e_band,
             hartree_energy(&rho_total_new_g, &ctx.g_squared, ctx.omega),
             e_xc_corrected_out,
             ctx.e_ewald,
-        ) + ctx.v_local_g0 * ctx.n_electrons;
+        ), &ctx);
 
         // Harris-Foulkes energy: double-counting from INPUT density
         // rho_total_g, rho_up_xc, rho_down_xc, exc_r, vxc_up_r, vxc_down_r
@@ -341,12 +341,12 @@ pub(crate) fn run_scf_spin(
             .sum();
         let e_xc_corrected_in = e_xc_in - e_vxc_spin_in;
 
-        let e_harris = harris_foulkes_energy(
+        let e_harris = with_g0_shift(harris_foulkes_energy(
             e_band,
             hartree_energy(&rho_total_g, &ctx.g_squared, ctx.omega),
             e_xc_corrected_in,
             ctx.e_ewald,
-        ) + ctx.v_local_g0 * ctx.n_electrons;
+        ), &ctx);
 
         let hf_diff = (e_harris - e_total).abs();
 
