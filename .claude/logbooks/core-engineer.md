@@ -2,6 +2,14 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-18 — PRPL nits (PR #39, rebased on NCFX)
+
+Two APPROVE-WITH-NITS follow-ups applied on top of PR #39:
+- `ScfParams::validate()` rejects `MixingMode::PeriodicPulay { period: 0, .. }` with `PwdftError::InvalidInput`; new unit test `validate_rejects_zero_pulay_period` in `src/scf/mod.rs`.
+- `periodic_pulay_vs_plain_scf_convergence` in `src/scf/mixing.rs`: silent `(Err, Err)` arm replaced with explicit `panic!` (default expectation is both SCFs converge on Si Γ-only).
+
+Rebased cleanly onto `origin/main` (post-NCFX). Clippy clean on default and `--features gpu`; `cargo test --release` 191 pass + all integration green; `--features gpu` 194 pass.
+
 ## 2026-04-18 — NCFX landed (critical-path fix)
 
 Branch `NCFX/nlcc-core-density-fix` (rebased onto `origin/main` post-VGC5).
@@ -234,3 +242,28 @@ This is the same class of convention mismatch VGCMP Phase 1 is targeting — re-
 - `test_vloc_comparison_with_qe` will need attention when VGCMP Phase 1 resolves the V_local convention. At that point, un-ignore and expect tolerance to need tightening from the current 0.5 eV (which was a wish at write-time, not empirical).
 - `ScfResult` doesn't derive `Debug`. If future tests want to print Result values, either derive Debug on ScfResult (see `src/scf/mod.rs:131`) or use the 3-arm-match idiom from this PR (spin_polarization.rs Fe test, parallel_consistency.rs).
 - Machine lock held 1007s total across baseline + final-test runs.
+
+## 2026-04-17 — PRPL implemented
+
+PR #39 created: `PRPL/periodic-pulay`. Periodic Pulay mixer (Banerjee et al., JCTC 12, 3053 (2016)) as a BROY follow-up.
+
+**Implementation:**
+- Refactored `AndersonMixer::mix` into `push_history` + `diis_step` (no behavior change; `mix` is now a thin wrapper). `push_history` applies Kerker preconditioning if enabled, appends to history, trims to `max_history`. `diis_step` requires `history_len >= 1`, does linear mixing for the first iteration then solves the DIIS system for iter ≥ 2.
+- `PeriodicPulayMixer` wraps `AndersonMixer`, calls `push_history` unconditionally, and gates `diis_step` on `iteration.is_multiple_of(period) && history_len() >= 2`. On non-Pulay iterations it does `ρ + β·R` against the most recent (already-preconditioned) residual stored in history — this keeps Kerker preconditioning live on linear steps.
+- `MixingMode::PeriodicPulay { period, kerker }` threaded through `Mixer::new/mix`. New `MixingModeType::{PeriodicPulay, PeriodicPulayKerker}` + `pulay_period: usize` (default 3) on `ElectronSettings`. New `MixingModeType::to_scf_mode(period)` helper; back-compat `From` uses default period 3.
+- `src/scf/mod.rs` and `src/scf/energy.rs` untouched (VGC5 safe).
+
+**Convergence numbers (Si Γ-only, ecut=100, 16³ grid, conv=1e-6):**
+- Plain:          10 iters
+- PeriodicPulay:   8 iters (period=3, ΔE≈1.15e-6 eV)
+
+20% iteration reduction on a small insulator. Paper's strongest wins are metals/TMOs; this is still in the right direction.
+
+**Tests added (10):** 8 in `src/scf/mixing.rs` (period=1 matches Anderson bit-for-bit, period=∞ matches plain linear bit-for-bit, history accumulation, Pulay fires on iter 3 of period=3, first-iter is linear, Kerker-finite, synthetic fixed-point convergence, Si SCF smoke test), 2 in `src/settings.rs` (YAML parse for `periodic_pulay` and `periodic_pulay_kerker`).
+
+**Results:** 189 CPU + 192 GPU unit tests pass (+10 from PRPL), all integration tests pass, clippy clean on both feature sets. Rebase onto origin/main was clean (VGC5 had landed; no conflict since both PRs touch disjoint files).
+
+## Flagged for follow-up
+- `PeriodicPulayMixer::mix` non-Pulay path reaches into private fields `anderson.{beta, history_in, history_res}`. Fine within the module, but future refactors may want to move this into `AndersonMixer::apply_linear_step_from_last_history` to localize knowledge. Not worth a proposal on its own — notional cleanup.
+- Paper recommends `period = 5–8` for metals; our default is 3 (insulator/semiconductor sweet spot). Consider auto-selecting based on system class (gap-detected via initial-density sloshing amplitude, or explicit `system.metallic: bool`). Likely a new proposal if anyone has a concrete metallic test case to tune against.
+- No real metallic regression test for PRPL — the existing Γ-only Si test is an insulator. A follow-up might add a BCC Fe SCF test with PRPL vs Broyden, but BROY already covers Fe well enough that the marginal value is unclear.
