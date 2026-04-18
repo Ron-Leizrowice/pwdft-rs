@@ -647,6 +647,9 @@ fn run_scf_spin(
             mixing::MixingMode::Plain
         }
         mixing::MixingMode::Broyden { .. } => mixing::MixingMode::Broyden { kerker: false },
+        mixing::MixingMode::PeriodicPulay { period, .. } => {
+            mixing::MixingMode::PeriodicPulay { period: *period, kerker: false }
+        }
     };
     let mut mixer_total = mixing::Mixer::new(
         ctx.params.mixing_beta, ctx.params.mixing_ndim, &ctx.params.mixing_mode,
