@@ -365,8 +365,9 @@ fn real_sph_harmonics(q: &Vector3<f64>, lmax: i32, out: &mut [f64]) {
     q_lm[qidx(1, 0)] = cost;
     q_lm[qidx(1, 1)] = -sint / 2.0_f64.sqrt();
 
-    // l=0: Y_00
-    out[0] = inv_sqrt_fpi;
+    // l=0: Y_00 already written at line 347 (the |q|=0 guard path initializes
+    // it to the same value and returns before reaching here, so the invariant
+    // holds whether we took that branch or not).
     // l=1: Y_10, Y_1,+1, Y_1,-1
     let c1 = (3.0 / fpi).sqrt();
     out[1] = c1 * q_lm[qidx(1, 0)];
@@ -377,11 +378,10 @@ fn real_sph_harmonics(q: &Vector3<f64>, lmax: i32, out: &mut [f64]) {
     for l in 2..=lmax as usize {
         let c = ((2 * l + 1) as f64 / fpi).sqrt();
         let l_f = l as f64;
-        // Recurrence on l for Q(l, m), m = 0 .. l-2
-        for m in 0..(l.saturating_sub(2) + 1) {
-            if m + 2 > l {
-                break;
-            }
+        // Recurrence on l for Q(l, m), m = 0 ..= l-2.
+        // `saturating_sub` keeps the range empty for l < 2 (unreachable here
+        // because the outer `for l in 2..=lmax`, but belt+braces).
+        for m in 0..=l.saturating_sub(2) {
             let m_f = m as f64;
             let llmm = (l_f * l_f - m_f * m_f).sqrt();
             let llm1 = ((l_f - 1.0) * (l_f - 1.0) - m_f * m_f).sqrt();
