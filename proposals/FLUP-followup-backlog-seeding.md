@@ -65,22 +65,33 @@ risk surface.
 all existing mixer tests pass; benchmarks show no regression (the matrices
 are tiny, so wins are unlikely — the point is maintainability, not speed).
 
-### VNLB — Block-wise `D·B^H` construction in V_NL assembly
+### ~~VNLB — Block-wise `D·B^H` construction in V_NL assembly~~ (struck 2026-04-19 by VNLT)
 
 - **Role:** Performance Engineer
 - **Priority:** medium, **Complexity:** small, **Risk:** low
 - **Source:** VNLM code review, PR #49 nit 3.
+- **Status:** struck — the 1.5× regression that motivated VNLB does not
+  exist. VNLT investigation bench-verified three clean runs of
+  `hamiltonian/vnl_new_n725` at 44.37, 44.36, 44.23 ms on current main —
+  matching the pre-VNLM baseline (42.33 ms) to within 5 %. The 78.5 ms
+  in VNLM PR #49's table was a single-run criterion outlier. The bench
+  harness (`benches/scf_benchmarks.rs`) is byte-identical across the
+  VNLM merge and today's HEAD; only CAST `#[allow]` attributes and two
+  cheap asserts have touched `src/potential/nonlocal.rs` since VNLM
+  merged (commits `1291729`, `6840237`), and neither can explain a
+  ~35 ms wall-time swing. See the "Note 2026-04-19" section of
+  `proposals/VNLM-vnl-blocked-matmul.md` for the full audit.
 
-`src/potential/nonlocal.rs` currently builds `D·B^H` via scalar
+~~`src/potential/nonlocal.rs` currently builds `D·B^H` via scalar
 `faer::Mat` indexing (lines ~252-281 on the landed commit). This is the
 root cause of the 1.5× regression in `vnl_new` wall-time (43 → 78 ms at
 n_pw=725) that pushes the VNLM GEMM lift's break-even point to ~2 SCF
 iterations. A per-(atom, l) block-wise `faer::matmul` should recover
-most of the one-time cost and move break-even below 1 iteration.
+most of the one-time cost and move break-even below 1 iteration.~~
 
-**Acceptance criterion:** `bench scf_benchmarks -- hamiltonian/vnl_new`
+~~**Acceptance criterion:** `bench scf_benchmarks -- hamiltonian/vnl_new`
 at n_pw=725 drops to ≤ 55 ms (break-even ≤ 1 SCF iter).
-Correctness: all 265+ tests pass bit-identical.
+Correctness: all 265+ tests pass bit-identical.~~
 
 ### SYMP — Parallelize `symmetrize_density_g` with `par_iter_mut`
 
@@ -295,11 +306,24 @@ the failure mode, this test updates with it.
 reproduces the β schedule that leads to ConvergenceFailure on Fe,
 without running an SCF.
 
-### VNLT — Investigate non-reproducing VNLM `vnl_new` regression
+### ~~VNLT — Investigate non-reproducing VNLM `vnl_new` regression~~ (done 2026-04-19)
 
 - **Role:** Performance Engineer
 - **Priority:** medium (may retire VNLB), **Complexity:** small, **Risk:** low
 - **Source:** PERF post-MXBA benchmark pass (PR #59), ANOM-3.
+- **Resolution:** outcome (a) — the 78.5 ms `vnl_new_n725` in VNLM PR #49
+  was a criterion outlier. Three clean runs on current main
+  (Apple M2, machine-locked, criterion `--measurement-time 6 s / 100 samples`,
+  same config as PERF): 44.37 ms [44.28, 44.51] → 44.36 ms [44.30, 44.45]
+  (p = 0.93 vs run 1) → 44.23 ms [44.19, 44.28]. All three land within
+  ±0.3 % of each other and within 5 % of the pre-VNLM 42.33 ms baseline.
+  Before-bench diff analysis showed `benches/scf_benchmarks.rs` is
+  byte-identical across the VNLM merge and today's HEAD, and the only
+  two commits to `src/potential/nonlocal.rs` since VNLM merged
+  (`1291729` CAST, `6840237` RDOC) added zero-cost attributes and two
+  cheap asserts — none can explain a ~35 ms wall-time swing. **VNLB
+  struck** (see its entry). VNLM's archived proposal amended with a
+  "Note 2026-04-19" paragraph.
 
 VNLM (PR #49) reported a 1.5× `vnl_new_n725` regression (43.2 → 78.5 ms)
 as the one-time cost of the GEMM lift, with "break-even at ~2 SCF iters"

@@ -249,3 +249,30 @@ Bench-only session, read-only source. Lock held 546 s. Full report at
 **Next session TODO:**
 - Revisit when ITEV unblocks (faer upstream fix).
 - If EM wants ANOM-1 investigated, re-bench longer.
+
+## 2026-04-19 — VNLT: VNLM vnl_new regression was bench noise (outcome a)
+
+Hypothesis (a) confirmed. Three clean runs on current main (Apple M2,
+lock held ~134 s): `hamiltonian/vnl_new_n725` at 44.37 / 44.36 / 44.23 ms
+(CI widths < 0.5 %, run-to-run p=0.93 then p=0.00-within-noise). PR #49's
+78.5 ms was a single-run criterion outlier.
+
+Before-bench diff analysis:
+- `benches/scf_benchmarks.rs` byte-identical across VNLM merge → HEAD
+  (no commits touched it).
+- Only two commits to `src/potential/nonlocal.rs` since VNLM: CAST
+  (`1291729`) added 4x `#[allow]` attrs + 2 asserts on `proj.l >= 0`
+  (zero runtime cost at n_pw=725), RDOC (`6840237`) one-line docstring
+  edit. Neither can explain a ~35 ms swing.
+
+Actions taken (docs-only PR):
+- Amended `proposals/VNLM-vnl-blocked-matmul.md` with "Note 2026-04-19"
+  paragraph — strikes the 2.9× amortization claim; VNLM now credited
+  as 4.5× per-k-point over 15 iters with zero break-even.
+- Struck **VNLB** in `proposals/FLUP-followup-backlog-seeding.md`
+  (no regression to recover).
+- Marked VNLT entry "done".
+
+**Tangential:** EIGV/EIGW anomalies still open — same re-bench protocol
+would clear them in one afternoon. n_pw=259 faer_eigen regression is the
+only one worth investigating (wide CI suggests real criterion instability).
