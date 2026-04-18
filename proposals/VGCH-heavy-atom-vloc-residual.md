@@ -263,6 +263,84 @@ front — VGCMP Phases 1–4 showed that the form factors are correct,
 so the fix (if any) is most likely in setup/convergence land, not
 raw numerics. Each phase is a day or two of work.
 
+### Phase 0 — Relabel `#[ignore]` strings (mechanical)
+
+**Motivation.** VGCMP Phases 1–4 closed the Si V_local(G) assembly
+pipeline to bit-precision, and NCFX closed the remaining Si NLCC
+gap. Despite that, five `#[ignore]` strings in `tests/qe_validation.rs`
+still attribute the heavy-atom residual to "V_local" — an attribution
+that VGCMP has actively *disproven* on Si and that VGCH's candidate
+root-cause table (above) treats as only one of six hypotheses (and
+not the most likely: (c) semicore/ecut convergence ranks highest).
+The current strings misinform any reader (human or CI log scraper)
+about where the bug lives. Relabel them to reflect VGCH ownership and
+an explicitly **TBD** root cause; any future narrower attribution
+should come from Phase 2's per-component diagnostic, not from
+inertia on the old VGCMP-era prose.
+
+**Exact edits in `tests/qe_validation.rs`** (documentation-only;
+all inside `#[ignore = "..."]` attribute strings; no code path, no
+test behavior, no pin value changes):
+
+- **Fe BCC (`test_fe_bcc_fm_vs_qe`, line ~368):**
+  - Before: `"CCMX fixes convergence (E = -3050.80 eV); ~9.5 eV gap vs QE -3060.16 eV blocked on VGCMP (heavy-atom V_loc)"`
+  - After:  `"~9.5 eV gap vs QE (E_pwdft = -3050.80, E_qe = -3060.16 eV); root cause TBD, tracked in VGCH"`
+
+- **GaAs (`test_gaas_zincblende_vs_qe`, line ~423):**
+  - Before: `"VGCMP: heavy-atom V_loc residual ≈33.6 eV on GaAs (Z=31+33); pwdft-rs E = -4155.954 eV, QE = -4189.586 eV"`
+  - After:  `"VGCH: heavy-atom residual ≈33.6 eV (root cause TBD) on GaAs (Z=31+33); pwdft-rs E = -4155.954 eV, QE = -4189.586 eV"`
+
+- **Cu FCC (`test_cu_fcc_vs_qe`, line ~471):**
+  - Before: `"VGCMP: heavy-atom V_loc residual ≈16.2 eV on Cu (Z=29, 3s/3p/3d semicore); pwdft-rs E = -4837.466 eV, QE = -4853.641 eV"`
+  - After:  `"VGCH: heavy-atom residual (root cause TBD) ≈16.2 eV on Cu (Z=29, 3s/3p/3d semicore); pwdft-rs E = -4837.466 eV, QE = -4853.641 eV"`
+
+- **NaCl (`test_nacl_rocksalt_vs_qe`, line ~514):**
+  - Before: `"VGCMP: heavy-atom V_loc residual ≈7.7 eV on NaCl (Cl Z=17); pwdft-rs E = -1621.944 eV, QE = -1629.686 eV"`
+  - After:  `"VGCH: heavy-atom residual (root cause TBD) ≈7.7 eV on NaCl (Cl Z=17); pwdft-rs E = -1621.944 eV, QE = -1629.686 eV"`
+
+- **MgO (`test_mgo_rocksalt_vs_qe`, line ~562):**
+  - Before: `"VGCMP: heavy-atom V_loc residual ≈10.1 eV on MgO (Mg semicore PP); pwdft-rs E = -1993.146 eV, QE = -2003.241 eV"`
+  - After:  `"VGCH: heavy-atom residual (root cause TBD) ≈10.1 eV on MgO (Mg semicore PP); pwdft-rs E = -1993.146 eV, QE = -2003.241 eV"`
+
+The module-level `//!` docstring at the top of `tests/qe_validation.rs`
+mentions "VGCMP" several times in its "Why some tests are `#[ignore]`d"
+section; a CE implementing Phase 0 should *also* sweep that docstring
+so the narrative matches (ignore → VGCH, V_local attribution → root
+cause TBD). This is a drive-by — no need to mint a separate proposal.
+
+**Nature of the change.** Documentation-only, inside test-attribute
+string literals and the module-level doc comment. No executable code
+semantics change, no test behavior change, no pin-value change, no
+quality-gate risk. `cargo test` output is unchanged (the same five
+tests remain ignored, only their ignore *reason* string differs).
+`cargo doc` is unaffected.
+
+**Cost estimate.** ≤ 30 minutes of CE time (five string edits + one
+docstring sweep + run `cargo test -- --list --ignored` to eyeball
+the new ignore reasons).
+
+**Acceptance.**
+
+1. All five `#[ignore = "..."]` strings updated per the before/after
+   list above.
+2. Module-level `//!` docstring no longer attributes the heavy-atom
+   residual to "V_local" without qualification; VGCMP references in
+   the "Why some tests are `#[ignore]`d" section updated to VGCH
+   where appropriate (VGCMP references to the Phase 1–4 Si work
+   that *is* done stay as-is).
+3. `grep -n "VGCMP:" tests/qe_validation.rs` returns nothing (the
+   colon-form is only used in the now-replaced ignore strings;
+   other VGCMP mentions use no colon).
+4. `cargo test` passes with identical pass/fail/ignore counts as
+   before the edit.
+
+**Sequencing.** Phase 0 is the first planned CE task under VGCH but
+will ship in a separate future PR alongside (or immediately before)
+the Phase 1 ecut sweep. It is intentionally carved out as a
+stand-alone mechanical sub-task so the semantic investigation phases
+(1–5) aren't blocked on the relabel, and so the relabel itself can
+be reviewed quickly without physics context.
+
 ### Phase 1 — Semicore / ecut convergence sweep (0.5 CE-day)
 
 **Cheapest test with highest prior.** Pick Fe BCC 8×8×8 (the
@@ -388,6 +466,7 @@ the heavy-atom residuals are 100–600× larger.
 it: 1 CE-week. Phase 2+ (per-component diagnostic + root-cause fix):
 up to 2 CE-weeks if the bug is non-trivial.
 
+- Phase 0 (relabel obsolete VGCMP `#[ignore]` strings): ≤ 0.1 d.
 - Phase 1 (ecut sweep): 0.5 d.
 - Phase 2 (per-component diagnostic on Fe, Cu, NaCl): 1 d.
 - Phase 3 (VGCMP-style heavy-atom cross-check on the suspect
