@@ -379,6 +379,7 @@ pub(crate) fn run_scf_unpolarized(
                 eigenvalues: eigenvalues_all,
                 fermi_energy,
                 n_iterations: iter + 1,
+                final_delta: last_delta,
                 rho_g: rho_g_basis,
                 magnetization: 0.0,
                 nspin: 1,

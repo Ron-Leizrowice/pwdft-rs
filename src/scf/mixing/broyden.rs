@@ -393,6 +393,20 @@ mod tests {
                     "Plain ({:.6} eV) and Broyden ({:.6} eV) should converge to same energy, diff={energy_diff:.6}",
                     plain.total_energy, broyden.total_energy
                 );
+                // FDLT: both mixers must bring Δρ well under conv_threshold
+                // (1e-6 here). An upper bound of 1e-4 gives 2 orders of
+                // margin without being so tight that a minor mixer tweak
+                // breaks the test.
+                assert!(
+                    plain.final_delta < 1e-4,
+                    "Plain Si SCF final Δρ = {:.3e} should be well below conv_threshold=1e-6",
+                    plain.final_delta,
+                );
+                assert!(
+                    broyden.final_delta < 1e-4,
+                    "Broyden Si SCF final Δρ = {:.3e} should be well below conv_threshold=1e-6",
+                    broyden.final_delta,
+                );
             }
             (Ok(_), Err(e)) => panic!("Plain converged but Broyden failed: {e}"),
             (Err(e), Ok(_)) => panic!("Broyden converged but plain failed: {e}"),

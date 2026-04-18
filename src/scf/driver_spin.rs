@@ -456,6 +456,7 @@ pub(crate) fn run_scf_spin(
                 eigenvalues: eigenvalues_all,
                 fermi_energy,
                 n_iterations: iter + 1,
+                final_delta: last_delta,
                 rho_g: rho_g_basis,
                 magnetization: mag,
                 nspin: 2,
