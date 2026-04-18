@@ -432,3 +432,31 @@ Algebraic derivation: residual = ∫(ρ_ψ − ρ_sym)·V_eff dr. Back-solve fro
 - Fe's residual under CLI (IBZ=10 kpts) is 73 meV; under the VGC5 test (full 64 kpts, no IBZ reduction) it's 45 meV. Gap is probably rotation-only aliasing on non-compatible parts of the rotation matrix (cubic perms are fine, but the `round()` in `frac_to_grid_idx` may mis-map a few points per op). Sub-eV; low priority.
 - QE source pointer for PCFX: `qe-7.5/PW/src/symme.f90` — `sym_rho` + `sym_rho_init_shells`.
 
+## 2026-04-18 — NLCC audit (Part A/B/C) landed as PR #42
+
+Test + docs only. No production code change (NCFX #40 was the fix).
+
+**Part A** — `src/pseudopotential/upf.rs` pins via Python/SciPy reference
+(`scripts/validate/rho_core_g_reference.{py,csv}`):
+
+| system | G                    | ρ_core(G) (e/Å³) | Rust residual |
+|--------|----------------------|-----------------|---------------|
+| Si FCC | G = 0                | 1.8476e-2       | < 1e-7        |
+| Si FCC | \|G\|²=3·(2π/a)²     | 1.5428e-2       | < 1e-7        |
+| Fe BCC | G = 0                | 2.4680e-1       | < 1e-7        |
+| Fe BCC | \|G\|²=2·(2π/a)²     | 2.2503e-1       | < 1e-7        |
+
+**Part B** — `test_fe_bcc_xc_nlcc_regression_guard`: Fe BCC nspin=1,
+4×4×4 MP, ecut=15 Ry, Kerker, 150 iters, conv 1e-6. E_xc = −392.567 eV
+vs QE −393.259 eV; |Δ| = 0.692 eV (budget 1 eV). Pre-NCFX was 48.85 eV,
+so regression trips by >49×. Identical on GPU (f32) — looser conv_thr
+needed to avoid GPU-precision-floor stall at 9e-8.
+
+**Part C** — LFC refs (Louie/Froyen/Cohen PRB 26 1738 (1982)) in
+`scf::energy` module doc, `add_core_density`, `xc_energy_corrected`,
+`PseudopotentialData::core_charge`, `ScfParams`, CLAUDE.md SCF loop.
+
+INDEX.md NLCC moved to completed. No open physics questions left on
+NLCC; next priorities for physics are PCFX (ρ symmetrization in G-space)
+and SYKP (MP-shift convention) per Remaining Critical section.
+
