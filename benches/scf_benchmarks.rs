@@ -615,7 +615,14 @@ fn bench_scf_iter_end_to_end_aloc_f5(c: &mut Criterion) {
     for (label, ecut, k_grid) in configs {
         let crystal = si_crystal();
         let basis = BasisSet::new(&crystal.lattice, *ecut);
-        let kpts = kpoints::monkhorst_pack(k_grid[0], k_grid[1], k_grid[2], &crystal.lattice);
+        // MPSH default: Γ-centered to match QE's `automatic 0 0 0` convention.
+        let kpts = kpoints::monkhorst_pack(
+            k_grid[0],
+            k_grid[1],
+            k_grid[2],
+            kpoints::KGridShift::GammaCentered,
+            &crystal.lattice,
+        );
         let sym = SymmetryInfo::from_crystal(&crystal, 1e-5);
         let params = build_si_scf_params(20); // up to 20 SCF iters; converges fast
 

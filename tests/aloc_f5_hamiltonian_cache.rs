@@ -77,7 +77,7 @@ fn run_si_scf() -> ScfResult {
     // the convergence trajectory deterministic and free of Kerker /
     // Broyden / PRPL bookkeeping that could hide a drift.
     let basis = BasisSet::new(&crystal.lattice, 100.0);
-    let kpts = kpoints::monkhorst_pack(2, 2, 2, &crystal.lattice);
+    let kpts = kpoints::monkhorst_pack(2, 2, 2, kpoints::KGridShift::GammaCentered, &crystal.lattice);
     let params = ScfParams {
         n_bands: 8,
         max_iter: 30,
