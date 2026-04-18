@@ -293,6 +293,34 @@ and a runtime `assert!` at `src/scf/grid.rs::FftGrid::new`. The seven
 "asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`"
 instead of "<= ~512 per axis in practice". See PR FGRD.
 
+### G2ZT — Hoist bare `1e-12` `|G|=0` threshold into `consts`
+
+- **Role:** Code Reviewer
+- **Priority:** trivial, **Complexity:** trivial, **Risk:** low
+- **Source:** CFGN re-scope (PR #78) drive-by finding.
+
+`src/pseudopotential/mod.rs:137` uses a bare `1e-12` literal for its
+`|G|=0` check instead of `crate::consts::G2_ZERO_THRESHOLD` (or its
+sqrt). One-line edit; makes the convention grep-discoverable.
+
+**Acceptance criterion:** bare `1e-12` replaced with the existing
+constant; `cargo test` bit-identical.
+
+### DFLT — Document density-skip/normalization thresholds in `scf/density.rs`
+
+- **Role:** Code Reviewer
+- **Priority:** trivial, **Complexity:** trivial, **Risk:** low
+- **Source:** CFGN re-scope (PR #78) drive-by finding.
+
+`src/scf/density.rs:61,92` has two `1e-15` literals for occupation-skip
+and normalization-integrand safety. Semi-internal; a small
+`const DENSITY_SKIP_THRESHOLD: f64 = 1e-15` (or two named constants at
+module scope) would document intent for the next reader.
+
+**Acceptance criterion:** both literals replaced by named constants
+with a one-line docstring each explaining the physical/numerical
+motivation.
+
 ### ~~MXB1 — Verify Eyert §3.3 vs §5 threshold constants~~ (struck 2026-04-18)
 
 - **Role:** Researcher
