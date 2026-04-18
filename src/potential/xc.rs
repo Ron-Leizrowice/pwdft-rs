@@ -3,6 +3,31 @@
 //! LDA: Perdew-Zunger parametrization of the Ceperley-Alder correlation energy,
 //! plus Slater exchange. Computed in real space from ρ(r).
 //!
+//! # Dispatch (GGAP Phase A)
+//!
+//! The SCF driver does not call [`lda_xc_grid`] / [`lda_xc_spin_grid`]
+//! directly. It holds an [`XcEvaluator`] value — a *data* enum whose
+//! variants name the functional (`Pz` today; `Pbe` in Phase B) — and
+//! dispatches via a single `match` inside [`XcEvaluator::eval`] /
+//! [`XcEvaluator::eval_spin`]. Variants carry only plain data (no closures,
+//! no `Box<dyn Fn>`, no trait objects). This matters for two reasons:
+//!
+//! - **HYBR compat.** Hybrid functionals (PBE0, HSE06) need access to the
+//!   wavefunctions ψ during Hamiltonian construction — if Phase A embedded
+//!   the semilocal computation inside a closure, that path would only see
+//!   ρ, never ψ, and HYBR's Fock integrator could not bolt on cleanly. The
+//!   `match` layout keeps each variant independently implementable. See
+//!   `proposals/HYBR-hybrid-functional-support.md` §3.
+//! - **Regression safety for LDA.** [`XcEvaluator::Pz`] is the only variant
+//!   wired up in Phase A. It calls the existing [`lda_xc_grid`] /
+//!   [`lda_xc_spin_grid`] paths verbatim, so LDA total energies remain
+//!   bit-identical to pre-Phase-A runs.
+//!
+//! `XcEvaluator::Pbe` exists as a variant, but [`XcEvaluator::eval`]
+//! returns the [`crate::error::PwdftError::NotImplemented`] trap that XCNI
+//! previously raised from `scf::run_scf`. Phase B will replace that path
+//! with real PBE (gradient infrastructure + `pbex` / `pbec` ports).
+//!
 //! References:
 //! - Exchange: Slater, Phys. Rev. 81, 385 (1951)
 //! - Correlation: Perdew & Zunger, Phys. Rev. B 23, 5048 (1981)
@@ -11,6 +36,11 @@
 use std::f64::consts::PI;
 
 use rayon::prelude::*;
+
+use crate::{
+    error::{PwdftError, Result},
+    settings::XcFunctional,
+};
 
 /// Minimum grid size at which rayon parallelism beats sequential execution
 /// for `lda_xc_grid` / `lda_xc_spin_grid` on Apple M2.
@@ -394,6 +424,175 @@ fn pz_correlation_rs(rs: f64, polarized: bool) -> (f64, f64) {
     (ec_ha, vc_ha)
 }
 
+// ---------------------------------------------------------------------------
+// GGAP Phase A: data-enum dispatch
+// ---------------------------------------------------------------------------
+
+/// Runtime-selected exchange-correlation functional.
+///
+/// This is a **data** enum: each variant carries parameters only (no
+/// closures, no `Box<dyn Fn>`, no trait objects). Dispatch lives in
+/// [`XcEvaluator::eval`] and [`XcEvaluator::eval_spin`] as a single
+/// `match`. The shape is deliberately open-coded rather than polymorphic
+/// so that HYBR (PBE0, HSE06) can extend this enum without rewriting the
+/// Phase A call sites — hybrids need `(ρ, ψ)` access inside the SCF loop,
+/// not just ρ, and a closure-based shape would paint the dispatch into
+/// a corner. See the module docs and `proposals/HYBR-hybrid-functional-support.md`
+/// §3.
+///
+/// The variant ordering (`Pz`, `Pbe`, `Pbe0`, `Hse06`) mirrors
+/// [`XcFunctional`]. HYBR Phase 1 will swap `Pbe0` and `Hse06` once the
+/// hybrid infrastructure lands; the order is load-bearing for that swap,
+/// so do not re-order it here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XcEvaluator {
+    /// Perdew-Zunger 81 LDA + Ceperley-Alder correlation + Slater exchange.
+    /// The only fully-implemented variant in Phase A.
+    Pz,
+    /// Perdew-Burke-Ernzerhof GGA (1996). Variant exists so that Phase B's
+    /// gradient infrastructure and `pbex` / `pbec` ports can slot in without
+    /// touching the driver dispatch shape. Today [`XcEvaluator::eval`]
+    /// returns [`PwdftError::NotImplemented`] when this variant is active.
+    Pbe,
+}
+
+impl XcEvaluator {
+    /// Construct an evaluator from the YAML-level [`XcFunctional`] choice.
+    ///
+    /// This is the single site that concentrates the "is this functional
+    /// implemented yet?" check. `Pbe0` and `Hse06` map to
+    /// [`PwdftError::NotImplemented`] (tracked by the HYBR proposal); `Pbe`
+    /// constructs successfully but its `eval` / `eval_spin` methods bail
+    /// out the same way — Phase B replaces the latter with real PBE.
+    ///
+    /// Returning an error at this construction site (rather than at first
+    /// evaluation) lets `scf::run_scf` fail fast before any compute work,
+    /// which is what the XCNI safety trap already promised users.
+    pub fn from_settings(xc: XcFunctional) -> Result<Self> {
+        match xc {
+            XcFunctional::Pz => Ok(Self::Pz),
+            XcFunctional::Pbe => Ok(Self::Pbe),
+            XcFunctional::Pbe0 => Err(PwdftError::NotImplemented { what: "pbe0".into() }),
+            XcFunctional::Hse06 => Err(PwdftError::NotImplemented { what: "hse06".into() }),
+        }
+    }
+
+    /// Whether this functional requires ∇ρ on the real-space grid.
+    ///
+    /// Drivers call this once per SCF iteration to decide whether to spend
+    /// the gradient FFTs. `false` for LDA (zero FFT work beyond the LDA
+    /// pipeline); `true` for any GGA.
+    #[must_use]
+    pub fn needs_gradient(&self) -> bool {
+        match self {
+            Self::Pz => false,
+            Self::Pbe => true,
+        }
+    }
+
+    /// Evaluate ε_xc and V_xc on a real-space density grid (non-spin).
+    ///
+    /// - `rho_r`: electron density on the FFT grid (e/Å³). For NLCC the
+    ///   caller passes ρ_val + ρ_core (see `scf::energy::add_core_density`).
+    /// - `rho_grad_r`: the three Cartesian components of ∇ρ on the same
+    ///   grid. Ignored for LDA (`Pz`). Required for PBE (currently
+    ///   unimplemented; Phase B).
+    ///
+    /// Returns [`XcGridResult`] with `v2_r = None` for LDA — the caller's
+    /// V_xc assembly short-circuits to `v1_r` when `v2_r` is absent, so the
+    /// LDA code path does zero extra work relative to pre-Phase-A.
+    pub fn eval(
+        &self,
+        rho_r: &[f64],
+        rho_grad_r: Option<&[[f64; 3]]>,
+    ) -> Result<XcGridResult> {
+        match self {
+            Self::Pz => {
+                // Bit-for-bit the pre-Phase-A path: the driver used to
+                // call `lda_xc_grid` directly, and `v2_r = None` means
+                // the semilocal V_xc assembly short-circuits to `v1_r`.
+                let _ = rho_grad_r; // LDA ignores the gradient.
+                let (exc_r, v1_r) = lda_xc_grid(rho_r);
+                Ok(XcGridResult { exc_r, v1_r, v2_r: None })
+            }
+            Self::Pbe => Err(PwdftError::NotImplemented { what: "pbe".into() }),
+        }
+    }
+
+    /// Evaluate ε_xc and V_xc^σ on a spin-polarized density grid.
+    ///
+    /// - `rho_up_r`, `rho_down_r`: per-channel densities (e/Å³), with
+    ///   `ρ_core/2` already added by the caller for NLCC.
+    /// - `rho_grad_*_r`: per-channel gradients (three components each).
+    ///   Required for PBE; ignored for LDA.
+    ///
+    /// The spin-polarized result carries three grids: `exc_r` (shared
+    /// energy density) and `v1_up_r` / `v1_down_r` (per-channel V_xc).
+    /// `v2_*_r` holds the GGA gradient channels and is `None` for LDA.
+    pub fn eval_spin(
+        &self,
+        rho_up_r: &[f64],
+        rho_down_r: &[f64],
+        rho_grad_up_r: Option<&[[f64; 3]]>,
+        rho_grad_down_r: Option<&[[f64; 3]]>,
+    ) -> Result<XcSpinGridResult> {
+        match self {
+            Self::Pz => {
+                let _ = (rho_grad_up_r, rho_grad_down_r); // LDA ignores gradients.
+                let (exc_r, v1_up_r, v1_down_r) = lda_xc_spin_grid(rho_up_r, rho_down_r);
+                Ok(XcSpinGridResult {
+                    exc_r,
+                    v1_up_r,
+                    v1_down_r,
+                    v2_up_r: None,
+                    v2_down_r: None,
+                })
+            }
+            Self::Pbe => Err(PwdftError::NotImplemented { what: "pbe".into() }),
+        }
+    }
+}
+
+/// Result of a non-spin XC evaluation on the FFT grid.
+///
+/// All grids have length `n_grid`. Energies in eV.
+///
+/// `v2_r` is the GGA semilocal-∇ρ partial derivative, already contracted
+/// with ∇ρ into the vector field `h(r) = 2 · (∂ρ·ε_xc/∂σ) · ∇ρ(r)` that
+/// appears inside the divergence term of V_xc. LDA leaves it `None`; the
+/// caller's V_xc assembly then degenerates to the LDA expression
+/// `V_xc = v1_r` with no FFT work.
+#[derive(Debug, Clone)]
+pub struct XcGridResult {
+    /// Exchange-correlation energy density ε_xc(r) (eV per electron).
+    pub exc_r: Vec<f64>,
+    /// V_xc contribution `∂(ρ·ε_xc)/∂ρ` on the FFT grid (eV).
+    pub v1_r: Vec<f64>,
+    /// GGA-only contribution: `h(r) = 2 · (∂(ρ·ε_xc)/∂σ) · ∇ρ(r)` (3-vector
+    /// per grid point). The caller feeds this into `∇·h` to complete the
+    /// semilocal V_xc. `None` for LDA.
+    pub v2_r: Option<Vec<[f64; 3]>>,
+}
+
+/// Result of a spin-polarized XC evaluation on the FFT grid.
+///
+/// Mirrors [`XcGridResult`] but with per-channel V_xc^σ grids. See QE's
+/// `gcxc_spin` driver (`qe-7.5/XClib/qe_drivers_gga.f90`) for the two-h
+/// shape this maps to.
+#[derive(Debug, Clone)]
+pub struct XcSpinGridResult {
+    /// Shared energy density ε_xc(r) on the FFT grid (eV).
+    pub exc_r: Vec<f64>,
+    /// V_xc contribution for the ↑ channel: `∂(ρ·ε_xc)/∂ρ↑` (eV).
+    pub v1_up_r: Vec<f64>,
+    /// V_xc contribution for the ↓ channel.
+    pub v1_down_r: Vec<f64>,
+    /// GGA-only per-channel `h_↑(r)`. `None` for LDA.
+    pub v2_up_r: Option<Vec<[f64; 3]>>,
+    /// GGA-only per-channel `h_↓(r)`. `None` for LDA.
+    pub v2_down_r: Option<Vec<[f64; 3]>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,5 +720,146 @@ mod tests {
         // r_s < 1 Bohr requires ρ > 3/(4π) e/Bohr³ ≈ 0.239 e/Bohr³ ≈ 1.61 e/ų
         let xc_high = lda_xc(2.0);
         assert!(xc_high.exc < 0.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // XcEvaluator (GGAP Phase A) dispatcher tests.
+    //
+    // These pin the contract that the enum stays *data-driven* — variants
+    // name functionals, dispatch is a `match`, no trait objects, no closures.
+    // The LDA path must produce bit-for-bit the same arrays as the pre-Phase-A
+    // direct-`lda_xc_grid` call site; any drift here would be a regression
+    // against every QE-validated LDA integration test.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn xc_evaluator_from_settings_maps_variants_correctly() {
+        assert_eq!(
+            XcEvaluator::from_settings(XcFunctional::Pz).unwrap(),
+            XcEvaluator::Pz,
+        );
+        assert_eq!(
+            XcEvaluator::from_settings(XcFunctional::Pbe).unwrap(),
+            XcEvaluator::Pbe,
+        );
+
+        // Hybrids fail fast at construction time with the same NotImplemented
+        // shape XCNI previously raised from run_scf.
+        let err = XcEvaluator::from_settings(XcFunctional::Pbe0).unwrap_err();
+        match err {
+            PwdftError::NotImplemented { what } => assert_eq!(what, "pbe0"),
+            other => panic!("expected NotImplemented, got {other:?}"),
+        }
+        let err = XcEvaluator::from_settings(XcFunctional::Hse06).unwrap_err();
+        match err {
+            PwdftError::NotImplemented { what } => assert_eq!(what, "hse06"),
+            other => panic!("expected NotImplemented, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn xc_evaluator_needs_gradient_flags() {
+        assert!(!XcEvaluator::Pz.needs_gradient(), "LDA must not need ∇ρ");
+        assert!(XcEvaluator::Pbe.needs_gradient(), "PBE needs ∇ρ");
+    }
+
+    #[test]
+    fn xc_evaluator_pz_eval_matches_direct_lda_grid() {
+        // Densities spanning both PZ regimes (rs >= 1 and rs < 1) with the
+        // same shape the SCF driver produces after add_core_density.
+        let rho_r: Vec<f64> = (1..=2000).map(|i| 0.001 + (i as f64) * 0.0005).collect();
+        let (direct_exc, direct_v1) = lda_xc_grid(&rho_r);
+
+        let eval = XcEvaluator::Pz;
+        let result = eval.eval(&rho_r, None).expect("PZ path must not error");
+
+        assert_eq!(result.exc_r.len(), direct_exc.len());
+        assert_eq!(result.v1_r.len(), direct_v1.len());
+        assert!(
+            result.v2_r.is_none(),
+            "LDA must leave v2_r absent so the semilocal assembly short-circuits"
+        );
+
+        // Bit-for-bit: `eval` is a simple pass-through on `Pz`, so nothing
+        // above the tolerance of `lda_xc_grid`'s own determinism is allowed.
+        for (i, (&direct, &routed)) in direct_exc.iter().zip(result.exc_r.iter()).enumerate() {
+            assert!(
+                (direct - routed).abs() < 1e-15,
+                "ε_xc mismatch at {i}: direct={direct}, eval={routed}"
+            );
+        }
+        for (i, (&direct, &routed)) in direct_v1.iter().zip(result.v1_r.iter()).enumerate() {
+            assert!(
+                (direct - routed).abs() < 1e-15,
+                "v1_r mismatch at {i}: direct={direct}, eval={routed}"
+            );
+        }
+    }
+
+    #[test]
+    fn xc_evaluator_pz_eval_ignores_gradient_argument() {
+        // Regression pin: the LDA path must not observe rho_grad_r. If a
+        // future refactor accidentally threads ∇ρ into the LDA branch, the
+        // result should be indistinguishable from passing None.
+        let rho_r: Vec<f64> = (1..=256).map(|i| 0.01 + (i as f64) * 0.001).collect();
+        let fake_grad: Vec<[f64; 3]> = rho_r.iter().map(|&r| [r * 0.5, -r, 2.0 * r]).collect();
+
+        let no_grad = XcEvaluator::Pz.eval(&rho_r, None).unwrap();
+        let with_grad = XcEvaluator::Pz.eval(&rho_r, Some(&fake_grad)).unwrap();
+
+        for (i, (&a, &b)) in no_grad.exc_r.iter().zip(with_grad.exc_r.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-15,
+                "LDA eval must be ∇ρ-invariant at {i}: {a} vs {b}"
+            );
+        }
+        for (i, (&a, &b)) in no_grad.v1_r.iter().zip(with_grad.v1_r.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-15,
+                "LDA v1_r must be ∇ρ-invariant at {i}: {a} vs {b}"
+            );
+        }
+    }
+
+    #[test]
+    fn xc_evaluator_pz_eval_spin_matches_direct_lda_spin_grid() {
+        let n = 1024;
+        let rho_up: Vec<f64> = (1..=n).map(|i| 0.01 + (i as f64) * 0.001).collect();
+        let rho_down: Vec<f64> = (1..=n).map(|i| 0.005 + (i as f64) * 0.0007).collect();
+
+        let (direct_exc, direct_up, direct_down) = lda_xc_spin_grid(&rho_up, &rho_down);
+        let result = XcEvaluator::Pz
+            .eval_spin(&rho_up, &rho_down, None, None)
+            .expect("PZ spin path must not error");
+
+        assert!(result.v2_up_r.is_none() && result.v2_down_r.is_none());
+        for (i, (&d, &r)) in direct_exc.iter().zip(result.exc_r.iter()).enumerate() {
+            assert!((d - r).abs() < 1e-15, "ε_xc spin mismatch at {i}");
+        }
+        for (i, (&d, &r)) in direct_up.iter().zip(result.v1_up_r.iter()).enumerate() {
+            assert!((d - r).abs() < 1e-15, "v1_up mismatch at {i}");
+        }
+        for (i, (&d, &r)) in direct_down.iter().zip(result.v1_down_r.iter()).enumerate() {
+            assert!((d - r).abs() < 1e-15, "v1_down mismatch at {i}");
+        }
+    }
+
+    #[test]
+    fn xc_evaluator_pbe_eval_returns_not_implemented() {
+        let rho_r = vec![0.1; 32];
+        let err = XcEvaluator::Pbe
+            .eval(&rho_r, None)
+            .expect_err("PBE eval must be NotImplemented in Phase A");
+        match err {
+            PwdftError::NotImplemented { what } => assert_eq!(what, "pbe"),
+            other => panic!("expected NotImplemented, got {other:?}"),
+        }
+
+        // Same shape on the spin path.
+        let rho_down = vec![0.05; 32];
+        let err = XcEvaluator::Pbe
+            .eval_spin(&rho_r, &rho_down, None, None)
+            .expect_err("PBE spin eval must be NotImplemented in Phase A");
+        assert!(matches!(err, PwdftError::NotImplemented { .. }));
     }
 }

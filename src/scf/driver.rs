@@ -19,9 +19,11 @@ use crate::{
     eigensolver::{EigenResult, EigensolverKind, dense, iterative},
     error::{PwdftError, Result},
     kpoints::KPoint,
-    potential::xc,
+    potential::xc::XcEvaluator,
     pseudopotential::PseudopotentialData,
 };
+#[cfg(feature = "gpu")]
+use crate::potential::xc::XcGridResult;
 
 use super::energy::{
     EnergyComponents, add_core_density, assemble_v_eff, band_energy, density_diff,
@@ -93,6 +95,30 @@ pub(super) fn compute_occupations(
         .collect()
 }
 
+/// Evaluate the non-spin XC functional, preferring the GPU fast path for LDA.
+///
+/// GGAP Phase A wiring: the GPU kernel in `gpu::GpuAccelerator::lda_xc` is
+/// LDA-specific (`src/gpu/shaders/lda_xc.wgsl`). When the active functional
+/// is `XcEvaluator::Pz` and a GPU is available, we keep the direct f32
+/// kernel call — bit-identical to pre-Phase-A output on that code path.
+/// For any other functional, we fall through to the CPU evaluator so the
+/// dispatch stays a single `match` on the data enum (no hidden GPU-only
+/// override). Phase E adds a GPU PBE shader; this helper is the seam where
+/// that branch slots in.
+#[cfg(feature = "gpu")]
+fn eval_xc_with_gpu(
+    xc_evaluator: &XcEvaluator,
+    rho_r: &[f64],
+    rho_grad_r: Option<&[[f64; 3]]>,
+    gpu: Option<&crate::gpu::GpuAccelerator>,
+) -> Result<XcGridResult> {
+    if let (XcEvaluator::Pz, Some(gpu)) = (xc_evaluator, gpu) {
+        let (exc_r, v1_r) = gpu.lda_xc(rho_r);
+        return Ok(XcGridResult { exc_r, v1_r, v2_r: None });
+    }
+    xc_evaluator.eval(rho_r, rho_grad_r)
+}
+
 pub(super) fn scf_progress_bar(max_iter: usize) -> indicatif::ProgressBar {
     let pb = indicatif::ProgressBar::new(max_iter as u64);
     pb.set_style(
@@ -109,6 +135,8 @@ pub(super) fn scf_progress_bar(max_iter: usize) -> indicatif::ProgressBar {
 /// Run the non-spin-polarized (nspin=1) SCF loop.
 ///
 /// Precondition: `params.nspin == 1` (caller dispatches on nspin).
+/// `xc_evaluator` is pre-constructed by `run_scf` and held by value here;
+/// the driver dispatches XC kernels through it on each iteration.
 pub(crate) fn run_scf_unpolarized(
     crystal: &Crystal,
     basis: &BasisSet,
@@ -116,6 +144,7 @@ pub(crate) fn run_scf_unpolarized(
     pseudopotentials: &[&PseudopotentialData],
     params: &ScfParams,
     symmetry: &crate::symmetry::SymmetryInfo,
+    xc_evaluator: XcEvaluator,
 ) -> Result<ScfResult> {
     let mut ctx = context::ScfContext::new(
         crystal, basis, kpoints, pseudopotentials, params, symmetry,
@@ -174,17 +203,30 @@ pub(crate) fn run_scf_unpolarized(
         #[cfg(not(feature = "gpu"))]
         let v_h_fft = hartree_on_fft_grid(&rho_g, &ctx.g_squared);
 
-        // 2. XC potential: compute in real space, FFT to G-space
-        // NLCC: add core density to valence density for XC evaluation
+        // 2. XC potential: compute in real space, FFT to G-space.
+        // NLCC: add core density to valence density for XC evaluation.
+        //
+        // GGAP Phase A: route LDA through `xc_evaluator.eval` so the
+        // dispatcher is the single entry point for every functional. The
+        // GPU fast path stays wired to the `Pz` variant via a direct
+        // `gpu.lda_xc` call — same numbers as pre-Phase-A — because the
+        // GPU kernel is LDA-specific. Once Phase E adds a GPU PBE shader
+        // this branch extends; the CPU side of the enum carries the shape.
         let rho_for_xc = add_core_density(&rho_r, &ctx.rho_core_r);
         #[cfg(feature = "gpu")]
-        let (exc_r_in, vxc_r) = if let Some(ref gpu) = gpu {
-            gpu.lda_xc(&rho_for_xc)
-        } else {
-            xc::lda_xc_grid(&rho_for_xc)
-        };
+        let xc_in = eval_xc_with_gpu(
+            &xc_evaluator, &rho_for_xc, None, gpu.as_ref(),
+        )?;
         #[cfg(not(feature = "gpu"))]
-        let (exc_r_in, vxc_r) = xc::lda_xc_grid(&rho_for_xc);
+        let xc_in = xc_evaluator.eval(&rho_for_xc, None)?;
+        let exc_r_in = xc_in.exc_r;
+        let vxc_r = xc_in.v1_r;
+        // v2_r stays None for LDA — Phase B wires it into the semilocal
+        // divergence assembly. No change in behaviour in Phase A.
+        debug_assert!(
+            xc_in.v2_r.is_none(),
+            "GGAP Phase A: LDA eval must produce v2_r = None"
+        );
 
         let vxc_g = real_to_g_space(&vxc_r, &mut ctx.grid.fft);
 
@@ -263,7 +305,13 @@ pub(crate) fn run_scf_unpolarized(
         density_r_to_g(&mut ctx.grid.fft, &rho_r_new, &mut rho_g_new);
 
         let rho_new_for_xc = add_core_density(&rho_r_new, &ctx.rho_core_r);
-        let (exc_r, vxc_r_energy) = xc::lda_xc_grid(&rho_new_for_xc);
+        // Recompute XC from the OUTPUT density for the Kohn-Sham total
+        // energy (see SPXC/VGC5 rationale in `scf::energy`). Routed through
+        // the same evaluator as the input-density path so a future PBE
+        // swap cannot leave one site on LDA.
+        let xc_out = xc_evaluator.eval(&rho_new_for_xc, None)?;
+        let exc_r = xc_out.exc_r;
+        let vxc_r_energy = xc_out.v1_r;
 
         let e_band = band_energy(&eigenvalues_all, &occupations, &ctx.kpt_weights);
 
