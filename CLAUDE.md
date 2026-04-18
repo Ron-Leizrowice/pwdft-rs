@@ -119,12 +119,16 @@ Multiple agents share this machine. The machine lock exists for **benchmark inte
 # Check lock state:
 .claude/bin/machine-lock status
 
-# Acquire before cargo commands:
+# Acquire before cargo commands (from inside your worktree — scope is recorded):
 .claude/bin/machine-lock acquire "Core Engineer" "cargo test"
 cargo test
 .claude/bin/machine-lock release
 
-# Or use the one-liner (acquire + run + release):
+# Block until the lock is free (default 10 min, configurable):
+.claude/bin/machine-lock acquire --wait --timeout=900 "Core Engineer" "long bench"
+
+# One-liner (acquire --wait + run + release). `run` uses --wait internally,
+# so two concurrent run calls serialize instead of racing:
 .claude/bin/machine-lock run "Core Engineer" "cargo test" -- cargo test
 
 # QE runs use the same lock — wrap the whole mpirun invocation:
@@ -132,10 +136,28 @@ cargo test
   gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in si.in
 ```
 
-- **Always check/acquire before any cargo or QE command.** If blocked, wait and retry — do not force-remove another agent's lock.
-- **Release promptly.** Don't hold the lock while reading code or writing proposals.
-- **Stale locks** (>30 min old) are auto-cleared on next acquire.
-- Lock state: `.claude/locks/machine.lock` (gitignored).
+- **The lock is worktree-scoped (MLFX 2026-04-18).** `acquire` records your
+  worktree root; the Bash PreToolUse hook compares every cargo command's cwd
+  against that root. An agent running `cargo test` from a different worktree
+  (or from the main checkout) while the lock is held is denied, with a
+  message pointing at the owning worktree. Acquire from your worktree once
+  at session start, run all cargo/QE commands from that same worktree.
+- **Acquire is atomic.** `machine-lock` uses `mkdir` (POSIX-atomic) to claim
+  the lock directory — two racing acquires cannot both win.
+- **Staleness is PID-based first.** The acquirer's shell PID is recorded;
+  a lock is only stale if that PID is dead (`kill -0` returns non-zero).
+  A secondary 3-hour time cap protects against PID reuse on torn-down
+  worktrees. This means long benches no longer get stolen at 30 min.
+- **Always check/acquire before any cargo or QE command.** If blocked, wait
+  (pass `--wait`) or retry — do not force-remove another agent's lock.
+- **Release promptly.** Don't hold the lock while reading code or writing
+  proposals. `trap 'machine-lock release' EXIT` at session start is a good
+  pattern for multi-command sessions.
+- Lock state: `.claude/locks/machine.lock.d/` (directory, gitignored). The
+  lock records `agent`, `desc`, `ts`, `pid`, and `worktree`. Pre-MLFX flat
+  files at `.claude/locks/machine.lock` are auto-cleared on next acquire.
+- Shell-test suite: `.claude/bin/tests/machine-lock.test.sh` (17 cases).
+  Run whenever touching the lock scripts.
 
 ## Conventions
 
