@@ -538,8 +538,8 @@ fn test_mgo_rocksalt_vs_qe() {
 ///
 /// Post-NCFX measured residual against QE (pre-PCFX, pre-MP-shift fix):
 ///   pwdft-rs E_xc = −392.5675 eV   (pin in `tests/vgc5_per_component_si.rs`)
-///   QE        E_xc = −28.904_021_34 Ry = −393.227 eV
-///   Δ_xc     = +0.66 eV  (down from −48.85 eV pre-NCFX — 74× reduction)
+///   QE        E_xc = −28.904_021_34 Ry = −393.259 eV
+///   Δ_xc     = +0.692 eV  (down from −48.85 eV pre-NCFX — 71× reduction)
 ///
 /// We pin the residual |Δ_xc| ≤ 1.0 eV. The 1 eV ceiling is chosen so
 /// that any regression that restores the pre-NCFX bug (which produced
