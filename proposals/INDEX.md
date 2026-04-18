@@ -98,6 +98,8 @@ _No active entries (WFRX Technique 1 landed as PR #99; Technique 2 gated on ITEV
 | HRFK | Harris-Foulkes Energy |
 | SDED | Deduplicate Settings Enums |
 | BROY | Broyden Mixing (core algorithm; adaptive beta deferred) |
+| PRPL | Periodic Pulay mixing (BROY Step 4; landed as PR #39 2026-04-18) |
+| VGCMP | V_local(G) + KB Projector Cross-Check vs QE 7.5 (Phases 1–4; root cause moved to NCFX/NLCC chain, heavy-atom follow-up tracked in VGCH) |
 | ERRH | Error Handling Cleanup |
 | VERF | V_local erf Coulomb Subtraction (landed as QE convention; regression test only) |
 | SPXC | Fix Spin-Polarized E_xc Density Consistency (|HF-KS| 22→13 eV on Fe) |

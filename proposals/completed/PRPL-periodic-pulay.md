@@ -1,6 +1,6 @@
 ---
 id: PRPL
-status: active
+status: completed
 priority: medium
 complexity: small
 risk: low
