@@ -41,7 +41,7 @@ pub use g_space::symmetrize_density_g;
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
-    reason = "FFT grid dims <= ~512 per axis; fit in i32 trivially"
+    reason = "FFT grid dims are asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`; fit in i32 trivially"
 )]
 pub fn check_grid_compatibility(dims: [usize; 3], symmetry: &SymmetryInfo) -> bool {
     let ns = [dims[0] as i32, dims[1] as i32, dims[2] as i32];
@@ -74,7 +74,7 @@ pub fn compatible_grid_dims(min_dims: [usize; 3], symmetry: &SymmetryInfo) -> [u
         #[allow(
             clippy::cast_possible_truncation,
             clippy::cast_possible_wrap,
-            reason = "FFT grid dims <= ~512 per axis; fit in i32 trivially"
+            reason = "FFT grid dims are asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`; fit in i32 trivially"
         )]
         let candidate = [
             crate::fft::fft_grid_size(dims[0] as i32 / 2),

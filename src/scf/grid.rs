@@ -10,6 +10,21 @@ use crate::{
     fft::{fft_grid_size, FFT3D},
 };
 
+/// Hard upper bound on per-axis FFT grid dimensions.
+///
+/// Load-bearing for the `cast_possible_truncation` / `cast_possible_wrap`
+/// annotations in this module and in `src/symmetry/density/`: those sites
+/// rely on grid dims fitting in `i32` (for signed Miller arithmetic).
+/// 1024 is well above any realistic physical grid — pwdft-rs SCF runs
+/// typically use 18-200 per axis, a 100 Ry ecut on a tight cell reaches
+/// ~256, and the jump to 1024 leaves ~4× head-room before silent
+/// truncation would occur at `as i32`.
+///
+/// Enforced by [`FftGrid::new`] via a runtime `assert!` so violating
+/// inputs abort cleanly rather than producing wrap-around corruption
+/// in Miller-to-flat index arithmetic.
+pub(crate) const MAX_FFT_DIM: usize = 1024;
+
 /// FFT grid with index mapping utilities.
 pub(crate) struct FftGrid {
     pub dims: [usize; 3],
@@ -19,6 +34,13 @@ pub(crate) struct FftGrid {
 
 impl FftGrid {
     /// Create an FFT grid sized for the charge density.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any resulting FFT dimension exceeds [`MAX_FFT_DIM`].
+    /// This is the runtime enforcement of the `grid ≤ 1024` invariant
+    /// that the `cast_*` `#[allow]` sites in this module and in
+    /// `src/symmetry/density/` rely on for correctness.
     pub fn new(
         basis: &BasisSet,
         lattice: &crate::crystal::Lattice,
@@ -43,6 +65,15 @@ impl FftGrid {
                 fft_grid_size(scale * n_max[2]),
             ]
         };
+        assert!(
+            dims[0] <= MAX_FFT_DIM && dims[1] <= MAX_FFT_DIM && dims[2] <= MAX_FFT_DIM,
+            "FFT grid too large: {}x{}x{} exceeds MAX_FFT_DIM={} \
+             (per-axis bound is load-bearing for i32/u32 casts in grid / symmetry / GPU code)",
+            dims[0],
+            dims[1],
+            dims[2],
+            MAX_FFT_DIM,
+        );
         let fft = FFT3D::new(dims[0], dims[1], dims[2]);
         let recip = lattice.reciprocal();
         Self { dims, fft, recip }
@@ -72,12 +103,12 @@ impl FftGrid {
 /// Compute G-vector from FFT grid index (standalone, safe for parallel contexts).
 ///
 /// All `usize -> i32` casts below are safe because FFT grid dimensions
-/// are always well under i32::MAX (physical runs use <= 512^3 grids;
-/// i32::MAX is 2^31 ≈ 2.1e9).
+/// are bounded by [`MAX_FFT_DIM`] = 1024, asserted at [`FftGrid::new`]
+/// construction time; i32::MAX is 2^31 ≈ 2.1e9.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
-    reason = "FFT grid dims nx,ny,nz are small (<= ~512 per axis in practice); i1,i2,i3 < nx,ny,nz so all fit in i32. Miller indices n1,n2,n3 = i - n*bool are in [-n/2, n/2] and fit in i32 likewise."
+    reason = "FFT grid dims nx,ny,nz are asserted <= MAX_FFT_DIM (1024) at FftGrid::new; i1,i2,i3 < nx,ny,nz so all fit in i32. Miller indices n1,n2,n3 = i - n*bool are in [-n/2, n/2] and fit in i32 likewise."
 )]
 pub(crate) fn g_vector_at_dims(
     idx: usize,
@@ -103,7 +134,7 @@ pub(crate) fn g_vector_at_dims(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss,
-    reason = "dims are FFT grid sizes <= ~512 in practice; Miller indices n1,n2,n3 are bounded by ecut (fit in i32). The sum `(n % d) + d` is mathematically non-negative so `as usize` loses no sign."
+    reason = "dims are FFT grid sizes asserted <= MAX_FFT_DIM (1024) at FftGrid::new; Miller indices n1,n2,n3 are bounded by ecut (fit in i32). The sum `(n % d) + d` is mathematically non-negative so `as usize` loses no sign."
 )]
 pub(crate) fn miller_to_idx(dims: [usize; 3], n1: i32, n2: i32, n3: i32) -> usize {
     let i1 = ((n1 % dims[0] as i32) + dims[0] as i32) as usize % dims[0];

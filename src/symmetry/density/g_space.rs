@@ -45,7 +45,7 @@ fn transpose_rotation(r: &[[i32; 3]; 3]) -> [[i32; 3]; 3] {
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss,
-    reason = "FFT grid dim <= ~512 per axis in practice; fits in i32. `(ni % d) + d` is mathematically in [1, 2d-1] so `as usize` loses no sign."
+    reason = "FFT grid dim asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`; fits in i32. `(ni % d) + d` is mathematically in [1, 2d-1] so `as usize` loses no sign."
 )]
 fn miller_to_flat(dims: [usize; 3], n: [i32; 3]) -> usize {
     let wrap = |ni: i32, dim: usize| -> usize {
@@ -66,7 +66,7 @@ fn miller_to_flat(dims: [usize; 3], n: [i32; 3]) -> usize {
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
-    reason = "FFT grid dims nx,ny,nz are <= ~512 per axis in practice; i1,i2,i3 < nx,ny,nz so `as i32` is exact."
+    reason = "FFT grid dims nx,ny,nz are asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`; i1,i2,i3 < nx,ny,nz so `as i32` is exact."
 )]
 fn flat_to_miller(dims: [usize; 3], idx: usize) -> [i32; 3] {
     let [nx, ny, nz] = dims;

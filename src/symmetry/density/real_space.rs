@@ -14,7 +14,7 @@ use super::super::SymmetryInfo;
     clippy::cast_possible_wrap,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    reason = "n is an FFT grid dim (<= ~512); `n as i64` is exact. `frac * n` is bounded by any sane fractional coordinate (well under i64::MAX). `(idx % ni) + ni` is mathematically in [1, 2ni-1] so `as usize` loses no sign."
+    reason = "n is an FFT grid dim asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`; `n as i64` is exact. `frac * n` is bounded by any sane fractional coordinate (well under i64::MAX). `(idx % ni) + ni` is mathematically in [1, 2ni-1] so `as usize` loses no sign."
 )]
 fn frac_to_grid_idx(frac: f64, n: usize) -> usize {
     let ni = n as i64;

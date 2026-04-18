@@ -242,25 +242,32 @@ with `angular_momentum="-1"` and asserts the parse returns
 domain-specific error string; `NonlocalPotential::new` runtime assert
 remains as defense-in-depth.
 
-### FGRD — Explicit FFT-grid upper-bound check
+### ~~FGRD — Explicit FFT-grid upper-bound check~~ (landed)
 
-- **Role:** Core Engineer
-- **Priority:** low, **Complexity:** trivial, **Risk:** low
-- **Source:** CAST code review, PR #56 nit 3.
+~~- **Role:** Core Engineer~~
+~~- **Priority:** low, **Complexity:** trivial, **Risk:** low~~
+~~- **Source:** CAST code review, PR #56 nit 3.~~
 
-Several CAST `#[allow(clippy::cast_possible_truncation, reason = "...")]`
-sites in `src/scf/grid.rs:80,106` and `src/symmetry/density/*.rs` cite
-"FFT grid dims ≤ ~512 per axis in practice". In practice ecut + Miller
-truncation + grid-size heuristics keep us well under 512, but the
-bound is load-bearing on convention, not a checked invariant. Either
-(a) add an explicit `debug_assert!(nx <= 1024, "FFT grid too large")`
-at `FftGrid::new`, or (b) rewrite the reason strings to cite the `ecut`
-bound that actually limits them — whichever makes the invariant
-visible to a future grep.
+~~Several CAST `#[allow(clippy::cast_possible_truncation, reason = "...")]`~~
+~~sites in `src/scf/grid.rs:80,106` and `src/symmetry/density/*.rs` cite~~
+~~"FFT grid dims ≤ ~512 per axis in practice". In practice ecut + Miller~~
+~~truncation + grid-size heuristics keep us well under 512, but the~~
+~~bound is load-bearing on convention, not a checked invariant. Either~~
+~~(a) add an explicit `debug_assert!(nx <= 1024, "FFT grid too large")`~~
+~~at `FftGrid::new`, or (b) rewrite the reason strings to cite the `ecut`~~
+~~bound that actually limits them — whichever makes the invariant~~
+~~visible to a future grep.~~
 
-**Acceptance criterion:** every CAST `#[allow]` that currently cites
-"grid ≤ 512" either backs the bound with a `debug_assert!` or cites a
-first-principles bound (ecut ≤ X Ry → grid ≤ Y).
+~~**Acceptance criterion:** every CAST `#[allow]` that currently cites~~
+~~"grid ≤ 512" either backs the bound with a `debug_assert!` or cites a~~
+~~first-principles bound (ecut ≤ X Ry → grid ≤ Y).~~
+
+Landed via option A: added `pub(crate) const MAX_FFT_DIM: usize = 1024`
+and a runtime `assert!` at `src/scf/grid.rs::FftGrid::new`. The seven
+`#[allow(cast_*)]` reason strings in `src/scf/grid.rs` and
+`src/symmetry/density/{mod,real_space,g_space}.rs` now cite
+"asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`"
+instead of "<= ~512 per axis in practice". See PR FGRD.
 
 ### MXB1 — Verify Eyert §3.3 vs §5 threshold constants
 
