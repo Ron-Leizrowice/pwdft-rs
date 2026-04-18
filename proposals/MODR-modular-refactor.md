@@ -228,7 +228,7 @@ or move into `real_space.rs` — both become pub(super).
 
 Size: ~1 h. Risk: low (pure move + tiny facade).
 
-### Phase D — Split `pseudopotential/upf.rs` (prepares future PP formats)
+### ✅ Phase D (PR #47) — Split `pseudopotential/upf.rs` (prepares future PP formats)
 
 Turn `upf.rs` into a folder. `xml.rs` holds the three text helpers
 (`extract_attr`, `extract_data_block`, `extract_beta_angular_momentum`).

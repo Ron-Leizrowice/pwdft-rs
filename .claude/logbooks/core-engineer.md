@@ -2,6 +2,25 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-18 — MODR-D landed (PR #47)
+
+Branch `MODR-D/upf-folder` from `origin/main@9a5e9e9`. Pure-move: `src/pseudopotential/upf.rs` (467 LOC) → `src/pseudopotential/upf/{mod,xml,convert}.rs`. Git detected `upf.rs → upf/convert.rs` as 86% rename.
+
+**Split:**
+- `mod.rs` (25 LOC): `pub fn parse` facade → `convert::parse_body`.
+- `xml.rs` (66 LOC): `pub(super)` text helpers. No tests (every existing test goes through `parse()`).
+- `convert.rs` (395 LOC): `pub(super) parse_body` + every `#[test]` verbatim (NCFX/NLCC pins included).
+
+**Visibility tightenings:** three XML helpers went from file-private `fn` to `pub(super)` (same effective scope). `parse_body` new, `pub(super)`. Dropped now-dead `use crate::consts::{RY_TO_EV, BOHR_TO_ANG}` from `pseudopotential/mod.rs` — convert.rs imports them directly.
+
+**Tests:** 209 lib + all integration pass (CPU); 212 lib + all integration (GPU). Clippy clean both feature sets.
+
+**Surprises:** None. Only one cross-module call site (`pseudopotential/mod.rs:73 upf::parse(&content)`) was unchanged.
+
+**Flagged for follow-up (Technical Writer):** stale `src/pseudopotential/upf.rs` prose in `CLAUDE.md:64`, `docs/units.md:34`, `docs/nonlocal.md:88`, `LOGBOOK.md:92`, `src/scf/energy.rs:26`, `src/scf/mod.rs:52`.
+
+MODR: A ✅ (PR #46), D ✅ (PR #47). B (split `scf/mod.rs`) and C (symmetry/density folder) still open — concurrent agents likely in flight.
+
 ## 2026-04-18 — MODR-A landed (PR #46)
 
 Branch `MODR-A/split-mixing` from `origin/main@eb54d69`. Pure-move refactor: `src/scf/mixing.rs` (971 LOC) → `src/scf/mixing/{mod,anderson,broyden,kerker,linalg}.rs`. `AndersonMixer` + `PeriodicPulayMixer` co-located in `anderson.rs` (periodic wrapper pokes Anderson private fields).
