@@ -130,25 +130,37 @@ stays serial → bit-identical result, all 10 PCFX tests pass. On a
 scaling holds at 36³ (ops=48: 5.2×). Crossover below 18³·8 (1.1×),
 above which every tested config clears 2×. See PR SYMP.
 
-### FDLT — Expose `ScfResult.final_delta`
+### ~~FDLT — Expose `ScfResult.final_delta`~~ (landed)
 
-- **Role:** Core Engineer
-- **Priority:** low, **Complexity:** small, **Risk:** low
-- **Source:** CCMX code review, PR #43 nit 1 + TACC finding (silent
-  regression risk).
+~~- **Role:** Core Engineer~~
+~~- **Priority:** low, **Complexity:** small, **Risk:** low~~
+~~- **Source:** CCMX code review, PR #43 nit 1 + TACC finding (silent~~
+~~  regression risk).~~
 
-Add `pub final_delta: f64` (the last Δρ the SCF saw before convergence
-or `max_iter`) to `ScfResult` in `src/scf/mod.rs`. Compute it in both
-`src/scf/driver.rs` and `src/scf/driver_spin.rs` — both already track
-the value in `last_delta` locally but discard it. Update
-`tests/spin_polarization.rs::test_ccmx_fe_free_magnetization_converges`
-to assert `result.final_delta < 1e-2` — the specific pathology the
-CCMX limit cycle produced was Δρ pinned at 0.254, not iter-count, so
-this is the pathology-specific regression guard the review flagged.
+~~Add `pub final_delta: f64` (the last Δρ the SCF saw before convergence~~
+~~or `max_iter`) to `ScfResult` in `src/scf/mod.rs`. Compute it in both~~
+~~`src/scf/driver.rs` and `src/scf/driver_spin.rs` — both already track~~
+~~the value in `last_delta` locally but discard it. Update~~
+~~`tests/spin_polarization.rs::test_ccmx_fe_free_magnetization_converges`~~
+~~to assert `result.final_delta < 1e-2` — the specific pathology the~~
+~~CCMX limit cycle produced was Δρ pinned at 0.254, not iter-count, so~~
+~~this is the pathology-specific regression guard the review flagged.~~
 
-**Acceptance criterion:** `ScfResult` has the new field; CCMX Fe test
-asserts on it; at least one more convergence test (Si Γ-only or the
-BROY regression) also asserts a reasonable `final_delta` upper bound.
+~~**Acceptance criterion:** `ScfResult` has the new field; CCMX Fe test~~
+~~asserts on it; at least one more convergence test (Si Γ-only or the~~
+~~BROY regression) also asserts a reasonable `final_delta` upper bound.~~
+
+**Landed:** `ScfResult.final_delta: f64` added to
+`src/scf/mod.rs::ScfResult` and populated from `last_delta` in both
+`scf::driver::run_scf_unpolarized` and `scf::driver_spin::run_scf_spin`.
+Semantics: on success, the converged Δρ; on `max_iter` exhaustion the
+driver returns `PwdftError::ConvergenceFailure { delta, .. }` so the
+field only ever carries a converged value. Two regression guards
+landed: CCMX Fe test asserts `final_delta < 1e-2` (pathology pin —
+pre-CCMX Δρ was pinned at ≈0.254; post-CCMX observed 5.7e-4 at iter
+14); BROY `test_broyden_vs_plain_scf_convergence` asserts both plain
+and Broyden Si SCF runs produce `final_delta < 1e-4` (two orders below
+the `conv_threshold=1e-6`, empirical ≤ 1e-7). See PR FDLT.
 
 ### ~~VNMT — m-isolation defense-in-depth test for V_NL~~ (landed)
 

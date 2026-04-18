@@ -183,6 +183,21 @@ pub struct ScfResult {
     pub eigenvalues: Vec<Vec<f64>>,
     pub fermi_energy: f64,
     pub n_iterations: usize,
+    /// The last Δρ the SCF saw.
+    ///
+    /// On successful convergence, this is the value that fell below
+    /// `ScfParams::conv_threshold`. For nspin=2, it is the per-channel
+    /// max(‖Δρ↑‖, ‖Δρ↓‖) used by the CCMX-era per-spin convergence
+    /// criterion (see `scf::driver_spin`).
+    ///
+    /// On `max_iter` exhaustion the driver returns
+    /// `PwdftError::ConvergenceFailure { delta, .. }` instead of an
+    /// `ScfResult`, so this field only ever carries a converged value.
+    /// It is exposed primarily for pathology-specific regression guards
+    /// — e.g. CCMX's Fe limit cycle pinned Δρ at ~0.254, a failure mode
+    /// the `n_iterations < max_iter` guard alone cannot catch if
+    /// `max_iter` is relaxed.
+    pub final_delta: f64,
     pub rho_g: Vec<Complex64>,
     /// Total magnetization M = ∫(ρ_up - ρ_down)dr in μB (Bohr magnetons).
     /// Zero for nspin=1.

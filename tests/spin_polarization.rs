@@ -324,6 +324,20 @@ fn test_ccmx_fe_free_magnetization_converges() {
         "CCMX Fe: hit max_iter={} — convergence still slow",
         params.max_iter,
     );
+
+    // FDLT: pathology-specific regression guard. The pre-CCMX failure
+    // mode was Δρ *pinned* at ≈0.254 for the entire budget (not an
+    // iteration-count issue — relax max_iter and it still wouldn't
+    // converge). Asserting `final_delta < 1e-2` catches the exact
+    // limit-cycle pathology independent of how `conv_threshold` or
+    // `max_iter` evolve. Post-CCMX observed: Δρ ≈ 5.7e-4 at iter 14.
+    assert!(
+        result.final_delta < 1e-2,
+        "CCMX Fe Δρ-pathology regression guard: final Δρ = {:.3e} \
+         (pre-CCMX pinned at ≈0.254). Coupled-channel (ρ_total, m) \
+         mixer may have regressed to independent (ρ↑, ρ↓) Anderson.",
+        result.final_delta,
+    );
 }
 
 #[test]
