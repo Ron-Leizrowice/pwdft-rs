@@ -5,7 +5,6 @@
 //! where S_atom(G) = exp(-i G · τ_atom) is the structure factor
 //! and v_local(|G|) is the spherical Bessel transform of the radial local potential.
 
-use nalgebra::Vector3;
 use num_complex::Complex64;
 
 use crate::{
@@ -76,47 +75,6 @@ impl LocalPotential {
     pub fn as_slice(&self) -> &[Complex64] {
         &self.v_g
     }
-}
-
-/// Compute the V_local contribution to the Hamiltonian matrix element H_{G,G'}.
-///
-/// V_ps(G-G') for the Hamiltonian. This requires looking up V_local at the
-/// difference G-G', which is itself a G-vector in the basis (or not, if
-/// it exceeds the cutoff).
-///
-/// For a proper implementation, we need V_local defined on the FFT grid
-/// (which is denser than the wavefunction basis). For now, we use the
-/// direct structure-factor approach.
-///
-/// # Errors
-/// Returns `PwdftError::MissingPseudopotential` if any atom lacks a loaded PP.
-pub fn v_local_matrix_element(
-    crystal: &Crystal,
-    pseudopotentials: &[&PseudopotentialData],
-    g_i: &Vector3<f64>,
-    g_j: &Vector3<f64>,
-) -> Result<Complex64> {
-    let g_diff = g_i - g_j;
-    let g_norm = g_diff.norm();
-    let omega = crystal.lattice.volume();
-
-    let mut result = Complex64::new(0.0, 0.0);
-
-    for atom in &crystal.atoms {
-        let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials)
-            .ok_or_else(|| PwdftError::MissingPseudopotential(
-                format!("Z={} not found in loaded pseudopotentials", atom.z)
-            ))?;
-
-        let tau = atom.cart_position(&crystal.lattice);
-        let phase = -g_diff.dot(&tau);
-        let sf = Complex64::cis(phase);
-        let v_form = pp.v_local_of_g(g_norm, omega);
-
-        result += sf * v_form;
-    }
-
-    Ok(result)
 }
 
 #[cfg(test)]

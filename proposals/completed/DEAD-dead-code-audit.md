@@ -1,12 +1,30 @@
 ---
 id: DEAD
-status: active
+status: completed
 priority: medium
 complexity: small
 risk: low
 depends_on: []
 blocks: []
 ---
+
+> **2026-04-18 — Status.** This audit is archived. The three highest-value
+> findings (items 1, 2, 6 under "Recommended cleanups") landed as a single PR
+> titled `DEAD: remove hartree.rs, v_local_matrix_element, unused BufferPool
+> buffers`:
+> - Deleted `src/potential/hartree.rs` (`hartree_potential`, `hartree_energy`)
+>   + its `pub mod hartree;` declaration.
+> - Deleted `src/potential/local.rs::v_local_matrix_element`.
+> - Removed `BufferPool::{real_bufs, real_staging}` and the
+>   `#[allow(dead_code)]` attribute in `src/gpu/mod.rs`.
+>
+> The remaining recommendations (items 3, 4, 5, 7, 8 — `fcc_high_sym_points`,
+> `compatible_grid_dims`/`check_grid_compatibility`, visibility tightenings
+> on `XcPoint`/`XcSpinPoint`/`InitialDensityConfig`/`DensityGrid<'a>`, the
+> `local_g0_shift` helper, `pub(crate)` on `DEFAULT_TOL` / `DEFAULT_MAX_RESTARTS`)
+> are deferred to future small PRs. Item 9 (`#[deprecated] symmetrize_density`)
+> is documented as intentional keep. Item 10 (HD5I doc pointer) is owned by
+> Technical Writer when HD5I unblocks.
 
 # DEAD: Dead-Code Audit (post MODR / NCFX / PCFX / ITEV)
 
