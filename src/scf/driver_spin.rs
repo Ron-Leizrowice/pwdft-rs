@@ -77,7 +77,7 @@ use super::energy::{
     kinetic_expectation, local_pp_energy_grid, nonlocal_expectation, real_to_g_space,
     total_energy, with_g0_shift, xc_energy_bare,
 };
-use super::potentials::build_hamiltonian_with_v_eff;
+use super::potentials::fill_hamiltonian_with_v_eff;
 use super::report::{log_components, log_convergence_summary, log_iteration, IterationReport, SpinIterationFields};
 use super::{ScfParams, ScfResult, context, density, initial_density, mixing, smearing};
 
@@ -245,37 +245,52 @@ pub(crate) fn run_scf_spin(
         //    two channels are independent so the two caches are never
         //    mutated concurrently here (the write-back below is sequential
         //    after `join`).
+        // ALOC F-5: split `h_scratch` into disjoint per-spin halves —
+        // `h_scratch[..n_k]` for ↑, `h_scratch[n_k..]` for ↓. The two
+        // `rayon::join` closures then each own an exclusive mutable
+        // slice, so `par_iter_mut()` inside each closure is free of
+        // aliasing concerns. `fill_hamiltonian_with_v_eff` fully
+        // overwrites every entry, so no zero-fill is required between
+        // SCF iterations.
         let eigensolver_kind = ctx.params.eigensolver;
+        let n_bands = ctx.params.n_bands;
         let prev_wfn_up_ref = prev_wfn_up.as_ref();
         let prev_wfn_down_ref = prev_wfn_down.as_ref();
+        let basis = ctx.basis;
+        let grid_dims = ctx.grid.dims;
+        let crystal = ctx.crystal;
+        let kpoints = ctx.kpoints;
+        let vnl_cache = &ctx.vnl_cache;
+        let n_k = kpoints.len();
+        let (h_scratch_up, h_scratch_down) = ctx.h_scratch.split_at_mut(n_k);
         let (kpoint_results_up, kpoint_results_down): (Result<Vec<_>>, Result<Vec<_>>) = rayon::join(
             || {
-                ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
-                    let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_up, ctx.grid.dims);
-                    ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
-                    let v_prev_k = prev_wfn_up_ref.map(|wfns| &wfns[ik]);
-                    diagonalize_dispatch(
-                        &h,
-                        ctx.params.n_bands,
-                        eigensolver_kind,
-                        wfrx_enabled,
-                        v_prev_k,
-                    )
-                }).collect()
+                h_scratch_up
+                    .par_iter_mut()
+                    .zip(kpoints.par_iter())
+                    .zip(vnl_cache.par_iter())
+                    .enumerate()
+                    .map(|(ik, ((h, kp), vnl))| {
+                        fill_hamiltonian_with_v_eff(h, basis, &kp.k, &v_eff_up, grid_dims);
+                        vnl.add_to_hamiltonian(h, crystal, basis, &kp.k);
+                        let v_prev_k = prev_wfn_up_ref.map(|wfns| &wfns[ik]);
+                        diagonalize_dispatch(h, n_bands, eigensolver_kind, wfrx_enabled, v_prev_k)
+                    })
+                    .collect()
             },
             || {
-                ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
-                    let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_down, ctx.grid.dims);
-                    ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
-                    let v_prev_k = prev_wfn_down_ref.map(|wfns| &wfns[ik]);
-                    diagonalize_dispatch(
-                        &h,
-                        ctx.params.n_bands,
-                        eigensolver_kind,
-                        wfrx_enabled,
-                        v_prev_k,
-                    )
-                }).collect()
+                h_scratch_down
+                    .par_iter_mut()
+                    .zip(kpoints.par_iter())
+                    .zip(vnl_cache.par_iter())
+                    .enumerate()
+                    .map(|(ik, ((h, kp), vnl))| {
+                        fill_hamiltonian_with_v_eff(h, basis, &kp.k, &v_eff_down, grid_dims);
+                        vnl.add_to_hamiltonian(h, crystal, basis, &kp.k);
+                        let v_prev_k = prev_wfn_down_ref.map(|wfns| &wfns[ik]);
+                        diagonalize_dispatch(h, n_bands, eigensolver_kind, wfrx_enabled, v_prev_k)
+                    })
+                    .collect()
             },
         );
         let kpoint_results_up = kpoint_results_up?;

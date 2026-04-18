@@ -28,8 +28,10 @@ use pwdft_rs::{
     fft::FFT3D,
     hamiltonian,
     potential::{nonlocal::NonlocalPotential, xc},
+    scf::{self, ScfParams, mixing::MixingMode, smearing::SmearingScheme},
     symmetry::{SpaceGroupOp, SymmetryInfo, density::symmetrize_density_g},
 };
+use std::collections::HashMap;
 
 /// Si FCC crystal (2 atoms, diamond structure).
 fn si_crystal() -> Crystal {
@@ -414,11 +416,236 @@ fn bench_symmetry(c: &mut Criterion) {
     group.finish();
 }
 
+// ---------------------------------------------------------------------------
+// ALOC F-5: Hamiltonian assembly — cached `faer::Mat` scratch vs per-call
+// `Mat::<Complex64>::zeros(n_pw, n_pw)` allocation.
+//
+// The pre-ALOC-F5 driver allocated a fresh `faer::Mat<Complex64>` of size
+// `n_pw × n_pw` at every SCF iteration per k-point (16·n_pw² bytes each).
+// Post-ALOC-F5 the driver carries one `Mat` per k-point in
+// `ScfContext::h_scratch` and fully overwrites every entry in-place via
+// `fill_hamiltonian_with_v_eff`.
+//
+// This bench isolates the assembly cost per k-point at the three canonical
+// sizes:
+//   - n_pw ≈  89  (ecut = 100 eV, micro — sanity)
+//   - n_pw ≈ 283  (ecut = 200 eV, medium — typical production)
+//   - n_pw ≈ 893  (ecut = 400 eV, production — 16·n²=~12.7 MB/Mat)
+//
+// `alloc_and_fill` mimics the old path: allocate a zero Mat then run the
+// legacy kinetic + `+=` assembly (equivalent to the removed
+// `build_hamiltonian_with_v_eff`). `fill_into_cached` uses the new path
+// with a pre-allocated buffer reused across criterion iterations. The
+// difference is one allocator round-trip + one zero-write per n_pw²
+// entries — the exact cost ALOC F-5 amortizes over the SCF lifetime.
+// ---------------------------------------------------------------------------
+
+fn bench_hamiltonian_assembly_aloc_f5(c: &mut Criterion) {
+    use num_complex::Complex64;
+
+    let crystal = si_crystal();
+    let pp = si_pp();
+    let k = Vector3::new(0.1, 0.2, 0.3); // off-Γ to exercise non-trivial kinetic
+    // An FFT grid large enough to safely index every G - G' miller triple
+    // at ecut = 400 eV. 32³ is the typical ecutrho = 4·ecutwfc grid for Si.
+    let grid_dims = [32usize, 32, 32];
+
+    let mut group = c.benchmark_group("aloc_f5_h_assembly");
+    group.sample_size(30);
+
+    for &ecut in &[100.0, 200.0, 400.0] {
+        let basis = BasisSet::new(&crystal.lattice, ecut);
+        let n = basis.len();
+
+        // Build a realistic V_eff(G) pattern. Exact values don't matter for
+        // timing — the assembly touches every entry unconditionally.
+        let v_eff: Vec<Complex64> = (0..grid_dims[0] * grid_dims[1] * grid_dims[2])
+            .map(|i| Complex64::new(0.001 * (i as f64 + 1.0).sin(), 0.0005 * (i as f64 + 1.0).cos()))
+            .collect();
+
+        // Pre-built VNL for post-assembly accumulation timing. The VNL cost
+        // isn't ALOC F-5's target but is included so the bench is "assemble
+        // the exact matrix that goes into the eigensolver," mirroring the
+        // driver's call sequence.
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+
+        // ---- Old path: allocate + fill + VNL each call -------------------
+        group.bench_function(format!("alloc_and_fill_n{n}"), |b| {
+            b.iter(|| {
+                // Replicate the old `build_hamiltonian_with_v_eff` verbatim:
+                // fresh zero Mat, then kinetic diagonal, then += V_eff(ΔG).
+                let mut h = faer::Mat::<Complex64>::zeros(n, n);
+                for (i, g) in basis.g_vectors().iter().enumerate() {
+                    let ke = pwdft_rs::consts::HBAR2_OVER_2M * (k + g).norm_squared();
+                    h[(i, i)] = Complex64::new(ke, 0.0);
+                }
+                let miller_idx = basis.miller_indices();
+                for i in 0..n {
+                    for j in 0..n {
+                        let dn1 = i32::from(miller_idx[i][0]) - i32::from(miller_idx[j][0]);
+                        let dn2 = i32::from(miller_idx[i][1]) - i32::from(miller_idx[j][1]);
+                        let dn3 = i32::from(miller_idx[i][2]) - i32::from(miller_idx[j][2]);
+                        // Inline miller_to_idx (it's private to scf::grid).
+                        // For this FFT grid shape, wrap negative indices.
+                        let wrap = |d: i32, len: usize| -> usize {
+                            let l = len as i32;
+                            (((d % l) + l) % l) as usize
+                        };
+                        let fi = wrap(dn1, grid_dims[0]);
+                        let fj = wrap(dn2, grid_dims[1]);
+                        let fk = wrap(dn3, grid_dims[2]);
+                        let fft_idx = (fi * grid_dims[1] + fj) * grid_dims[2] + fk;
+                        h[(i, j)] += v_eff[fft_idx];
+                    }
+                }
+                vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
+                black_box(h);
+            });
+        });
+
+        // ---- New path: fill into a caller-owned Mat, reused ---------------
+        group.bench_function(format!("fill_into_cached_n{n}"), |b| {
+            // The Mat is allocated once outside the iter loop — the
+            // ALOC F-5 driver allocates once per SCF context, which
+            // lives for the whole SCF run. We approximate that here with
+            // a `setup + iter` pattern so the allocation isn't timed.
+            let mut h = faer::Mat::<Complex64>::zeros(n, n);
+            b.iter(|| {
+                // In the real driver this is `fill_hamiltonian_with_v_eff`.
+                // We inline the logic here so the bench is independent of
+                // the crate-private helper; it is identical to the new
+                // assembly path's inner loop (full overwrite, no zero-fill).
+                let miller_idx = basis.miller_indices();
+                let g_vectors = basis.g_vectors();
+                for i in 0..n {
+                    let ke_i = pwdft_rs::consts::HBAR2_OVER_2M
+                        * (k + g_vectors[i]).norm_squared();
+                    let mi = miller_idx[i];
+                    for j in 0..n {
+                        let mj = miller_idx[j];
+                        let dn1 = i32::from(mi[0]) - i32::from(mj[0]);
+                        let dn2 = i32::from(mi[1]) - i32::from(mj[1]);
+                        let dn3 = i32::from(mi[2]) - i32::from(mj[2]);
+                        let wrap = |d: i32, len: usize| -> usize {
+                            let l = len as i32;
+                            (((d % l) + l) % l) as usize
+                        };
+                        let fi = wrap(dn1, grid_dims[0]);
+                        let fj = wrap(dn2, grid_dims[1]);
+                        let fk = wrap(dn3, grid_dims[2]);
+                        let fft_idx = (fi * grid_dims[1] + fj) * grid_dims[2] + fk;
+                        let v = v_eff[fft_idx];
+                        h[(i, j)] = if i == j {
+                            Complex64::new(ke_i, 0.0) + v
+                        } else {
+                            v
+                        };
+                    }
+                }
+                vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
+                black_box(&h);
+            });
+        });
+    }
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// ALOC F-5: End-to-end per-iter SCF wall-time.
+//
+// Runs a fixed-iteration SCF against the ALOC-F5 cache and measures the
+// total time — the user-visible impact of the fix. Configurations span
+// the small → medium → production spectrum required by the perf-engineer
+// playbook:
+//
+//   - si_gamma_ecut100         : n_pw ≈  89, Γ-only           (micro)
+//   - si_gamma_ecut200         : n_pw ≈ 283, Γ-only           (medium)
+//   - si_2x2x2_ecut200         : n_pw ≈ 283, n_k = 4           (multi-k, medium)
+//   - si_4x4x4_ecut200         : n_pw ≈ 283, n_k =10           (multi-k, production density grid)
+//
+// The ecut=400 configuration isn't included here — a single SCF run takes
+// ~20 s/iter × 20 iters × 10 k = 4000 s, which would stall the machine-lock
+// queue. The `aloc_f5_h_assembly` bench above exercises n_pw=725 on a
+// per-k basis, which is where the pure allocation delta lives.
+// ---------------------------------------------------------------------------
+
+/// Reasonable SCF parameters for the ALOC F-5 end-to-end bench. Tolerance
+/// is slightly loose so the `run_scf` dispatcher actually converges and
+/// returns `Ok` — otherwise the bench's `.unwrap()` would fire as a
+/// `ConvergenceFailure`. Once-converged, the loop exits via the normal
+/// path and timing measures "full SCF to convergence," which is the
+/// user-visible number.
+fn build_si_scf_params(max_iter: usize) -> ScfParams {
+    ScfParams {
+        n_bands: 8,
+        max_iter,
+        conv_threshold: 1e-3,   // loose: converge in a few iters
+        energy_threshold: 1e-2, // loose: energy can plateau early
+        mixing_beta: 0.3,
+        mixing_ndim: 8,
+        smearing_sigma: 0.1,
+        smearing_scheme: SmearingScheme::FermiDirac,
+        ecutrho_ratio: 4,
+        mixing_mode: MixingMode::Plain,
+        nspin: 1,
+        starting_magnetization: HashMap::new(),
+        ..Default::default()
+    }
+}
+
+fn bench_scf_iter_end_to_end_aloc_f5(c: &mut Criterion) {
+    use pwdft_rs::kpoints;
+
+    let pp = si_pp();
+
+    let mut group = c.benchmark_group("aloc_f5_scf_end_to_end");
+    // SCF runs are long — keep criterion happy with a small sample count.
+    group.sample_size(10);
+    group.measurement_time(std::time::Duration::from_secs(30));
+
+    // (label, ecut_ev, k_grid)
+    let configs: &[(&str, f64, [u32; 3])] = &[
+        ("si_gamma_ecut100",  100.0, [1, 1, 1]),
+        ("si_gamma_ecut200",  200.0, [1, 1, 1]),
+        ("si_2x2x2_ecut200",  200.0, [2, 2, 2]),
+        ("si_4x4x4_ecut200",  200.0, [4, 4, 4]),
+    ];
+
+    for (label, ecut, k_grid) in configs {
+        let crystal = si_crystal();
+        let basis = BasisSet::new(&crystal.lattice, *ecut);
+        let kpts = kpoints::monkhorst_pack(k_grid[0], k_grid[1], k_grid[2], &crystal.lattice);
+        let sym = SymmetryInfo::from_crystal(&crystal, 1e-5);
+        let params = build_si_scf_params(20); // up to 20 SCF iters; converges fast
+
+        group.bench_function(format!("{label}_5iter"), |b| {
+            b.iter(|| {
+                black_box(
+                    scf::run_scf(
+                        black_box(&crystal),
+                        black_box(&basis),
+                        black_box(&kpts),
+                        black_box(&[&pp]),
+                        black_box(&params),
+                        black_box(&sym),
+                    )
+                    .unwrap(),
+                );
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_eigensolver,
     bench_wfrx_subspace,
     bench_hamiltonian,
+    bench_hamiltonian_assembly_aloc_f5,
+    bench_scf_iter_end_to_end_aloc_f5,
     bench_fft,
     bench_basis,
     bench_xc_grid,

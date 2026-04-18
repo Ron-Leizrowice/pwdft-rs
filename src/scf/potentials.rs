@@ -136,34 +136,69 @@ pub(crate) fn compute_core_density(
     rho_core_g.iter().map(|c| c.re).collect()
 }
 
-/// Build Hamiltonian matrix: kinetic + V_eff(G-G') from FFT grid.
-pub(crate) fn build_hamiltonian_with_v_eff(
+/// Assemble the kinetic + local part of the Kohn-Sham Hamiltonian at
+/// k-point `k`, fully overwriting a caller-supplied `faer::Mat`.
+///
+/// Every entry `(i, j)` is written exactly once:
+/// ```text
+///     H[i, j] = V_eff(G_i − G_j)                       (off-diagonal)
+///     H[i, i] = (ℏ²/2m) · |k + G_i|² + V_eff(0)        (diagonal)
+/// ```
+/// so `h` does **not** need to be pre-zeroed. This matters because the
+/// non-local KB term ([`crate::potential::nonlocal::NonlocalPotential::add_to_hamiltonian`])
+/// is layered on top via an accumulating `matmul(..., Accum::Add, ...)`:
+/// the contract is "fill first, then accumulate". `V_eff(0) == 0` by
+/// construction (`ScfContext::new` explicitly zeroes
+/// `v_local_fft[0]`), so folding `v_eff_fft[miller_to_idx(..., 0,0,0)]`
+/// into every diagonal is a no-op on that one G=0 entry.
+///
+/// `h` must already be sized `basis.len() × basis.len()`; the shape is
+/// checked with `debug_assert!`. Kept separate from the public
+/// `crate::hamiltonian::build_hamiltonian` (whose closure-typed `v_eff`
+/// is used by the free-electron band-structure path and does not share
+/// this tight inner loop).
+///
+/// **ALOC F-5 allocation contract.** This routine performs no heap
+/// allocations. The backing `faer::Mat` is owned by the caller —
+/// typically one slot per `(ispin, ik)` in `ScfContext::h_scratch` —
+/// so the SCF loop no longer allocates an `n_pw × n_pw`
+/// `Mat::<Complex64>` each iteration (84 MB of transient allocations
+/// per iter at `n_pw = 725`, `n_k = 10`, `nspin = 1`). Callers that
+/// want an owned matrix (free-electron band structure, tests) should
+/// combine this with `faer::Mat::<Complex64>::zeros(n, n)` inline.
+pub(crate) fn fill_hamiltonian_with_v_eff(
+    h: &mut faer::Mat<Complex64>,
     basis: &BasisSet,
     k: &Vector3<f64>,
     v_eff_fft: &[Complex64],
     grid_dims: [usize; 3],
-) -> faer::Mat<Complex64> {
+) {
     let n = basis.len();
-    let mut h = faer::Mat::<Complex64>::zeros(n, n);
-
-    for (i, g) in basis.g_vectors().iter().enumerate() {
-        let ke = HBAR2_OVER_2M * (k + g).norm_squared();
-        h[(i, i)] = Complex64::new(ke, 0.0);
-    }
+    debug_assert_eq!(h.nrows(), n, "fill_hamiltonian_with_v_eff: row count mismatch");
+    debug_assert_eq!(h.ncols(), n, "fill_hamiltonian_with_v_eff: col count mismatch");
 
     let miller_idx = basis.miller_indices();
+    let g_vectors = basis.g_vectors();
+
     for i in 0..n {
+        let ke_i = HBAR2_OVER_2M * (k + g_vectors[i]).norm_squared();
+        let mi = miller_idx[i];
         for j in 0..n {
+            let mj = miller_idx[j];
             // Miller entries are `i16` (TYPE-A). Widen to `i32` before
             // subtraction so differences cannot overflow even at the
             // i16 boundary; `miller_to_idx` takes `i32` natively.
-            let dn1 = i32::from(miller_idx[i][0]) - i32::from(miller_idx[j][0]);
-            let dn2 = i32::from(miller_idx[i][1]) - i32::from(miller_idx[j][1]);
-            let dn3 = i32::from(miller_idx[i][2]) - i32::from(miller_idx[j][2]);
+            let dn1 = i32::from(mi[0]) - i32::from(mj[0]);
+            let dn2 = i32::from(mi[1]) - i32::from(mj[1]);
+            let dn3 = i32::from(mi[2]) - i32::from(mj[2]);
             let fft_idx = miller_to_idx(grid_dims, dn1, dn2, dn3);
-            h[(i, j)] += v_eff_fft[fft_idx];
+            let v = v_eff_fft[fft_idx];
+            h[(i, j)] = if i == j {
+                Complex64::new(ke_i, 0.0) + v
+            } else {
+                v
+            };
         }
     }
-
-    h
 }
+
