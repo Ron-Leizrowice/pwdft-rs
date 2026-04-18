@@ -68,6 +68,8 @@ use crate::{
     pseudopotential::PseudopotentialData,
 };
 
+use crate::eigensolver::EigensolverKind;
+
 use super::driver::{compute_occupations, diagonalize_dispatch, scf_progress_bar};
 use super::energy::{
     EnergyComponents, add_core_density, assemble_v_eff, band_energy, density_diff,
@@ -188,6 +190,15 @@ pub(crate) fn run_scf_spin(
     let mut last_delta = f64::INFINITY;
     let pb = scf_progress_bar(ctx.params.max_iter);
 
+    // WFRX Phase-1 warm-start caches per spin channel. Each closure inside
+    // the `rayon::join` below needs its own &faer::Mat per k-point. We own
+    // separate `Vec<Mat>` buffers for up/down; the closures borrow them
+    // immutably, so there's no shared-mut aliasing between the channels.
+    let wfrx_enabled = ctx.params.wfrx_subspace
+        && matches!(ctx.params.eigensolver, EigensolverKind::Dense);
+    let mut prev_wfn_up: Option<Vec<faer::Mat<Complex64>>> = None;
+    let mut prev_wfn_down: Option<Vec<faer::Mat<Complex64>>> = None;
+
     // Precompute half core density (constant across iterations)
     let rho_core_half: Vec<f64> = ctx.rho_core_r.iter().map(|&c| c / 2.0).collect();
 
@@ -228,20 +239,42 @@ pub(crate) fn run_scf_spin(
         //    reference, and every captured field is `Sync` (plain data, `Arc`, or
         //    slice references), so both closures can execute in parallel without
         //    cloning. Errors propagate after the join.
+        //
+        //    WFRX: when warm-start is enabled, each closure reads its
+        //    channel-specific `prev_wfn_*` cache by shared reference; the
+        //    two channels are independent so the two caches are never
+        //    mutated concurrently here (the write-back below is sequential
+        //    after `join`).
         let eigensolver_kind = ctx.params.eigensolver;
+        let prev_wfn_up_ref = prev_wfn_up.as_ref();
+        let prev_wfn_down_ref = prev_wfn_down.as_ref();
         let (kpoint_results_up, kpoint_results_down): (Result<Vec<_>>, Result<Vec<_>>) = rayon::join(
             || {
                 ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
                     let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_up, ctx.grid.dims);
                     ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
-                    diagonalize_dispatch(&h, ctx.params.n_bands, eigensolver_kind)
+                    let v_prev_k = prev_wfn_up_ref.map(|wfns| &wfns[ik]);
+                    diagonalize_dispatch(
+                        &h,
+                        ctx.params.n_bands,
+                        eigensolver_kind,
+                        wfrx_enabled,
+                        v_prev_k,
+                    )
                 }).collect()
             },
             || {
                 ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
                     let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_down, ctx.grid.dims);
                     ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
-                    diagonalize_dispatch(&h, ctx.params.n_bands, eigensolver_kind)
+                    let v_prev_k = prev_wfn_down_ref.map(|wfns| &wfns[ik]);
+                    diagonalize_dispatch(
+                        &h,
+                        ctx.params.n_bands,
+                        eigensolver_kind,
+                        wfrx_enabled,
+                        v_prev_k,
+                    )
                 }).collect()
             },
         );
@@ -256,6 +289,15 @@ pub(crate) fn run_scf_spin(
 
         let wfn_up: Vec<_> = kpoint_results_up.into_iter().map(|r| r.eigenvectors).collect();
         let wfn_down: Vec<_> = kpoint_results_down.into_iter().map(|r| r.eigenvectors).collect();
+
+        // WFRX: cache both channels' eigenvectors for next iteration's
+        // warm-start. Each channel has its own history — a spin-up
+        // eigenvector is a bad guess for a spin-down orbital and vice
+        // versa under LSDA.
+        if wfrx_enabled {
+            prev_wfn_up = Some(wfn_up.clone());
+            prev_wfn_down = Some(wfn_down.clone());
+        }
 
         // 5. Fermi energy and occupations
         let (fermi_energy, occ_up, occ_down) = if let Some(tot_mag) = ctx.params.tot_magnetization {

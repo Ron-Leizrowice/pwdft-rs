@@ -150,6 +150,11 @@ pub struct ScfSettings {
     pub n_bands: Option<usize>,
     /// Eigensolver backend for per-k-point diagonalization.
     pub eigensolver: EigensolverType,
+    /// Enable WFRX Phase-1 subspace-diagonalization warm-start for the
+    /// dense eigensolver (opt-in; ignored when `eigensolver ==
+    /// iterative`). Default `false`. See
+    /// `proposals/WFRX-wavefunction-reuse.md`.
+    pub wfrx_subspace: bool,
 }
 
 impl Default for ScfSettings {
@@ -160,6 +165,7 @@ impl Default for ScfSettings {
             energy_threshold: 1e-5,
             n_bands: None,
             eigensolver: EigensolverType::default(),
+            wfrx_subspace: false,
         }
     }
 }
@@ -503,6 +509,7 @@ impl Settings {
             starting_magnetization: self.electrons.starting_magnetization.clone(),
             tot_magnetization: self.electrons.tot_magnetization,
             eigensolver: self.scf.eigensolver.into(),
+            wfrx_subspace: self.scf.wfrx_subspace,
             xc_functional: self.xc.functional,
         }
     }

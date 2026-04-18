@@ -93,6 +93,88 @@ fn bench_eigensolver(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// WFRX Phase-1: subspace warm-start vs full dense diagonalization
+//
+// Measures the per-k-point eigensolve cost with a realistic "converging SCF"
+// scenario: H_new is a perturbed version of H_old where the warm-start is
+// H_old's eigenvectors. This matches what `diagonalize_subspace` actually
+// sees in an SCF loop — the residual gate should pass once the subspace is
+// close enough to invariant.
+//
+// Configurations span the small-molecule → production spectrum per the
+// Performance Engineer playbook: n≈89 (ecut=100, sanity), n≈283 (ecut=200,
+// typical), n≈893 (ecut=400, production-scale).
+// ---------------------------------------------------------------------------
+
+fn bench_wfrx_subspace(c: &mut Criterion) {
+    let crystal = si_crystal();
+    let pp = si_pp();
+    let k = Vector3::zeros();
+    let n_bands = 8;
+
+    let mut group = c.benchmark_group("wfrx_subspace");
+    group.sample_size(20);
+
+    for &ecut in &[100.0, 200.0, 400.0] {
+        let basis = BasisSet::new(&crystal.lattice, ecut);
+        let n = basis.len();
+
+        // Build a realistic H_old.
+        let mut h_old = hamiltonian::build_kinetic(&basis, &k);
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+        vnl.add_to_hamiltonian(&mut h_old, &crystal, &basis, &k);
+
+        // Warm-start subspace: the exact lowest-n_bands eigenvectors of H_old.
+        // This is the "best case" for WFRX — what the SCF sees at late
+        // iterations once the density is very close to self-consistent.
+        let v_prev = dense::diagonalize_lowest(&h_old, n_bands).unwrap().eigenvectors;
+
+        // H_new: tiny Hermitian perturbation to H_old. 1e-4 on the diagonal
+        // mimics a V_H / V_xc update in a converging SCF; the subspace
+        // should still be close enough that the residual gate passes.
+        let mut h_new = h_old.clone();
+        for j in 0..n {
+            h_new[(j, j)] += num_complex::Complex64::new(
+                1e-4 * ((j as f64 + 1.0) * 0.123_4).sin(),
+                0.0,
+            );
+        }
+
+        group.bench_function(format!("full_dense_n{n}"), |b| {
+            b.iter(|| {
+                black_box(dense::diagonalize_lowest(black_box(&h_new), n_bands).unwrap());
+            });
+        });
+
+        group.bench_function(format!("subspace_warm_n{n}"), |b| {
+            b.iter(|| {
+                black_box(
+                    dense::diagonalize_subspace(
+                        black_box(&h_new),
+                        n_bands,
+                        Some(black_box(&v_prev)),
+                    )
+                    .unwrap(),
+                );
+            });
+        });
+
+        // Cold-start: first-iteration path (v_prev = None). Must match
+        // the full-dense baseline (no degradation) — this is the
+        // correctness side of the WFRX contract.
+        group.bench_function(format!("subspace_cold_n{n}"), |b| {
+            b.iter(|| {
+                black_box(
+                    dense::diagonalize_subspace(black_box(&h_new), n_bands, None).unwrap(),
+                );
+            });
+        });
+    }
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
 // Hamiltonian construction (kinetic + V_NL)
 // ---------------------------------------------------------------------------
 
@@ -335,6 +417,7 @@ fn bench_symmetry(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_eigensolver,
+    bench_wfrx_subspace,
     bench_hamiltonian,
     bench_fft,
     bench_basis,
