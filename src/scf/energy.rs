@@ -315,7 +315,7 @@ pub(crate) fn real_to_g_space(data_r: &[f64], fft: &mut FFT3D) -> Vec<Complex64>
 /// All three arrays live on the FFT grid with consistent index ordering;
 /// all entries in eV. Returned `V_eff(G)` is the reciprocal-space
 /// representation folded back onto the wavefunction basis by
-/// [`crate::scf::potentials::build_hamiltonian_with_v_eff`]
+/// [`crate::scf::potentials::fill_hamiltonian_with_v_eff`]
 /// to form the Hamiltonian matrix elements
 /// `⟨G | V_eff | G'⟩ = V_eff(G − G')`. The non-local KB term is added
 /// separately; see [`crate::potential::nonlocal::NonlocalPotential::add_to_hamiltonian`].

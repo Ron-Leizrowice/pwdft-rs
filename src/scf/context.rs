@@ -21,11 +21,18 @@ use super::grid::FftGrid;
 use super::potentials;
 use super::ScfParams;
 
-/// Immutable context for an SCF calculation.
+/// Per-calculation SCF context: immutable physics inputs plus
+/// preallocated scratch that is reused across SCF iterations.
 ///
-/// Created once before the SCF loop. Methods compute potentials,
-/// build Hamiltonians, and evaluate energies without owning
-/// the mutable density state.
+/// Created once before the SCF loop. Most fields are genuinely
+/// immutable (crystal, basis, precomputed V_local, VNL cache, Ewald
+/// energy, etc.). [`Self::h_scratch`] is the one exception: it is a
+/// caller-owned per-(spin, k-point) `faer::Mat` scratch buffer that
+/// the driver mutably borrows each iteration to assemble the
+/// kinetic + V_eff + V_NL Hamiltonian in place (ALOC F-5). Callers
+/// hold `&mut ScfContext` through the SCF loop, which lets them
+/// `par_iter_mut()` over `h_scratch` while immutably borrowing the
+/// rest of the context.
 pub(crate) struct ScfContext<'a> {
     pub crystal: &'a Crystal,
     pub basis: &'a BasisSet,
@@ -48,6 +55,20 @@ pub(crate) struct ScfContext<'a> {
     pub n_grid: usize,
     pub kpt_weights: Vec<f64>,
     pub spin_factor: f64,
+
+    /// Per-(spin, k-point) scratch Hamiltonian matrices, length
+    /// `params.nspin * kpoints.len()`. Indexed as
+    /// `ispin * n_k + ik` (row-major `[spin][k]`). Each entry is an
+    /// `n_pw × n_pw` `faer::Mat<Complex64>` that the driver
+    /// **fully overwrites** (via
+    /// [`super::potentials::fill_hamiltonian_with_v_eff`]) before
+    /// the non-local KB term accumulates on top, so no zero-fill
+    /// is needed between iterations. Resident footprint:
+    /// `nspin · n_k · n_pw² · 16` bytes (84 MB for nspin=1,
+    /// n_k=10, n_pw=725 — the production Si 4×4×4 @ ecut=400 point).
+    /// Replaces the per-iteration `Mat::zeros(n, n)` that previously
+    /// burned the same 84 MB as transient allocations every SCF step.
+    pub h_scratch: Vec<faer::Mat<Complex64>>,
 }
 
 impl<'a> ScfContext<'a> {
@@ -121,6 +142,23 @@ impl<'a> ScfContext<'a> {
         let kpt_weights: Vec<f64> = kpoints.iter().map(|kp| kp.weight).collect();
         let spin_factor = 2.0 / params.nspin as f64;
 
+        // Allocate per-(spin, k-point) Hamiltonian scratch (ALOC F-5).
+        // One n_pw × n_pw Complex64 Mat per spin channel per k-point,
+        // zero-initialised; `fill_hamiltonian_with_v_eff` fully
+        // overwrites every entry before use, so the zero-init is just
+        // the default for new faer matrices (no per-iteration clear).
+        let n_pw = basis.len();
+        let nspin = params.nspin;
+        let n_k = kpoints.len();
+        let h_scratch: Vec<faer::Mat<Complex64>> = (0..nspin * n_k)
+            .map(|_| faer::Mat::<Complex64>::zeros(n_pw, n_pw))
+            .collect();
+        let mb_resident = (nspin * n_k * n_pw * n_pw * 16) as f64 / (1024.0 * 1024.0);
+        info!(
+            "Hamiltonian scratch: {} × {n_pw}² Mat<Complex64> ({mb_resident:.1} MB resident)",
+            nspin * n_k,
+        );
+
         Ok(Self {
             crystal,
             basis,
@@ -141,6 +179,7 @@ impl<'a> ScfContext<'a> {
             n_grid,
             kpt_weights,
             spin_factor,
+            h_scratch,
         })
     }
 }

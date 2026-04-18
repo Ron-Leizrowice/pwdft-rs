@@ -61,7 +61,7 @@ use super::energy::{
     kinetic_expectation, local_pp_energy_grid, nonlocal_expectation,
     real_to_g_space, total_energy, with_g0_shift, xc_energy_bare, xc_energy_corrected,
 };
-use super::potentials::build_hamiltonian_with_v_eff;
+use super::potentials::fill_hamiltonian_with_v_eff;
 use super::report::{log_components, log_convergence_summary, log_entropy, log_iteration, IterationReport};
 use super::{ScfParams, ScfResult, context, density, initial_density, mixing, smearing};
 
@@ -327,18 +327,39 @@ pub(crate) fn run_scf_unpolarized(
         //    seed. `prev_wavefunctions.as_ref()` lives outside the
         //    closure; each closure indexes by `ik` to get its own
         //    `&faer::Mat`, so there is no shared mutable aliasing.
+        //
+        //    ALOC F-5: `h_scratch` is an owned per-k scratch `Mat`
+        //    slot on the context. `fill_hamiltonian_with_v_eff` fully
+        //    overwrites every entry — no zero-fill needed — and then
+        //    VNL accumulates via `matmul(Accum::Add, ...)` on top. The
+        //    `par_iter_mut()` over `h_scratch[..n_k]` gives each rayon
+        //    closure its own `&mut Mat` without any `Vec::split_at_mut`
+        //    or cell trickery; the remaining `ctx.*` fields are
+        //    captured through disjoint immutable borrows.
         let eigensolver_kind = ctx.params.eigensolver;
+        let n_bands = ctx.params.n_bands;
         let prev_wfn_ref = prev_wavefunctions.as_ref();
-        let kpoint_results: Result<Vec<_>> = ctx.kpoints
-            .par_iter()
+        let basis = ctx.basis;
+        let grid_dims = ctx.grid.dims;
+        let crystal = ctx.crystal;
+        let kpoints = ctx.kpoints;
+        let vnl_cache = &ctx.vnl_cache;
+        let n_k = kpoints.len();
+        // Non-spin SCF uses only the first n_k slots (the spin driver
+        // owns its own disjoint slice for the ↓ channel).
+        let h_scratch_up = &mut ctx.h_scratch[..n_k];
+        let kpoint_results: Result<Vec<_>> = h_scratch_up
+            .par_iter_mut()
+            .zip(kpoints.par_iter())
+            .zip(vnl_cache.par_iter())
             .enumerate()
-            .map(|(ik, kp)| {
-                let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_fft, ctx.grid.dims);
-                ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
+            .map(|(ik, ((h, kp), vnl))| {
+                fill_hamiltonian_with_v_eff(h, basis, &kp.k, &v_eff_fft, grid_dims);
+                vnl.add_to_hamiltonian(h, crystal, basis, &kp.k);
                 let v_prev_k = prev_wfn_ref.map(|wfns| &wfns[ik]);
                 diagonalize_dispatch(
-                    &h,
-                    ctx.params.n_bands,
+                    h,
+                    n_bands,
                     eigensolver_kind,
                     wfrx_enabled,
                     v_prev_k,
