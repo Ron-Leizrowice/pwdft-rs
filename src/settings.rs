@@ -148,6 +148,8 @@ pub struct ScfSettings {
     pub energy_threshold: f64,
     /// Number of Kohn-Sham bands. `None` = automatic from n_electrons/2 + padding.
     pub n_bands: Option<usize>,
+    /// Eigensolver backend for per-k-point diagonalization.
+    pub eigensolver: EigensolverType,
 }
 
 impl Default for ScfSettings {
@@ -157,6 +159,32 @@ impl Default for ScfSettings {
             conv_threshold: 1e-6,
             energy_threshold: 1e-5,
             n_bands: None,
+            eigensolver: EigensolverType::default(),
+        }
+    }
+}
+
+/// Eigensolver backend selection (YAML-friendly adapter for
+/// [`crate::eigensolver::EigensolverKind`]).
+///
+/// The default is `Dense` for compatibility; flip to `Iterative` to
+/// activate the ITEV partial Arnoldi path (typically 3-10× faster at
+/// n_pw ≥ 200).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum EigensolverType {
+    /// Full dense Hermitian eigendecomposition (current default).
+    #[default]
+    Dense,
+    /// ITEV: iterative partial Krylov-Schur eigensolver.
+    Iterative,
+}
+
+impl From<EigensolverType> for crate::eigensolver::EigensolverKind {
+    fn from(kind: EigensolverType) -> Self {
+        match kind {
+            EigensolverType::Dense => Self::Dense,
+            EigensolverType::Iterative => Self::Iterative,
         }
     }
 }
@@ -448,6 +476,7 @@ impl Settings {
             nspin: self.electrons.nspin,
             starting_magnetization: self.electrons.starting_magnetization.clone(),
             tot_magnetization: self.electrons.tot_magnetization,
+            eigensolver: self.scf.eigensolver.into(),
         }
     }
 

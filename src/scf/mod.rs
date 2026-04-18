@@ -15,7 +15,7 @@ use rayon::prelude::*;
 use crate::{
     basis::BasisSet,
     crystal::Crystal,
-    eigensolver::dense,
+    eigensolver::{EigenResult, EigensolverKind, dense, iterative},
     error::{PwdftError, Result},
     kpoints::KPoint,
     potential::xc,
@@ -81,6 +81,14 @@ pub struct ScfParams {
     /// Fixed total magnetization (n_up - n_down) in electrons.
     /// If None, magnetization is determined self-consistently.
     pub tot_magnetization: Option<f64>,
+    /// Eigensolver backend for per-k-point diagonalization.
+    ///
+    /// `Dense` (default): full `faer::SelfAdjointEigen` O(n³).
+    /// `Iterative` (ITEV): faer's implicitly-restarted Arnoldi partial solver,
+    /// computing only the lowest `n_bands` eigenpairs. Falls back to dense
+    /// when the problem is too small for Arnoldi to be profitable or when
+    /// iteration fails to converge in the restart budget.
+    pub eigensolver: crate::eigensolver::EigensolverKind,
 }
 
 impl ScfParams {
@@ -141,6 +149,7 @@ impl Default for ScfParams {
             nspin: 1,
             starting_magnetization: std::collections::HashMap::new(),
             tot_magnetization: None,
+            eigensolver: crate::eigensolver::EigensolverKind::default(),
         }
     }
 }
@@ -234,6 +243,48 @@ pub struct ScfResult {
     pub nspin: usize,
     /// Per-term energy breakdown (VGC5 diagnostic).
     pub components: EnergyComponents,
+}
+
+/// Dispatch a per-k-point diagonalization to the configured backend.
+///
+/// Transparent fallback: if the iterative solver fails to converge
+/// `n_bands` eigenpairs within its restart budget, this helper emits a
+/// `log::warn!` and retries on the dense path. The SCF loop never sees a
+/// convergence-style failure from ITEV — only a genuine panic would
+/// escape, which faer's upstream tests exercise heavily.
+fn diagonalize_dispatch(
+    h: &faer::Mat<Complex64>,
+    n_bands: usize,
+    kind: EigensolverKind,
+) -> Result<EigenResult> {
+    match kind {
+        EigensolverKind::Dense => dense::diagonalize_lowest(h, n_bands),
+        EigensolverKind::Iterative => {
+            match iterative::diagonalize_lowest_iterative(
+                h,
+                n_bands,
+                None,
+                iterative::DEFAULT_TOL,
+            ) {
+                Ok(r) => Ok(r),
+                Err(e) => {
+                    // Fires per-k-point per-SCF-iteration on persistent failure;
+                    // warn once, downgrade the rest to debug to avoid log spam.
+                    static ITERATIVE_FALLBACK_WARNED: std::sync::atomic::AtomicBool =
+                        std::sync::atomic::AtomicBool::new(false);
+                    if !ITERATIVE_FALLBACK_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        log::warn!(
+                            "iterative eigensolver failed ({e}); falling back to dense \
+                             (subsequent failures on this run will be logged at debug level)"
+                        );
+                    } else {
+                        log::debug!("iterative eigensolver failed ({e}); falling back to dense");
+                    }
+                    dense::diagonalize_lowest(h, n_bands)
+                }
+            }
+        }
+    }
 }
 
 /// Compute occupation numbers for all k-points from eigenvalues and Fermi energy.
@@ -375,13 +426,14 @@ pub fn run_scf(
         let v_eff_fft = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_g);
 
         // 4. Solve eigenvalue problem at each k-point (parallel over k-points)
+        let eigensolver_kind = ctx.params.eigensolver;
         let kpoint_results: Result<Vec<_>> = ctx.kpoints
             .par_iter()
             .enumerate()
             .map(|(ik, kp)| {
                 let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_fft, ctx.grid.dims);
                 ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
-                dense::diagonalize_lowest(&h, ctx.params.n_bands)
+                diagonalize_dispatch(&h, ctx.params.n_bands, eigensolver_kind)
             })
             .collect();
         let kpoint_results = kpoint_results?;
@@ -721,19 +773,20 @@ fn run_scf_spin(
         //    reference, and every captured field is `Sync` (plain data, `Arc`, or
         //    slice references), so both closures can execute in parallel without
         //    cloning. Errors propagate after the join.
+        let eigensolver_kind = ctx.params.eigensolver;
         let (kpoint_results_up, kpoint_results_down): (Result<Vec<_>>, Result<Vec<_>>) = rayon::join(
             || {
                 ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
                     let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_up, ctx.grid.dims);
                     ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
-                    dense::diagonalize_lowest(&h, ctx.params.n_bands)
+                    diagonalize_dispatch(&h, ctx.params.n_bands, eigensolver_kind)
                 }).collect()
             },
             || {
                 ctx.kpoints.par_iter().enumerate().map(|(ik, kp)| {
                     let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_down, ctx.grid.dims);
                     ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
-                    dense::diagonalize_lowest(&h, ctx.params.n_bands)
+                    diagonalize_dispatch(&h, ctx.params.n_bands, eigensolver_kind)
                 }).collect()
             },
         );
