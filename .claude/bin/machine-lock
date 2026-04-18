@@ -1,81 +1,237 @@
 #!/usr/bin/env bash
-# machine-lock — coordinate shared-machine access between agents
+# machine-lock — coordinate shared-machine access between agents (MLFX v2)
 #
 # Usage:
-#   machine-lock acquire <agent-role> "<description>"  # grab exclusive lock
-#   machine-lock release                               # release lock
-#   machine-lock status                                # check lock state
-#   machine-lock run <agent-role> "<description>" -- <command...>  # acquire, run, release
+#   machine-lock acquire [--wait] [--timeout=SECONDS] <agent-role> "<description>"
+#   machine-lock release
+#   machine-lock status
+#   machine-lock run <agent-role> "<description>" -- <command...>
 #
-# Lock files are stored in .claude/locks/machine.lock
-# Stale locks (>30 min old) are auto-cleared on next acquire.
+# Lock directory: .claude/locks/machine.lock.d/
+# Atomic primitive: `mkdir` (POSIX-atomic across macOS & Linux, no deps).
+#
+# MLFX hardening (2026-04-18):
+#   1. Owner check — records the acquiring agent's *worktree root*. The hook
+#      compares each cargo invocation's cwd against this root and denies
+#      cross-worktree access. Bug found after WFRX #99: the old hook allowed
+#      any cargo command when a lockfile existed, letting other agents corrupt
+#      benchmark measurements at 500-1500% CPU.
+#   2. Atomic acquire — `mkdir` replaces the read-then-write TOCTOU in the
+#      previous script; two concurrent acquires cannot both succeed.
+#   3. --wait mode — poll (2s) with optional --timeout (default 600s). The
+#      internal `run` path uses --wait so concurrent `run` calls serialize
+#      instead of the second returning rc=1.
+#   4. PID liveness — staleness is driven by `kill -0` first; the time-based
+#      cap (3h) is only a safety net for torn-down worktrees where the PID
+#      may have been reused by an unrelated process.
 
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$(cd "$(dirname "$0")/../.." && pwd)")"
-LOCKDIR="$REPO_ROOT/.claude/locks"
-LOCKFILE="$LOCKDIR/machine.lock"
-STALE_SECONDS=1800  # 30 minutes
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "$0")/../.." && pwd))"
+# The lock directory must be shared across worktrees, so anchor it at the
+# *main* repository (git worktree common-dir's parent), not whichever checkout
+# happens to be calling us. `git rev-parse --git-common-dir` returns the
+# main repo's .git directory; its parent is the main checkout.
+COMMON_GIT_DIR="$(git rev-parse --git-common-dir 2>/dev/null || echo "")"
+if [ -n "$COMMON_GIT_DIR" ]; then
+    # Resolve to absolute path (rev-parse returns a path relative to cwd in
+    # some git versions).
+    COMMON_GIT_DIR="$(cd "$COMMON_GIT_DIR" && pwd)"
+    MAIN_REPO="$(dirname "$COMMON_GIT_DIR")"
+else
+    MAIN_REPO="$REPO_ROOT"
+fi
+LOCKDIR="$MAIN_REPO/.claude/locks"
+LOCKBASE="$LOCKDIR/machine.lock"     # legacy file path (old format)
+LOCKD="$LOCKBASE.d"                   # new atomic directory
+HARD_TIMEOUT_SECONDS=10800            # 3 hours — safety cap even if PID looks alive
+WAIT_POLL_SECONDS=2
+WAIT_DEFAULT_TIMEOUT=600              # 10 min
 
+# ---------- helpers ----------
+
+_now() { date +%s; }
+
+# Populate LOCK_* variables from the lock directory. Returns 0 if a valid
+# new-format lock exists, 1 otherwise. Legacy flat-file locks are NOT read
+# here; callers should detect them via `_has_legacy_lock` and treat as stale.
 _read_lock() {
-    # Lock format: 3 lines — agent, description, epoch timestamp
-    if [ ! -f "$LOCKFILE" ]; then return 1; fi
-    LOCK_AGENT=$(sed -n '1p' "$LOCKFILE")
-    LOCK_DESC=$(sed -n '2p' "$LOCKFILE")
-    LOCK_TS=$(sed -n '3p' "$LOCKFILE")
-    LOCK_AGE=$(( $(date +%s) - LOCK_TS ))
+    if [ ! -d "$LOCKD" ]; then return 1; fi
+    LOCK_AGENT=$(cat "$LOCKD/agent" 2>/dev/null || echo "")
+    LOCK_DESC=$(cat "$LOCKD/desc" 2>/dev/null || echo "")
+    LOCK_TS=$(cat "$LOCKD/ts" 2>/dev/null || echo "0")
+    LOCK_PID=$(cat "$LOCKD/pid" 2>/dev/null || echo "0")
+    LOCK_WORKTREE=$(cat "$LOCKD/worktree" 2>/dev/null || echo "")
+    # Guard against partial writes (e.g. crash mid-metadata-write).
+    if [ -z "$LOCK_AGENT" ] || [ "$LOCK_TS" = "0" ] || [ -z "$LOCK_WORKTREE" ]; then
+        return 1
+    fi
+    LOCK_AGE=$(( $(_now) - LOCK_TS ))
 }
 
-_is_stale() {
-    [ "$LOCK_AGE" -ge "$STALE_SECONDS" ]
+_has_legacy_lock() {
+    # Old format was a plain file at LOCKBASE with 3 lines.
+    [ -f "$LOCKBASE" ]
 }
+
+_pid_alive() {
+    local pid="$1"
+    [ -n "$pid" ] && [ "$pid" != "0" ] && kill -0 "$pid" 2>/dev/null
+}
+
+# Is the lock currently stale? Uses PID liveness first, hard-timeout as a net.
+# Requires _read_lock to have been called successfully.
+_is_stale() {
+    if ! _pid_alive "$LOCK_PID"; then
+        return 0
+    fi
+    # PID is alive; only consider stale if we've blown past the hard cap.
+    [ "$LOCK_AGE" -ge "$HARD_TIMEOUT_SECONDS" ]
+}
+
+_clear_lock() {
+    # Remove both the new-format directory and any legacy flat file.
+    rm -rf "$LOCKD" 2>/dev/null || true
+    rm -f "$LOCKBASE" 2>/dev/null || true
+}
+
+# Attempt an atomic claim of the lock directory. On success, write metadata
+# and return 0. On failure, return 1 without side effects.
+_try_claim() {
+    local agent="$1" desc="$2"
+    local worktree
+    worktree="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    # mkdir is atomic: either creates the directory and returns 0, or fails
+    # because it already exists.
+    if ! mkdir "$LOCKD" 2>/dev/null; then
+        return 1
+    fi
+    # Record the *parent* shell's PID (i.e. the agent's long-running shell),
+    # not $$ (which is this machine-lock script and exits immediately after
+    # acquire). PID liveness staleness keys off this, so the lock stays
+    # "alive" for as long as the invoking agent's shell is still running.
+    # Callers can override via ML_OWNER_PID if they need different scoping
+    # (e.g. daemons that want to tie the lock to a specific worker pid).
+    local owner_pid="${ML_OWNER_PID:-$PPID}"
+    printf '%s\n' "$agent"     > "$LOCKD/agent"
+    printf '%s\n' "$desc"      > "$LOCKD/desc"
+    printf '%s\n' "$(_now)"    > "$LOCKD/ts"
+    printf '%s\n' "$owner_pid" > "$LOCKD/pid"
+    printf '%s\n' "$worktree"  > "$LOCKD/worktree"
+    return 0
+}
+
+# ---------- commands ----------
 
 cmd_acquire() {
-    local agent="${1:?Usage: machine-lock acquire <agent-role> <description>}"
+    # Parse optional flags: --wait, --timeout=N
+    local wait_mode=0
+    local timeout="$WAIT_DEFAULT_TIMEOUT"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --wait)          wait_mode=1; shift ;;
+            --timeout=*)     timeout="${1#--timeout=}"; shift ;;
+            --timeout)       timeout="${2:?--timeout requires SECONDS}"; shift 2 ;;
+            --)              shift; break ;;
+            -*)              echo "Unknown flag: $1" >&2; return 2 ;;
+            *)               break ;;
+        esac
+    done
+
+    local agent="${1:?Usage: machine-lock acquire [--wait] [--timeout=N] <agent-role> <description>}"
     local desc="${2:-unspecified}"
 
     mkdir -p "$LOCKDIR"
 
-    if _read_lock; then
-        if _is_stale; then
-            echo "Clearing stale lock (was: $LOCK_AGENT, ${LOCK_AGE}s ago)"
-            rm -f "$LOCKFILE"
-        else
-            echo "BLOCKED — machine locked by $LOCK_AGENT (${LOCK_AGE}s ago)"
-            echo "  Reason: $LOCK_DESC"
-            echo "  Wait for release, or force with: machine-lock release"
-            return 1
-        fi
+    # Clear any legacy flat-file lock up front — it's unrecoverable (no PID,
+    # no worktree), so treat as stale and warn.
+    if _has_legacy_lock; then
+        echo "Clearing legacy-format lock (pre-MLFX)" >&2
+        rm -f "$LOCKBASE"
     fi
 
-    printf '%s\n' "$agent" "$desc" "$(date +%s)" > "$LOCKFILE"
-    echo "ACQUIRED by $agent — $desc"
+    local deadline=$(( $(_now) + timeout ))
+    while :; do
+        # Try to stake a claim.
+        if _try_claim "$agent" "$desc"; then
+            echo "ACQUIRED by $agent — $desc"
+            return 0
+        fi
+
+        # Someone beat us (or a stale lock is in the way). Inspect.
+        if _read_lock; then
+            if _is_stale; then
+                local reason="PID $LOCK_PID dead"
+                if _pid_alive "$LOCK_PID"; then
+                    reason="held ${LOCK_AGE}s, exceeds ${HARD_TIMEOUT_SECONDS}s cap"
+                fi
+                echo "Clearing stale lock (was: $LOCK_AGENT, $reason)" >&2
+                _clear_lock
+                continue
+            fi
+        else
+            # Partial / corrupt — blow it away and retry.
+            echo "Clearing corrupt lock directory" >&2
+            _clear_lock
+            continue
+        fi
+
+        if [ "$wait_mode" = "0" ]; then
+            echo "BLOCKED — machine locked by $LOCK_AGENT (${LOCK_AGE}s ago, pid $LOCK_PID)"
+            echo "  Reason:   $LOCK_DESC"
+            echo "  Worktree: $LOCK_WORKTREE"
+            echo "  Wait for release, retry with --wait, or force: machine-lock release"
+            return 1
+        fi
+
+        if [ "$(_now)" -ge "$deadline" ]; then
+            echo "TIMEOUT — waited ${timeout}s for $LOCK_AGENT ($LOCK_DESC)"
+            return 1
+        fi
+
+        sleep "$WAIT_POLL_SECONDS"
+    done
 }
 
 cmd_release() {
-    if [ -f "$LOCKFILE" ]; then
+    if [ -d "$LOCKD" ]; then
         if _read_lock; then
             echo "Released lock held by $LOCK_AGENT (${LOCK_AGE}s)"
         fi
-        rm -f "$LOCKFILE"
+        _clear_lock
+    elif _has_legacy_lock; then
+        echo "Released legacy-format lock"
+        _clear_lock
     else
         echo "No lock to release"
     fi
 }
 
 cmd_status() {
+    if _has_legacy_lock && [ ! -d "$LOCKD" ]; then
+        echo "STALE — legacy-format lock at $LOCKBASE (pre-MLFX); treated as clearable"
+        return 0
+    fi
+
     if ! _read_lock; then
         echo "FREE — no lock held"
         return 0
     fi
 
+    local liveness="alive"
+    if ! _pid_alive "$LOCK_PID"; then
+        liveness="DEAD"
+    fi
+
     if _is_stale; then
-        echo "STALE — was held by $LOCK_AGENT (${LOCK_AGE}s ago)"
-        echo "  Reason: $LOCK_DESC"
+        echo "STALE — was held by $LOCK_AGENT (${LOCK_AGE}s ago, pid $LOCK_PID $liveness)"
+        echo "  Reason:   $LOCK_DESC"
+        echo "  Worktree: $LOCK_WORKTREE"
         echo "  Run: machine-lock release"
     else
-        echo "LOCKED by $LOCK_AGENT (${LOCK_AGE}s ago)"
-        echo "  Reason: $LOCK_DESC"
+        echo "LOCKED by $LOCK_AGENT (${LOCK_AGE}s ago, pid $LOCK_PID $liveness)"
+        echo "  Reason:   $LOCK_DESC"
+        echo "  Worktree: $LOCK_WORKTREE"
     fi
 }
 
@@ -87,7 +243,8 @@ cmd_run() {
     # Skip the -- separator
     if [ "${1:-}" = "--" ]; then shift; fi
 
-    cmd_acquire "$agent" "$desc"
+    # Use --wait so concurrent `run` calls serialize instead of rc=1.
+    cmd_acquire --wait "$agent" "$desc"
     local rc=0
     "$@" || rc=$?
     cmd_release

@@ -5,6 +5,7 @@
 !.claude/**
 .claude/settings.local.json
 .claude/locks/*.lock
+.claude/locks/*.lock.d/
 qe-7.5/
 # Ignore untracked scratch under scripts/ but keep committed validation helpers.
 scripts/*
