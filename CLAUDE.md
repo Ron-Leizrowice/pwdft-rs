@@ -25,8 +25,8 @@ cargo run --release -- --input examples/si_free_electron.yaml -o bands.tsv
 ## Tests & Benchmarks
 
 ```bash
-cargo test                                    # all tests (~177, ~24s)
-cargo test --features gpu                     # with GPU tests (~186, ~28s)
+cargo test                                    # all tests (~265, ~24s)
+cargo test --features gpu                     # with GPU tests (~268, ~28s)
 cargo test test_name                          # single test by name
 cargo test --test free_electron_bands         # single integration test file
 cargo test -- --nocapture                     # with stdout
@@ -52,25 +52,28 @@ Both clippy invocations are required: without `--features gpu`, the `gpu/` sourc
 
 **Entry point:** `src/main.rs` parses CLI args and YAML input (`src/settings.rs`), then either computes a free-electron band structure or runs SCF.
 
-**SCF loop** (`src/scf/mod.rs` — `run_scf()`): the central computation pipeline:
+**SCF loop** (`scf::run_scf` in `src/scf/mod.rs` — a thin dispatcher that validates inputs and hands off to `scf::driver::run_scf_unpolarized` in `src/scf/driver.rs` for `nspin=1` or `scf::driver_spin::run_scf_spin` in `src/scf/driver_spin.rs` for `nspin=2`). The central computation pipeline:
 1. Build local pseudopotential V_local on FFT grid (spherical Bessel transform). If any PP has NLCC (`core_correction="T"`), also build ρ_core(r) on the grid (same Bessel transform; see `scf::potentials::compute_core_density`).
-2. Initialize density via SAD (superposition of atomic densities)
-3. Each iteration: Hartree potential (valence density only) → LDA XC (on ρ_val + ρ_core if NLCC — Louie, Froyen, Cohen, PRB 26, 1738 (1982)) → assemble V_eff → build Hamiltonian (kinetic + V_eff + KB non-local) → diagonalize (faer) → Fermi-Dirac occupations → reconstruct density → check convergence → Anderson/Pulay mixing (with optional Kerker preconditioning)
-4. Compute total energy (kinetic + local + non-local + Hartree + XC + Ewald), with the NLCC double-counting subtraction applied to E_xc when core correction is active.
+2. Initialize density via SAD (superposition of atomic densities).
+3. Each iteration: Hartree potential (valence density only) → LDA XC (on ρ_val + ρ_core if NLCC — Louie, Froyen, Cohen, PRB 26, 1738 (1982)) → assemble V_eff → build Hamiltonian (kinetic + V_eff + KB non-local) → diagonalize (faer, `EigensolverKind::Dense` by default or `Iterative` when opted in) → Fermi-Dirac occupations → reconstruct density → symmetrize (G-space phase factors, PCFX) → check convergence → density mixing. Available mixers: Anderson/Pulay (DIIS), modified Broyden (BROY), and Periodic Pulay (PRPL); any mixer can be combined with Kerker preconditioning. The spin driver uses the coupled-channel (ρ_total, m) basis (CCMX) rather than independent (ρ↑, ρ↓), so both channels share residual history.
+4. Compute total energy (kinetic + local + non-local + Hartree + XC + Ewald), with the NLCC double-counting subtraction applied to E_xc when core correction is active. Each driver also returns an `EnergyComponents` breakdown (VGC5 diagnostic: per-term energies and the Harris-Foulkes stationary estimator).
 
 **Module groups:**
 
-- **Crystal & basis:** `crystal.rs` (lattice + atoms), `basis.rs` (G-vectors up to ecut), `kpoints.rs` (Monkhorst-Pack, band paths), `atoms.rs` (elements 1-92)
-- **Pseudopotentials:** `pseudopotential/upf.rs` (QE UPF v2). Parses into `PseudopotentialData` with local potential, beta projectors, D_ij matrix.
-- **Potentials:** `potential/hartree.rs`, `potential/xc.rs` (Perdew-Zunger LDA), `potential/local.rs`, `potential/nonlocal.rs` (Kleinman-Bylander separable form, arbitrary l via recurrence)
-- **SCF internals:** `scf/density.rs`, `scf/initial_density.rs` (SAD), `scf/mixing.rs` (Anderson/Pulay + Kerker preconditioning), `scf/smearing.rs` (Fermi-Dirac)
-- **Numerics:** `fft.rs` (3D FFT via ndrustfft, zero unsafe), `eigensolver/dense.rs` (faer Hermitian eigendecomposition), `ewald.rs` (ion-ion energy, erfc via puruspe)
-- **Symmetry:** `symmetry/detect.rs` (space group finder), `symmetry/kpoints.rs` (k-point reduction), `symmetry/density.rs` (density symmetrization)
-- **GPU:** `gpu/mod.rs` (wgpu compute), `gpu/shaders/` (WGSL kernels for Hartree, LDA XC, V_eff assembly)
+- **Crystal & basis:** `crystal.rs` (lattice + atoms), `basis.rs` (G-vectors up to ecut), `kpoints.rs` (Monkhorst-Pack, band paths), `atoms.rs` (elements 1-92).
+- **Pseudopotentials:** `pseudopotential/mod.rs` (`PseudopotentialData` + `v_local_of_g`); `pseudopotential/upf/` is a folder with `mod.rs` (40-line `parse(&str)` entry point), `xml.rs` (text helpers for UPF v2 XML), and `convert.rs` (Ry→eV, Bohr→Å unit conversion, `PP_RHOATOM`, `PP_NLCC` assembly).
+- **Potentials:** `potential/hartree.rs`, `potential/xc.rs` (Perdew-Zunger LDA, spin-polarized variant), `potential/local.rs`, `potential/nonlocal.rs` (Kleinman-Bylander separable form, arbitrary l via recurrence).
+- **SCF internals:** `scf/mod.rs` (thin `run_scf` dispatcher + `ScfParams`/`ScfResult`), `scf/driver.rs` (non-spin hot loop), `scf/driver_spin.rs` (spin-polarized hot loop), `scf/report.rs` (per-iteration progress + final summary; `IterationReport`, `log_iteration`, `log_convergence_summary`), `scf/energy.rs` (total-energy assembly + `EnergyComponents`), `scf/density.rs`, `scf/initial_density.rs` (SAD), `scf/smearing.rs` (Fermi-Dirac, Gaussian, Methfessel-Paxton, cold), `scf/context.rs` (immutable per-calculation state), `scf/potentials.rs` (Hamiltonian assembly helpers), `scf/grid.rs` (FFT grid setup).
+- **Density mixing:** `scf/mixing/mod.rs` exposes `MixingMode` (Plain / Kerker / Broyden / PeriodicPulay) and the `Mixer` dispatcher enum. Algorithms live in siblings: `anderson.rs` (Anderson/Pulay DIIS + PeriodicPulay wrapper), `broyden.rs` (modified Broyden, Johnson PRB 38, 12807), `kerker.rs` (preconditioner + Thomas-Fermi `q_TF` auto-estimate), `linalg.rs` (small Gauss-elimination solver for the DIIS/Broyden linear system).
+- **Numerics:** `fft.rs` (3D FFT via ndrustfft, zero unsafe), `eigensolver/mod.rs` (`EigensolverKind::{Dense, Iterative}`), `eigensolver/dense.rs` (full faer Hermitian eigendecomposition), `eigensolver/iterative.rs` (ITEV — faer's partial Arnoldi/Krylov-Schur, shift-and-flip for lowest `n_bands`; experimental, opt-in, blocked on an upstream faer 0.24 `iterate_lanczos` reorthogonalization bug), `numerics.rs` (Simpson and radial quadrature), `ewald.rs` (ion-ion energy, erfc via puruspe).
+- **Symmetry:** `symmetry/mod.rs` (`SymmetryInfo`), `symmetry/operations.rs` (`SpaceGroupOp` {R|τ}), `symmetry/detect.rs` (space group finder), `symmetry/kpoints.rs` (k-point reduction to IBZ), `symmetry/density/` (folder: `mod.rs` with the facade, `real_space.rs` — legacy `#[deprecated]` `nint`-rounding path, `g_space.rs` — PCFX phase-factor form; SCF always uses the G-space path).
+- **GPU:** `gpu/mod.rs` (wgpu compute), `gpu/shaders/` (WGSL kernels for Hartree, LDA XC, V_eff assembly).
 
 **GPU strategy:** Optional `gpu` feature flag. `GpuAccelerator` with `BufferPool` of pre-allocated f32 buffers. GPU kernels run in f32, CPU in f64, with conversion at boundaries. Falls back to CPU (rayon) when GPU unavailable. Three WGSL shaders handle the per-iteration grid operations.
 
-**Key types:** `Crystal`, `BasisSet`, `KPoint`, `PseudopotentialData`, `ScfParams`/`ScfResult`, `NonlocalPotential`, `EigenResult`, `SymmetryInfo`/`SpaceGroupOp`.
+**Eigensolver:** The SCF loop diagonalizes the Kohn-Sham Hamiltonian at each k-point once per iteration. `EigensolverKind::Dense` (the default) uses `faer::SelfAdjointEigen` — full O(n³) LAPACK-equivalent decomposition. `EigensolverKind::Iterative` (opt-in via `scf.eigensolver: iterative` in YAML) uses faer's partial Arnoldi/Krylov-Schur solver to compute only the lowest `n_bands` eigenpairs, with a shift-and-flip trick to map "algebraically lowest of H" to "largest-magnitude of σI − H". Iterative is typically 3-10× faster at `n_pw ≥ 200`, but it is currently gated behind a FIXME: faer 0.24's `iterate_lanczos` can spin on near-null Krylov vectors, so SCF loops on ill-conditioned inputs may hang. Until the upstream bug is fixed, stay on `Dense`.
+
+**Key types:** `Crystal`, `BasisSet`, `KPoint`, `PseudopotentialData`, `ScfParams`/`ScfResult`, `EnergyComponents`, `EigensolverKind`, `MixingMode`/`Mixer`, `NonlocalPotential`, `EigenResult`, `SymmetryInfo`/`SpaceGroupOp`.
 
 ## Workflow
 

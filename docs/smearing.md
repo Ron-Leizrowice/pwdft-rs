@@ -40,7 +40,7 @@ E₀ = (E + F) / 2 = E - T×S/2  (best estimate of T=0 energy)
 The σ→0 formula (Gillan-De Vita-Caro) is exact for Methfessel-Paxton and a
 good approximation for Fermi-Dirac and Gaussian.
 
-**Code:** `src/scf/mod.rs:313` (free_energy), line 314 (energy_sigma0)
+**Code:** `src/scf/driver.rs` / `src/scf/driver_spin.rs` (per-driver final summary assembles `free_energy` and `energy_sigma0` into the returned `ScfResult`).
 
 ## Fermi Energy Search
 

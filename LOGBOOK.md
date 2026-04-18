@@ -78,7 +78,7 @@ main.rs → input.rs → scf/mod.rs (SCF loop)
                       ├── scf/context.rs (immutable precomputed state)
                       ├── scf/energy.rs (band, Hartree, XC, total)
                       ├── scf/density.rs (wavefunction → charge density)
-                      ├── scf/mixing.rs (Anderson/Pulay + Kerker)
+                      ├── scf/mixing/ (Anderson/Pulay + Broyden + Periodic Pulay + Kerker)
                       ├── scf/smearing.rs (occupations + entropy)
                       ├── scf/potentials.rs (V_local, core density, H assembly)
                       └── scf/grid.rs (FFT grid management)
@@ -89,7 +89,7 @@ potential/hartree.rs     Coulomb potential
 ewald.rs                 Ion-ion energy
 eigensolver/dense.rs     faer Hermitian eigendecomposition
 fft.rs                   ndrustfft 3D FFT (zero unsafe)
-pseudopotential/upf.rs   UPF v2 parser
+pseudopotential/upf/     UPF v2 parser (xml.rs + convert.rs + mod.rs)
 symmetry/                Space group detection + k-point reduction
 gpu/                     wgpu Metal compute shaders
 ```

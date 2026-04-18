@@ -12,7 +12,7 @@ Dual criterion — **both** must be satisfied:
 1. **Density:** `Δρ_RMS = √[(1/Ω) ∫(ρ_new - ρ_old)² dr] < conv_threshold`
 2. **Energy:** `|E_new - E_old| < energy_threshold`
 
-**Code:** `src/scf/mod.rs:288-289`
+**Code:** `src/scf/driver.rs` (non-spin) / `src/scf/driver_spin.rs` (spin) — per-iteration `converged` check.
 
 ## Linear Mixing
 
@@ -44,7 +44,7 @@ b[i] = -ΔR_i · R_last
 
 This is equivalent to minimizing `|Σ c_i R_i|²` subject to `Σ c_i = 1`.
 
-**Code:** `src/scf/mixing.rs:140-160`
+**Code:** `src/scf/mixing/anderson.rs` (DIIS coefficient assembly + constraint embedding).
 
 ### Singular fallback
 
@@ -52,7 +52,39 @@ If the DIIS matrix is singular (pivot < 1e-15), uniform coefficients
 `c_i = 1/(n+1)` are returned. This masks convergence problems without
 failing.
 
-**Code:** `src/scf/mixing.rs:217-218`
+**Code:** `src/scf/mixing/linalg.rs` (`solve_linear_system` — uniform-coefficient fallback on singular pivot).
+
+## Modified Broyden Mixing
+
+Alternative to DIIS. Builds an approximate inverse Jacobian `J^{-1}` from the
+history of density residuals and applies Newton-style updates:
+
+```
+ρ_in^{n+1} = ρ_in^n - β J_n^{-1} R^n
+```
+
+Implements Johnson's modified Broyden scheme (*Phys. Rev. B* **38**, 12807,
+1988) — the same algorithm as QE's `mix_rho.f90` and VASP's `IMIX=4`. Often
+more robust than Anderson for difficult systems (metals, large cells,
+charge sloshing). Selectable via `mixing_mode: broyden` or
+`broyden_kerker`.
+
+**Code:** `src/scf/mixing/broyden.rs`.
+
+## Periodic Pulay Mixing
+
+Banerjee, Suryanarayana, Pask, *J. Chem. Theory Comput.* **12**, 3053
+(2016). Plain linear mixing on every iteration *except* every k-th, where a
+DIIS extrapolation is performed using the accumulated history. Avoids
+divergence from early-iteration DIIS (when history is too short to be
+reliable) while keeping the acceleration once enough residuals have
+accumulated. Paper reports 30–50% iteration-count reduction on
+transition-metal oxides versus continuous Anderson. Selectable via
+`mixing_mode: periodic_pulay` or `periodic_pulay_kerker`; period k is set
+by `pulay_period` (default 3).
+
+**Code:** `src/scf/mixing/anderson.rs` (`PeriodicPulayMixer` wraps
+`AndersonMixer`).
 
 ## Kerker Preconditioning
 
@@ -67,7 +99,7 @@ R̃(G) = [|G|² / (|G|² + q_TF²)] × R(G)
 
 This is the Thomas-Fermi screening length from Ashcroft & Mermin (1976), Ch. 17.
 
-**Code:** `src/scf/mixing.rs:60-80` (preconditioner), lines 187-198 (q_TF auto-estimate)
+**Code:** `src/scf/mixing/kerker.rs` (`precondition_residual` and `auto_q_tf_squared`).
 
 ## Audit Status
 

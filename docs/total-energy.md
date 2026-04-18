@@ -12,7 +12,7 @@ In practice, using the band energy identity:
 E_total = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0) × N_el
 ```
 
-**Code:** `src/scf/energy.rs:76-83` (assembly), `src/scf/mod.rs:278-283` (V_local(G=0) addition)
+**Code:** `src/scf/energy.rs` (assembly in `total_energy` and per-component `EnergyComponents`), and the final pass in `src/scf/driver.rs` / `src/scf/driver_spin.rs` which adds `V_local(G=0) * N_el`.
 
 ### Component definitions
 
@@ -43,7 +43,7 @@ E_vxc = ∫ V_xc[ρ_val + ρ_core] × ρ_val dr
 E_xc uses total density in both functional and integration measure.
 E_vxc uses only valence density because that is what the eigenvalues contain.
 
-**Code:** `src/scf/mod.rs:275-276` (core density addition), `energy.rs:55-73` (corrected XC)
+**Code:** `src/scf/driver.rs` / `src/scf/driver_spin.rs` (core density added via `add_core_density` before each XC evaluation); `src/scf/energy.rs` `xc_energy_corrected` (NLCC double-counting).
 
 ### Audit status
 
