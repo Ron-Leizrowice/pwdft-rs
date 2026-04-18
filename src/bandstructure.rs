@@ -12,7 +12,7 @@ pub struct BandStructure {
     pub distances: Vec<f64>,
     /// Labels at high-symmetry points: (distance, label).
     pub labels: Vec<(f64, String)>,
-    /// Eigenvalues[k_index][band_index] in eV.
+    /// Eigenvalues `[k_index][band_index]` in eV.
     pub eigenvalues: Vec<Vec<f64>>,
 }
 

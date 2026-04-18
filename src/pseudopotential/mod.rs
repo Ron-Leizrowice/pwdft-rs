@@ -22,7 +22,7 @@ pub struct PseudopotentialData {
     /// Local pseudopotential on radial grid (eV).
     /// Includes the -Z_val e²/r Coulomb tail.
     pub v_local: Vec<f64>,
-    /// Non-local projectors: beta[proj_index] = (angular_momentum, radial_values).
+    /// Non-local projectors: `beta[proj_index]` = (angular_momentum, radial_values).
     /// Radial values store χ(r) = r·β(r) in Å^{-1/2} (no energy dimension).
     /// Energy enters through D_ij. The KB matrix element is:
     /// V_NL = (1/Ω) Σ F_i D_ij F_j × angular, where F = 4π ∫ χ(r) j_l(qr) r dr.
@@ -38,7 +38,7 @@ pub struct PseudopotentialData {
     /// Stores the **bare volumetric** density ρ_core(r) in e/Å³ (NOT
     /// 4πr²·ρ, which is the `PP_RHOATOM` convention — see the
     /// `rho_atom` field above). The downstream radial Bessel transform
-    /// in [`crate::scf::potentials::compute_core_density`] multiplies by
+    /// in `crate::scf::potentials::compute_core_density` multiplies by
     /// r² and 4π; see also QE `upflib/rhoc_mod.f90:107-115`
     /// (`init_tab_rhc`).
     ///
@@ -48,7 +48,7 @@ pub struct PseudopotentialData {
     /// `v_xc[ρ_val + ρ_core]`. It is *not* added to the Hartree source,
     /// is *not* counted as valence (no contribution to the electron
     /// count), and in LSDA is split symmetrically as ρ_core/2 per spin
-    /// channel. See [`crate::scf::energy::add_core_density`] and
+    /// channel. See `crate::scf::energy::add_core_density` and
     /// Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982).
     pub core_charge: Vec<f64>,
 }
