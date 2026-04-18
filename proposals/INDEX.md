@@ -18,6 +18,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | CCMX | Coupled-Channel Mixer for nspin=2 (mix (ρ_total, m)) | medium | medium | — | — |
 | ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` (supersedes DVSN) | medium | medium | — | — |
+| MODR | Modular refactor audit — split god-modules (plan; phases A–D) | large | medium | — | PCFX, CCMX, ITEV, PRPL, MXBA |
 
 ### Medium — Enhancements & Performance
 
