@@ -434,6 +434,98 @@ mod adaptive_beta_tests {
     }
 
     #[test]
+    fn adaptive_beta_fe_failure_trajectory_floors_to_beta_min() {
+        // Cheap deterministic companion to `tests/mxba_adaptive_beta_fe.rs`.
+        //
+        // Approximates the Fe BCC CCMX residual trajectory that drove MXBA's
+        // `adaptive_beta = false` default. See `tests/mxba_adaptive_beta_fe.rs`
+        // for the real 80-iter SCF run and
+        // `proposals/completed/MXBA-adaptive-mixing-beta.md` for the paper
+        // reference (Eyert, J. Comp. Phys. 124, 271 (1996), §3.3).
+        //
+        // Synthetic sequence — 80 iterations with MXBA defaults (β_start=0.3,
+        // β_min=0.015, growth=1.2, restore=0.5, damp=0.7, window=3):
+        //
+        //   iters 1–10: flat plateau at 0.34 (ratio ≈ 1.0, inside the
+        //   hysteresis band [0.5, 1.2] → no β change). Mirrors the observed
+        //   "monitor silent" phase of iters 1–9 in the SCF log.
+        //
+        //   iters 11–80: residual oscillates between 0.34·1.3 and 0.34·0.9,
+        //   producing alternating ratios of ~1.444 (damp fires: β ← 0.7·β,
+        //   clamped at β_min) and ~0.692 (inside band, streak resets to 0).
+        //
+        // Under this pattern the 3-iter streak of ratios < 0.5 that would
+        // restore β is *unreachable*, so β monotonically ratchets down and
+        // floors at β_min long before iter 80.
+        //
+        // When MXB2 lands a fix to the Eyert tuning (e.g. "require a 2-iter
+        // growth streak before damping"), this test must update with it —
+        // either (a) assert β recovers above β_min under the same sequence,
+        // or (b) gain an `#[ignore]` marker matching
+        // `tests/mxba_adaptive_beta_fe.rs` if the failure mode persists.
+        let beta_start = 0.3_f64;
+        let beta_min = (beta_start * 0.05).max(0.01); // 0.015 with these defaults
+        let mut ab = AdaptiveBeta::new(true, beta_start);
+        let mut beta = beta_start;
+
+        // Sanity-check the monitor's configured band before driving it.
+        assert!((ab.beta_min - beta_min).abs() < 1e-15);
+        assert!((ab.growth_threshold - 1.2).abs() < 1e-15);
+        assert!((ab.restore_threshold - 0.5).abs() < 1e-15);
+        assert!((ab.damp_factor - 0.7).abs() < 1e-15);
+        assert_eq!(ab.restore_window, 3);
+
+        let base = 0.34_f64;
+        let plateau_len = 10;
+        let oscillation_multipliers = [1.3_f64, 0.9_f64];
+        let total_iters: usize = 80;
+
+        // Track the maximum run of consecutive sub-restore-threshold ratios so
+        // we can pin the "restore cannot fire" property below.
+        let mut max_good_streak: usize = 0;
+        let mut cur_good_streak: usize = 0;
+        let mut prev_residual: Option<f64> = None;
+
+        for iter in 1..=total_iters {
+            let residual = if iter <= plateau_len {
+                base
+            } else {
+                let osc_idx = (iter - plateau_len - 1) % oscillation_multipliers.len();
+                base * oscillation_multipliers[osc_idx]
+            };
+            if let Some(prev) = prev_residual {
+                let ratio = residual / prev;
+                if ratio < ab.restore_threshold {
+                    cur_good_streak += 1;
+                    max_good_streak = max_good_streak.max(cur_good_streak);
+                } else {
+                    cur_good_streak = 0;
+                }
+            }
+            prev_residual = Some(residual);
+            beta = ab.update(residual, beta);
+        }
+
+        // Core assertion: β has floored at β_min well before iter 80.
+        assert!(
+            (beta - beta_min).abs() <= 0.01 * beta_min,
+            "β did not reach β_min within 80 iters of Fe-trajectory: β={beta}, β_min={beta_min}"
+        );
+
+        // Defense-in-depth: the documented failure mode requires that the
+        // `restore_window = 3` streak of ratios < 0.5 is never reached, so β
+        // has no way to recover during the SCF. If a future tuning change
+        // relaxes `restore_threshold`, this assertion will flag that the
+        // synthetic sequence also needs updating.
+        assert!(
+            max_good_streak < ab.restore_window,
+            "synthetic sequence accidentally triggers a restore streak ({max_good_streak} >= \
+             restore_window {}); rework multipliers to preserve the failure mode",
+            ab.restore_window
+        );
+    }
+
+    #[test]
     fn mixer_current_beta_matches_construction_without_adaptive() {
         // Smoke test: Mixer::current_beta returns the user-configured β when
         // adaptive_beta is off, for every mixer variant.

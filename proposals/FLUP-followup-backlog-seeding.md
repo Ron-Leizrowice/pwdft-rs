@@ -297,23 +297,30 @@ converges with adaptive=on or remains `#[ignore]`'d with an updated
 reason explaining which tuning was tried and why it didn't work. If a
 tuning makes Fe converge, flip `adaptive_beta` default to `true`.
 
-### MXB3 — Direct `AdaptiveBeta::update` Fe-trajectory unit test
+### ~~MXB3 — Direct `AdaptiveBeta::update` Fe-trajectory unit test~~ (landed 2026-04-18)
 
 - **Role:** Code Reviewer (or Core Engineer)
 - **Priority:** low, **Complexity:** trivial, **Risk:** low
 - **Source:** MXBA code review, PR #57 companion-test recommendation.
 
-Add a ~20-line direct unit test on `AdaptiveBeta::update` that feeds
+~~Add a ~20-line direct unit test on `AdaptiveBeta::update` that feeds
 the documented Fe-failure trajectory shape (initial flat plateau
 followed by the 1.2×+ oscillation pattern) and asserts β floors at
 `β_min` within the observed 80-iter envelope. Deterministic and
 millisecond-cost — a cheap companion to the expensive `#[ignore]`'d
 integration test in `tests/mxba_adaptive_beta_fe.rs`. If MXB2 changes
-the failure mode, this test updates with it.
+the failure mode, this test updates with it.~~
 
-**Acceptance criterion:** new unit test in `src/scf/mixing/mod.rs::tests`
-reproduces the β schedule that leads to ConvergenceFailure on Fe,
-without running an SCF.
+Landed as
+`src/scf/mixing/mod.rs::adaptive_beta_tests::adaptive_beta_fe_failure_trajectory_floors_to_beta_min`.
+Synthetic 80-iter trajectory: 10-iter flat plateau at 0.34 (ratio ≈ 1.0,
+monitor silent) followed by 70 iters of `[1.3, 0.9]` oscillation on the
+same base (ratios alternate 1.444 → damp, 0.692 → band; the 3-iter
+streak of ratios < 0.5 that would restore β is architecturally
+unreachable). β reaches β_min = 0.015 by iter ~27 and stays there
+through iter 80. When MXB2 lands a fix, this test updates with it —
+either asserts β recovers or gains an `#[ignore]` marker matching the
+integration test.
 
 ### ~~VNLT — Investigate non-reproducing VNLM `vnl_new` regression~~ (done 2026-04-19)
 
