@@ -37,6 +37,7 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 | ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; phased) | medium | low | — | — |
 | GOPT | GPU kernel + wgpu host path optimization audit (scoping; 3 major + 5 modest + 4 micro findings; PRs A–E) | medium | low-medium | — | — |
 | TRV2 | Fresh test-suite review — post-PCFX/CCMX/NCFX/GGAP coverage pass (6-PR sequence) | medium | low | — | — |
+| MAUD | Mathematical accuracy audit of core physics modules (post-MADOC-A cold read; 1 docstring A + 9 C findings) | small | low | MADOC | — |
 
 ### Deferred — Blocked on upstream
 
