@@ -6,6 +6,7 @@
 //! for the convention derivation.
 
 use num_complex::Complex64;
+use rayon::prelude::*;
 
 use super::super::SymmetryInfo;
 use crate::fft::FFT3D;
@@ -215,30 +216,50 @@ pub fn symmetrize_density_g(
         .map(|op| transpose_rotation(&op.rotation))
         .collect();
 
-    for (idx_dst, dst_slot) in rho_g_sym.iter_mut().enumerate() {
-        let n_dst = flat_to_miller(dims, idx_dst);
-        let mut acc = Complex64::new(0.0, 0.0);
-        for (op, r_t) in symmetry.operations.iter().zip(r_ts.iter()) {
-            // Source Miller: n_src = R_direct^T · n_dst.
-            let n_src = rotate_miller(r_t, n_dst);
-            let idx_src = miller_to_flat(dims, n_src);
-            let rho_src = rho_g[idx_src];
+    // Parallelize the outer loop over destination G-points, grouped by
+    // xy-planes (`chunk = ny · nz` contiguous slots). Each iteration
+    // writes into a distinct slot of `rho_g_sym` and only reads from
+    // `rho_g` (shared, immutable), so no synchronization is needed. The
+    // inner per-slot accumulation stays serial — each slot's floating-
+    // point reduction order is bit-identical to the serial version, so
+    // the symmetrized density matches the serial output to the last bit.
+    //
+    // Chunking by xy-planes (a) amortizes rayon's per-task scheduling
+    // overhead across `ny·nz` G-points, which matters for the small-
+    // N_ops regime where the inner loop is cheap, and (b) keeps
+    // each worker's output writes in a contiguous cache-friendly
+    // range.
+    let slab = dims[1] * dims[2];
+    rho_g_sym
+        .par_chunks_mut(slab)
+        .enumerate()
+        .for_each(|(ix, slab_slots)| {
+            for (j, dst_slot) in slab_slots.iter_mut().enumerate() {
+                let idx_dst = ix * slab + j;
+                let n_dst = flat_to_miller(dims, idx_dst);
+                let mut acc = Complex64::new(0.0, 0.0);
+                for (op, r_t) in symmetry.operations.iter().zip(r_ts.iter()) {
+                    // Source Miller: n_src = R_direct^T · n_dst.
+                    let n_src = rotate_miller(r_t, n_dst);
+                    let idx_src = miller_to_flat(dims, n_src);
+                    let rho_src = rho_g[idx_src];
 
-            // Phase: exp(-i · 2π · (n_dst · τ)). The phase argument
-            // uses n_dst (destination), not n_src — required for
-            // `P² = P` by the Seitz composition identity
-            // `m·τ_{S₁·S₂} = m·τ_{S₁} + (R_{S₁}^T m)·τ_{S₂}`.
-            let arg = two_pi
-                * (n_dst[0] as f64 * op.translation[0]
-                    + n_dst[1] as f64 * op.translation[1]
-                    + n_dst[2] as f64 * op.translation[2]);
-            let (s, c) = arg.sin_cos();
-            let phase = Complex64::new(c, -s);
+                    // Phase: exp(-i · 2π · (n_dst · τ)). The phase argument
+                    // uses n_dst (destination), not n_src — required for
+                    // `P² = P` by the Seitz composition identity
+                    // `m·τ_{S₁·S₂} = m·τ_{S₁} + (R_{S₁}^T m)·τ_{S₂}`.
+                    let arg = two_pi
+                        * (n_dst[0] as f64 * op.translation[0]
+                            + n_dst[1] as f64 * op.translation[1]
+                            + n_dst[2] as f64 * op.translation[2]);
+                    let (s, c) = arg.sin_cos();
+                    let phase = Complex64::new(c, -s);
 
-            acc += phase * rho_src;
-        }
-        *dst_slot = acc * inv_n_ops;
-    }
+                    acc += phase * rho_src;
+                }
+                *dst_slot = acc * inv_n_ops;
+            }
+        });
 
     // 4. Inverse FFT (normalized) back to real space. The real part of the
     //    result is the symmetrized density; the imaginary part is noise at

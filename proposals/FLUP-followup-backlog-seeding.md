@@ -93,23 +93,32 @@ most of the one-time cost and move break-even below 1 iteration.~~
 at n_pw=725 drops to ≤ 55 ms (break-even ≤ 1 SCF iter).
 Correctness: all 265+ tests pass bit-identical.~~
 
-### SYMP — Parallelize `symmetrize_density_g` with `par_iter_mut`
+~~### SYMP — Parallelize `symmetrize_density_g` with `par_iter_mut`~~
 
-- **Role:** Performance Engineer
-- **Priority:** low, **Complexity:** small, **Risk:** low
-- **Source:** PCFX code review, PR #44 nit 3.
+~~- **Role:** Performance Engineer~~
+~~- **Priority:** low, **Complexity:** small, **Risk:** low~~
+~~- **Source:** PCFX code review, PR #44 nit 3.~~
 
-`src/symmetry/density/g_space.rs::symmetrize_density_g` (post-MODR-C
-path) has a serial per-G-vector outer loop. For a 100³ grid with N_ops=48
-(Fd-3m) this is ~5M MACs per SCF iteration — small in absolute terms
-but a free win with `rayon::prelude::par_iter_mut`. Inner loop writes
-into one G-point's slot and reads only rotated-source slots, so
-parallelization is safe without atomics.
+~~`src/symmetry/density/g_space.rs::symmetrize_density_g` (post-MODR-C~~
+~~path) has a serial per-G-vector outer loop. For a 100³ grid with N_ops=48~~
+~~(Fd-3m) this is ~5M MACs per SCF iteration — small in absolute terms~~
+~~but a free win with `rayon::prelude::par_iter_mut`. Inner loop writes~~
+~~into one G-point's slot and reads only rotated-source slots, so~~
+~~parallelization is safe without atomics.~~
 
-**Acceptance criterion:** `bench scf_benchmarks` shows ≥ 2× speedup
-for the symmetrization step on large grids; all PCFX tests pass
-bit-identical (they must — `par_iter` is a pure permutation of a
-commutative sum).
+~~**Acceptance criterion:** `bench scf_benchmarks` shows ≥ 2× speedup~~
+~~for the symmetrization step on large grids; all PCFX tests pass~~
+~~bit-identical (they must — `par_iter` is a pure permutation of a~~
+~~commutative sum).~~
+
+**Landed:** parallelized via `par_chunks_mut(ny·nz)` over destination
+G-point xy-planes (not `par_iter_mut` — per-item rayon overhead eats
+small-N_ops wins; xy-slab chunking amortizes scheduling across
+`ny·nz` slots and matches cache locality). Inner per-slot reduction
+stays serial → bit-identical result, all 10 PCFX tests pass. On a
+72³ grid: ops=48 106.3 → 17.7 ms (6.0×), ops=8 25.8 → 10.7 ms (2.4×);
+scaling holds at 36³ (ops=48: 5.2×). Crossover below 18³·8 (1.1×),
+above which every tested config clears 2×. See PR SYMP.
 
 ### FDLT — Expose `ScfResult.final_delta`
 
