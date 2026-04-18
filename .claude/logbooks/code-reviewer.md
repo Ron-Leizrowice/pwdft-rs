@@ -2,6 +2,20 @@
 
 Entries: date, metrics (actual counts), findings, proposals affected. Track quality trends over time.
 
+## 2026-04-19 — FLP2 FLUP sweep
+
+Reconciled `proposals/FLUP-followup-backlog-seeding.md` against main at commit `1f568be`. PR #89 (FLP2/flup-sweep-2026-04-19).
+
+Counts: 1 struck (DWGT, landed 5456c80 with CLAUDE.md + agent defs propagated), 0 obsolete, 6 still-live (G2ZT, DFLT, MXB2, ITVF, EIGV, EIGW), 0 promoted to standalone proposal, 1 added (TYPE-AX).
+
+TYPE-AX added: 5 `try_from` expect sites from TYPE-A PR #80 at `src/basis.rs:65`, `src/symmetry/operations.rs:{71,120,151}`, `src/symmetry/detect.rs:185`. Not its own proposal — ERR2 P1 decision item. Structural-bound candidates, i.e. add `reason` comment, not Result.
+
+New "Status summary" section at top of FLUP so next sweep gets one-glance state instead of grepping for `~~`.
+
+Nothing promoted: MXB2 is small-medium but already has full RCA + three candidate tunings inline, no scoping gap. EIGV/EIGW may self-resolve on next bench pass. ITVF genuinely blocked on faer 0.25.
+
+Did NOT add: "EnergyComponents double-counting test gap" (prompt flagged conditional on MAUD/TRV2 surfacing it — they haven't landed, so I don't preempt).
+
 ## 2026-04-18 — ERR2 panic-free production audit
 
 Wrote `proposals/ERR2-panic-free-production-audit.md`. Post-ERRH census:
