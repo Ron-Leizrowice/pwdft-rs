@@ -1,6 +1,6 @@
 ---
 id: WFRX
-status: active
+status: completed
 priority: high
 complexity: medium
 risk: low
@@ -11,6 +11,14 @@ blocks: []
 # WFRX: Wavefunction Reuse Between SCF Iterations
 
 > **Note:** Line numbers reference the pre-ScfContext codebase (src/scf/mod.rs was ~1127 lines, now ~709). Verify locations before implementing.
+
+## Completion note 2026-04-19 (GRM2 grooming)
+
+**Technique 1 (subspace diagonalization): LANDED in PR #99** (commit `216e050`, 2026-04-19). Opt-in via `scf.subspace_diag: true`, default off. Measured ~7% SCF wall-time improvement at n_pw=725 on the benches; smaller at lower n_pw. Cache plumbing (previous-iteration eigenvectors stored in `ScfContext`) is wired end-to-end.
+
+**Technique 2 (warm-start iterative solver): DEFERRED** pending ITEV unblock. The cache plumbing that Technique 1 already landed is exactly what Technique 2 needs, so once faer 0.24 ships the `iterate_lanczos` reorthogonalization fix, Technique 2 is ~30 lines: thread the cached eigenvectors into `partial_self_adjoint_eigen`'s `v0` argument. Revisit alongside ITEV.
+
+Moving to Completed. If ITEV lands and warm-start is wanted, a new narrow proposal (e.g. `WFR2`) can take over — the original WFRX scope is satisfied.
 
 ## Re-triage 2026-04-19 (priority: low → high)
 
