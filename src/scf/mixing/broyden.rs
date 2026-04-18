@@ -63,7 +63,7 @@ impl BroydenMixer {
         let kerker_weights = if kerker {
             let g2 = kerker_setup
                 .g_squared
-                .expect("Broyden+Kerker mode requires g_squared");
+                .expect("BUG: Broyden+Kerker mode requires g_squared");
             let q_tf_sq = auto_q_tf_squared(kerker_setup.n_electrons, kerker_setup.omega);
             let weights: Vec<f64> = g2
                 .iter()
