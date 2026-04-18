@@ -396,9 +396,10 @@ mod tests {
             }
             (Ok(_), Err(e)) => panic!("Plain converged but Broyden failed: {e}"),
             (Err(e), Ok(_)) => panic!("Broyden converged but plain failed: {e}"),
-            (Err(_), Err(_)) => {
-                // Both failed to converge — acceptable for this cheap Gamma-only test
-            }
+            (Err(e_plain), Err(e_broyden)) => panic!(
+                "Both Plain and Broyden failed on Si Γ-only SCF — this test \
+                 expects both to converge. Plain error: {e_plain}; Broyden error: {e_broyden}"
+            ),
         }
     }
 

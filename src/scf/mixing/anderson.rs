@@ -594,9 +594,10 @@ mod tests {
             }
             (Ok(_), Err(e)) => panic!("Plain converged but Kerker failed: {e}"),
             (Err(e), Ok(_)) => panic!("Kerker converged but plain failed: {e}"),
-            (Err(_), Err(_)) => {
-                // Both failed to converge — acceptable for this cheap test
-            }
+            (Err(e_plain), Err(e_kerker)) => panic!(
+                "Both Plain and Kerker failed on Si Γ-only SCF — this test \
+                 expects both to converge. Plain error: {e_plain}; Kerker error: {e_kerker}"
+            ),
         }
     }
 
