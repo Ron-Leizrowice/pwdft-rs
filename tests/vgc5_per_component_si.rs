@@ -486,16 +486,36 @@ fn test_madoc_band_sum_identity_si() {
         c.e_band, result.n_iterations,
     );
 
-    // Tolerance rationale: at conv_threshold = 1e-8 on Si the residual is
-    // dominated by the remaining O(Δρ) mismatch between E_band (built from
-    // eigenvalues of H[ρ_in]) and E_H/E_vxc (evaluated on ρ_out). Observed
-    // residual on this fixture: ~1e-9 eV (release build, LTO) to ~5e-11 eV
-    // (dev build with faer optimized). Both are far below any physics
-    // discrimination scale. 1e-7 eV leaves ~100× empirical headroom over
-    // the release-build observation and still catches a factor-2 Hartree
-    // bug (|E_hartree| ~ 14 eV → 10⁸× the tolerance) or a sign-flipped
-    // e_vxc (|E_vxc| ~ 10 eV → 10⁸× the tolerance).
-    let tol = 1e-7;
+    // Tolerance rationale.
+    //
+    // CPU (default features, all f64): at conv_threshold = 1e-8 on Si the
+    // residual is dominated by the remaining O(Δρ) mismatch between E_band
+    // (built from eigenvalues of H[ρ_in]) and E_H/E_vxc (evaluated on
+    // ρ_out). Observed residual on this fixture: ~1e-9 eV (release build,
+    // LTO) to ~5e-11 eV (dev build with faer optimized). 1e-7 eV leaves
+    // ~100× empirical headroom over the release-build observation.
+    //
+    // GPU (`--features gpu`): the Hartree / XC / V_eff grid operations
+    // run in f32 inside WGSL kernels, with conversion at the host
+    // boundary. The f32 precision ceiling (~1e-7 relative) accumulated
+    // over ~18³ grid points and ~O(10³) eV of per-grid potential adds up
+    // to an identity residual of ~5.58e-6 eV on this fixture (observed
+    // on Apple M2 Metal, 2026-04-18 under ALOC-F5 audit). 5e-5 eV leaves
+    // ~10× headroom over that observation.
+    //
+    // Both bounds still catch the bug classes this test exists to pin:
+    //   - factor-2 in E_hartree: |ΔE_H| ≈ 14 eV → 2·10⁸× (CPU) /
+    //     2·10⁵× (GPU) the tolerance.
+    //   - sign-flipped e_vxc: |ΔE_vxc| ≈ 10 eV → 10⁸× (CPU) /
+    //     10⁵× (GPU) the tolerance.
+    //   - spin-channel swap (on the Fe counterpart): > 0.5 eV, still
+    //     10⁴× the GPU tolerance.
+    //
+    // We use a feature-gated tolerance rather than a single loose bound
+    // so the CPU path keeps its nano-eV pin — tightening that silently
+    // on GPU would hide a future real regression in the Hartree/XC host
+    // path, which runs in f64 even under `--features gpu`.
+    let tol = if cfg!(feature = "gpu") { 5e-5 } else { 1e-7 };
     assert!(
         residual < tol,
         "MADOC band-sum identity violated on Si (nspin=1):\n  \
