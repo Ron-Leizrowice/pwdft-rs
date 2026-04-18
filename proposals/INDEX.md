@@ -8,22 +8,22 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 **2026-04-19 (GRUM grooming pass):** VNLM closed (PR #49, 2.9–4.5× V_NL speedup); MODR closed (all phases A–D landed as PRs #46/#50/#48/#47). ITEV moved to "Deferred — Blocked on upstream" pending a faer 0.24 `iterate_lanczos` reorthogonalization bug fix. WFRX elevated from Low to High under a new "High — Performance" subsection: technique 1 (subspace diag) is independent of ITEV and delivers 20–30% SCF speedup on the current dense eigensolver.
 
+**2026-04-19 (GRM2 grooming pass — 22 PRs #80–#101 merged today):** WFRX Technique 1 landed (PR #99, opt-in `scf.subspace_diag`, 7% at n_pw=725; Technique 2 stays deferred on ITEV). Promoted WFRX to Completed. Added MLFX/QELK/UNTS/DOCX/CLNP to Completed as small/reactive landings (no proposal files). GGAP Phase A landed (PR #85) — title annotated with phase state. ALOC Finding F-5 landed (PR #100, alloc traffic 16.8 GB → 0 per SCF at production sizes); F-7 and F-12 remain. TRV2 F1 (PR #98) and F3 (PR #96) landed; F2 (CCMX extraction) deferred on WFRX/driver refactor; 10 Category 2–5 findings remain. ERR2 P0 landed (PR #86); ERR2-AX (operations.rs annotations) and P1 (InvalidInput split) remain. MAUD-AC still in flight — title left as-is this pass. Machine-lock enforcement is now owner-scoped end-to-end (MLFX). Next strategic item: GGAP Phase B (PBE semilocal + gradient FFT helper) once MPSH drivers land; that unblocks 7 PBE validation cells in VQEF. Path forward — Validation: MPSH drivers (in flight) → 3 LDA cells; VGCH Phase 1 (Fe ecut sweep) after Phase 0 landed via CLNP. Perf: WFRX Technique 1 done, ALOC F-7/F-12 + GOPT PR-B next. "High — Foundation & Code Quality" subsection retained as a header slot but empty (MODR phases A–D all landed).
+
 ### High — Foundation & Code Quality
 
 _No active entries (MODR's 4 phases all landed; see Completed)._
 
 ### High — Performance
 
-| ID | Title | Complexity | Risk | Depends On | Blocks |
-|----|-------|-----------|------|------------|--------|
-| WFRX | Wavefunction Reuse Between SCF Iterations (technique 1 on dense now; technique 2 gated on ITEV) | medium | low | — | — |
+_No active entries (WFRX Technique 1 landed as PR #99; Technique 2 gated on ITEV upstream fix — see Deferred)._
 
 ### High — Validation
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
 | MPSH | Monkhorst-Pack shift alignment with QE convention (closes 4 light-atom `#[ignore]`s) | small-medium | low | — | VQEF |
-| VGCH | Heavy-atom V_local(G) residual — post-VGCMP continuation (closes 5 Z>14 `#[ignore]`s) | medium-large | medium | — | VQEF |
+| VGCH | Heavy-atom V_local(G) residual — post-VGCMP continuation (closes 5 Z>14 `#[ignore]`s; Phase 0 landed as CLNP PR #94; Phase 1 Fe ecut sweep next) | medium-large | medium | — | VQEF |
 | VQEF | Full LDA+PBE QE validation matrix (8 systems × 2 functionals) — roadmap | medium | low | VGCMP, GGAP, QELK | — |
 
 ### Medium — Enhancements & Performance
@@ -32,13 +32,13 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 |----|-------|-----------|------|------------|--------|
 | CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
 | MADOC | Mathematical documentation push (phased; MADOC-A first) | large | low | — | DLNT |
-| GGAP | GGA/PBE exchange-correlation functional (phased A–F; ~9–13 CE-days) | large | medium | — | HYBR |
+| GGAP | GGA/PBE exchange-correlation functional (Phase A dispatcher LANDED PR #85; Phases B–F ~7–10 CE-days; B unblocks 7 VQEF PBE cells) | large | medium | — | HYBR |
 | HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP | — |
-| ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; phased) | medium | low | — | — |
-| GOPT | GPU kernel + wgpu host path optimization audit (scoping; 3 major + 5 modest + 4 micro findings; PRs A–E) | medium | low-medium | — | — |
-| TRV2 | Fresh test-suite review — post-PCFX/CCMX/NCFX/GGAP coverage pass (6-PR sequence) | medium | low | — | — |
-| MAUD | Mathematical accuracy audit of core physics modules (post-MADOC-A cold read; 1 docstring A + 9 C findings) | small | low | MADOC | — |
-| ALOC | Per-iteration allocation audit for SCF hot loop (17 findings; top wins: per-k H Mat cache + psi_g reuse) | medium | low | — | — |
+| ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; P0 landed PR #86; ERR2-AX operations.rs annotations in flight; P1 InvalidInput split remains) | medium | low | — | — |
+| GOPT | GPU kernel + wgpu host path optimization audit (scoping; 3 major + 5 modest + 4 micro findings; PR-B in flight; PRs A/C/D/E to follow) | medium | low-medium | — | — |
+| TRV2 | Fresh test-suite review — post-PCFX/CCMX/NCFX/GGAP coverage pass (F1+F3 landed PRs #98/#96; F2 CCMX-extraction deferred on WFRX/driver refactor; 10 Categories 2–5 findings remain) | medium | low | — | — |
+| MAUD | Mathematical accuracy audit of core physics modules (post-MADOC-A cold read; 1 docstring A + 9 C findings; MAUD-AC in flight will address top 2) | small | low | MADOC | — |
+| ALOC | Per-iteration allocation audit for SCF hot loop (F-5 landed PR #100: alloc traffic 16.8 GB → 0 per SCF at production sizes; F-7 in flight; F-12 remains) | medium | low | — | — |
 
 ### Deferred — Blocked on upstream
 
@@ -128,6 +128,12 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 | TYPE | Numeric-type audit Phase A — i32→i8 SpaceGroupOp rotations + i32→i16 Miller + dead `index_map` (5% on `symmetrize_density_g`) |
 | VNLM | V_NL Hamiltonian assembly via single GEMM (n_pw=725: 27 ms → 5.2 ms, 5.2×; 4.5× per-k over 15 SCF iters) |
 | MODR | Modular refactor — split god-modules (all 4 phases A–D landed: PRs #46/#50/#48/#47) |
+| WFRX | Wavefunction reuse — Technique 1 (subspace diag) landed PR #99 opt-in, 7% at n_pw=725; Technique 2 deferred on ITEV upstream fix |
+| MLFX | Machine-lock hardening — owner-scoped acquire, atomic mkdir, wait mode, PID liveness (4 bugs; PR #101) |
+| QELK | Machine-lock policy — require lock for all QE runs (pw.x/ph.x/pp.x/etc.; CLAUDE.md policy update; PR #81) |
+| UNTS | CLAUDE.md units correction — internal units are eV/Å (not Ry/Bohr); Ry/Bohr only at UPF boundary (PR #88) |
+| DOCX | Fix `cargo doc --no-deps -- -D warnings` recipe — rejected by current cargo; use `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` (PR #95) |
+| CLNP | Cleanup bundle — VGCH Phase 0 (ignore-string relabel on 5 heavy-atom tests) + ERR2 `BUG:` prefix on broyden expect (PR #94) |
 
 ## Notes
 
@@ -143,3 +149,9 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 - **ITEV** (new 2026-04-17, Performance Engineer): Post-FFTB/FMAD profiling shows eigensolver at 85-90% of SCF user CPU (n_pw=259: 56 ms/call; n_pw=725: 836 ms/call). `faer 0.24` ships `matrix_free::eigen::partial_self_adjoint_eigen` (implicitly-restarted Arnoldi, matrix-free via `LinOp`, warm-start via `v0`). Supersedes DVSN's hand-rolled Davidson plan. Projected 2.5-4× SCF wall-time speedup at production sizes. WFRX becomes the warm-start knob.
 - **PCRS → PCFX** (2026-04-17, Researcher): per-component identity residual of 1.204 eV on Si is NOT SCF noise (plateau across 4 orders of conv_threshold). Root cause: `symmetrize_density` applies Fd-3m's fractional translation τ=(1/4,1/4,1/4) via `nint` on an 18³ grid, and 18 is not divisible by 4 — every application of the glide bleeds ρ into the wrong grid point.
 - **PCFX** (done 2026-04-18, Core Engineer): `symmetrize_density_g` in `src/symmetry/density.rs` projects ρ onto the S-invariant subspace via `ρ_sym(G) = (1/N) Σ_S exp(-i G·τ) ρ(R^T G)` — exact for any fractional translation on band-limited input. Si per-component identity residual: 1.204 eV → 3.5e-11 eV (5 orders of magnitude improvement below the 1e-5 eV target). Si E_total shifted by 23 meV (PCFX correction, matches proposal's ~17 meV estimate). Fe BCC (symmorphic Im-3m, τ=0) unchanged. Convention details + band-limitation requirement documented inline.
+- **WFRX** (done 2026-04-19, Performance Engineer): Technique 1 (subspace diagonalization on the current dense eigensolver) landed as PR #99 opt-in behind `scf.subspace_diag` (default off). Measured ~7% SCF wall-time improvement at n_pw=725 on the existing benches. Technique 2 (warm-start iterative) is ~30 lines once ITEV unblocks — the cache plumbing landed with Technique 1. See `proposals/completed/WFRX-wavefunction-reuse.md` completion note.
+- **MLFX** (done 2026-04-19, Core Engineer): machine-lock hardening — four bugs fixed in one PR (#101). Owner worktree recorded and enforced by the Bash PreToolUse hook (cross-worktree cargo denied); atomic `mkdir` acquire (no racing acquires both winning); `--wait` mode with configurable timeout (long benches no longer get stolen at 30 min); PID-liveness check plus a 3-hour time cap for PID reuse on torn-down worktrees. 17-case shell-test suite added at `.claude/bin/tests/machine-lock.test.sh`.
+- **QELK** (done 2026-04-19): policy update — every QE run (`pw.x`/`ph.x`/`pp.x`/`bands.x`/`projwfc.x`/etc.) now requires the machine lock because QE saturates CPU and corrupts bench wall-time measurements. CLAUDE.md § Machine Coordination spells out the scope (it's about benchmark integrity, not test isolation).
+- **UNTS** (done 2026-04-19): CLAUDE.md claimed Ry/Bohr internal units; in reality the engine runs in eV/Å/e-Å⁻³ from the UPF boundary onward. `src/pseudopotential/upf/convert.rs` is the only conversion site. CLAUDE.md § Conventions now states this explicitly.
+- **DOCX** (done 2026-04-19): `cargo doc --no-deps -- -D warnings` is rejected by current cargo (the `-D warnings` flag has to travel through `RUSTDOCFLAGS`). The recipe in CLAUDE.md § Code Quality is now `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps`.
+- **CLNP** (done 2026-04-19): small cleanup bundle — VGCH Phase 0 relabeled five heavy-atom `#[ignore]` strings in `tests/qe_validation.rs` to reference VGCH instead of the retired VGCMP ticket, and ERR2 added a `BUG:` prefix to the `broyden.rs` `.expect(...)` so the panic text is greppable in production-panic triage. Tiny but worth its own landing to keep the commit atomic.
