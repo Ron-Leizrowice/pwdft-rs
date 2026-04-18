@@ -36,6 +36,7 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 | HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP | — |
 | ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; phased) | medium | low | — | — |
 | GOPT | GPU kernel + wgpu host path optimization audit (scoping; 3 major + 5 modest + 4 micro findings; PRs A–E) | medium | low-medium | — | — |
+| TRV2 | Fresh test-suite review — post-PCFX/CCMX/NCFX/GGAP coverage pass (6-PR sequence) | medium | low | — | — |
 
 ### Deferred — Blocked on upstream
 
