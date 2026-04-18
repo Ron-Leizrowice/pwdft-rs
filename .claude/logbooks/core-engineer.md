@@ -2,6 +2,21 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-18 — MODR-A landed (PR #46)
+
+Branch `MODR-A/split-mixing` from `origin/main@eb54d69`. Pure-move refactor: `src/scf/mixing.rs` (971 LOC) → `src/scf/mixing/{mod,anderson,broyden,kerker,linalg}.rs`. `AndersonMixer` + `PeriodicPulayMixer` co-located in `anderson.rs` (periodic wrapper pokes Anderson private fields).
+
+**Visibility tightenings vs pre-refactor:**
+- `Mixer` enum, `AndersonMixer`, `BroydenMixer`, `PeriodicPulayMixer`: `pub` → `pub(crate)`. Wanted `pub(super)` on the structs but `private_interfaces` fires because `Mixer` is crate-public and names them as variants — `pub(crate)` is the tightest setting that compiles.
+- `precondition_residual`, `auto_q_tf_squared`, `solve_linear_system`: module-private → `pub(super)` (consumed by sibling files).
+- `MixingMode` stays `pub` (serde adapter + tests/*.rs).
+
+**Tests:** 209 lib + all integration pass (CPU); 212 lib + all integration pass (GPU). Both clippy invocations clean. Every `#[test]` from old `mixing.rs` moved verbatim — no test dropped, no test merged.
+
+**Surprises:** None. `src/scf/mod.rs` needed zero changes (folder-with-mod.rs vs file is transparent at use-sites). Git detected `mixing.rs → mixing/anderson.rs` as a rename (59% similarity).
+
+Phase B (split `scf/mod.rs` into driver/driver_spin/report) and Phase C (symmetry/density folder) remain.
+
 ## 2026-04-18 — CCMX landed (PR #43)
 
 Branch `CCMX/coupled-channel`, rebased onto origin/main (post-PRPL/MODR/NCFX).
