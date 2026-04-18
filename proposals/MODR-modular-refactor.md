@@ -206,7 +206,7 @@ Tests travel with their production code. **No behavior change.**
 
 Size: ~2 h. Risk: low (pure move).
 
-### ✅ Phase B (PR #49) — Split `scf/mod.rs` (unblocks CCMX + ITEV + future energy work)
+### ✅ Phase B (PR #50) — Split `scf/mod.rs` (unblocks CCMX + ITEV + future energy work)
 
 Moved `run_scf` → `scf/driver.rs::run_scf_unpolarized` (pub(crate));
 `run_scf_spin` → `scf/driver_spin.rs::run_scf_spin` (pub(crate));
