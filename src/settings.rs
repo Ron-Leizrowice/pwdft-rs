@@ -177,6 +177,11 @@ pub struct ElectronSettings {
     pub occupations: OccupationType,
     /// Mixing preconditioning mode: plain Anderson or Kerker-preconditioned.
     pub mixing_mode: MixingModeType,
+    /// Periodic Pulay period k (Banerjee et al., JCTC 12, 3053 (2016)).
+    ///
+    /// Only consulted when `mixing_mode == periodic_pulay` or
+    /// `periodic_pulay_kerker`; ignored otherwise. Must be ≥ 1. Default: 3.
+    pub pulay_period: usize,
     /// Number of spin channels: 1 (unpolarized) or 2 (collinear spin-polarized).
     pub nspin: usize,
     /// Starting magnetization per atom type (fractional, -1 to 1).
@@ -196,6 +201,7 @@ impl Default for ElectronSettings {
             smearing_width: 0.05,
             occupations: OccupationType::default(),
             mixing_mode: MixingModeType::default(),
+            pulay_period: 3,
             nspin: 1,
             starting_magnetization: HashMap::new(),
             tot_magnetization: None,
@@ -217,9 +223,10 @@ pub enum OccupationType {
 /// Mixing preconditioning mode for SCF density mixing.
 ///
 /// This is the serde-friendly adapter for [`crate::scf::mixing::MixingMode`].
-/// The SCF-internal `MixingMode::Kerker` carries an optional `q_tf` parameter
-/// that is auto-estimated at runtime, so we keep this flat enum for YAML parsing
-/// and convert via `From`.
+/// The SCF-internal variants carry run-time parameters (auto-estimated q_tf,
+/// configured Pulay period) that are injected during conversion; we keep this
+/// flat enum for YAML parsing and convert via
+/// [`MixingModeType::to_scf_mode`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MixingModeType {
@@ -232,16 +239,47 @@ pub enum MixingModeType {
     Broyden,
     /// Modified Broyden mixing with Kerker preconditioning.
     BroydenKerker,
+    /// Periodic Pulay mixing (Banerjee et al., JCTC 12, 3053 (2016)).
+    ///
+    /// Plain linear mixing except every `pulay_period`-th iteration, where a
+    /// DIIS extrapolation is performed over the accumulated history.
+    PeriodicPulay,
+    /// Periodic Pulay mixing with Kerker preconditioning on the residual.
+    PeriodicPulayKerker,
 }
 
+impl MixingModeType {
+    /// Convert to the runtime `MixingMode`, supplying `pulay_period` for the
+    /// Periodic Pulay variants (ignored for others).
+    #[must_use]
+    pub fn to_scf_mode(self, pulay_period: usize) -> crate::scf::mixing::MixingMode {
+        use crate::scf::mixing::MixingMode;
+        match self {
+            MixingModeType::Plain => MixingMode::Plain,
+            MixingModeType::Kerker => MixingMode::Kerker { q_tf: None },
+            MixingModeType::Broyden => MixingMode::Broyden { kerker: false },
+            MixingModeType::BroydenKerker => MixingMode::Broyden { kerker: true },
+            MixingModeType::PeriodicPulay => MixingMode::PeriodicPulay {
+                period: pulay_period,
+                kerker: false,
+            },
+            MixingModeType::PeriodicPulayKerker => MixingMode::PeriodicPulay {
+                period: pulay_period,
+                kerker: true,
+            },
+        }
+    }
+}
+
+// Back-compat: preserve the simple `.into()` for modes that don't consume
+// `pulay_period`. For Periodic Pulay, callers must use `to_scf_mode(period)`
+// explicitly so the period is threaded through from settings.
 impl From<MixingModeType> for crate::scf::mixing::MixingMode {
     fn from(mode: MixingModeType) -> Self {
-        match mode {
-            MixingModeType::Plain => Self::Plain,
-            MixingModeType::Kerker => Self::Kerker { q_tf: None },
-            MixingModeType::Broyden => Self::Broyden { kerker: false },
-            MixingModeType::BroydenKerker => Self::Broyden { kerker: true },
-        }
+        // Default period of 3 matches the `ElectronSettings` default and the
+        // paper's recommendation; callers that want a non-default period use
+        // `to_scf_mode` instead.
+        mode.to_scf_mode(3)
     }
 }
 
@@ -403,7 +441,10 @@ impl Settings {
             smearing_scheme: self.electrons.smearing,
             ecutrho_ratio: self.basis.ecutrho_ratio,
             fft_grid: self.basis.fft_grid,
-            mixing_mode: self.electrons.mixing_mode.into(),
+            mixing_mode: self
+                .electrons
+                .mixing_mode
+                .to_scf_mode(self.electrons.pulay_period),
             nspin: self.electrons.nspin,
             starting_magnetization: self.electrons.starting_magnetization.clone(),
             tot_magnetization: self.electrons.tot_magnetization,
@@ -769,6 +810,8 @@ kpoints:
             MixingModeType::Kerker,
             MixingModeType::Broyden,
             MixingModeType::BroydenKerker,
+            MixingModeType::PeriodicPulay,
+            MixingModeType::PeriodicPulayKerker,
         ] {
             let yaml = serde_yaml_ng::to_string(&variant).unwrap();
             let parsed: MixingModeType = serde_yaml_ng::from_str(&yaml).unwrap();
@@ -792,6 +835,72 @@ kpoints:
 
         let broyden_kerker: MixingMode = MixingModeType::BroydenKerker.into();
         assert!(matches!(broyden_kerker, MixingMode::Broyden { kerker: true }));
+
+        // Periodic Pulay picks up the supplied period.
+        let pp = MixingModeType::PeriodicPulay.to_scf_mode(5);
+        assert!(matches!(
+            pp,
+            MixingMode::PeriodicPulay {
+                period: 5,
+                kerker: false
+            }
+        ));
+
+        let pp_k = MixingModeType::PeriodicPulayKerker.to_scf_mode(7);
+        assert!(matches!(
+            pp_k,
+            MixingMode::PeriodicPulay {
+                period: 7,
+                kerker: true
+            }
+        ));
+
+        // Default period via `Into` is 3 (matches `ElectronSettings` default).
+        let pp_default: MixingMode = MixingModeType::PeriodicPulay.into();
+        assert!(matches!(
+            pp_default,
+            MixingMode::PeriodicPulay {
+                period: 3,
+                kerker: false
+            }
+        ));
+    }
+
+    #[test]
+    fn periodic_pulay_mixing_mode_parses() {
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+electrons:
+  mixing_mode: periodic_pulay
+  pulay_period: 4
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        assert_eq!(s.electrons.mixing_mode, MixingModeType::PeriodicPulay);
+        assert_eq!(s.electrons.pulay_period, 4);
+    }
+
+    #[test]
+    fn periodic_pulay_kerker_mixing_mode_parses() {
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+electrons:
+  mixing_mode: periodic_pulay_kerker
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        assert_eq!(
+            s.electrons.mixing_mode,
+            MixingModeType::PeriodicPulayKerker
+        );
+        // Default period
+        assert_eq!(s.electrons.pulay_period, 3);
     }
 
     #[test]
