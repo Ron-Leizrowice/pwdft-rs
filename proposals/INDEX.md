@@ -38,6 +38,7 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 | GOPT | GPU kernel + wgpu host path optimization audit (scoping; 3 major + 5 modest + 4 micro findings; PRs A–E) | medium | low-medium | — | — |
 | TRV2 | Fresh test-suite review — post-PCFX/CCMX/NCFX/GGAP coverage pass (6-PR sequence) | medium | low | — | — |
 | MAUD | Mathematical accuracy audit of core physics modules (post-MADOC-A cold read; 1 docstring A + 9 C findings) | small | low | MADOC | — |
+| ALOC | Per-iteration allocation audit for SCF hot loop (17 findings; top wins: per-k H Mat cache + psi_g reuse) | medium | low | — | — |
 
 ### Deferred — Blocked on upstream
 

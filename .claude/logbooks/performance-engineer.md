@@ -2,6 +2,30 @@
 
 Entries: date, measurements (actual numbers), bottleneck findings, proposals assessed. Always include hardware context.
 
+## 2026-04-19 — ALOC: per-iteration allocation audit (PR #93)
+
+Static read-only audit of the SCF iteration body. 17 findings (F-1 to F-17) across `scf/driver.rs`, `scf/driver_spin.rs`, `scf/energy.rs`, `scf/density.rs`, `scf/potentials.rs`, `scf/mixing/*`, `symmetry/density/g_space.rs`, `potential/xc.rs`. Top wins (ranked µs/iter at Si 4×4×4, n_pw=725, 32³):
+
+| # | Site | Est. µs/iter | Fix |
+|---|---|---|---|
+| F-5  | `scf/potentials.rs:147` — `faer::Mat::zeros(n_pw, n_pw)` per k | **200 – 2 000** | cache Mat per-k in ScfContext; `h.fill(0)` + kinetic-fill |
+| F-7  | `scf/density.rs:65` — `psi_g` per band per k | **200 – 1 000** | hoist into rayon `fold` init closure |
+| F-12 | `scf/density.rs:57` — `FFT3D::new` per worker per iter | **100 – 500**   | preallocate FFT3D pool sized to `rayon::current_num_threads()` |
+| F-2  | `potential/xc.rs` + `scf/energy.rs` (XC + vxc_g) | **50 – 200** | `lda_xc_grid_into` + workspace |
+| F-11 | mixer — 5–6 full-grid allocs/iter | **30 – 100** | `MixerWorkspace` + slice-based `precondition_residual` |
+
+**Aggregate projected savings at production scale (non-spin, Si 4×4×4, n_pw=725, n_grid=32³):**
+~640 – 4 060 µs/iter. Spin ≈ 2× on grid findings + F-13 (6× `Vec<f64>` in CCMX basis change). Context: current eigensolve is ~72 ms/iter at n_pw=725 → savings are **1.5 – 5% of iter wall time now, proportionally larger post-WFRX**.
+
+**Gotcha for implementation:** F-5's Mat cache saves the allocator call, but still pays 8.4 MB of zero-writes per k per iter. Verify with a microbench that `fill(Complex64::zero()) + kinetic_fill` really beats `Mat::zeros() + kinetic_fill` — at 725² it might be a wash because the kinetic-fill already touches every slot. If the zero pass dominates, skip it and overwrite every entry unconditionally (kinetic already fills diagonal; V_eff off-diagonal loop fills the rest; VNLM GEMM is an additive pass).
+
+**Out-of-scope flags for next session:**
+- `NonlocalPotential::new` allocates heavily (audit shows `form_factor_by_atom` + `proj_l_by_atom` + 3 more per-atom Vecs are each cloned from the `type_ff` cache — O(n_atoms × n_proj × n_pw) total). All one-time at SCF entry → not ALOC's concern, but a separate optimization if Fe supercells come up.
+- `compute_density`'s final re-normalization loop (`density.rs:88-97`) mutates in place; no allocations. Fine.
+- `density_r_to_g` takes `&mut [Complex64]` and is already zero-alloc internally; caller-side staging was the allocator.
+
+**Fix sequence** (§3 of proposal): Step 1 = skeleton `ScfWorkspace` struct (no savings, CI bit-identical); Step 2 = F-5 + F-7 (headline PR); Step 3 = F-1/2/4/8 together; Step 4 = F-10; Step 5 = F-11; Step 6 = F-12; Steps 7-8 = spin + cleanup.
+
 ## 2026-04-19 — VNLT: VNLM vnl_new regression was bench noise
 
 Three clean runs on current main (Apple M2, lock held ~134 s): `hamiltonian/vnl_new_n725` = 44.37 / 44.36 / 44.23 ms (CI < 0.5%). PR #49's 78.5 ms was a single-run criterion outlier. Only two commits touched `src/potential/nonlocal.rs` since VNLM — CAST added `#[allow]` + asserts (zero runtime cost), RDOC a docstring edit; neither can explain a ~35 ms swing.
