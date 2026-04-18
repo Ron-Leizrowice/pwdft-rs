@@ -34,7 +34,9 @@ use self::potentials::build_hamiltonian_with_v_eff;
 /// Parameters controlling the self-consistent field iteration.
 ///
 /// The SCF loop solves the Kohn-Sham equations iteratively:
-/// 1. Construct V_eff = V_local + V_Hartree[ρ] + V_xc[ρ]
+/// 1. Construct V_eff = V_local + V_Hartree[ρ_val] + V_xc[ρ_val + ρ_core]
+///    (the core charge ρ_core enters only V_xc, via the NLCC path; it is
+///    *not* added to the Hartree source and *not* counted as valence).
 /// 2. Diagonalize H = T + V_eff + V_NL at each k-point
 /// 3. Compute occupations from eigenvalues (Fermi-Dirac or other smearing)
 /// 4. Reconstruct density ρ(r) = Σ_{n,k} f_{n,k} w_k |ψ_{n,k}(r)|²
@@ -42,6 +44,16 @@ use self::potentials::build_hamiltonian_with_v_eff;
 ///
 /// Convergence requires both density (Δρ < conv_threshold) and
 /// energy (ΔE < energy_threshold) criteria to be met.
+///
+/// Nonlinear core correction (NLCC; Louie, Froyen, Cohen, *Phys. Rev. B*
+/// **26**, 1738 (1982)) is enabled automatically whenever the UPF file
+/// has `core_correction="T"`. The invariants (ρ_core in XC only, not
+/// Hartree; not counted as valence; split evenly between spin channels
+/// in LSDA) are pinned by unit tests in `src/pseudopotential/upf.rs` and
+/// the integration regression guard `test_fe_bcc_xc_nlcc_regression_guard`
+/// in `tests/qe_validation.rs`. See
+/// `proposals/completed/NCFX-nlcc-core-density-fix.md` and
+/// `proposals/completed/NLCC-nlcc-audit.md`.
 #[derive(Clone)]
 pub struct ScfParams {
     pub n_bands: usize,

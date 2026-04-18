@@ -297,4 +297,171 @@ mod tests {
             "Si partial core charge = {q_core:.6} e (expected ≈ 0.74 e)"
         );
     }
+
+    // -----------------------------------------------------------------
+    // NLCC audit (Part A) — pin ρ_core(G) at G=0 and the first non-zero
+    // G shell for Si and Fe. Reference values were computed by an
+    // independent Python implementation
+    // (`scripts/validate/rho_core_g_reference.py`, which parses the UPF
+    // with regex and integrates with `scipy.integrate.simpson` in QE
+    // native units, then converts e/Bohr³ → e/Å³). The Rust integrator
+    // below trapezoidal-sums the same formula on the *Å-unit*
+    // `pp.core_charge`, `pp.r_grid`, `pp.rab` — so the pins also
+    // exercise the post-NCFX unit conversion (`e/Bohr³ → e/Å³` via
+    // `/BOHR3_TO_ANG3` in the parser) and the r²·4π weighting used by
+    // `src/scf/potentials.rs::compute_core_density`.
+    //
+    // The Bessel formula:
+    //     ρ_core(G) = (4π / Ω) · ∫ ρ_core(r) · r² · j₀(|G|r) dr
+    // with j₀(x) = sin(x)/x (series form at x→0). The Rust helper uses
+    // the trapezoidal rule (instead of Simpson) to keep it dependency-
+    // free; the residual vs. the Python/Simpson reference is O(1e-5
+    // e/Å³) on the ONCVPSP log mesh, which sets the pin tolerance.
+
+    fn bessel_j0(gr: f64) -> f64 {
+        if gr < 1e-10 {
+            1.0 - gr * gr / 6.0
+        } else {
+            gr.sin() / gr
+        }
+    }
+
+    /// Compute ρ_core(G) in e/Å³ from the parsed pseudopotential data.
+    ///
+    /// Inputs in internal units: `pp.r_grid` in Å, `pp.rab` in Å,
+    /// `pp.core_charge` in e/Å³. Caller supplies the cell volume `omega`
+    /// in Å³ and the wavenumber magnitude `g_norm` in Å⁻¹.
+    fn rho_core_of_g_ang(pp: &PseudopotentialData, g_norm: f64, omega: f64) -> f64 {
+        let four_pi = 4.0 * std::f64::consts::PI;
+        let integral: f64 = pp
+            .core_charge
+            .iter()
+            .zip(pp.r_grid.iter())
+            .zip(pp.rab.iter())
+            .map(|((&rho, &r), &dr)| {
+                let j0 = bessel_j0(g_norm * r);
+                rho * r * r * j0 * dr
+            })
+            .sum();
+        four_pi * integral / omega
+    }
+
+    /// NLCC audit, Part A.1: pin Si ρ_core(G=0) to the known value.
+    ///
+    /// ρ_core(G=0) = Q_core / Ω (since j₀(0) = 1). For Si ONCVPSP LDA
+    /// (a = 5.431 Å, FCC: Ω = a³/4 = 40.032 Å³) with Q_core ≈ 0.7399 e,
+    /// we expect ρ_core(0) ≈ 1.8476·10⁻² e/Å³.
+    ///
+    /// Reference: `scripts/validate/rho_core_g_reference.csv` row
+    /// `(si, shell 0)` = 1.8476428665e-02 e/Å³.
+    #[test]
+    fn test_si_rho_core_of_g_zero() {
+        let pp = parse(&si_content()).unwrap();
+        assert!(pp.has_nlcc());
+
+        let a = 5.431_f64; // Å
+        let omega = a * a * a / 4.0; // FCC primitive cell volume
+        let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
+
+        eprintln!("Si ρ_core(G=0) = {rho_g0:.6e} e/Å³  (ref 1.8476e-2)");
+        let expected = 1.847_642_866_5e-2;
+        // Tolerance 1e-5 covers trapezoidal-vs-Simpson difference on the
+        // ONCVPSP mesh (dr ≈ 5e-3 Å in the relevant region).
+        assert!(
+            (rho_g0 - expected).abs() < 1.0e-5,
+            "Si ρ_core(G=0) = {rho_g0:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    /// NLCC audit, Part A.2: pin Si ρ_core(G≠0) at |G|² = 3·(2π/a)²
+    /// — the first non-zero FCC shell (the {111} family). In Å⁻¹:
+    ///     |G| = 2π/a · √3 ≈ 2.003873 Å⁻¹.
+    ///
+    /// Chosen G is the smallest non-zero |G| for Si FCC; it exercises
+    /// the full Bessel-transform integrand (not just j₀ = 1). Reference:
+    /// `scripts/validate/rho_core_g_reference.csv` row `(si, shell 1)`
+    /// = 1.5427684529e-02 e/Å³.
+    #[test]
+    fn test_si_rho_core_of_g_first_shell() {
+        let pp = parse(&si_content()).unwrap();
+        assert!(pp.has_nlcc());
+
+        let a = 5.431_f64; // Å
+        let omega = a * a * a / 4.0;
+        let g_norm = 2.0 * std::f64::consts::PI / a * (3.0_f64).sqrt();
+        let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
+
+        eprintln!(
+            "Si ρ_core(|G|²=3·(2π/a)²) = ρ_core(G={g_norm:.6} Å⁻¹) \
+             = {rho_g:.6e} e/Å³  (ref 1.5428e-2)"
+        );
+        let expected = 1.542_768_452_9e-2;
+        assert!(
+            (rho_g - expected).abs() < 1.0e-5,
+            "Si ρ_core(first shell) = {rho_g:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    fn fe_content() -> String {
+        std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("pseudopotentials/nc/lda/Fe.upf"),
+        )
+        .unwrap()
+    }
+
+    /// NLCC audit, Part A.3: pin Fe ρ_core(G=0). Fe has a substantially
+    /// larger core charge than Si (Q_core ≈ 2.9171 e vs. 0.74 e) because
+    /// the 3d semicore overlaps the valence 4s/3d — this is the case
+    /// that motivates NLCC most strongly.
+    ///
+    /// BCC primitive Ω = a³/2 = 11.820 Å³ at a = 2.87 Å. Reference:
+    /// `scripts/validate/rho_core_g_reference.csv` row `(fe, shell 0)`
+    /// = 2.4679728958e-01 e/Å³.
+    #[test]
+    fn test_fe_rho_core_of_g_zero() {
+        let pp = parse(&fe_content()).unwrap();
+        assert!(pp.has_nlcc(), "Fe ONCVPSP should have core_correction=T");
+
+        let a = 2.87_f64; // Å
+        let omega = a * a * a / 2.0; // BCC primitive cell volume
+        let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
+
+        eprintln!("Fe ρ_core(G=0) = {rho_g0:.6e} e/Å³  (ref 2.4680e-1)");
+        let expected = 2.467_972_895_8e-1;
+        // Fe NLCC is ~13× larger than Si's at G=0; tolerance 1e-4 e/Å³
+        // ≈ 4·10⁻⁴ relative, consistent with the trapezoidal-vs-Simpson
+        // residual scaled by magnitude.
+        assert!(
+            (rho_g0 - expected).abs() < 1.0e-4,
+            "Fe ρ_core(G=0) = {rho_g0:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    /// NLCC audit, Part A.4: pin Fe ρ_core(G≠0) at |G|² = 2·(2π/a)²
+    /// — the first non-zero BCC shell (the {110} family). In Å⁻¹:
+    ///     |G| = 2π/a · √2 ≈ 3.096355 Å⁻¹.
+    ///
+    /// Reference: `scripts/validate/rho_core_g_reference.csv` row
+    /// `(fe, shell 1)` = 2.2502662616e-01 e/Å³.
+    #[test]
+    fn test_fe_rho_core_of_g_first_shell() {
+        let pp = parse(&fe_content()).unwrap();
+        assert!(pp.has_nlcc());
+
+        let a = 2.87_f64;
+        let omega = a * a * a / 2.0;
+        let g_norm = 2.0 * std::f64::consts::PI / a * (2.0_f64).sqrt();
+        let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
+
+        eprintln!(
+            "Fe ρ_core(|G|²=2·(2π/a)²) = ρ_core(G={g_norm:.6} Å⁻¹) \
+             = {rho_g:.6e} e/Å³  (ref 2.2503e-1)"
+        );
+        let expected = 2.250_266_261_6e-1;
+        assert!(
+            (rho_g - expected).abs() < 1.0e-4,
+            "Fe ρ_core(first shell) = {rho_g:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
 }

@@ -1,14 +1,75 @@
 ---
 id: NLCC
-status: active
+status: completed
+outcome: landed
 priority: medium
 complexity: small
 risk: low
-depends_on: []
+depends_on: [NCFX]
 blocks: []
+owner: researcher
 ---
 
 # NLCC: Nonlinear Core Correction Audit
+
+## 2026-04-18 — Landed
+
+Implemented on branch `NLCC/audit-tests-docs` (rebased onto `origin/main`
+post-NCFX). Test + docs only; no production code changes.
+
+### Part A — unit tests (4 new) in `src/pseudopotential/upf.rs`
+
+Pinned `ρ_core(G)` for Si FCC and Fe BCC against an independent Python/
+SciPy reference (`scripts/validate/rho_core_g_reference.py` →
+`rho_core_g_reference.csv`):
+
+| test                                     | system | G                       | pinned (e/Å³)   | tol    |
+|------------------------------------------|--------|-------------------------|-----------------|--------|
+| `test_si_rho_core_of_g_zero`             | Si FCC | G = 0                   | 1.8476e-2       | 1e-5   |
+| `test_si_rho_core_of_g_first_shell`      | Si FCC | \|G\|² = 3·(2π/a)²      | 1.5428e-2       | 1e-5   |
+| `test_fe_rho_core_of_g_zero`             | Fe BCC | G = 0                   | 2.4680e-1       | 1e-4   |
+| `test_fe_rho_core_of_g_first_shell`      | Fe BCC | \|G\|² = 2·(2π/a)²      | 2.2503e-1       | 1e-4   |
+
+Measured residuals: Si < 1e-7 e/Å³, Fe < 1e-7 e/Å³ — 2 orders below
+the pin tolerance. Trapezoidal-vs-Simpson residual on the ONCVPSP log
+mesh is the tolerance-setting factor (tests use trapezoidal to keep the
+helper dependency-free).
+
+### Part B — Fe integration test
+
+Added `test_fe_bcc_xc_nlcc_regression_guard` in `tests/qe_validation.rs`
+(non-`#[ignore]`d). Runs Fe BCC nspin=1 4×4×4 ecut=15 Ry Kerker and
+asserts `|E_xc − E_xc_QE| ≤ 1 eV`. Measured: `|Δ_xc| = 0.692 eV`. Pre-
+NCFX baseline was 48.85 eV, so any regression that reverts NCFX trips
+this test by >49×.
+
+### Part C — docs
+
+Updated:
+- `src/scf/energy.rs` module docstring: added an NLCC section citing
+  Louie-Froyen-Cohen PRB 26, 1738 (1982) and describing the
+  Hartree/electron-count/LSDA-split invariants.
+- `src/scf/energy.rs::xc_energy_corrected`, `add_core_density`: added
+  explicit formulas and LFC reference.
+- `src/scf/mod.rs::ScfParams`: SCF pipeline docstring now names NLCC,
+  cites LFC, and links to NCFX + this proposal.
+- `src/pseudopotential/mod.rs::PseudopotentialData::core_charge`:
+  expanded invariant-list and cross-linked `add_core_density` and
+  `compute_core_density`.
+- `CLAUDE.md` "SCF loop" section: NLCC mentioned in steps 1, 3, and 4
+  with LFC citation.
+
+No changes to `src/pseudopotential/upf.rs` parser logic or
+`src/scf/potentials.rs::compute_core_density` beyond docstrings
+already written by NCFX.
+
+### Quality gate
+
+- `cargo clippy -q --all-targets` — clean
+- `cargo clippy -q --all-targets --features gpu` — clean
+- `cargo test --release` — all 178 library + integration tests pass
+  (adds 4 Part-A tests + 1 Part-B guard, net +5)
+- `cargo test --release --features gpu` — clean
 
 ## Problem
 
