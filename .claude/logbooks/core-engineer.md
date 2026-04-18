@@ -2,6 +2,27 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-18 — MLFX: machine-lock hardening (PR #101)
+
+Four bugs in `.claude/bin/{machine-lock,check-cargo-lock.sh}` flagged by WFRX #99. All fixed + 17-case shell test suite at `.claude/bin/tests/machine-lock.test.sh`. Shellcheck clean.
+
+**Atomic primitive:** `mkdir` (not `flock`). BSD flock on macOS has different semantics from Linux's `flock(2)`; mkdir is POSIX-atomic on both.
+
+**Lock format change:** flat file → directory `machine.lock.d/{agent,desc,ts,pid,worktree}`. Legacy flat-file locks detected by `_has_legacy_lock` and treated as stale (cleared on next acquire).
+
+**PPID scoping landmine.** First draft used `$$` (the machine-lock script's own PID) as the "owner PID" — but the script exits immediately after `acquire`, so the PID looks dead to every subsequent caller, and the lock auto-stales. Fix: record `$PPID` (the parent shell that invoked machine-lock). The parent stays alive for the duration of the agent's session. Tests override via `$ML_OWNER_PID` so they can use a known-alive background sleep as the owner without relying on whatever PPID the test harness happens to have.
+
+**Hook cwd extraction:** the PreToolUse input JSON has `tool_input.cwd` (falls back to top-level `cwd`, then `$PWD`). Needed to compare against the locked worktree root for the owner check.
+
+**Shared lock path across worktrees:** `git rev-parse --git-common-dir` + parent resolves to the main repo regardless of which worktree invokes the script. Without this, each worktree would have its own isolated `.claude/locks/`, defeating the point of the machine lock.
+
+**Test hang debug:** `sleep 600 &` for the live-PID fixture, then racers as `( ... ) &`. Using bare `wait` at the outer scope hangs forever because it waits for the sleep too. Fix: collect specific PIDs (`racer_pids+=($!)`) and `wait "$pid"` each one.
+
+**Quality gate numbers:** cargo test+clippy+clippy-gpu+doc via the new `machine-lock run` took ~28 min wall (doc was quick; the WFRX subspace tests dominate at 118s). Two pre-existing `clippy::expect_used` warnings in `src/symmetry/operations.rs` landed with ALOC-F5 (PR #100), unrelated to MLFX — flagged to EM for separate cleanup.
+
+**Flagged for follow-up:**
+- `src/symmetry/operations.rs:120,151` — two `i8::try_from(v).expect(...)` sites trip the new ERR2 `clippy::expect_used` lint. Code Reviewer / Researcher to convert to fallible with a tighter input-domain assertion.
+
 ## 2026-04-18 — MXB3: AdaptiveBeta::update Fe-trajectory unit test (PR #71)
 
 Direct unit test in `src/scf/mixing/mod.rs::adaptive_beta_tests` feeding a synthetic 80-iter residual sequence to reproduce the Fe CCMX β-floor failure mode documented by `tests/mxba_adaptive_beta_fe.rs`.
