@@ -11,6 +11,7 @@ gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 approx = ">=0.5"
 nalgebra = { version = ">=0.34", features = ["serde-serialize"] }
 faer = ">=0.24"
+dyn-stack = ">=0.13"
 ndarray = ">=0.16"
 ndrustfft = ">=0.5"
 mendeleev = { version = ">=0.8", default-features = false, features = ["atomic_number", "symbol", "element_list"] }

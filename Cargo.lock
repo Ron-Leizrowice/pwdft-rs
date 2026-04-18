@@ -1897,6 +1897,7 @@ dependencies = [
  "bytemuck",
  "clap",
  "criterion",
+ "dyn-stack",
  "env_logger",
  "faer",
  "indicatif",
