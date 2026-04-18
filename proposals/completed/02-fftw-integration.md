@@ -20,7 +20,7 @@ Three iterations:
 
 Pure Rust, zero unsafe, zero system dependencies. Uses ndrustfft (ndarray + rustfft).
 
-## Benchmark (M2 Mac, criterion, release)
+## Benchmark (M3 Max, criterion, release)
 
 | Grid | Old rustfft (unsafe) | ndrustfft (safe) | Notes |
 |------|---------------------|-----------------|-------|

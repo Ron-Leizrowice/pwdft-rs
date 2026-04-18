@@ -27,7 +27,7 @@ dominates the residual cost.
 
 ## Environment
 
-- Apple M2, macOS, machine lock held for 546 s
+- Apple M3 Max, macOS, machine lock held for 546 s
 - `origin/main @ a1bbac5` (FLUP seed of MXB1/MXB2/MXB3), post-MXBA
 - `cargo bench --bench scf_benchmarks -- --warm-up-time 2 --measurement-time 6`
 - 100 samples per bench; criterion mean of the 95% CI used below

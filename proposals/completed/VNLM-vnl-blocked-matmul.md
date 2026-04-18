@@ -17,7 +17,7 @@ date: 2026-04-18
 
 `NonlocalPotential::add_to_hamiltonian` (`src/potential/nonlocal.rs:118-208`) is
 the #2 SCF per-iteration cost after the dense eigensolve (post-FFTB/FMAD
-profiling, Apple M2, machine-locked):
+profiling, Apple M3 Max, machine-locked):
 
 | n_pw | vnl_apply (current) |
 |------|---------------------|
@@ -90,7 +90,7 @@ arithmetic; in f64 it matches to ~1e-14, far below every existing tolerance
 (V_NL hermiticity 1e-10, diagonal shell degeneracy 1e-8, V_NL cross-check
 against Python reference 1e-6).
 
-## Baseline (Apple M2, machine-locked, commit origin/main@9a5e9e9)
+## Baseline (Apple M3 Max, machine-locked, commit origin/main@9a5e9e9)
 
 criterion `hamiltonian/vnl_apply_*` on Si FCC:
 
@@ -102,13 +102,13 @@ criterion `hamiltonian/vnl_apply_*` on Si FCC:
 
 ## Projected speedup
 
-GEMM-vs-scalar-loop speedups on Apple M2 (NEON via faer/gemm):
+GEMM-vs-scalar-loop speedups on Apple M3 Max (NEON via faer/gemm):
 - ~5-10× at n_pw = 89 (GEMM setup overhead limits the low end);
 - ~10-20× at n_pw = 725 (loop cost fully dominates).
 
 Target: n_pw = 725: 27 ms → ~3 ms.
 
-## Measured result (Apple M2, machine-locked, branch `VNLM/blocked-matmul`)
+## Measured result (Apple M3 Max, machine-locked, branch `VNLM/blocked-matmul`)
 
 | n_pw | vnl_apply before | vnl_apply after | speedup | vnl_new before | vnl_new after |
 |------|------------------|-----------------|---------|----------------|---------------|
@@ -145,7 +145,7 @@ Evidence:
     the asserts fire O(n_projectors) times per `vnl_new`, well below any
     measurable wall-time effect at n_pw = 725.
   - `6840237` (RDOC, 2026-04-18): one-line docstring edit. No code effect.
-- Clean re-bench on current main, Apple M2, machine-locked, three runs,
+- Clean re-bench on current main, Apple M3 Max, machine-locked, three runs,
   criterion `--measurement-time` 6 s / 100 samples (same config as PERF):
   - run 1: 44.37 ms [44.28, 44.51]
   - run 2: 44.36 ms [44.30, 44.45], p = 0.93 vs run 1

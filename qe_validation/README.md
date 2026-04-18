@@ -30,11 +30,12 @@ From the project root:
 
 ```bash
 cd qe_validation
+NP=$(sysctl -n hw.ncpu)  # macOS; use $(nproc) on Linux. Do not hardcode the rank count.
 export OMP_NUM_THREADS=1 LC_ALL=C LANG=C
 export OMPI_MCA_btl=self,vader OMPI_MCA_pml=ob1
 ulimit -s unlimited
 perl -e 'alarm shift; exec @ARGV' 600 \
-    mpirun -np 8 ../qe-7.5/build/bin/pw.x \
+    mpirun -np "$NP" ../qe-7.5/build/bin/pw.x \
     -in si_scf.in > si_scf.out 2>&1
 ```
 

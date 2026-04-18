@@ -18,7 +18,7 @@ supersedes: [DVSN]
 
 ## Problem
 
-Profiling (Apple M2, Si SCF, `si_scf_converged.yaml`, ecut=200 Ry, 4×4×4 MP
+Profiling (Apple M3 Max, Si SCF, `si_scf_converged.yaml`, ecut=200 Ry, 4×4×4 MP
 k-grid → 10 irr. k-points, n_pw=259) pins the eigensolver at roughly
 **85-90% of user-code CPU time** in the SCF hot path:
 
@@ -43,7 +43,7 @@ and inside the per-k-point `par_iter` eigensolve block in
 eigensolver at roughly 85-90% of SCF user-mode compute.
 
 Microbenchmark numbers (criterion, post-FFTB / post-FMAD, machine locked,
-Apple M2):
+Apple M3 Max):
 
 | n_pw | `faer_eigen` (full) | `vnl_apply` | `vnl_new` (init-only) | `kinetic` |
 |------|---------------------|-------------|------------------------|-----------|
