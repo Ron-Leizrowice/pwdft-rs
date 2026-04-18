@@ -72,13 +72,30 @@ use super::{ScfParams, ScfResult, context, density, initial_density, mixing, sme
 /// `log::warn!` and retries on the dense path. The SCF loop never sees a
 /// convergence-style failure from ITEV — only a genuine panic would
 /// escape, which faer's upstream tests exercise heavily.
+///
+/// When `wfrx_subspace == true` and `kind == Dense`, the dense path uses
+/// [`dense::diagonalize_subspace`] with the caller-supplied `v_prev`
+/// warm-start subspace (typically the previous SCF iteration's
+/// eigenvectors at the same k-point). On the first iteration (`v_prev ==
+/// None`) and whenever the WFRX residual gate trips, the subspace path
+/// internally falls back to [`dense::diagonalize_lowest`] so correctness
+/// is never sacrificed. The flag is ignored for `kind == Iterative`
+/// (ITEV owns its own warm-start path via `v0`).
 pub(super) fn diagonalize_dispatch(
     h: &faer::Mat<Complex64>,
     n_bands: usize,
     kind: EigensolverKind,
+    wfrx_subspace: bool,
+    v_prev: Option<&faer::Mat<Complex64>>,
 ) -> Result<EigenResult> {
     match kind {
-        EigensolverKind::Dense => dense::diagonalize_lowest(h, n_bands),
+        EigensolverKind::Dense => {
+            if wfrx_subspace {
+                dense::diagonalize_subspace(h, n_bands, v_prev)
+            } else {
+                dense::diagonalize_lowest(h, n_bands)
+            }
+        }
         EigensolverKind::Iterative => {
             match iterative::diagonalize_lowest_iterative(
                 h,
@@ -237,6 +254,20 @@ pub(crate) fn run_scf_unpolarized(
     let mut last_delta = f64::INFINITY;
     let pb = scf_progress_bar(ctx.params.max_iter);
 
+    // WFRX Phase-1 warm-start cache: previous iteration's eigenvectors per
+    // k-point, used as a Rayleigh–Ritz subspace for the next solve. `None`
+    // on the first iteration → full diag. Populated with length
+    // `ctx.kpoints.len()` after each successful eigensolve pass; indexed
+    // by `ik` inside the rayon k-point loop so each closure captures its
+    // own `&faer::Mat` reference (no shared-mut aliasing).
+    //
+    // Enabled only when the user opts in via `ScfParams::wfrx_subspace`
+    // AND the dense backend is selected; otherwise the cache is never
+    // populated and `diagonalize_dispatch` receives `None`.
+    let wfrx_enabled = ctx.params.wfrx_subspace
+        && matches!(ctx.params.eigensolver, EigensolverKind::Dense);
+    let mut prev_wavefunctions: Option<Vec<faer::Mat<Complex64>>> = None;
+
     for iter in 0..ctx.params.max_iter {
         // Steps 1-3: Hartree, XC, V_eff assembly.
         // GPU path uses f32 for Hartree, XC, and V_eff; CPU path uses f64 + rayon.
@@ -290,21 +321,43 @@ pub(crate) fn run_scf_unpolarized(
         #[cfg(not(feature = "gpu"))]
         let v_eff_fft = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_g);
 
-        // 4. Solve eigenvalue problem at each k-point (parallel over k-points)
+        // 4. Solve eigenvalue problem at each k-point (parallel over k-points).
+        //    WFRX: when warm-start is enabled and we have a previous
+        //    iteration's eigenvectors, pass them in per-k as the subspace
+        //    seed. `prev_wavefunctions.as_ref()` lives outside the
+        //    closure; each closure indexes by `ik` to get its own
+        //    `&faer::Mat`, so there is no shared mutable aliasing.
         let eigensolver_kind = ctx.params.eigensolver;
+        let prev_wfn_ref = prev_wavefunctions.as_ref();
         let kpoint_results: Result<Vec<_>> = ctx.kpoints
             .par_iter()
             .enumerate()
             .map(|(ik, kp)| {
                 let mut h = build_hamiltonian_with_v_eff(ctx.basis, &kp.k, &v_eff_fft, ctx.grid.dims);
                 ctx.vnl_cache[ik].add_to_hamiltonian(&mut h, ctx.crystal, ctx.basis, &kp.k);
-                diagonalize_dispatch(&h, ctx.params.n_bands, eigensolver_kind)
+                let v_prev_k = prev_wfn_ref.map(|wfns| &wfns[ik]);
+                diagonalize_dispatch(
+                    &h,
+                    ctx.params.n_bands,
+                    eigensolver_kind,
+                    wfrx_enabled,
+                    v_prev_k,
+                )
             })
             .collect();
         let kpoint_results = kpoint_results?;
 
         eigenvalues_all = kpoint_results.iter().map(|r| r.eigenvalues.clone()).collect();
         let all_kpoint_wavefns: Vec<_> = kpoint_results.into_iter().map(|r| r.eigenvectors).collect();
+
+        // WFRX: cache this iteration's eigenvectors for next iteration's
+        // warm-start. Only populated when WFRX is enabled, so the clone
+        // cost is paid only by users who opt in. `clone()` is a deep copy
+        // of the faer matrix; at `n_pw = 725, n_bands = 8` this is
+        // ~90 KiB per k-point — negligible next to the eigensolve.
+        if wfrx_enabled {
+            prev_wavefunctions = Some(all_kpoint_wavefns.clone());
+        }
 
         // 5. Occupations (configurable smearing scheme)
         fermi_energy = smearing::find_fermi_energy(

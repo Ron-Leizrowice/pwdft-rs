@@ -89,6 +89,22 @@ pub struct ScfParams {
     /// when the problem is too small for Arnoldi to be profitable or when
     /// iteration fails to converge in the restart budget.
     pub eigensolver: crate::eigensolver::EigensolverKind,
+    /// Enable WFRX Phase-1 subspace-diagonalization warm-start for the
+    /// dense eigensolver.
+    ///
+    /// When `true` and `eigensolver == Dense`, the driver caches the
+    /// previous iteration's eigenvectors per k-point and uses them as a
+    /// Rayleigh–Ritz subspace for the next SCF iteration's diagonalization
+    /// ([`crate::eigensolver::dense::diagonalize_subspace`]). The subspace
+    /// path automatically falls back to the full dense diagonalization
+    /// whenever the per-eigenpair residual gate
+    /// ([`crate::eigensolver::dense::WFRX_RESIDUAL_TOL`]) is tripped, so
+    /// correctness is never sacrificed. When `eigensolver == Iterative`,
+    /// this flag has no effect (ITEV has its own warm-start path via `v0`).
+    ///
+    /// Default `false` (opt-in). See
+    /// `proposals/WFRX-wavefunction-reuse.md`.
+    pub wfrx_subspace: bool,
     /// Exchange-correlation functional selector.
     ///
     /// Only [`crate::settings::XcFunctional::Pz`] (Perdew-Zunger LDA) is
@@ -159,6 +175,7 @@ impl Default for ScfParams {
             starting_magnetization: std::collections::HashMap::new(),
             tot_magnetization: None,
             eigensolver: crate::eigensolver::EigensolverKind::default(),
+            wfrx_subspace: false,
             xc_functional: crate::settings::XcFunctional::default(),
         }
     }

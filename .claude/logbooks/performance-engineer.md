@@ -2,6 +2,27 @@
 
 Entries: date, measurements (actual numbers), bottleneck findings, proposals assessed. Always include hardware context.
 
+## 2026-04-19 — WFRX Phase 1 landed (PR #99)
+
+Subspace warm-start on dense eigensolver. **Default OFF** per spec — small-n regression rules out default-on. Numerical equivalence: Si |ΔE| = 1.39e-10 eV (proposal gate = 1e-8; 2 orders tighter).
+
+Apple M2, isolated-kernel bench (lock held):
+
+| n_pw | full_dense | subspace_warm | warm / full |
+|------|-----------:|--------------:|------------:|
+|   89 |   0.99 ms  |     1.44 ms   |    1.45×    |
+|  259 |   7.65 ms  |     7.92 ms   |    1.03×    |
+|  725 |  79.6  ms  |    74.2  ms   |    0.93× (7% win) |
+
+**Key takeaway:** faer 0.24's full Hermitian `self_adjoint_eigen` is already highly optimized. The Rayleigh-Ritz project + residual + rotate overhead (~5-10 ms at n=725) dominates the savings for all but production-scale runs. **Prior 25× claim is obsolete** for this faer configuration — the real number is ≤10% at n≥725, and negative at n<200.
+
+**Gotchas captured:**
+- Convergence test must use tight `conv_threshold` (1e-8) + good mixer (Broyden β=0.7) to hit 1e-8 eV agreement. At conv_threshold=1e-6 the SCF-level noise floor is ~1e-6 eV, which swallows the WFRX signal. Plain mixing at tight threshold won't converge in reasonable iterations.
+- Machine-lock bench contamination persists — 3 other agents ran `spin_polarization` / `vgc5` at 500-1500% CPU while I held the lock. First bench pass was unusable (n=89 full_dense at 40 ms instead of 1 ms). Had to wait ~15 min for load avg to drop from 49 → 29 before numbers stabilized.
+
+**Next-step lever for eigensolve reduction:**
+- Per ALOC F-5 projection, the eigensolver is still ~95% of iter cost at n=725. Only **ITEV** (blocked on faer 0.24 Lanczos upstream bug) moves the needle meaningfully here. WFRX Phase 2 (ITEV warm-start) becomes free once ITEV lands — the `prev_wavefunctions` plumbing is already in place.
+
 ## 2026-04-19 — ALOC: per-iteration allocation audit (PR #93)
 
 Static read-only audit of the SCF iteration body. 17 findings (F-1 to F-17) across `scf/driver.rs`, `scf/driver_spin.rs`, `scf/energy.rs`, `scf/density.rs`, `scf/potentials.rs`, `scf/mixing/*`, `symmetry/density/g_space.rs`, `potential/xc.rs`. Top wins (ranked µs/iter at Si 4×4×4, n_pw=725, 32³):
