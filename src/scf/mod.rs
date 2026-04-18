@@ -603,15 +603,17 @@ fn run_scf_spin(
         *ctx.params.starting_magnetization.get(&sym).unwrap_or(&0.0)
     }).collect();
 
-    // Determine n_up, n_down
-    let (n_up, n_down) = if let Some(tot_mag) = ctx.params.tot_magnetization {
+    // Log the target spin populations if the user fixed the magnetization.
+    // The per-spin populations aren't otherwise needed here: the CCMX
+    // mixer below operates on total/magnetization and both are sized to
+    // `ctx.n_electrons` (the total is conserved exactly, m can be any
+    // sign). Per-spin occupations are re-computed inside the SCF loop
+    // from eigenvalues.
+    if let Some(tot_mag) = ctx.params.tot_magnetization {
         let n_up = f64::midpoint(ctx.n_electrons, tot_mag);
         let n_down = (ctx.n_electrons - tot_mag) / 2.0;
         info!("Fixed magnetization: n_up={n_up:.2}, n_down={n_down:.2}");
-        (n_up, n_down)
-    } else {
-        (ctx.n_electrons / 2.0, ctx.n_electrons / 2.0) // initial guess; self-consistent
-    };
+    }
 
     // Initial spin density via SAD with magnetic moments
     let init_config = initial_density::InitialDensityConfig {
@@ -628,14 +630,31 @@ fn run_scf_spin(
     let mut rho_up_r: Vec<f64> = rho_total.iter().map(|&r| r * (1.0 + avg_mag) / 2.0).collect();
     let mut rho_down_r: Vec<f64> = rho_total.iter().map(|&r| r * (1.0 - avg_mag) / 2.0).collect();
 
-    // Two mixers (one per spin channel)
-    let mut mixer_up = mixing::Mixer::new(
+    // CCMX: coupled-channel mixer. Rather than mixing (ρ↑, ρ↓) independently
+    // — which decouples two channels that are physically coupled by Hartree
+    // and XC, leaving them free to oscillate in opposite directions without
+    // ever seeing each other's residual history — we mix in the QE basis
+    // (ρ_total, m) = (ρ↑ + ρ↓, ρ↑ − ρ↓). The total-density mixer uses the
+    // user's full mixing_mode (Kerker/Broyden unchanged); the magnetization
+    // mixer uses the same algorithm with Kerker disabled, because Kerker is
+    // the charge-charge Thomas-Fermi response 4πe²/(|G|²+q_TF²) and has no
+    // meaning for the spin-spin channel (no long-wavelength sloshing to
+    // damp). After mixing, we invert back to (ρ↑_new, ρ↓_new). See QE
+    // `rhoz_or_updw` (qe-7.5/PW/src/scf_mod.f90:1360-1414) and
+    // proposals/CCMX-coupled-channel-mixer.md.
+    let mag_mixing_mode = match &ctx.params.mixing_mode {
+        mixing::MixingMode::Plain | mixing::MixingMode::Kerker { .. } => {
+            mixing::MixingMode::Plain
+        }
+        mixing::MixingMode::Broyden { .. } => mixing::MixingMode::Broyden { kerker: false },
+    };
+    let mut mixer_total = mixing::Mixer::new(
         ctx.params.mixing_beta, ctx.params.mixing_ndim, &ctx.params.mixing_mode,
-        Some(&ctx.g_squared), n_up, ctx.omega,
+        Some(&ctx.g_squared), ctx.n_electrons, ctx.omega,
     );
-    let mut mixer_down = mixing::Mixer::new(
-        ctx.params.mixing_beta, ctx.params.mixing_ndim, &ctx.params.mixing_mode,
-        Some(&ctx.g_squared), n_down, ctx.omega,
+    let mut mixer_mag = mixing::Mixer::new(
+        ctx.params.mixing_beta, ctx.params.mixing_ndim, &mag_mixing_mode,
+        Some(&ctx.g_squared), ctx.n_electrons, ctx.omega,
     );
 
     let mut e_prev: Option<f64> = None;
@@ -974,9 +993,46 @@ fn run_scf_spin(
             });
         }
 
-        // 8. Mix each spin channel independently
-        rho_up_r = mixer_up.mix(&rho_up_r, &rho_up_sym, &mut ctx.grid.fft);
-        rho_down_r = mixer_down.mix(&rho_down_r, &rho_down_sym, &mut ctx.grid.fft);
+        // 8. CCMX: coupled-channel mixing in the (ρ_total, m) basis.
+        //    Forward basis change: ρ_total = ρ↑ + ρ↓, m = ρ↑ − ρ↓ for both
+        //    the input and output (symmetrized) spin densities. Mix each
+        //    mode independently with its own history. Invert with
+        //    ρ↑ = (ρ_total + m) / 2, ρ↓ = (ρ_total − m) / 2 (matches QE's
+        //    vi=0.5 convention in rhoz_or_updw, scf_mod.f90:1395-1396).
+        let rho_total_in: Vec<f64> = rho_up_r
+            .iter()
+            .zip(rho_down_r.iter())
+            .map(|(&u, &d)| u + d)
+            .collect();
+        let m_in: Vec<f64> = rho_up_r
+            .iter()
+            .zip(rho_down_r.iter())
+            .map(|(&u, &d)| u - d)
+            .collect();
+        let rho_total_out: Vec<f64> = rho_up_sym
+            .iter()
+            .zip(rho_down_sym.iter())
+            .map(|(&u, &d)| u + d)
+            .collect();
+        let m_out: Vec<f64> = rho_up_sym
+            .iter()
+            .zip(rho_down_sym.iter())
+            .map(|(&u, &d)| u - d)
+            .collect();
+
+        let rho_total_mixed = mixer_total.mix(&rho_total_in, &rho_total_out, &mut ctx.grid.fft);
+        let m_mixed = mixer_mag.mix(&m_in, &m_out, &mut ctx.grid.fft);
+
+        rho_up_r = rho_total_mixed
+            .iter()
+            .zip(m_mixed.iter())
+            .map(|(&t, &mm)| 0.5 * (t + mm))
+            .collect();
+        rho_down_r = rho_total_mixed
+            .iter()
+            .zip(m_mixed.iter())
+            .map(|(&t, &mm)| 0.5 * (t - mm))
+            .collect();
     }
 
     pb.abandon_with_message("did not converge");
