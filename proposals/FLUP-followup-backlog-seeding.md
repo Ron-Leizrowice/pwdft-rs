@@ -287,6 +287,87 @@ the failure mode, this test updates with it.
 reproduces the β schedule that leads to ConvergenceFailure on Fe,
 without running an SCF.
 
+### VNLT — Investigate non-reproducing VNLM `vnl_new` regression
+
+- **Role:** Performance Engineer
+- **Priority:** medium (may retire VNLB), **Complexity:** small, **Risk:** low
+- **Source:** PERF post-MXBA benchmark pass (PR #59), ANOM-3.
+
+VNLM (PR #49) reported a 1.5× `vnl_new_n725` regression (43.2 → 78.5 ms)
+as the one-time cost of the GEMM lift, with "break-even at ~2 SCF iters"
+amortization caveat. Today's PERF pass measured 43.4 ms — *matching the
+pre-VNLM baseline*. Three possibilities:
+
+1. The VNLM regression was real but something after VNLM inadvertently
+   fixed it (MXBA / CAST / MODR rebases changed the code path or the
+   SIMD vectorization pattern).
+2. The VNLM bench was noisy and the 78.5 ms was an outlier.
+3. The bench input or criterion config drifted between PR #49 and PR #59.
+
+Clean re-bench with longer `--measurement-time`, compare to PR #49's
+criterion baseline file if preserved in `target/criterion/`. If
+confirmed that `vnl_new` is genuinely at 43 ms on current main, **VNLB
+becomes moot** (no regression to recover) and VNLM becomes a pure
+speedup with no amortization caveat — update VNLM's archived proposal
+accordingly.
+
+**Acceptance criterion:** either (a) confirm vnl_new ≈ 43 ms is stable
+across 3 bench runs → strike VNLB from FLUP and amend VNLM notes, or
+(b) reproduce the 78 ms regression → keep VNLB and add a note to this
+entry explaining what toggled it.
+
+### EIGV — Investigate `faer_eigen_n259` +36% regression anomaly
+
+- **Role:** Performance Engineer
+- **Priority:** low (may be pure noise), **Complexity:** small, **Risk:** low
+- **Source:** PERF post-MXBA benchmark pass (PR #59), ANOM-1.
+
+PERF flagged `faer_eigen_n259` as +36% slower with an unusually wide
+95% CI (±15%). No landing today claims the eigensolver at n=259.
+Re-bench with longer `--measurement-time 15` (default is ~5s) and
+`--sample-size 50` to tighten the CI. If the regression tightens,
+bisect — most likely culprit is `Cargo.lock` drift in a faer-adjacent
+dep that changed its internal SIMD tuning.
+
+**Acceptance criterion:** either (a) regression disappears under longer
+measurement → mark as noise, strike entry, or (b) regression confirmed
+within ±5% CI → open a proposal to bisect the cause (likely a single
+cargo update commit from this week).
+
+### EIGW — Investigate `faer_eigen_n725` unclaimed −16% win
+
+- **Role:** Performance Engineer
+- **Priority:** low (free win but needs understanding), **Complexity:** trivial, **Risk:** low
+- **Source:** PERF post-MXBA benchmark pass (PR #59), ANOM-2.
+
+PERF noted that `faer_eigen_n725` quietly improved by −16% with no
+claimed source. Free wins are nice but unexplained ones are a smell —
+may indicate a related regression is masked. Same re-bench protocol as
+EIGV (longer measurement, tighter CI). If the win is real, figure out
+which landing caused it (MODR? CAST? Some incidental inline change?) so
+future bisections against this baseline have a reference. Combine
+investigation with EIGV — same tool, same worktree, same afternoon.
+
+**Acceptance criterion:** either (a) win disappears under longer
+measurement → mark as noise, or (b) win confirmed → git bisect across
+the week's landings to attribute and document.
+
+### DWGT — Add `cargo doc` to the quality gate
+
+- **Role:** Technical Writer
+- **Priority:** low, **Complexity:** trivial, **Risk:** low
+- **Source:** RDOC agent suggestion, PR #61.
+
+Today's RDOC cleanup cleared 17 pre-existing `cargo doc --no-deps`
+warnings to 0. Without CI enforcement, regressions will accumulate
+again. Add `cargo doc --no-deps -- -D warnings` to the "Code Quality"
+section of `CLAUDE.md` alongside the existing two clippy invocations.
+Also update each agent definition under `.claude/agents/*.md` whose
+workflow mentions the quality gate.
+
+**Acceptance criterion:** CLAUDE.md + agent defs updated; any new PR
+touching docstrings that introduces a warning is blocked by the gate.
+
 ## What this is NOT
 
 - **Not an implementation plan.** Each entry needs to be promoted to
