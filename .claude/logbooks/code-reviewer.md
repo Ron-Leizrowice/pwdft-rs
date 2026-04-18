@@ -2,6 +2,21 @@
 
 Entries: date, metrics (actual counts), findings, proposals affected. Track quality trends over time.
 
+## 2026-04-18 — ERR2 panic-free production audit
+
+Wrote `proposals/ERR2-panic-free-production-audit.md`. Post-ERRH census:
+
+- **Category A (unwrap/expect/panic):** 0 unwrap, 15 expect (all `BUG:` prefix), 0 panic — all legitimate invariants, no Result conversions needed. +2 since ERRH (`scf/mixing/broyden.rs:66` BROY, `scf/driver.rs:103` driver-split).
+- **Category B (assert/debug_assert):** 16 production sites. All keep-as-assert or keep-as-debug_assert after triage; 0 user-reachable panics.
+- **Category C (unreachable/todo):** 1 `unreachable!` in `scf/mixing/anderson.rs:87` (documented). 0 `todo!`.
+- **Category D (`InvalidInput` catch-all):** 12 distinct failure kinds stringly-typed into one `InvalidInput(String)` — biggest finding. Proposed split into `InvalidParam`/`InvalidCrystal`/`UnknownElement`.
+
+Enforcement: proposed `unwrap_used`/`expect_used`/`panic`/`unreachable` = `warn`, `todo`/`unimplemented` = `deny`. Test modules get `#[allow(..., reason = "ERR2 Phase 0")]` banners (CAST discipline).
+
+Surprise: UPFV (PR #72) landed mid-audit and obsoleted the only Category B "should-be-Result" candidate (`potential/nonlocal.rs:132`), which is now belt-and-suspenders. Updated proposal accordingly.
+
+Cosmetic nit flagged for Phase 0: `scf/mixing/broyden.rs:66` missed the `BUG:` prefix that all other production expects use.
+
 ## 2026-04-17 — TAUD test-suite audit
 
 Wrote `proposals/TAUD-test-quality-audit.md`. Top 3 silent-pass findings:
