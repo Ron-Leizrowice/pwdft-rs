@@ -2,6 +2,13 @@
 //!
 //! Run with: cargo bench --features gpu --bench gpu_benchmarks
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: benchmarks are allowed to panic"
+)]
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 use num_complex::Complex64;

@@ -53,6 +53,7 @@ pub(super) fn solve_linear_system(a: &[f64], b: &[f64], n: usize) -> Vec<f64> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, reason = "ERR2 § Phase 0: in-src test modules are allowed to panic")]
 mod tests {
     use super::*;
 

@@ -3,6 +3,12 @@
 //! Run with: cargo test --features gpu --test gpu_consistency
 
 #![cfg(feature = "gpu")]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
 
 use nalgebra::Vector3;
 use num_complex::Complex64;

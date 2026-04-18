@@ -119,6 +119,7 @@ pub fn symmetrize_density(rho: &mut [f64], dims: [usize; 3], symmetry: &Symmetry
 // re-introduction; tests below legitimately exercise it to pin the short-
 // circuit + symmorphic (τ=0) behavior that the G-space form must match.
 #[allow(deprecated)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, reason = "ERR2 § Phase 0: in-src test modules are allowed to panic")]
 mod tests {
     use super::super::check_grid_compatibility;
     use super::*;

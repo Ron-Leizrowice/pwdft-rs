@@ -1,6 +1,13 @@
 //! Verify that parallel (rayon) and single-threaded execution produce
 //! identical numerical results for FFT, density, and the full SCF pipeline.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
 use nalgebra::Vector3;
 use num_complex::Complex64;
 

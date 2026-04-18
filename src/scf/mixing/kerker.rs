@@ -56,6 +56,7 @@ pub(super) fn auto_q_tf_squared(n_electrons: f64, omega: f64) -> f64 {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, reason = "ERR2 § Phase 0: in-src test modules are allowed to panic")]
 mod tests {
     use super::*;
 

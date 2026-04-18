@@ -1,6 +1,13 @@
 //! Diagnostic test: check that the non-local potential preserves
 //! cubic symmetry at the Γ point for Si FCC.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
 use nalgebra::Vector3;
 use num_complex::Complex64;
 

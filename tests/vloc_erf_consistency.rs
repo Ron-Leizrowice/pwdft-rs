@@ -27,6 +27,13 @@
 //! We test the first 20 non-zero |G| shells for Si at the equilibrium lattice
 //! constant (a = 5.431 Å).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
 use std::f64::consts::PI;
 use std::path::PathBuf;
 

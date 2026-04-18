@@ -26,6 +26,13 @@
 //! same grid (SYKP/MPSH) or the V_local(G) heavy-atom residual closes
 //! (VGCMP).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
 use nalgebra::Vector3;
 use pwdft_rs::{
     basis::BasisSet,
