@@ -187,3 +187,65 @@ f64 + 2 × n_pw × n_channels complex — ~200 KB at n_pw=725 — negligible.
 - Next perf target after eigensolver: profile whole-SCF again post-ITEV
   (when iterative fixes land) to see if V_NL moved off the podium.
 - ITEV upstream faer issue still blocking iterative eigen — independent.
+
+## 2026-04-18 — Post-MXBA headline benchmark pass
+
+Bench-only session, read-only source. Lock held 546 s. Full report at
+`proposals/completed/PERF-2026-04-18-benchmark-pass.md`.
+
+**Headline:** Si n_pw=725 hot-path (eig + vnl_apply) **1.47x** per iter
+(110.9 ms -> 75.3 ms). V_NL-only, 15-iter amortized: **4.32x**
+(430.8 ms -> 99.7 ms per k-point). Entire measurable speedup is VNLM.
+
+**Measurements (Apple M2, lock held, criterion 100-sample):**
+
+| Bench              | 2026-04-16 | 2026-04-18 | Delta |
+|--------------------|------------|------------|-------|
+| vnl_apply_n89      |  391 µs    |  67.7 µs   | 5.8x  |
+| vnl_apply_n259     | 3.22 ms    |  485 µs    | 6.6x  |
+| vnl_apply_n725     | 25.9 ms    | 3.75 ms    | 6.9x  |
+| vnl_new_n725       | 42.3 ms    | 43.4 ms    | +2.5% |
+| faer_eigen_n89     | 1.52 ms    |  931 µs    | -39%  |
+| faer_eigen_n259    | 7.36 ms    | 10.04 ms   | +36%* |
+| faer_eigen_n725    | 85.0 ms    | 71.6 ms    | -16%* |
+| lda_xc_grid_n4096  |  45.97 µs  | 42.7 µs    | -7%   |
+| scf_iter_20x_32^3  |  n/a       | 13.85 ms   | new   |
+
+*= unexplained; see anomalies.
+
+**Reproducibility notes:**
+- VNLM reproduced above PR #49's claim (6.9x actual vs 5.2x at n=725).
+- VNLM's reported 1.5x vnl_new regression at n=725 (43.2->78.5 ms)
+  **did not reproduce**; today reads 43.4 ms, essentially pre-VNLM.
+  Either MODR-B hid the cost or original regression was variance.
+- FMAD (3-4% on lda_xc_grid_*) survived MODR refactors.
+- XCPR parallel regime (n>=16384) still active.
+- FFTB's benefit invisible on standalone forward_* (within 1-2% of
+  2026-04-16); use `scf_iter_20x_*` for FFTB impact — no pre-FFTB
+  reference bench exists in the repo.
+
+**Current bottleneck ranking at n_pw=725 (post-VNLM):**
+1. Eigensolve (dense faer) — 71.6 ms/iter, ~95% of per-iter cost.
+   Only ITEV moves this, blocked on faer 0.24 Lanczos upstream bug.
+2. V_NL new — 43.4 ms one-time per k-point, amortizable.
+3. V_NL apply — 3.75 ms/iter, no longer a target.
+4. FFT — ~14 ms for 20 calls at 32^3.
+5. XC grid — sub-ms at all realistic sizes.
+
+**Anomalies flagged for FLUP:**
+- **ANOM-1 / faer_eigen_n259 +36%:** wide CI (+/-15%); re-bench with
+  --measurement-time 15 to confirm. If real, bisect today's 13 PRs.
+- **ANOM-2 / faer_eigen_n725 -16%:** unclaimed free win; verify.
+- **ANOM-3 / vnl_new_n725 no regression:** VNLM's break-even caveat
+  may be stale. Proposed FLUP ID **VNLT**.
+
+**Tangential ideas:**
+- Per-iter ratio eig:vnl_apply jumped ~3:1 -> ~19:1. Anything that
+  moves eigensolver off top (ITEV, WFRX subspace reuse) is now
+  overwhelmingly the highest-leverage perf work.
+- n_pw=259 faer_eigen wide CI suggests rayon global pool + inner faer
+  parallel contention; worth a targeted profile with ANOM-1.
+
+**Next session TODO:**
+- Revisit when ITEV unblocks (faer upstream fix).
+- If EM wants ANOM-1 investigated, re-bench longer.
