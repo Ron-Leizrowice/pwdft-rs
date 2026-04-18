@@ -46,24 +46,34 @@ from all four sites.
 all existing tests still pass bit-identical. No changes to `EnergyComponents`
 semantics.
 
-### GLUS — Replace hand-rolled Gauss-elim with `faer` LU
+### ~~GLUS — Replace hand-rolled Gauss-elim with `faer` LU~~ (landed)
 
-- **Role:** Performance Engineer
-- **Priority:** low, **Complexity:** small, **Risk:** low
-- **Source:** MODR audit; `src/scf/mixing/linalg.rs::solve_linear_system`.
+~~- **Role:** Performance Engineer~~
+~~- **Priority:** low, **Complexity:** small, **Risk:** low~~
+~~- **Source:** MODR audit; `src/scf/mixing/linalg.rs::solve_linear_system`.~~
 
-`solve_linear_system` is a hand-rolled partial-pivoting Gauss-elimination
-for the DIIS/Broyden normal-equations system (≤ `mixing_ndim` × `mixing_ndim`,
-typically ≤ 8×8). `faer` is already linked project-wide. Swap to
-`faer::linalg::lu::partial_pivoting::solve` or equivalent. The current
-implementation is correct (17 unit tests in `mixing/`), but replacing
-it removes a hand-maintained linalg primitive and small-matrix edge-case
-risk surface.
+~~`solve_linear_system` is a hand-rolled partial-pivoting Gauss-elimination~~
+~~for the DIIS/Broyden normal-equations system (≤ `mixing_ndim` × `mixing_ndim`,~~
+~~typically ≤ 8×8). `faer` is already linked project-wide. Swap to~~
+~~`faer::linalg::lu::partial_pivoting::solve` or equivalent. The current~~
+~~implementation is correct (17 unit tests in `mixing/`), but replacing~~
+~~it removes a hand-maintained linalg primitive and small-matrix edge-case~~
+~~risk surface.~~
 
-**Acceptance criterion:** `solve_linear_system` becomes a thin wrapper
-(or is deleted outright if the callers can inline the `faer` call);
-all existing mixer tests pass; benchmarks show no regression (the matrices
-are tiny, so wins are unlikely — the point is maintainability, not speed).
+~~**Acceptance criterion:** `solve_linear_system` becomes a thin wrapper~~
+~~(or is deleted outright if the callers can inline the `faer` call);~~
+~~all existing mixer tests pass; benchmarks show no regression (the matrices~~
+~~are tiny, so wins are unlikely — the point is maintainability, not speed).~~
+
+Landed as `faer::Mat::partial_piv_lu().solve_in_place(rhs)` thin wrapper
+in `src/scf/mixing/linalg.rs`; the singular-pivot fallback (uniform
+`1/(n+1)` coefficients on `|U[i,i]| < 1e-15`) is preserved by scanning
+`lu.U()` diagonals after factoring. Kept the wrapper — callers in
+`anderson.rs` and `broyden.rs` pass flat `Vec<f64>` + `n`, and inlining
+would leak `faer::Mat` plumbing (and the per-call singular guard) into
+two sites. All 39 `scf::mixing` tests pass bit-identical, full release
+test suite green (225 lib + integration), both clippy invocations clean,
+`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` clean. See PR GLUS.
 
 ### ~~VNLB — Block-wise `D·B^H` construction in V_NL assembly~~ (struck 2026-04-19 by VNLT)
 
