@@ -412,6 +412,142 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------
+    // TRV2 Finding #3 — Extend NLCC ρ_core(G) regression coverage beyond
+    // Si/Fe.  NCFX (PR #40) fixed a universal unit/radial-weight bug,
+    // but the original test coverage only pinned Si and Fe; the other
+    // NLCC-active pseudopotentials in `pseudopotentials/nc/lda/` were
+    // silent to future regressions of the same bug class on a single
+    // element's mesh.  Cu exercises the 3s/3p/3d semicore edge case
+    // (Z_val=19, larger ρ_core than Fe), and Mn extends to the magnetic
+    // reference (Z_val=15, largest Q_core of the four pinned elements).
+    // The remaining NLCC-active pseudos are flagged in FLUP.
+
+    fn cu_content() -> String {
+        std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("pseudopotentials/nc/lda/Cu.upf"),
+        )
+        .unwrap()
+    }
+
+    /// NLCC audit, Part A.5: pin Cu ρ_core(G=0). Cu ONCVPSP has the full
+    /// 3s/3p/3d semicore in the valence (Z_val = 19), Q_core ≈ 3.01 e.
+    ///
+    /// Cell: FCC a = 6.8219 Bohr = 3.610 Å (matches
+    /// `qe_validation/cu_fcc_scf.in`).
+    /// Reference: `scripts/validate/rho_core_g_reference.csv` row
+    /// `(cu, shell 0)` = 2.5568474262e-01 e/Å³.
+    #[test]
+    fn test_cu_rho_core_of_g_zero() {
+        let pp = parse(&cu_content()).unwrap();
+        assert!(pp.has_nlcc(), "Cu ONCVPSP should have core_correction=T");
+
+        let a = 6.8219_f64 * crate::consts::BOHR_TO_ANG; // 3.6100 Å
+        let omega = a * a * a / 4.0; // FCC primitive cell volume
+        let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
+
+        eprintln!("Cu ρ_core(G=0) = {rho_g0:.6e} e/Å³  (ref 2.5568e-1)");
+        let expected = 2.556_847_426_2e-1;
+        // Cu NLCC magnitude ≈ Fe's, so use the same 1e-4 e/Å³ tolerance
+        // (≈ 4·10⁻⁴ relative).
+        assert!(
+            (rho_g0 - expected).abs() < 1.0e-4,
+            "Cu ρ_core(G=0) = {rho_g0:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    /// NLCC audit, Part A.6: pin Cu ρ_core(G≠0) at |G|² = 3·(2π/a)²
+    /// — the first non-zero FCC shell (the {111} family). In Å⁻¹:
+    ///     |G| = 2π/a · √3 ≈ 3.014181 Å⁻¹.
+    ///
+    /// Reference: `scripts/validate/rho_core_g_reference.csv` row
+    /// `(cu, shell 1)` = 2.3967132540e-01 e/Å³.
+    #[test]
+    fn test_cu_rho_core_of_g_first_shell() {
+        let pp = parse(&cu_content()).unwrap();
+        assert!(pp.has_nlcc());
+
+        let a = 6.8219_f64 * crate::consts::BOHR_TO_ANG;
+        let omega = a * a * a / 4.0;
+        let g_norm = 2.0 * std::f64::consts::PI / a * (3.0_f64).sqrt();
+        let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
+
+        eprintln!(
+            "Cu ρ_core(|G|²=3·(2π/a)²) = ρ_core(G={g_norm:.6} Å⁻¹) \
+             = {rho_g:.6e} e/Å³  (ref 2.3967e-1)"
+        );
+        let expected = 2.396_713_254_0e-1;
+        assert!(
+            (rho_g - expected).abs() < 1.0e-4,
+            "Cu ρ_core(first shell) = {rho_g:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    fn mn_content() -> String {
+        std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("pseudopotentials/nc/lda/Mn.upf"),
+        )
+        .unwrap()
+    }
+
+    /// NLCC audit, Part A.7: pin Mn ρ_core(G=0). Mn ONCVPSP has
+    /// Z_val = 15 (3s²3p⁶3d⁵4s²) with a substantial partial core charge
+    /// (Q_core ≈ 4.19 e — the largest of the four pinned elements).
+    ///
+    /// Cell choice: α-Mn has a complex 58-atom cubic ground state, but
+    /// for NLCC regression only the cell volume matters. We use a
+    /// simple BCC container at a = 2.89 Å (close to Fe) so Mn's
+    /// ρ_core(G) appears in the same |G|-shell range as Fe's.
+    /// Reference: `scripts/validate/rho_core_g_reference.csv` row
+    /// `(mn, shell 0)` = 3.4733264804e-01 e/Å³.
+    #[test]
+    fn test_mn_rho_core_of_g_zero() {
+        let pp = parse(&mn_content()).unwrap();
+        assert!(pp.has_nlcc(), "Mn ONCVPSP should have core_correction=T");
+
+        let a = 2.89_f64; // Å
+        let omega = a * a * a / 2.0; // BCC primitive cell volume
+        let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
+
+        eprintln!("Mn ρ_core(G=0) = {rho_g0:.6e} e/Å³  (ref 3.4733e-1)");
+        let expected = 3.473_326_480_4e-1;
+        // Mn's NLCC is ≈ 1.4× Fe's at G=0; keep the same 1e-4 tolerance
+        // — still ≈ 3·10⁻⁴ relative on the ONCVPSP log mesh.
+        assert!(
+            (rho_g0 - expected).abs() < 1.0e-4,
+            "Mn ρ_core(G=0) = {rho_g0:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    /// NLCC audit, Part A.8: pin Mn ρ_core(G≠0) at |G|² = 2·(2π/a)²
+    /// — the first non-zero BCC shell (the {110} family). In Å⁻¹:
+    ///     |G| = 2π/a · √2 ≈ 3.074921 Å⁻¹.
+    ///
+    /// Reference: `scripts/validate/rho_core_g_reference.csv` row
+    /// `(mn, shell 1)` = 3.1210083482e-01 e/Å³.
+    #[test]
+    fn test_mn_rho_core_of_g_first_shell() {
+        let pp = parse(&mn_content()).unwrap();
+        assert!(pp.has_nlcc());
+
+        let a = 2.89_f64;
+        let omega = a * a * a / 2.0;
+        let g_norm = 2.0 * std::f64::consts::PI / a * (2.0_f64).sqrt();
+        let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
+
+        eprintln!(
+            "Mn ρ_core(|G|²=2·(2π/a)²) = ρ_core(G={g_norm:.6} Å⁻¹) \
+             = {rho_g:.6e} e/Å³  (ref 3.1210e-1)"
+        );
+        let expected = 3.121_008_348_2e-1;
+        assert!(
+            (rho_g - expected).abs() < 1.0e-4,
+            "Mn ρ_core(first shell) = {rho_g:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
     // UPFV: parse-time rejection of negative `angular_momentum`.
     //
     // `extract_beta_angular_momentum` returned `Option<i32>` before UPFV,

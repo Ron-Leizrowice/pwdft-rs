@@ -13,16 +13,20 @@ Purpose
 -------
 Compute the NLCC core-density Fourier coefficient
     ρ_core(G) = (4π/Ω) ∫₀^∞ ρ_core(r) · j₀(|G|r) · r² dr
-for the first few |G| shells of Si FCC and Fe BCC, using the bare
-ρ_core(r) stored in `PP_NLCC` of the UPF file.  This matches QE's
-`upflib/rhoc_mod.f90:107-115` (`init_tab_rhc`):
+for the first few |G| shells of Si FCC, Fe BCC, Cu FCC, and Mn BCC,
+using the bare ρ_core(r) stored in `PP_NLCC` of the UPF file.  This
+matches QE's `upflib/rhoc_mod.f90:107-115` (`init_tab_rhc`):
 
     aux(ir)     = upf%rho_atc(ir) * rgrid%r2(ir) * sin(qr)/(qr)
     tab_rhc(iq) = fpi * simpson(aux, rab) / omega
 
 The CSV output is consumed by the Rust unit tests in
-`src/pseudopotential/upf.rs` that pin ρ_core(G=0) and ρ_core(|G|>0) for
-Si and Fe as regression guards against a future NLCC regression.
+`src/pseudopotential/upf/convert.rs` that pin ρ_core(G=0) and
+ρ_core(|G|>0) for Si, Fe, Cu, and Mn as regression guards against a
+future NLCC regression.  Si and Fe cover the original NCFX scope
+(PR #40); Cu and Mn extend coverage per TRV2 Finding #3: Cu exercises
+the 3s/3p/3d semicore edge case (Z_val=19), Mn the magnetic reference
+(Z_val=15).
 
 Convention (QE native units)
 ----------------------------
@@ -210,6 +214,26 @@ def main() -> int:
             "name": "fe",
             "upf": repo_root / "pseudopotentials" / "nc" / "lda" / "Fe.upf",
             "a_ang": 2.87,
+            "lattice": "bcc",
+        },
+        # TRV2 Finding #3 — Cu FCC covers the 3s/3p/3d semicore edge case
+        # (Z_val=19).  Lattice constant matches `qe_validation/cu_fcc_scf.in`:
+        # celldm(1) = 6.8219 Bohr = 3.6100 Å.
+        {
+            "name": "cu",
+            "upf": repo_root / "pseudopotentials" / "nc" / "lda" / "Cu.upf",
+            "a_ang": 6.8219 * BOHR_TO_ANG,  # 3.610017 Å
+            "lattice": "fcc",
+        },
+        # TRV2 Finding #3 — Mn (Z_val=15, magnetic reference).  α-Mn has a
+        # complex 58-atom cubic ground state; for NLCC regression only the
+        # cell volume matters, so we use a simple BCC container with a =
+        # 2.89 Å (close to Fe's a = 2.87 Å — puts Mn's ρ_core(G) in the
+        # same |G|-shell range as Fe's for comparable sensitivity).
+        {
+            "name": "mn",
+            "upf": repo_root / "pseudopotentials" / "nc" / "lda" / "Mn.upf",
+            "a_ang": 2.89,
             "lattice": "bcc",
         },
     ]
