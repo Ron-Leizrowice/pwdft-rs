@@ -32,6 +32,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | HD5I | HDF5 Restart and Structured Output | large | medium | — | — |
 | SPRS | Sparse Matrix Support | large | medium | DVSN | — |
 | CUCL | CubeCL GPU Kernels | large | high | — | — |
+| FLUP | Follow-up backlog — 7 unpromoted items seeded from today's code reviews | small | low | — | — |
 
 ## Reference Documents
 
