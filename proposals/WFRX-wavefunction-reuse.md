@@ -1,16 +1,26 @@
 ---
 id: WFRX
 status: active
-priority: low
+priority: high
 complexity: medium
 risk: low
 depends_on: []
-blocks: [DVSN]
+blocks: []
 ---
 
 # WFRX: Wavefunction Reuse Between SCF Iterations
 
 > **Note:** Line numbers reference the pre-ScfContext codebase (src/scf/mod.rs was ~1127 lines, now ~709). Verify locations before implementing.
+
+## Re-triage 2026-04-19 (priority: low → high)
+
+WFRX was elevated from Low to High during the GRUM grooming pass. Rationale:
+
+- **Technique 1 (subspace diagonalization)** is independent of ITEV and works with the current dense eigensolver. It provides the standalone 20–30% SCF speedup projected below without touching the eigensolver backend, so it is not blocked on the upstream faer `iterate_lanczos` bug that gates ITEV.
+- **Technique 2 (warm-start iterative solver)** remains gated on ITEV landing, since it needs the `v0` parameter on `partial_self_adjoint_eigen`.
+- The previous `blocks: [DVSN]` entry is obsolete — DVSN is superseded by ITEV, and ITEV no longer requires WFRX either (ITEV can land with cold-start and gain additional speedup once WFRX's warm-start path lands).
+
+So the path is: land WFRX technique 1 on the dense eigensolver now for a 20–30% SCF win; revisit technique 2 once ITEV unblocks.
 
 ## Problem
 
