@@ -63,8 +63,20 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
     // Reciprocal space sum
     let recip = crystal.lattice.reciprocal();
     let g_max = 10.0 * eta; // cutoff for G-vectors
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "n_i_max bounded by g_max = 10*eta and reciprocal lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
+    )]
     let n1_max = (g_max / recip.a.norm()).ceil() as i32;
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "n_i_max bounded by g_max = 10*eta and reciprocal lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
+    )]
     let n2_max = (g_max / recip.b.norm()).ceil() as i32;
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "n_i_max bounded by g_max = 10*eta and reciprocal lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
+    )]
     let n3_max = (g_max / recip.c.norm()).ceil() as i32;
 
     let mut e_recip = 0.0;
@@ -93,8 +105,20 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
 
     // Real space sum
     let r_max = 10.0 / eta;
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "l_i_max bounded by r_max = 10/eta and real-space lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
+    )]
     let l1_max = (r_max / crystal.lattice.a.norm()).ceil() as i32;
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "l_i_max bounded by r_max = 10/eta and real-space lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
+    )]
     let l2_max = (r_max / crystal.lattice.b.norm()).ceil() as i32;
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "l_i_max bounded by r_max = 10/eta and real-space lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
+    )]
     let l3_max = (r_max / crystal.lattice.c.norm()).ceil() as i32;
 
     let mut e_real = 0.0;

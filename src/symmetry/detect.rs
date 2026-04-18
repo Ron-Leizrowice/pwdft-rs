@@ -97,6 +97,10 @@ fn find_candidate_vectors(
     tolerance: f64,
 ) -> Vec<[i32; 3]> {
     // Search radius: |c_i| ≤ sqrt(target / M_ii) + 1
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "target_norm_sq comes from the metric matrix of the unit cell (Å²); sqrt is a handful of integer units and trivially fits in i32"
+    )]
     let max_range: Vec<i32> = (0..3)
         .map(|i| ((target_norm_sq / metric[(i, i)]).sqrt() + 1.5) as i32)
         .collect();

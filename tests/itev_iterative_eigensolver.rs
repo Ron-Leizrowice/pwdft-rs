@@ -103,6 +103,10 @@ fn itev_iterative_matches_dense_si_total_energy() {
     let iterative = run_si_scf(EigensolverKind::Iterative);
 
     // Iteration counts should match within ±2 (solver-internal noise).
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "n_iterations is an SCF iteration count bounded by ScfParams::max_iter (<1000); isize casting is trivially lossless"
+    )]
     let diter = (dense.n_iterations as isize - iterative.n_iterations as isize).abs();
     assert!(
         diter <= 2,

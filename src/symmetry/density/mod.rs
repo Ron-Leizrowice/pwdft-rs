@@ -38,6 +38,11 @@ pub use g_space::symmetrize_density_g;
 ///
 /// Returns true if all operations are compatible.
 #[must_use]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    reason = "FFT grid dims <= ~512 per axis; fit in i32 trivially"
+)]
 pub fn check_grid_compatibility(dims: [usize; 3], symmetry: &SymmetryInfo) -> bool {
     let ns = [dims[0] as i32, dims[1] as i32, dims[2] as i32];
     for op in &symmetry.operations {
@@ -66,6 +71,11 @@ pub fn compatible_grid_dims(min_dims: [usize; 3], symmetry: &SymmetryInfo) -> [u
 
     // Try increasing until compatible
     for _ in 0..100 {
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_possible_wrap,
+            reason = "FFT grid dims <= ~512 per axis; fit in i32 trivially"
+        )]
         let candidate = [
             crate::fft::fft_grid_size(dims[0] as i32 / 2),
             crate::fft::fft_grid_size(dims[1] as i32 / 2),

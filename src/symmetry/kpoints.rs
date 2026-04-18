@@ -102,11 +102,15 @@ pub fn reduce_kpoints(
 /// formula, equivalent to QE's `k1=k2=k3=1` shift. For N=4 this yields
 /// `{−3/8, −1/8, 1/8, 3/8}`, not `{0, 1/4, 1/2, 3/4}`. Must match
 /// [`crate::kpoints::monkhorst_pack`].
+#[allow(
+    clippy::cast_possible_wrap,
+    reason = "MP mesh counts bounded by O(100); u32 < i32::MAX trivially"
+)]
 fn mp_fractional(i1: u32, i2: u32, i3: u32, grid: [u32; 3]) -> [f64; 3] {
     [
-        (2 * i1 as i32 - grid[0] as i32 + 1) as f64 / (2.0 * grid[0] as f64),
-        (2 * i2 as i32 - grid[1] as i32 + 1) as f64 / (2.0 * grid[1] as f64),
-        (2 * i3 as i32 - grid[2] as i32 + 1) as f64 / (2.0 * grid[2] as f64),
+        f64::from(2 * i1 as i32 - grid[0] as i32 + 1) / (2.0 * f64::from(grid[0])),
+        f64::from(2 * i2 as i32 - grid[1] as i32 + 1) / (2.0 * f64::from(grid[1])),
+        f64::from(2 * i3 as i32 - grid[2] as i32 + 1) / (2.0 * f64::from(grid[2])),
     ]
 }
 
@@ -126,8 +130,17 @@ fn frac_to_grid_index(frac: &[f64; 3], grid: [u32; 3]) -> Option<usize> {
         if (i_f - i_round).abs() > 1e-6 {
             return None; // not on the grid
         }
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "i_round comes from inverting the MP formula with N <= O(100); bounded by 2N and fits in i32"
+        )]
         let i = i_round as i32;
         // Handle boundary: i might be -1 or N due to rounding at BZ boundary
+        #[allow(
+            clippy::cast_possible_wrap,
+            clippy::cast_sign_loss,
+            reason = "grid[j] < i32::MAX trivially; (i % d) + d is mathematically >= 1 so `as u32` loses no sign"
+        )]
         let i = ((i % grid[j] as i32) + grid[j] as i32) as u32 % grid[j];
         indices[j] = i;
     }

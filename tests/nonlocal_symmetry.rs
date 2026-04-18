@@ -56,6 +56,10 @@ fn test_vnl_hermitian_at_gamma() {
 }
 
 #[test]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "|G|² * 1e6 bounded by ecut (O(10) in inverse Å²); fits in i64 trivially"
+)]
 fn test_vnl_diagonal_same_for_symmetry_related_g() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
@@ -136,6 +140,10 @@ fn test_full_hamiltonian_degeneracy_at_gamma() {
 }
 
 #[test]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "|G|² * 1e6 bounded by ecut (O(10) in inverse Å²); fits in i64 trivially"
+)]
 fn test_local_potential_symmetry() {
     // V_local(G) should have the full symmetry of the crystal.
     // For Si FCC, G-vectors with the same |G| that are related by cubic symmetry
@@ -246,6 +254,12 @@ fn test_kinetic_plus_vlocal_degeneracy() {
 }
 
 #[test]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    reason = "FFT grid dims and Miller indices mirror src/scf/grid.rs helpers; all bounded by ecut and fit in i32. `(x % d) + d` is mathematically non-negative so `as usize` loses no sign."
+)]
 fn test_kinetic_plus_vlocal_via_fft_grid() {
     // Same as above but using the FFT grid lookup for V_local(G-G').
     // If this breaks degeneracy while direct doesn't, the FFT grid mapping is buggy.

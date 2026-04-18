@@ -40,6 +40,12 @@ fn transpose_rotation(r: &[[i32; 3]; 3]) -> [[i32; 3]; 3] {
 /// `n_i + N_i`. Kept local because `scf::grid` is `pub(crate)` and
 /// `symmetry::density` lives in a different module subtree.
 #[inline]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    reason = "FFT grid dim <= ~512 per axis in practice; fits in i32. `(ni % d) + d` is mathematically in [1, 2d-1] so `as usize` loses no sign."
+)]
 fn miller_to_flat(dims: [usize; 3], n: [i32; 3]) -> usize {
     let wrap = |ni: i32, dim: usize| -> usize {
         let d = dim as i32;
@@ -56,6 +62,11 @@ fn miller_to_flat(dims: [usize; 3], n: [i32; 3]) -> usize {
 /// indices `0..=N/2` and negative frequencies occupy `N/2+1..N`, matching
 /// the standard FFT layout and `scf::grid::g_vector_at_dims`.
 #[inline]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    reason = "FFT grid dims nx,ny,nz are <= ~512 per axis in practice; i1,i2,i3 < nx,ny,nz so `as i32` is exact."
+)]
 fn flat_to_miller(dims: [usize; 3], idx: usize) -> [i32; 3] {
     let [nx, ny, nz] = dims;
     let i1 = idx / (ny * nz);

@@ -32,8 +32,20 @@ impl BasisSet {
         let g_max = g_max_sq.sqrt();
         let (b1, b2, b3) = (recip.a, recip.b, recip.c);
 
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "n_i_max bounded by ecut and reciprocal lattice norms; exceeding i32::MAX would require ecut > 10^18 eV"
+        )]
         let n1_max = (g_max / b1.norm()).ceil() as i32;
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "n_i_max bounded by ecut and reciprocal lattice norms; exceeding i32::MAX would require ecut > 10^18 eV"
+        )]
         let n2_max = (g_max / b2.norm()).ceil() as i32;
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "n_i_max bounded by ecut and reciprocal lattice norms; exceeding i32::MAX would require ecut > 10^18 eV"
+        )]
         let n3_max = (g_max / b3.norm()).ceil() as i32;
 
         let mut pw = Vec::new();

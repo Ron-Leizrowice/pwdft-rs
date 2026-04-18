@@ -59,6 +59,11 @@ fn si_scf_params() -> pwdft_rs::scf::ScfParams {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    reason = "20^3 FFT grid in this test; all indices bounded by O(20), fit in i32 trivially"
+)]
 fn test_gpu_hartree_on_realistic_density() {
     let Some(gpu) = GpuAccelerator::try_new() else {
         eprintln!("No GPU, skipping");

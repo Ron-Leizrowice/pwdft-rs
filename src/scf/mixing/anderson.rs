@@ -559,6 +559,11 @@ mod tests {
     /// ρ_out(x) = ρ_in + decaying_sinusoid. Independent of the mixer's output,
     /// so we can feed the same sequence into two mixers and compare.
     fn synthetic_rho_out(rho_in: &[f64], iter: usize) -> Vec<f64> {
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_possible_wrap,
+            reason = "test-only: iter is a loop counter bounded by the test's max iteration count (<50)"
+        )]
         let decay = 0.5_f64.powi(iter as i32);
         rho_in
             .iter()
