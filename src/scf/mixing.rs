@@ -1519,9 +1519,10 @@ mod tests {
             }
             (Ok(_), Err(e)) => panic!("Plain converged but PeriodicPulay failed: {e}"),
             (Err(e), Ok(_)) => panic!("PeriodicPulay converged but Plain failed: {e}"),
-            (Err(_), Err(_)) => {
-                // Both failed to converge — acceptable for this cheap Γ-only test
-            }
+            (Err(e_plain), Err(e_prpl)) => panic!(
+                "Both Plain and PeriodicPulay failed on Si Γ-only SCF — this test \
+                 expects both to converge. Plain error: {e_plain}; PeriodicPulay error: {e_prpl}"
+            ),
         }
     }
 }

@@ -98,6 +98,16 @@ impl ScfParams {
                 format!("nspin must be 1 or 2, got {}", self.nspin),
             ));
         }
+        // Periodic Pulay: period k must be >= 1, else PeriodicPulayMixer::new
+        // would panic (`period >= 1` assertion). Surface this as InvalidInput
+        // so YAML parsing / programmatic callers get a structured error.
+        if let mixing::MixingMode::PeriodicPulay { period, .. } = self.mixing_mode
+            && period == 0
+        {
+            return Err(PwdftError::InvalidInput(
+                "pulay_period must be >= 1 for PeriodicPulay mixing".into(),
+            ));
+        }
         Ok(())
     }
 }
@@ -1069,5 +1079,53 @@ mod tests {
             relative_eq!(diff, 1.0, epsilon = 1e-10),
             "Expected diff=1.0, got {diff}"
         );
+    }
+
+    #[test]
+    fn validate_rejects_zero_pulay_period() {
+        // Nit from PR #39 review: ScfParams::validate() must reject
+        // pulay_period == 0 with a structured InvalidInput error, rather than
+        // letting the PeriodicPulayMixer::new `period >= 1` assertion panic
+        // at SCF setup time.
+        let params = ScfParams {
+            mixing_mode: mixing::MixingMode::PeriodicPulay {
+                period: 0,
+                kerker: false,
+            },
+            ..Default::default()
+        };
+        let err = params.validate().expect_err("expected InvalidInput error");
+        match err {
+            PwdftError::InvalidInput(msg) => {
+                assert!(
+                    msg.contains("pulay_period"),
+                    "error message should mention pulay_period, got: {msg}"
+                );
+            }
+            other => panic!("expected InvalidInput, got: {other:?}"),
+        }
+
+        // And the Kerker variant too.
+        let params_k = ScfParams {
+            mixing_mode: mixing::MixingMode::PeriodicPulay {
+                period: 0,
+                kerker: true,
+            },
+            ..Default::default()
+        };
+        assert!(matches!(
+            params_k.validate(),
+            Err(PwdftError::InvalidInput(_))
+        ));
+
+        // Sanity: period = 1 must pass.
+        let ok = ScfParams {
+            mixing_mode: mixing::MixingMode::PeriodicPulay {
+                period: 1,
+                kerker: false,
+            },
+            ..Default::default()
+        };
+        assert!(ok.validate().is_ok());
     }
 }
