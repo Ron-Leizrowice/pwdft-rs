@@ -276,3 +276,36 @@ Actions taken (docs-only PR):
 **Tangential:** EIGV/EIGW anomalies still open — same re-bench protocol
 would clear them in one afternoon. n_pw=259 faer_eigen regression is the
 only one worth investigating (wide CI suggests real criterion instability).
+
+## 2026-04-18 — SYMP landed (PR #64)
+
+Parallelized `symmetry::density::g_space::symmetrize_density_g`'s
+per-G outer loop with rayon. **Gotcha:** naive `par_iter_mut` regressed
+72³·8 by 1.5× (26 → 39 ms) — per-item scheduling overhead eats wins
+when inner work is a handful of sin_cos + complex MAC. Switched to
+`par_chunks_mut(ny·nz)` over xy-slabs. That coarsens scheduling and
+the output-write locality is better.
+
+Clean bench (Apple M2, lock held):
+
+| n³, ops | serial | parallel | speedup |
+| --- | --- | --- | --- |
+| 18, 8  | 477 µs  | 429 µs  | 1.11× |
+| 18, 48 | 1.74 ms | 0.63 ms | 2.78× |
+| 36, 8  | 3.41 ms | 1.66 ms | 2.05× |
+| 36, 48 | 13.26 ms | 2.53 ms | **5.24×** |
+| 72, 8  | 25.83 ms | 10.67 ms | 2.42× |
+| 72, 48 | 106.3 ms | 17.7 ms | **6.00×** |
+
+Crossover: 18³·8 is the only non-shortcut config under 2×. All 10 PCFX
+tests pass bit-identical (per-slot reduction stays serial → same FP
+ordering).
+
+**Tangential idea:** the same xy-slab chunking pattern fits
+`src/scf/density.rs` density accumulation, and arguably V_eff
+assembly — worth a drive-by audit if par_iter_mut regressed
+anywhere else.
+
+**Added bench group** `symmetry/symmetrize_density_g_n{18,36,72}_ops{1,8,48}`
+in `benches/scf_benchmarks.rs` — reusable for future symmetrizer
+tuning (e.g. cache-blocking the inner op loop).
