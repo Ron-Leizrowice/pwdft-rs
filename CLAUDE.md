@@ -104,9 +104,14 @@ This project uses a branch-and-PR workflow. Multiple agents may work concurrentl
 
 ## Machine Coordination
 
-Multiple agents share this machine. The machine lock serializes CPU-intensive commands to prevent test runs from contaminating benchmark results.
+Multiple agents share this machine. The machine lock exists for **benchmark integrity**: it serializes CPU-bound work so that `cargo bench` wall-time measurements aren't polluted by background CPU load from another agent's test run, compile, or reference calculation. This is a benchmark-contamination concern, not a test-isolation concern — two heavy CPU jobs are usually correct when run concurrently; they just invalidate each other's timings.
 
-**What requires the lock:** `cargo test`, `cargo bench`, `cargo build`, `cargo clippy` — any command that compiles or runs code.
+**General principle:** any CPU-bound job that could contaminate a benchmark measurement must hold the lock while it runs. That includes all `cargo` subcommands *and* all Quantum ESPRESSO invocations.
+
+**What requires the lock:**
+- `cargo test`, `cargo bench`, `cargo build`, `cargo clippy` — any cargo command that compiles or runs code.
+- **Any Quantum ESPRESSO run:** `pw.x`, `mpirun pw.x`, `ph.x`, `pp.x`, `bands.x`, `projwfc.x`, `q2r.x`, `matdyn.x`, `dos.x` — whether it's a one-off reference calculation, a validation against `qe_validation/`, or regeneration of reference data. QE is multi-threaded/multi-process and saturates the CPU; running it during a benchmark window corrupts the numbers.
+- Any other long-running CPU-bound job (Python validation scripts under `scripts/` that spin up BLAS, etc.).
 
 **What does NOT require the lock:** reading files, editing code in worktrees, writing proposals, git operations, `machine-lock status`.
 
@@ -121,9 +126,13 @@ cargo test
 
 # Or use the one-liner (acquire + run + release):
 .claude/bin/machine-lock run "Core Engineer" "cargo test" -- cargo test
+
+# QE runs use the same lock — wrap the whole mpirun invocation:
+.claude/bin/machine-lock run "Researcher" "QE Si SCF validation" -- \
+  gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in si.in
 ```
 
-- **Always check/acquire before any cargo command.** If blocked, wait and retry — do not force-remove another agent's lock.
+- **Always check/acquire before any cargo or QE command.** If blocked, wait and retry — do not force-remove another agent's lock.
 - **Release promptly.** Don't hold the lock while reading code or writing proposals.
 - **Stale locks** (>30 min old) are auto-cleared on next acquire.
 - Lock state: `.claude/locks/machine.lock` (gitignored).
