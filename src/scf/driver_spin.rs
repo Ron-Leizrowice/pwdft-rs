@@ -501,6 +501,11 @@ pub(crate) fn run_scf_spin(
 
             let e_hartree_term = hartree_energy(&rho_total_new_g, &ctx.g_squared, ctx.omega);
             let e_xc_term = xc_energy_bare(&rho_xc_total, &exc_r_out, ctx.omega);
+            // LSDA XC double-counting: `e_vxc_spin_out` is computed above
+            // (line ~386) as ∫(ρ↑·V_xc↑ + ρ↓·V_xc↓) d³r on the OUTPUT
+            // density and is the `e_vxc` term in the band-sum identity
+            // `E_band = e_kin + e_loc + e_nl + 2·e_hartree + e_vxc`.
+            let e_vxc_term = e_vxc_spin_out;
             let e_ewald_term = ctx.e_ewald;
 
             let components = EnergyComponents {
@@ -511,6 +516,7 @@ pub(crate) fn run_scf_spin(
                 e_nonlocal,
                 e_hartree: e_hartree_term,
                 e_xc: e_xc_term,
+                e_vxc: e_vxc_term,
                 e_ewald: e_ewald_term,
             };
 

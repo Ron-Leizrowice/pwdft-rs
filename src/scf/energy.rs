@@ -651,6 +651,18 @@ pub struct EnergyComponents {
     /// `ρ_xc = ρ_val` otherwise. Sign and normalization match QE's
     /// "xc contribution" line.
     pub e_xc: f64,
+    /// XC double-counting integral `∫ρ_val(r)·V_xc(r)d³r` in eV from the
+    /// output density. This is the `E_vxc` quantity that appears in the
+    /// Kohn-Sham double-counting subtraction `E_xc − E_vxc` inside the
+    /// total-energy assembly and in the band-sum identity
+    /// `E_band = e_kinetic + e_local + e_nonlocal + 2·e_hartree + e_vxc`.
+    ///
+    /// LSDA: computed as `∫ρ↑·V_xc↑ d³r + ∫ρ↓·V_xc↓ d³r`, i.e. the two
+    /// spin channels are summed into a single scalar. The core density is
+    /// NOT included here (the core is frozen and does not contribute to
+    /// the band sum), but `V_xc` itself is evaluated on
+    /// `ρ_val + ρ_core` when NLCC is active.
+    pub e_vxc: f64,
     /// Ewald ion-ion electrostatic energy in eV; independent of the
     /// electron density and of spin, so computed once in
     /// `ScfContext::new` and copied through every iteration. See

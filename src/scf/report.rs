@@ -144,9 +144,22 @@ pub(super) fn log_components(c: &EnergyComponents, e_total: f64, n_electrons: f6
     info!("  E_nonlocal   = {:.6}", c.e_nonlocal);
     info!("  E_hartree    = {:.6}", c.e_hartree);
     info!("  E_xc         = {:.6}", c.e_xc);
+    info!("  E_vxc        = {:.6}  (∫ρ·V_xc dr)", c.e_vxc);
     info!("  E_ewald      = {:.6}", c.e_ewald);
     info!(
         "  E_sum(comp)  = {e_sum:.6}   (vs E_KS {e_total:.6}, Δ={:.2e})",
         e_sum - e_total
+    );
+    // MADOC band-sum identity: E_band = e_kin + e_loc + e_nl + 2·e_H + e_vxc.
+    // A large residual indicates a double-counting bug in V_H or V_xc, or
+    // a missing factor of 2 in the Hartree assembly. Pinned by
+    // `tests/vgc5_per_component_si.rs::test_madoc_band_sum_identity_*`.
+    let e_band_from_identity =
+        c.e_kinetic + c.e_local + c.e_nonlocal + 2.0 * c.e_hartree + c.e_vxc;
+    info!(
+        "  [band-id]    E_kin+E_loc+E_nl+2·E_H+E_vxc = {e_band_from_identity:.6}   \
+         (vs E_band {:.6}, Δ={:.2e})",
+        c.e_band,
+        e_band_from_identity - c.e_band
     );
 }

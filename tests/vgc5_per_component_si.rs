@@ -402,3 +402,216 @@ fn vgc5_fe_per_component() {
         "PCFX per-component self-check: Σ - E_total = {sum_residual:.2e} eV on Fe"
     );
 }
+
+// ----------------------------------------------------------------------------
+// MADOC band-sum identity (TRV2 Finding #1)
+// ----------------------------------------------------------------------------
+//
+// MADOC Phase A (PR #87) documented in `src/scf/energy.rs` the Kohn-Sham
+// double-counting identity that every converged SCF must satisfy:
+//
+//     E_band = E_kinetic + E_local + E_nonlocal + 2·E_hartree + E_vxc
+//
+// Derivation: each band eigenvalue is the expectation value of the full
+// Kohn-Sham Hamiltonian,
+//     ε_{n,k} = ⟨ψ_{n,k}| T + V_ext + V_H + V_xc |ψ_{n,k}⟩,
+// so summing with Fermi-Dirac occupations and k-point weights,
+//     E_band = E_kin + E_loc + E_nl + E_H⟨ψ|ψ⟩-coupling + ∫ρ·V_xc dr.
+// V_H is self-linear in ρ (picks up a factor of 2 upon integration), V_xc
+// is not — hence the 2·E_H + E_vxc pattern.
+//
+// This identity is independent of the direct-sum identity
+// E_total = Σ_components (which is trivially true by construction at the
+// site where `EnergyComponents` is built). A factor-2 Hartree bug or a
+// sign flip in V_xc would break band-sum while leaving direct-sum intact,
+// so VGC5's existing self-check cannot catch this bug class.
+//
+// The residual is O(Δρ) off the fixed point (because E_H and E_vxc in
+// `EnergyComponents` are evaluated on the OUTPUT density while ε_{n,k}
+// came from diagonalizing H built on the INPUT density). At tight SCF
+// convergence the identity must close to well within that noise floor.
+
+/// MADOC band-sum identity for Si (nspin=1).
+///
+/// Si diamond at the same ecut/k-mesh/conv as `vgc5_si_per_component`
+/// above; reuses that fixture rather than standing up a new one.
+/// Asserts the double-counting identity
+/// `E_band = E_kin + E_loc + E_nl + 2·E_H + E_vxc` closes to well
+/// below 1 μeV on a conv=1e-8 SCF.
+#[test]
+fn test_madoc_band_sum_identity_si() {
+    let crystal = fcc_crystal(
+        5.431,
+        vec![
+            Atom::new(14, [0.00, 0.00, 0.00]),
+            Atom::new(14, [0.25, 0.25, 0.25]),
+        ],
+    );
+    let pp_si = load_pp("Si");
+
+    let basis = BasisSet::new(&crystal.lattice, 15.0 * RY_TO_EV);
+    let kpts = kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+
+    let params = ScfParams {
+        n_bands: 8,
+        max_iter: 80,
+        conv_threshold: 1e-8,
+        energy_threshold: 1e-6,
+        mixing_beta: 0.3,
+        mixing_ndim: 8,
+        smearing_sigma: 0.01 * RY_TO_EV,
+        smearing_scheme: SmearingScheme::FermiDirac,
+        ecutrho_ratio: 4,
+        mixing_mode: MixingMode::Plain,
+        nspin: 1,
+        starting_magnetization: HashMap::new(),
+        ..Default::default()
+    };
+
+    let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
+    let result = scf::run_scf(
+        &crystal, &basis, &kpts, &[&pp_si], &params, &symmetry,
+    )
+    .expect("Si SCF should converge at conv=1e-8");
+
+    let c = &result.components;
+    let e_band_from_identity =
+        c.e_kinetic + c.e_local + c.e_nonlocal + 2.0 * c.e_hartree + c.e_vxc;
+    let residual = (e_band_from_identity - c.e_band).abs();
+
+    eprintln!(
+        "MADOC band-sum identity (Si, nspin=1): E_band={:.10} eV  \
+         E_kin+E_loc+E_nl+2·E_H+E_vxc={e_band_from_identity:.10} eV  \
+         residual={residual:.3e} eV  ({} iters)",
+        c.e_band, result.n_iterations,
+    );
+
+    // Tolerance rationale: at conv_threshold = 1e-8 on Si the residual is
+    // dominated by the remaining O(Δρ) mismatch between E_band (built from
+    // eigenvalues of H[ρ_in]) and E_H/E_vxc (evaluated on ρ_out). Observed
+    // residual on this fixture: ~1e-9 eV (release build, LTO) to ~5e-11 eV
+    // (dev build with faer optimized). Both are far below any physics
+    // discrimination scale. 1e-7 eV leaves ~100× empirical headroom over
+    // the release-build observation and still catches a factor-2 Hartree
+    // bug (|E_hartree| ~ 14 eV → 10⁸× the tolerance) or a sign-flipped
+    // e_vxc (|E_vxc| ~ 10 eV → 10⁸× the tolerance).
+    let tol = 1e-7;
+    assert!(
+        residual < tol,
+        "MADOC band-sum identity violated on Si (nspin=1):\n  \
+         E_band                                = {:.10} eV\n  \
+         E_kin + E_loc + E_nl + 2·E_H + E_vxc  = {e_band_from_identity:.10} eV\n  \
+         residual                              = {residual:.3e} eV  (tol {tol:.1e})\n\
+         This identity is required by the Kohn-Sham eigenvalue equation; a\n\
+         nonzero residual indicates a factor-2 bug in E_hartree, a sign\n\
+         flip in e_vxc, or a missing term in the Hamiltonian assembly.",
+        c.e_band,
+    );
+}
+
+/// MADOC band-sum identity for Fe BCC (nspin=2, LSDA).
+///
+/// Exercises the spin-polarized driver and the coupled-channel mixer
+/// (CCMX). Setup mirrors `test_ccmx_fe_free_magnetization_converges`
+/// in `tests/spin_polarization.rs` (nc/lda/Fe.upf, 4×4×4, Kerker) but
+/// with a tighter `conv_threshold` so the identity residual is well
+/// below the physics-discrimination threshold. The identity for LSDA is
+/// identical in form to the non-spin case —
+/// `E_band = E_kin + E_loc + E_nl + 2·E_H + E_vxc` — with the caveat
+/// that `E_kin`, `E_nl`, and `E_vxc` are each sums over both spin
+/// channels; `E_H` is still built from the total density only (Hartree
+/// does not couple spin).
+#[test]
+fn test_madoc_band_sum_identity_fe_bcc() {
+    let crystal = bcc_crystal(2.87, Atom::new(26, [0.0, 0.0, 0.0]));
+    let pp_fe = load_pp("Fe");
+
+    let ecut = 15.0 * RY_TO_EV;
+    let basis = BasisSet::new(&crystal.lattice, ecut);
+    let kpts = kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+
+    let mut starting_mag = HashMap::new();
+    starting_mag.insert("Fe".to_string(), 0.5);
+
+    let params = ScfParams {
+        n_bands: 12,
+        max_iter: 150,
+        // Fe BCC nspin=2 at ecut=15 Ry 4×4×4 converges to `delta ~ 5e-7`
+        // reliably under CCMX + Kerker in ≲ 80 iters. Tighter than 1e-6
+        // does not converge inside a reasonable iter budget on this PP;
+        // looser than 1e-6 leaves the O(Δρ) systematic drift between
+        // `V_H[ρ_in]` (inside H, determines ε_{n,k}) and `E_H[ρ_out]`
+        // (stored in `components.e_hartree`) large enough to dominate
+        // the band-sum identity residual. 1e-6 is the minimum-workable
+        // setting that both converges and yields an informative
+        // identity residual of O(1e-2 eV) on this system.
+        conv_threshold: 1e-6,
+        energy_threshold: 1e-5,
+        mixing_beta: 0.3,
+        mixing_ndim: 8,
+        smearing_sigma: 0.02 * RY_TO_EV,
+        smearing_scheme: SmearingScheme::FermiDirac,
+        ecutrho_ratio: 4,
+        mixing_mode: MixingMode::Kerker { q_tf: None },
+        nspin: 2,
+        starting_magnetization: starting_mag,
+        ..Default::default()
+    };
+
+    let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
+    let result = scf::run_scf(
+        &crystal, &basis, &kpts, &[&pp_fe], &params, &symmetry,
+    )
+    .expect("Fe BCC nspin=2 SCF should converge under CCMX+Kerker at conv=1e-6");
+
+    let c = &result.components;
+    let e_band_from_identity =
+        c.e_kinetic + c.e_local + c.e_nonlocal + 2.0 * c.e_hartree + c.e_vxc;
+    let residual = (e_band_from_identity - c.e_band).abs();
+
+    eprintln!(
+        "MADOC band-sum identity (Fe BCC, nspin=2): E_band={:.10} eV  \
+         E_kin+E_loc+E_nl+2·E_H+E_vxc={e_band_from_identity:.10} eV  \
+         residual={residual:.3e} eV  ({} iters, M={:.4} μB)",
+        c.e_band, result.n_iterations, result.magnetization,
+    );
+
+    // Tolerance rationale: at conv_threshold = 1e-6 the identity residual
+    // on Fe BCC is dominated by the O(Δρ) systematic drift between
+    // H[ρ_in] (used by the eigenvalue equation, hence by E_band) and
+    // V_H[ρ_out] + V_xc[ρ_out] (the quantities stored in `components`).
+    // Because the Hartree coupling on Fe is ~360 eV (|E_H|) and the XC
+    // coupling is ~400 eV (|E_vxc|), even a Δρ_RMS of 1e-6 leaves an
+    // identity residual of order Σ_G ρ(G)·4π·Δρ(G)/|G|² ~ O(1e-2) eV.
+    // We cannot close the identity tighter without converging the SCF
+    // itself tighter — which is not feasible on this PP/ecut inside a
+    // CI time budget.
+    //
+    // 5e-2 eV keeps ~2× empirical headroom over the observed ~2.3e-2 eV
+    // and still catches the major bug classes this test exists to pin:
+    //   - factor-2 in E_H: error = |E_H| ≈ 360 eV → 7·10³× the tolerance.
+    //   - sign-flipped spin-channel vxc: error = 2·|E_vxc_σ| ≈ 400 eV
+    //     → 8·10³× the tolerance.
+    //   - kernel swap (V_xc_up/down confused): error depends on |ρ↑-ρ↓|
+    //     × V_xc spread; conservatively ≳ 0.5 eV on Fe.
+    //
+    // For an order-of-magnitude tighter regression guard on this class,
+    // convert Fe to a converged external-dataset fixture (cache a
+    // reference `EnergyComponents`) rather than running SCF inside the
+    // test. Tracked as a follow-up once a regression in this space
+    // actually surfaces.
+    let tol = 5e-2;
+    assert!(
+        residual < tol,
+        "MADOC band-sum identity violated on Fe BCC (nspin=2):\n  \
+         E_band                                = {:.10} eV\n  \
+         E_kin + E_loc + E_nl + 2·E_H + E_vxc  = {e_band_from_identity:.10} eV\n  \
+         residual                              = {residual:.3e} eV  (tol {tol:.1e})\n\
+         This identity is required by the LSDA Kohn-Sham eigenvalue\n\
+         equation summed over both spin channels; a nonzero residual\n\
+         indicates a factor-2 bug in E_hartree, a sign/scale error in\n\
+         one of the spin vxc channels, or a missing term in the\n\
+         spin-driver Hamiltonian assembly.",
+        c.e_band,
+    );
+}
