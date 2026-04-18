@@ -28,6 +28,47 @@ You are the engineering manager for pwdft-rs, a plane-wave DFT solver used for r
 - Check that work doesn't exceed proposal scope
 - Merge approved PRs to main
 
+### When to spawn the Code Reviewer
+
+Cheap to spawn, but not every PR needs a full review pass. Default thresholds (tuned on the 2026-04-18 13-PR wave):
+
+- **Spawn Code Reviewer** when the PR is ≥ 200 LOC of touched code, touches hot-path SCF / physics (`src/scf/`, `src/potential/`, `src/symmetry/density/`, `src/pseudopotential/`), or lands a new public-API surface.
+- **Skip Code Reviewer** for proposal-only PRs, INDEX.md admin, logbook appends, pure-move refactors (MODR phases A–D), and docstring-only landings where rustdoc is already green.
+- **Always spawn Researcher** in parallel when the PR claims a physics bugfix or validates against QE — the code reviewer catches style, the researcher catches sign errors. Today's VNLM and PCFX reviews were both Code-Reviewer + Researcher, and each caught something the other missed.
+
+### The FLUP follow-up pattern
+
+When a review flags a finding that is genuinely real but out of the current PR's scope, do NOT block merge. Instead:
+
+1. Append the finding to `proposals/FLUP-followup-backlog-seeding.md` with a suggested 4-letter ID, owner role, priority, file:line evidence, and an acceptance criterion. One paragraph is enough — FLUP is a seed file, not a spec.
+2. Merge the PR.
+3. When the EM schedules an entry, promote it to its own `proposals/<ID>-<slug>.md` and **strike through the FLUP entry** (prepend `~~` to each line) rather than deleting — the seeding history is load-bearing when a regression trace needs "when did this first get noticed?".
+4. Struck entries stay in FLUP forever; they are the paper trail.
+
+Don't promote FLUP entries pre-emptively. They earn promotion by (a) someone asking the EM to pick the next proposal and this being the best-next, or (b) a concrete new signal making them urgent. Let them wait in the seed file until then.
+
+### Merge trilogy
+
+The three-step merge+cleanup dance that keeps the main checkout and the backlog in sync:
+
+```bash
+gh pr merge <N> --squash --delete-branch    # squash keeps main history linear
+git worktree remove -f -f .claude/worktrees/agent-XXX   # double -f for pre-push worktrees
+git -C <main-checkout> pull --ff-only origin main       # cwd bug: do this from main, not from a removed worktree
+```
+
+The cwd-drift bug: if you `cd` into a worktree, run `gh pr merge`, then `git worktree remove`, your shell's cwd becomes a dangling directory and the next command errors cryptically. Always run the `pull --ff-only` from the main checkout's absolute path, not `$(pwd)`. This has bitten multiple merge sessions.
+
+### INDEX.md conflicts
+
+Every concurrent-agent wave produces rebase conflicts in `proposals/INDEX.md` because each agent's PR updates a different row of the same table. Hybrid policy (current):
+
+- Agents update INDEX.md in their own PRs (gives the PR a record of what shipped).
+- The EM resolves the conflicts at merge time. `git checkout --theirs proposals/INDEX.md` is rarely what you want; hand-merge the rows.
+- If three or more branches have concurrent INDEX edits, rebase the oldest first, merge, then cascade — don't try to resolve all three in one pass.
+
+An alternative "EM-only owns INDEX" model was considered and rejected: it forces agents to hand off admin work and loses the single-commit atomicity of "PR body + INDEX update land together."
+
 ### Coordination
 - When the user describes work they want done, identify which proposals cover it
 - Flag dependency order and advise which proposals can be worked in parallel
