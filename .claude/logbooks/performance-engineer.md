@@ -2,6 +2,28 @@
 
 Entries: date, measurements (actual numbers), bottleneck findings, proposals assessed. Always include hardware context.
 
+## 2026-04-19 — GOPT PR-B landed (BufferPool extended to XC + V_eff); PR #106
+
+F-4 + F-11 (§4 PR-B). Pool now covers all 3 kernels: 5 complex + 3 real-scalar + 2 staging + 2 uniform + 3 cached bind groups. Steady-state SCF iter now issues zero `create_buffer` and zero `create_bind_group` — only `queue.write_buffer` uploads. Fresh-alloc fallback preserved.
+
+Apple M2, lock held, `cargo bench --features gpu --bench gpu_benchmarks -- --quick`:
+
+| Kernel  | 32³ fresh→pool | 64³ fresh→pool | 128³ fresh→pool |
+|---------|:--------------:|:--------------:|:---------------:|
+| hartree | 1.44→1.37 ms   | 2.22→1.99 ms   | 10.05→6.54 ms   |
+| v_eff   | 1.55→1.50 ms   | 3.13→2.96 ms   | 17.87→14.35 ms  |
+| lda_xc  | 1.38→1.35 ms   | 1.63→1.52 ms   | 5.24→3.18 ms    |
+
+64³ (production scale): **5–11%** across all 3 kernels — matches proposal §2 5–10% estimate. 128³: 24–65% (per-call `create_buffer` cost grows with grid). Alloc count before→after: **11 + 3 → 0 + 0** per SCF iter.
+
+**Correctness:** 7/7 `tests/gpu_consistency.rs` pass at existing tolerances. New `test_gpu_buffer_pool_xc_and_v_eff_match_fresh` asserts bit-identical pool↔fresh for XC + V_eff.
+
+**Note:** GPU kernel per-call time still dominated by wgpu submit + poll overhead (~1.3 ms floor). Pool removes the allocation tax but GPU_MIN_GRID (F-3, PR-A) still has to flip XC back to CPU at n < 64³ — CPU is 8× faster there (176 µs XC CPU vs 1.35 ms GPU at 32³). Makes F-1 chain fusion (PR-C) the next unlock since it amortizes one submit across all 3 kernels.
+
+**Next:** PR-A (F-3 + F-10) still open, then PR-C (F-1 chain fusion) on top of PR-B. PR-D (F-6 vec2 + F-8 cbrt NR) shader-only, independent.
+
+**Gotcha:** machine-lock had races today — `agent-a95465b5` force-acquired mid-test of agent-af590306 because my test PID looked "stale" briefly. Tests completed anyway (hook only blocks new commands). MLFX claims PID-liveness check fixed this — it didn't fully. Worth a second look.
+
 ## 2026-04-19 — ALOC F-5 landed (Hamiltonian Mat cache)
 
 Per-k `faer::Mat<Complex64>` scratch now lives in `ScfContext::h_scratch` (length `nspin * n_k`), fully overwritten by new `fill_hamiltonian_with_v_eff`. Zero per-iter `Mat::zeros(n_pw, n_pw)`.

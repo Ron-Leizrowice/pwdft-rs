@@ -242,6 +242,86 @@ fn test_gpu_buffer_pool_matches_fresh() {
     }
 }
 
+/// GOPT-B: the pool now covers `lda_xc` and `v_eff_assembly`. This test
+/// verifies that the pooled path for XC and V_eff produces bit-identical
+/// output to the fresh-alloc fallback on the same GPU with the same f32
+/// inputs — a correctness gate for the new `BufferPool` fields and the
+/// cached bind groups.
+#[test]
+fn test_gpu_buffer_pool_xc_and_v_eff_match_fresh() {
+    let Some(mut gpu) = GpuAccelerator::try_new() else {
+        eprintln!("No GPU, skipping");
+        return;
+    };
+
+    let n = 8000;
+    let g_squared: Vec<f64> = (0..n)
+        .map(|i| if i == 0 { 0.0 } else { 0.5 + i as f64 * 0.3 })
+        .collect();
+
+    // --- LDA XC ---
+    let rho_r: Vec<f64> = (0..n).map(|i| 0.01 + (i as f64) * 1e-4).collect();
+
+    // Fresh path (no pool prepared yet).
+    let (exc_fresh, vxc_fresh) = gpu.lda_xc(&rho_r);
+
+    // Prepare pool and re-run via the pooled path.
+    gpu.prepare_buffers(n, &g_squared);
+    let (exc_pooled, vxc_pooled) = gpu.lda_xc(&rho_r);
+
+    assert_eq!(exc_fresh.len(), exc_pooled.len());
+    assert_eq!(vxc_fresh.len(), vxc_pooled.len());
+    for (i, ((&ef, &vf), (&ep, &vp))) in exc_fresh
+        .iter()
+        .zip(vxc_fresh.iter())
+        .zip(exc_pooled.iter().zip(vxc_pooled.iter()))
+        .enumerate()
+    {
+        let exc_diff = (ef - ep).abs();
+        let vxc_diff = (vf - vp).abs();
+        // Same GPU, same f32 inputs — must be identical down to the last bit.
+        assert!(
+            exc_diff < 1e-10,
+            "XC exc pool mismatch at {i}: fresh={ef}, pooled={ep}, diff={exc_diff:.2e}"
+        );
+        assert!(
+            vxc_diff < 1e-10,
+            "XC vxc pool mismatch at {i}: fresh={vf}, pooled={vp}, diff={vxc_diff:.2e}"
+        );
+    }
+
+    // --- V_eff assembly ---
+    let make_complex = |seed: f64| -> Vec<Complex64> {
+        (0..n)
+            .map(|i| {
+                Complex64::new(
+                    (i as f64 * seed).sin() * 0.5,
+                    (i as f64 * seed * 1.3).cos() * 0.5,
+                )
+            })
+            .collect()
+    };
+    let v_local = make_complex(0.1);
+    let v_h = make_complex(0.2);
+    let v_xc = make_complex(0.3);
+
+    // Pooled path (pool is still warm from XC above).
+    let v_eff_pooled = gpu.v_eff_assembly(&v_local, &v_h, &v_xc);
+
+    // Force fresh path by constructing a new GpuAccelerator without a pool.
+    let gpu_fresh = GpuAccelerator::try_new().expect("GPU re-init");
+    let v_eff_fresh = gpu_fresh.v_eff_assembly(&v_local, &v_h, &v_xc);
+
+    assert_eq!(v_eff_fresh.len(), v_eff_pooled.len());
+    for (i, (f, p)) in v_eff_fresh.iter().zip(v_eff_pooled.iter()).enumerate() {
+        let diff = (f - p).norm();
+        assert!(
+            diff < 1e-10,
+            "V_eff pool mismatch at {i}: fresh={f}, pooled={p}, diff={diff:.2e}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Full SCF: GPU vs CPU eigenvalue and energy comparison
 // ---------------------------------------------------------------------------
