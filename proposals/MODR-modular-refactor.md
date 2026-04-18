@@ -217,7 +217,7 @@ thin dispatcher, and re-exports.
 Size: ~3 h. Risk: low–medium (the hot loop is long but the split
 follows a clean seam — spin vs non-spin vs logging).
 
-### ✅ Phase C — Split `symmetry/density.rs` (prepares PCFX)
+### ✅ Phase C (PR #48) — Split `symmetry/density.rs` (prepares PCFX)
 
 Turn `symmetry/density.rs` into a folder. `real_space.rs` is the current
 implementation verbatim. `g_space.rs` is a stub file (empty module) that
