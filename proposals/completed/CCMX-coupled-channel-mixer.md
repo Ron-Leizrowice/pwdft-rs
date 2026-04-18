@@ -1,12 +1,38 @@
 ---
 id: CCMX
-status: active
+status: completed
 priority: high
 complexity: medium
 risk: medium
 depends_on: [SPNC]
 blocks: []
 ---
+
+## Completion note (2026-04-18)
+
+Landed in `src/scf/mod.rs::run_scf_spin`. Two `Mixer` instances (`mixer_total`,
+`mixer_mag`) replace the former `mixer_up`/`mixer_down`. Forward basis change
+applies QE's `rhoz_or_updw` convention (ρ_total = ρ↑+ρ↓, m = ρ↑−ρ↓); inverse
+uses `ρ↑ = (ρ_total + m)/2`, `ρ↓ = (ρ_total − m)/2`. Kerker is disabled on
+`mixer_mag` (not a charge-response). Mixer internals untouched.
+
+**Fe BCC 4×4×4 regression test** (`tests/spin_polarization.rs::test_ccmx_fe_free_magnetization_converges`):
+- Pre-CCMX: Δρ locked at ≈0.254 for 200+ iters, |HF-KS| ≈ 13 eV.
+- Post-CCMX: **converges in 14 iters** with |HF-KS| = 1.06e-4 eV, M = 0 μB.
+
+Si nspin=2 regression (`test_fe_spin_xc_consistency_regression`) still passes
+at sub-microelectronvolt |HF-KS| — basis change is mathematically exact, so
+well-behaved systems are unaffected.
+
+Open: the Fe *fixed-mag=2* test (`test_fe_ferromagnetic_fixed_moment`) still
+fails to converge post-CCMX. Root cause is that the PP prefers M=0; fixing
+M=2 by the Fermi-energy-per-spin mechanism is not a stable SCF fixed point
+regardless of mixer topology. That's a PP-choice or constrained-DFT issue,
+not a CCMX issue. The inverted regression test is kept as a detector.
+
+Also un-blocked: `tests/qe_validation.rs::test_fe_bcc_fm_vs_qe` 8×8×8 Kerker
+now converges to −3050.80 eV, but remains `#[ignore]` pending VGCMP
+(residual 9.5 eV heavy-atom V_local gap vs QE).
 
 # CCMX: Coupled-Channel Mixer for nspin=2
 

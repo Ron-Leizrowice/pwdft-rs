@@ -334,10 +334,18 @@ fn test_al_fcc_vs_qe() {
 /// PseudoDojo NC/LDA at ecut=15 Ry, |M| collapses to 0.00 μB in both codes,
 /// so the test validates the nspin=2 machinery rather than the magnetism.
 ///
-/// Ignored: total energies for Fe (Z=26) previously differed from QE by
-/// ~42 eV (baseline run 2026-04-16). Blocked on VERF root cause.
+/// Post-CCMX (2026-04-18) the SCF converges cleanly (no more spin-flip
+/// limit cycle), but the total energy still differs from QE by ~9.5 eV —
+/// the residual Z>14 heavy-atom gap tracked under VGCMP (V_local(G)
+/// convention cross-check vs QE). See
+/// proposals/VGCMP-vloc-g-cross-check.md.
+///
+/// Reference values (for year-later readers):
+///   pwdft-rs post-CCMX:  E = -3050.80 eV  (8×8×8, 15 Ry, Kerker)
+///   QE ref:              E = -3060.158 eV (-224.917_449_34 Ry)
+///   residual:            ~9.5 eV  →  tracked as VGCMP heavy-atom V_local
 #[test]
-#[ignore = "depends on VERF/Si root-cause fix"]
+#[ignore = "CCMX fixes convergence (E = -3050.80 eV); ~9.5 eV gap vs QE -3060.16 eV blocked on VGCMP (heavy-atom V_loc)"]
 fn test_fe_bcc_fm_vs_qe() {
     let crystal = bcc_crystal(2.87, Atom::new(26, [0.0, 0.0, 0.0]));
     let pp_fe = load_pp("Fe");

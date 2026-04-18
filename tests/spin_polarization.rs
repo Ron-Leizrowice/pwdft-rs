@@ -224,33 +224,129 @@ fn test_fe_spin_xc_consistency_regression() {
 }
 
 #[test]
+fn test_ccmx_fe_free_magnetization_converges() {
+    // CCMX regression: Fe BCC free-magnetization nspin=2 with the same
+    // pseudopotential that fixed-mag=2 chokes on (nc/lda/Fe.upf). Pre-CCMX,
+    // the independent-channel Anderson mixer entered a spin-flip limit
+    // cycle — per-spin Δρ locked at ~0.254 for 200+ iterations with
+    // |HF-KS| ~ 13 eV (see test_fe_ferromagnetic_fixed_moment comment and
+    // proposals/SPNC-spin-per-density-convergence.md). Post-CCMX, the
+    // (ρ_total, m) basis change decouples the two physical modes and the
+    // SCF converges properly.
+    //
+    // Uses a 4×4×4 grid with Kerker at 15 Ry ecut for speed. Observed:
+    //   pre-CCMX:  Δρ pinned at 0.254, consumes all max_iter=80, |HF-KS| ≈ 13 eV, M ≈ 0.05 μB (spurious).
+    //   post-CCMX: converges in ~14 iters, |HF-KS| ≈ 1e-4 eV, M ≈ 0 μB.
+    //
+    // Regression guards (see assertions below): (1) |HF-KS| stays sub-meV,
+    // (2) magnetization collapses to near-zero (no spurious spin leakage),
+    // (3) iteration count stays under max_iter — pre-CCMX would exhaust it.
+    // `ScfResult.final_delta` is not currently exposed; adding it would
+    // enable a tighter pathology-specific assertion (Δρ ≈ 0.254 vs ≈ 1e-3).
+    // Flagged as a Core Engineer follow-up on MODR Phase B.
+    let crystal = fe_bcc();
+    let pp = pwdft_rs::pseudopotential::load(
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pseudopotentials/nc/lda/Fe.upf"),
+    )
+    .unwrap();
+    let ecut = 15.0 * 13.605_693_122_994; // 15 Ry
+    let basis = BasisSet::new(&crystal.lattice, ecut);
+    let kpoints = pwdft_rs::kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+
+    let mut starting_mag = std::collections::HashMap::new();
+    starting_mag.insert("Fe".to_string(), 0.5);
+
+    let params = scf::ScfParams {
+        n_bands: 8,
+        max_iter: 80,
+        // Loose enough to converge within max_iter on 4×4×4; this test's
+        // point is "no limit cycle", not "microelectronvolt tolerance".
+        conv_threshold: 1e-3,
+        energy_threshold: 1e-3,
+        mixing_beta: 0.3,
+        mixing_ndim: 8,
+        smearing_sigma: 0.02 * 13.605_693_122_994, // 0.02 Ry
+        ecutrho_ratio: 4,
+        mixing_mode: MixingMode::Kerker { q_tf: None },
+        nspin: 2,
+        // NB: no tot_magnetization constraint — let the PP choose.
+        starting_magnetization: starting_mag,
+        ..Default::default()
+    };
+
+    let symmetry = pwdft_rs::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
+    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, &symmetry)
+        .expect("CCMX: Fe BCC nspin=2 free-mag must converge — pre-CCMX would fail here");
+
+    eprintln!(
+        "CCMX Fe free-mag regression: E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.3e} eV  ({} iters, M={:.4} μB)",
+        result.total_energy,
+        result.harris_foulkes_energy,
+        (result.harris_foulkes_energy - result.total_energy).abs(),
+        result.n_iterations,
+        result.magnetization,
+    );
+
+    // Pre-CCMX, |HF-KS| was ~13 eV because the limit cycle kept zeta
+    // from ever matching input↔output. Post-CCMX should be sub-meV for
+    // the non-magnetic collapse on this PP.
+    let hf_diff = (result.harris_foulkes_energy - result.total_energy).abs();
+    assert!(
+        hf_diff < 1.0e-3,
+        "CCMX Fe: |E_HF - E_KS| = {hf_diff:.3e} eV exceeds 1e-3 eV. \
+         A large value (~13 eV) suggests the coupled-channel mixer has \
+         regressed to independent (ρ↑, ρ↓) Anderson — check run_scf_spin \
+         mixing block in src/scf/mod.rs."
+    );
+
+    // The limit cycle produced M ≈ 0.05 μB from spurious spin flips; the
+    // genuine non-magnetic ground state gives M ≈ 0.
+    assert!(
+        result.magnetization < 0.05,
+        "CCMX Fe: magnetization M={:.3} μB is suspiciously large for a \
+         non-magnetic PP. Possible limit-cycle leakage.",
+        result.magnetization,
+    );
+
+    // Must not consume the full iteration budget — pre-CCMX blew past 200.
+    assert!(
+        result.n_iterations < params.max_iter,
+        "CCMX Fe: hit max_iter={} — convergence still slow",
+        params.max_iter,
+    );
+}
+
+#[test]
 fn test_fe_ferromagnetic_fixed_moment() {
     // TAUD finding 1.2 — INVERTED from its original (silently-passing) form.
     //
     // Fe BCC fixed-magnetization=2 on the nc/lda/Fe.upf pseudopotential is
-    // KNOWN TO NOT CONVERGE. The failure mode is documented in
-    // `proposals/SPNC-spin-per-density-convergence.md` §Empirical Result:
-    // independent Anderson mixers on (ρ_up, ρ_down) enter a ±ε limit cycle
-    // (Δρ_up = Δρ_down ≈ 0.254 steady-state from iter ~5 onward) that
-    // cancels in the total density. Before SPNC, the total-only convergence
-    // criterion hid this — the test reported "converged" with |HF-KS| ≈
-    // 13.0 eV (post-SPXC) or 22.2 eV (pre-SPXC). After SPNC landed, the
-    // per-spin criterion correctly surfaces the limit cycle as
-    // ConvergenceFailure.
+    // KNOWN TO NOT CONVERGE. The original failure mode (pre-CCMX) was the
+    // independent-channel limit cycle documented in
+    // `proposals/SPNC-spin-per-density-convergence.md`: two Anderson mixers,
+    // one per spin, produced uncorrelated ±ε predictions that kept Δρ_up =
+    // Δρ_down ≈ 0.254 forever. After CCMX (2026-04-18) moved the mixer to
+    // the (ρ_total, m) basis, the limit cycle is gone for the free-mag
+    // Fe setup (see test_ccmx_fe_free_magnetization_converges below), but
+    // the *fixed*-mag=2 case still fails to converge because the
+    // constraint actively fights the PP's preference: LDA Fe on this PP
+    // is non-magnetic, so forcing M=2 is not a stable SCF fixed point and
+    // no mixer can produce one. Empirical post-CCMX behaviour: Δρ decays
+    // to ≈0.04 (orders of magnitude better than the 0.254 ±ε cycle), then
+    // stalls as the optimizer oscillates around a non-existent fixed
+    // point. Fixing this genuinely would need (a) a ferromagnetic-stable
+    // Fe pseudopotential, or (b) a Lagrange-constrained SCF that can
+    // penalise deviations from M_target smoothly rather than enforcing
+    // them via separate Fermi energies.
     //
-    // Root cause is physical, not numerical: LDA Fe ground state is
-    // non-magnetic for this PP, so fixed-mag=2 is not a stable SCF fixed
-    // point. Resolving it needs either (a) a coupled-channel mixer (see
-    // proposals/CCMX-coupled-channel-mixer.md) that mixes (ρ_total, m)
-    // instead of (ρ_up, ρ_down) — mirroring QE's `rhoz_or_updw` — or (b) a
-    // different Fe pseudopotential that favours the ferromagnetic state.
-    //
-    // This test is kept as an inverted regression detector: the day CCMX
-    // or a PP swap flips the outcome to `Ok`, the `assert!(matches!(..))`
-    // below will fail and pull attention back to this case. At that point,
-    // restore the original assertions (magnetization ≈ 2, energy vs QE
-    // reference E = -44.062_678_79 Ry × 13.605... = -599.503 eV from 4×4×4,
-    // 15 Ry, LDA, FD 0.02 Ry) and un-invert the test.
+    // This test is kept as an inverted regression detector: the day a PP
+    // swap or a new constrained-DFT scheme flips the outcome to `Ok`, the
+    // `assert!(matches!(..))` below will fail and pull attention back to
+    // this case. At that point, restore the original assertions
+    // (magnetization ≈ 2, energy vs QE reference E = -44.062_678_79 Ry ×
+    // 13.605... = -599.503 eV from 4×4×4, 15 Ry, LDA, FD 0.02 Ry) and
+    // un-invert the test.
     //
     // QE reference eigenvalues (if/when this starts converging):
     //   Gamma up:   4.62  25.71  25.71  26.52  26.52  26.52
