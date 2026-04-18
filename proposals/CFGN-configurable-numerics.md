@@ -10,7 +10,20 @@ blocks: []
 
 # CFGN: Expose Hardcoded Numerics as Configurable Settings
 
-## Problem
+> **Re-scope 2026-04-18.** The original inventory below dates from before
+> MODR (scf/mixing and symmetry/density folder splits, pseudopotential/upf
+> folder split, driver.rs/driver_spin.rs/report.rs extraction), CAST
+> (per-site cast invariants encoding physical bounds), DWGT (rustdoc
+> `-D warnings` gate), FGRD (`MAX_FFT_DIM = 1024`), MXBA (`adaptive_beta`
+> Settings landed), ITEV (iterative eigensolver with `DEFAULT_TOL` /
+> `DEFAULT_MAX_RESTARTS` consts), and NCFX (the four `1e-30` XC density
+> floors unified to `RHO_FLOOR`). Every file path and line number in the
+> original inventory is stale or has been superseded. Read **Sections 6–10
+> first** — they are the current census, phasing, and decisions. The
+> original Sections 1–5 are kept verbatim for audit trail rather than
+> struck so the deltas are visible.
+
+## Section 1 — Problem (original; still accurate in spirit)
 
 An audit of the codebase found ~60 hardcoded numeric values controlling algorithm behavior — convergence tolerances, cutoff radii, density floors, iteration limits, buffer sizes — scattered across 13 source files. These are all reasonable defaults, but an advanced researcher has no way to override them without editing source code. This blocks:
 
@@ -27,7 +40,12 @@ This proposal adds the settings structs and threads them through call sites. It 
 
 The schema fields for the new sections (`ewald`, `numerics`, `initial_density`, `gpu`) need to be added to `Settings`, and the values plumbed through to call sites.
 
-## Inventory
+## Section 2 — Inventory (ORIGINAL; superseded by Section 6)
+
+> **Stale-reference warnings inline.** File:line numbers in this section
+> were valid at proposal time but most have drifted (MODR, NCFX, VNLM
+> changed the contents). See Section 6 for the fresh census and Section 8
+> for the full stale-reference list.
 
 ### A. Ewald summation — `src/ewald.rs`
 
@@ -106,7 +124,12 @@ The schema fields for the new sections (`ewald`, `numerics`, `initial_density`, 
 | FFT-friendly factors [2, 3, 5] | `fft.rs:120-121` | **Performance:** ndrustfft optimized for these primes |
 | Grid Nyquist formula `2*n_max + 1` | `fft.rs:105` | Sampling theorem, not tunable |
 
-## Implementation
+## Section 3 — Implementation (ORIGINAL; superseded by Section 10)
+
+> **Superseded:** Steps 1–7 below reference file paths and APIs that have
+> changed (no `src/potential/hartree.rs`; `src/scf/mod.rs` is now a thin
+> dispatcher + `ScfParams`; mixing is a folder; densities are symmetrized
+> in G-space). See Section 10 for the current phasing plan.
 
 The approach is to carry settings structs through the SCF context rather than reading global constants. Each module group below is an independent unit of work.
 
@@ -224,7 +247,7 @@ Recommended: **Option B** — it's the least disruptive. `ScfParams` already car
 
 **Files:** `src/scf/mod.rs`, `src/main.rs`
 
-## Verification
+## Section 4 — Verification (ORIGINAL; still applicable)
 
 1. **Existing tests pass unchanged:** All defaults match current hardcoded values, so behavior is identical
 2. **Non-default override test:** Parse a YAML with `rho_floor: 1e-14`, run XC evaluation, verify it uses the override (not the old `1e-30` literal)
@@ -234,9 +257,241 @@ Recommended: **Option B** — it's the least disruptive. `ScfParams` already car
 6. **Full SCF unchanged:** Si SCF energy with all-default settings matches the value before this change to within machine epsilon
 7. **Clippy clean:** `cargo clippy -q --all-targets`
 
-## Estimated Effort
+## Section 5 — Estimated Effort (ORIGINAL; superseded by Section 10)
 
 Two sessions.
 
 - **Session 1:** Steps 1–4 (Ewald, numerics/potentials, smearing/density, initial density). These are the highest-value changes and touch the deepest call chains. ~200 lines across 10 files.
 - **Session 2:** Steps 5–7 (symmetry, GPU, wiring through `run_scf`). Lighter touch, plus verification tests. ~100 lines across 5 files.
+
+---
+
+# Re-scope — 2026-04-18
+
+## Section 6 — Fresh census (supersedes Section 2)
+
+A file-by-file walk of `src/` on `origin/main` @ `0be9290` (XCNI). Every
+entry is cited by `file:line` against the current tree. Only entries
+matching **all three** filters are listed: physically meaningful
+(convergence/tolerance/cutoff — not a buffer size, unit conversion, or
+published functional coefficient), currently hardcoded (literal in code,
+or module-private `const`, not already a Settings field), and reasonably
+user-facing (advanced researcher would override, not an internal
+DIIS/LU pivot).
+
+### 6.1 — Strong candidates (user-facing knobs, high value)
+
+| # | file:line | current literal | purpose | proposed Settings field |
+|---|-----------|-----------------|---------|-------------------------|
+| 1 | `src/ewald.rs:65` | `10.0 * eta` (`g_max`) | Ewald reciprocal-space cutoff multiplier; QE's `alpha_mod.f90` uses 4–5× at convergence | `ewald.cutoff_multiplier: f64` (default `10.0`) |
+| 2 | `src/ewald.rs:107` | `10.0 / eta` (`r_max`) | Ewald real-space cutoff multiplier; **must stay paired with #1** — the same eta-scaling produces balanced r/g truncation error | same knob as #1 |
+| 3 | `src/ewald.rs:60` | `(N·π/Ω)^{1/3}` (auto `eta`) | Ewald partition parameter; auto-chosen to balance r/g work. Users rarely want to override but sensitivity studies do | `ewald.eta: Option<f64>` (default `None` = auto) |
+| 4 | `src/scf/smearing.rs:73-74` | `10.0 * sigma.max(0.1)` | Fermi bisection bounds factor and sigma floor. For very cold systems (σ < 0.001 eV) the `.max(0.1)` is overly loose and can cause bisection to straddle unphysical bands | `electrons.fermi_search.bounds_factor: f64` (default `10.0`); `fermi_search.sigma_floor: f64` (default `0.1`) |
+| 5 | `src/scf/smearing.rs:76` | `200` (max_iter) | Fermi bisection iteration cap | `electrons.fermi_search.max_iter: usize` (default `200`) |
+| 6 | `src/scf/smearing.rs:92` | `1e-14` | Fermi bisection convergence tolerance (eV) | `electrons.fermi_search.tol: f64` (default `1e-14`) |
+| 7 | `src/scf/initial_density.rs:28` | `DEFAULT_GAUSSIAN_SIGMA = 1.0` Å | SAD fallback Gaussian width when UPF has no PP_RHOATOM. `InitialDensityConfig.gaussian_sigma` is already a runtime `Option<f64>`, just unwired from Settings | `initial_density.gaussian_sigma: Option<f64>` (default `None` = 1.0 Å) |
+| 8 | `src/eigensolver/iterative.rs:67` | `DEFAULT_TOL = f64::EPSILON * 128.0` (≈2.8e-14) | Iterative eigensolver residual-norm convergence threshold. Loosening to 1e-10 would trade SCF convergence rate for per-iter speed | `scf.iterative_eigensolver.tol: f64` (default `DEFAULT_TOL`) |
+| 9 | `src/eigensolver/iterative.rs:74` | `DEFAULT_MAX_RESTARTS = 500` | Iterative eigensolver max Arnoldi restarts before falling back to Dense. Cheap failure case has this knob act as a "give up, use Dense" gate | `scf.iterative_eigensolver.max_restarts: usize` (default `500`) |
+| 10 | `src/scf/smearing.rs:225` | `30.0` | Fermi-Dirac entropy reduced-variable cutoff (|(ε−E_F)/σ| > 30 → s=0). Safe at default σ but a user doing very-cold smearing (σ = 1e-4 eV) might notice | `electrons.fermi_search.entropy_cutoff: f64` (default `30.0`) — low priority |
+
+### 6.2 — Medium candidates (borderline user-facing)
+
+| # | file:line | current literal | purpose | proposed Settings field |
+|---|-----------|-----------------|---------|-------------------------|
+| 11 | `src/consts.rs:17` | `RHO_FLOOR = 1e-30` e/Å³ | XC density floor; NCFX unified the four `xc.rs` literals to this constant (post-CFGN-original) | `electrons.xc.rho_floor: f64` (default `RHO_FLOOR`) |
+| 12 | `src/consts.rs:15` | `G2_ZERO_THRESHOLD = 1e-12` (Å⁻²) | `|G|²` treated as zero in Hartree and mixing. Consistently used via `crate::consts::G2_ZERO_THRESHOLD` in `scf/energy.rs:70,240`, `scf/mixing/{anderson,broyden}.rs`, `gpu/mod.rs:519` | `electrons.g2_zero_threshold: f64` (default `G2_ZERO_THRESHOLD`) |
+| 13 | `src/scf/smearing.rs:{123,136,151,171}` | `1e-15` (zero-σ threshold) and `1e-12` (degenerate tolerance) — duplicated in all 4 occupation branches | σ below which → step function; (ε−E_F) below which → f=0.5 | bundle with fermi_search knobs (#4–6) |
+| 14 | `src/scf/mixing/linalg.rs:39` | `1e-15` | Gauss elimination pivot safety in the mixer's DIIS linear solve. Borderline internal — a hand-tuned mixer debugger might want to see this, but normal users should never touch it | **Do not expose** |
+| 15 | `src/scf/density.rs:61` | `1e-15` (occupation skip) | Bands with `f · w_k < 1e-15` skipped in density construction. Has an interaction with #4–6 | **Do not expose** initially — internal, paired with smearing |
+| 16 | `src/scf/density.rs:92` | `1e-15` | Normalization integrand safety check | **Do not expose** |
+| 17 | `src/pseudopotential/mod.rs:137` | `1e-12` | `|G|=0` check in `v_local_of_g`. Should use `G2_ZERO_THRESHOLD` const instead (or its sqrt) | **Code cleanup** — Code Reviewer; not a CFGN knob |
+
+### 6.3 — Non-candidates (keep hardcoded, with justification)
+
+| file:line | literal | why keep as-is |
+|-----------|---------|----------------|
+| `src/scf/grid.rs:26` | `MAX_FFT_DIM = 1024` | FGRD landed this as a `pub(crate) const` that gates CAST-documented integer-range assumptions on ~20 sites. Exposing via YAML would invalidate every `#[allow(...)] reason = "..."` that depends on it. **Not a CFGN candidate** — it's a compile-time safety invariant, not a tuning knob |
+| `src/potential/xc.rs:33` | `XC_PARALLEL_THRESHOLD = 16_384` | Rayon dispatch-crossover point from calibrated M2 measurement. Performance tuning — Performance Engineer's domain |
+| `src/gpu/mod.rs:72` | `WORKGROUP_SIZE: u32 = 256` | Baked into WGSL shader constants; changing it requires shader preprocessing. Not a Settings-accessible knob without a GPU-settings rewrite |
+| `src/gpu/mod.rs:140` | `(0..5)` — complex buffer pool size | Implementation detail (number of concurrent dispatched pipelines, not a physical knob). **Original proposal's "real buffer pool = 3" no longer exists — that was removed when the pool was simplified** |
+| `src/potential/nonlocal.rs:290` | `1e-20` (D_ij skip threshold) | Guard against pure-zero D_ij entries polluting GEMM output with NaN. Not user-facing |
+| `src/potential/nonlocal.rs:377` | `1e-9` (`q-norm` threshold for Y_lm) | Branch between `Y_00=1/√(4π)` singular case and full Y_lm evaluation. Mathematical boundary, not tuning knob |
+| `src/potential/nonlocal.rs:494`, `src/scf/potentials.rs:119`, `src/scf/initial_density.rs:171` | `1e-10` (Bessel/j₀ small-x thresholds) | Taylor expansion branch points for `j_l(x)/x` at x→0. Mathematical, not tunable |
+| `src/ewald.rs:91`, `136` | `1e-12`, `1e-10` | Self-interaction and near-zero |G|² guards. Internal Ewald numerical safety |
+| `src/symmetry/detect.rs:105` | `+ 1.5` | Half-unit search-radius padding in lattice-vector candidate generation. Pure geometry; not a physics knob |
+| `src/symmetry/kpoints.rs:130` | `1e-6` | k-point grid snapping after symmetry rotation. Geometry-on-integer-grid threshold, closely tied to `SymmetrySettings::tolerance` but at a different scale |
+| `src/consts.rs:11` | `E2_COULOMB = 14.399_645_351_950_548` | Published CODATA physical constant |
+
+### 6.4 — Count
+
+- **Strong candidates:** 10 (entries #1–10 above)
+- **Medium candidates:** 2 that would actually be exposed (#11 RHO_FLOOR, #12 G2_ZERO_THRESHOLD); #13 bundles into #4–6
+- **Non-candidates kept hardcoded:** 11 file-groups with explicit rationale
+
+Total proposed Settings additions: **~12 fields**. The original proposal
+listed ~25 distinct knobs (sections A–H); the fresh census finds only
+10–12 that survive the "reasonably exposed" filter once we honor NCFX's
+unification, MODR's refactors, and CAST's documented invariants.
+
+## Section 7 — What CAST's audit implicitly documented
+
+CAST landed ~51 `#[allow(clippy::cast_*, reason = "...")]` reasons
+across 13 files. Each reason encodes an integer-range bound that the
+cast relies on for safety. Reviewed against "could a CFGN user reasonably
+want to override this?":
+
+| CAST reason-fragment (file:line) | implied bound | CFGN candidate? |
+|----------------------------------|---------------|-----------------|
+| `src/scf/grid.rs:111,137` + 4 call sites in `src/symmetry/density/{mod,real_space,g_space}.rs` | `MAX_FFT_DIM ≤ 1024` | **No.** Exposing this would force `check-cast-safety` reviews on every linked site. A user with an 8k³ grid has bigger problems than Settings plumbing |
+| `src/ewald.rs:68,73,78,110,115,120` | "n_i_max bounded by g_max = 10·eta" | **Yes.** But already captured by candidate #1 (`ewald.cutoff_multiplier`). If a user sets `cutoff_multiplier: 50.0`, the Ewald i32 casts still fit (g_max · |b_i| ≤ 50·η·|b_i| ≤ ~10⁵ for physical inputs) |
+| `src/basis.rs:37,42,47` | "n_i_max bounded by ecut; exceeding i32::MAX would require ecut > 10¹⁸ eV" | **No.** `basis.ecutwfc` already in Settings; no further knob needed |
+| `src/kpoints.rs:46,56,61,66`; `src/symmetry/kpoints.rs:107,135,142` | "MP mesh counts bounded by O(100)" | **No.** `kpoints.grid` already in Settings |
+| `src/scf/grid.rs:59` | "ecutrho_ratio is a small input integer (typically 4)" | **No.** Already exposed |
+| `src/potential/nonlocal.rs:142,231,249,295,359` | "each projector's `l` asserted non-negative" / "lmax is a non-negative angular-momentum bound" | **No.** `l_max` comes from the PP file — not a Settings concept. Max physical lmax is ~6 for any real pseudopotential; no user use-case for overriding |
+| `src/symmetry/detect.rs:102` | "target_norm_sq from metric matrix" | **No.** Internal geometry |
+| `src/gpu/mod.rs:198,290,354` | "n_grid ≤ 512³ fits in u32::MAX" | **No.** This is a free bound (32-bit grid index range), not a hardcoded cap |
+
+**Net:** CAST's invariants reinforce the existing Settings shape; they
+surface **zero new** CFGN candidates. The `MAX_FFT_DIM` question is
+explicitly a "don't touch, it's load-bearing across 20 sites" answer.
+
+## Section 8 — Stale references in Section 2 (original inventory)
+
+Every file/symbol cited in the original Inventory (Section 2), verified
+against `origin/main` @ `0be9290`:
+
+| Original claim | Current reality | Note |
+|----------------|-----------------|------|
+| `src/ewald.rs:52` (eta) | Line **60** | MODR didn't touch; small line drift from doc expansion |
+| `src/ewald.rs:57, 89` (cutoff multiplier) | Lines **65** and **107** | Same |
+| `src/ewald.rs:106` (self-interaction threshold) | Line **136** | Same |
+| `src/scf/smearing.rs:66-67,69,85,114+,116+,215,219` | Lines **73-74, 76, 92, 123+, 125+, 225, 229** | Largely unchanged, ~+10 line drift |
+| `src/potential/xc.rs:27,177,237,270` (four `1e-30` density floors) | **GONE.** NCFX (2026-04-18) unified all four to `crate::consts::RHO_FLOOR` at lines 49, 212, 278, 288, 293, 321 | **Consistency bug fixed upstream of CFGN**. The "4 independent literals" claim is no longer true |
+| `src/consts.rs:19` `RHO_FLOOR = 1e-20` | **`1e-30`** at line 17 | NCFX unified; original proposal's "inconsistent `1e-30` vs `1e-20`" complaint is resolved |
+| `src/scf/density.rs:61` (occupation skip) | Line **61** | Unchanged |
+| `src/scf/mixing.rs:69-72, 231` | **File does not exist.** MODR split into `src/scf/mixing/{mod,anderson,broyden,kerker,linalg}.rs`. Original "Kerker q_tf:69-72" ≈ `src/scf/mixing/kerker.rs:47-55`. "DIIS pivot tolerance:231" ≈ `src/scf/mixing/linalg.rs:39` | Stale path |
+| `src/scf/initial_density.rs:28, 103, 166-167` | Lines **28 (DEFAULT_GAUSSIAN_SIGMA, unchanged), 107, 171** | Small drift |
+| `src/potential/nonlocal.rs:175-178, 187, 250` | Lines **~377 (q-norm 1e-9, not 1e-12!), 290 (1e-20, unchanged), 494** | **Bug in original proposal:** claimed "q-norm threshold 1e-12" — actual value is **`1e-9`**, and the branch is on `q.norm() < eps` (real-space Y_lm), not `cos(θ)` as original claimed. VNLM rewrote this section to use Y_lm addition theorem |
+| `src/symmetry/detect.rs:100` | Line **105**, factor `+ 1.5` unchanged |
+| `src/symmetry/kpoints.rs:100` | Line **130** |
+| `src/gpu/mod.rs:65` (workgroup size) | Line **72** (`WORKGROUP_SIZE = 256`) | Unchanged |
+| `src/gpu/mod.rs:130` (complex buffer pool = 5) | Line **140** (`(0..5)`) | Still 5 |
+| `src/gpu/mod.rs:142` (real buffer pool = 3) | **GONE.** There is no separate real buffer pool in the current `BufferPool`; the struct has `complex_bufs` + `complex_staging` + `g_squared_buf` only. Original proposal described a structure that was later simplified | **Stale; do not port** |
+| Implementation Step 2 mentions `src/potential/hartree.rs` | **No such file.** Hartree is assembled inline in `scf::energy`, `scf::driver`, `scf::driver_spin` | Original proposal plumbing plan needs rewriting against the current scf/ layout |
+| Implementation Step 7 mentions `run_scf()` in `src/scf/mod.rs` | `run_scf` now a thin dispatcher (lines ~222+); real work in `src/scf/driver.rs` and `src/scf/driver_spin.rs` | Threading plan updated in Section 10 |
+
+**Summary of stale refs:** 100% of line numbers drifted (MODR + NCFX +
+VNLM). Two **material errors**: (a) the "4 independent `1e-30` XC
+literals" bug was fixed by NCFX and is not a CFGN item any more; (b) the
+nonlocal q-norm threshold is `1e-9`, not `1e-12`, and the branch is on
+the wrong quantity in the original proposal. One **phantom file**
+(`potential/hartree.rs`) and one **phantom structure** (GPU "real buffer
+pool = 3") cited in the original are fabrications against the current
+codebase.
+
+## Section 9 — MXBA tunables decision
+
+MXBA's `AdaptiveBeta` carries four magic numbers seen at
+`src/scf/mixing/mod.rs:120-123`:
+
+```rust
+growth_threshold: 1.2,
+restore_threshold: 0.5,
+damp_factor: 0.7,
+restore_window: 3,
+```
+
+plus the implicit `beta_min = max(0.05·β_start, 0.01)` from the
+constructor (line 119).
+
+**Decision: Do NOT expose via CFGN.** Rationale (one sentence each):
+
+- These are Eyert (1996, §3.3) paper-recommended defaults, not knobs a
+  SCF user would tune from a YAML input — `tests/mxba_adaptive_beta_fe.rs`
+  and the Fe-trajectory regression guard at
+  `src/scf/mixing/mod.rs:437-526` encode an interaction with β_min and
+  the restore-window that would break if a user slides one number.
+- The **right way** to override these (if MXB2 or a follow-up mixer
+  paper shows a better regime) is a new `mixing_mode` variant, not a
+  user-facing parameter: the defaults embed an algorithmic contract.
+- The feature is already opt-in (`adaptive_beta: false` by default), so
+  users don't inherit the tuning unless they explicitly opt into the
+  algorithm as documented.
+
+MXB2's scope stays "defaults or a new mixer variant" — not "add four
+Settings fields."
+
+## Section 10 — Implementation phasing (supersedes Section 3)
+
+With the census down from ~25 to ~12 knobs, a smaller two-PR split is
+more tractable than the original 7-step plan. Each phase is an
+independent PR that doesn't depend on the other.
+
+### Phase 1 — Smearing / eigensolver / initial-density (highest value)
+
+Knobs #4, #5, #6, #7, #8, #9 from Section 6.1 — these are the
+user-facing ones a researcher doing a sensitivity study would actually
+hit. Estimated scope: new `FermiSearchSettings` sub-struct under
+`ElectronSettings`; a `scf.iterative_eigensolver` sub-struct with
+`tol`/`max_restarts`; `initial_density.gaussian_sigma` plumbed through
+`ScfParams` into `InitialDensityConfig.gaussian_sigma`. Threading into
+the drivers:
+
+- `src/scf/driver.rs` — call site for `find_fermi_energy` and
+  `diagonalize_dispatch` (iterative path is keyed by `EigensolverKind`;
+  add an `IterativeParams` struct carried on `ScfParams`).
+- `src/scf/driver_spin.rs` — same call sites (spin driver).
+- `src/scf/mod.rs::run_scf` — no change; the thin dispatcher already
+  accepts `ScfParams`.
+
+Changes to `ScfParams` + `Settings::to_scf_params`. No code physics
+changes. Verification via:
+- Existing `qe_validation.rs` Tier 1+2 systems must produce bit-identical
+  results when YAML omits the new fields (defaults match hardcoded
+  values).
+- One new test per knob: override YAML, then check the override is
+  observed (e.g., set `fermi_search.tol: 1e-8` → Fermi energy matches
+  bisection with that tolerance, not 1e-14).
+
+Estimated: ~150 lines across 6 files.
+
+### Phase 2 — Ewald / RHO_FLOOR / G2_ZERO_THRESHOLD (nice-to-have)
+
+Knobs #1, #2, #3, #11, #12 from Section 6. These are stress-test knobs
+that advanced users wanting to debug a numerical residual would want,
+but the defaults are already calibrated against QE and no user is
+asking for them today.
+
+- `ewald_energy` gains an `&EwaldSettings` argument.
+- `Settings::rho_floor` and `Settings::g2_zero_threshold` become
+  `NumericsSettings` fields threaded through `ScfParams`.
+- XC call sites (`lda_xc`, `lda_xc_grid`, spin variants) gain a
+  `rho_floor: f64` argument. The `crate::consts::RHO_FLOOR` default is
+  kept as a fallback and referenced in `NumericsSettings::default()`.
+
+Estimated: ~150 lines across 5 files.
+
+### Phase 3 — Deferred (not in scope this release)
+
+- Knob #10 (entropy cutoff). Low physical impact; ignore until a user
+  reports a cold-smearing regression.
+- Any MXBA `AdaptiveBeta` internals (Section 9: explicitly out of
+  scope).
+- GPU workgroup / buffer-pool sizes (Section 6.3: not a physics knob).
+
+### Phase 1 → Phase 2 ordering
+
+Phase 1 lands first because its knobs are the ones production users hit
+in sensitivity studies. Phase 2 is a pure threading exercise over
+already-cleaned constants and can slot in any time after Phase 1 merges.
+
+---
+
+## Change-log (re-scope session)
+
+- **2026-04-18** — Researcher: full re-scope against `origin/main`
+  @ `0be9290`. Original inventory (Section 2) kept verbatim. Added
+  Sections 6–10 as the authoritative census, phasing, and decisions.
+  Census shrank from ~25 to ~12 exposed knobs after honoring NCFX
+  (consolidated XC floors), MODR (file-path renames), CAST (invariant
+  documentation), and MXBA (four-constant don't-expose call).

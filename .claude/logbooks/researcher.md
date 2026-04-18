@@ -2,6 +2,16 @@
 
 Entries: date, what was validated, discrepancies found (with numbers), references used. Physics findings only — not code quality or docs.
 
+## 2026-04-18 — CFGN re-scope (PR #78) — proposal only
+
+Walked `src/` against `origin/main` @ `0be9290`. Census of user-facing numeric knobs shrinks from original ~25 to 10–12 after honoring NCFX (4 `1e-30` XC floors → `RHO_FLOOR` done), MODR (every file path drifted), CAST (invariants reinforce existing Settings shape — 0 new knobs), MXBA (AdaptiveBeta tunables = don't expose; Eyert paper defaults with test-encoded interactions).
+
+**Top 3 highest-value exposures:** `electrons.fermi_search.{bounds_factor,tol,max_iter}` at `smearing.rs:73-92`; `scf.iterative_eigensolver.{tol,max_restarts}` at `eigensolver/iterative.rs:67,74`; `initial_density.gaussian_sigma` at `initial_density.rs:28` (already has runtime `InitialDensityConfig.gaussian_sigma`, just unwired from Settings).
+
+**Two material errors in original proposal:** (a) "q-norm threshold 1e-12" claim — actual is `1e-9` at `nonlocal.rs:377`, branch on `|q|` (real-space Y_lm) not `cos(θ)` (VNLM rewrote this); (b) phantom `src/potential/hartree.rs` and phantom GPU "real buffer pool = 3" — neither exists.
+
+Phase 1 = smearing/eigensolver/initial_density; Phase 2 = Ewald/RHO_FLOOR/G2_ZERO_THRESHOLD. Independent PRs.
+
 ## 2026-04-18 — NLCC audit (PR #42) — tests+docs only
 
 No production code change (NCFX #40 was the fix). Added Python/SciPy ρ_core(G) pin at Si/Fe reference points (< 1e-7 residual), regression test on Fe E_xc (post-NCFX 0.69 eV vs QE — pre-NCFX was 48.85 eV, trips by >49× if regressed), and LFC (Louie/Froyen/Cohen PRB 26 1738 (1982)) citations wherever NLCC is mentioned.
