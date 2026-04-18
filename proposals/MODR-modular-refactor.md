@@ -193,7 +193,7 @@ Ordered so earlier phases unblock the most concurrent work. Each phase is a
 separate PR with its own implementation proposal (MODR-A, MODR-B, MODR-C,
 MODR-D).
 
-### Phase A — Split `scf/mixing.rs` (unblocks PRPL + MXBA)
+### ✅ Phase A (PR #46) — Split `scf/mixing.rs` (unblocks PRPL + MXBA)
 
 **Why first:** three active proposals target this file.
 
