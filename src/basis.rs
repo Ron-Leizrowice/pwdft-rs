@@ -8,8 +8,21 @@ pub struct BasisSet {
     /// G-vectors in Cartesian coordinates (1/Å).
     pw: Vec<Vector3<f64>>,
     /// Integer Miller indices (n1, n2, n3) for each G-vector.
-    miller: Vec<[i32; 3]>,
+    ///
+    /// Stored as `[i16; 3]` per TYPE-A. `i16`'s range `[-32 768, 32 767]`
+    /// covers every physically reasonable `ecut · Ω` combination with
+    /// three orders of magnitude to spare — reaching i16 overflow would
+    /// require `ecut` beyond `10^7 Ry`. All arithmetic on Miller indices
+    /// (rotation, FFT-index mapping, k+G) widens to `i32` at the read
+    /// site to preserve overflow-free behavior.
+    miller: Vec<[i16; 3]>,
     /// Map from (n1, n2, n3) → index in pw/miller vectors.
+    ///
+    /// Keys stay as `(i32, i32, i32)` — the public `index_of` signature
+    /// takes `i32` so that out-of-range queries preserve their existing
+    /// "not in basis" semantics via `HashMap::get` rather than panicking
+    /// in a `try_from`. The hashing cost is unchanged; only the
+    /// per-entry key width differs (and by only 8 B × n_pw).
     index_map: HashMap<(i32, i32, i32), usize>,
     /// Plane-wave energy cutoff (eV).
     ecut: f64,
@@ -52,6 +65,19 @@ impl BasisSet {
         let mut miller = Vec::new();
         let mut index_map = HashMap::new();
 
+        // Miller indices are narrowed from i32 to i16 for storage; the
+        // enumeration driver (n1/n2/n3) remains i32 to keep the loop
+        // bounds and intermediate arithmetic overflow-safe for any
+        // physically meaningful ecut. `i16::try_from` is infallible under
+        // the proposal's argument (ecut > 10^7 Ry is non-physical); the
+        // panic path is a guard against a caller who passes an absurdly
+        // large lattice.
+        let to_i16 = |n: i32| {
+            i16::try_from(n).expect(
+                "BasisSet::new: Miller index exceeds i16 range; ecut must be below 10^7 Ry",
+            )
+        };
+
         for n1 in -n1_max..=n1_max {
             for n2 in -n2_max..=n2_max {
                 for n3 in -n3_max..=n3_max {
@@ -59,7 +85,7 @@ impl BasisSet {
                     if g.norm_squared() <= g_max_sq {
                         let idx = pw.len();
                         pw.push(g);
-                        miller.push([n1, n2, n3]);
+                        miller.push([to_i16(n1), to_i16(n2), to_i16(n3)]);
                         index_map.insert((n1, n2, n3), idx);
                     }
                 }
@@ -96,12 +122,21 @@ impl BasisSet {
     }
 
     /// Access integer Miller indices for each G-vector.
+    ///
+    /// Stored as `[i16; 3]` for cache density (TYPE-A). Callers that feed
+    /// the values into `i32`-sized arithmetic (rotation, FFT index wrap,
+    /// `miller_to_idx`) should widen with `i32::from(m[k])` — the
+    /// widening is infallible and typically folds into the load.
     #[must_use]
-    pub fn miller_indices(&self) -> &[[i32; 3]] {
+    pub fn miller_indices(&self) -> &[[i16; 3]] {
         &self.miller
     }
 
     /// O(1) lookup: given Miller indices, return the index into the basis.
+    ///
+    /// Accepts `i32` so that out-of-range queries (e.g. `(100, 100, 100)`
+    /// on a small basis) return `None` rather than a `try_from` panic —
+    /// preserves the existing "not in basis" semantics.
     #[must_use]
     pub fn index_of(&self, n1: i32, n2: i32, n3: i32) -> Option<usize> {
         self.index_map.get(&(n1, n2, n3)).copied()
@@ -185,7 +220,10 @@ mod tests {
         assert_eq!(basis.g_vectors().len(), basis.miller_indices().len());
         // Every miller index should roundtrip through the map
         for (i, &[n1, n2, n3]) in basis.miller_indices().iter().enumerate() {
-            assert_eq!(basis.index_of(n1, n2, n3), Some(i));
+            assert_eq!(
+                basis.index_of(i32::from(n1), i32::from(n2), i32::from(n3)),
+                Some(i)
+            );
         }
     }
 }

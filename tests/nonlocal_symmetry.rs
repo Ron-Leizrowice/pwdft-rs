@@ -278,9 +278,16 @@ fn test_kinetic_plus_vlocal_via_fft_grid() {
     let g_vecs = basis.g_vectors();
     let miller = basis.miller_indices();
 
-    // Build FFT grid (same as SCF would)
+    // Build FFT grid (same as SCF would). Miller entries are `i16`
+    // (TYPE-A); widen to `i32` for the `fft_grid_size` API.
     let n_max: Vec<i32> = (0..3)
-        .map(|dim| miller.iter().map(|m| m[dim].abs()).max().unwrap_or(0))
+        .map(|dim| {
+            miller
+                .iter()
+                .map(|m| i32::from(m[dim].abs()))
+                .max()
+                .unwrap_or(0)
+        })
         .collect();
     let scale = 2i32; // 4× ecutrho → 2× G_max
     let grid_dims = [
@@ -322,9 +329,11 @@ fn test_kinetic_plus_vlocal_via_fft_grid() {
 
     for i in 0..n {
         for j in 0..n {
-            let dn1 = miller[i][0] - miller[j][0];
-            let dn2 = miller[i][1] - miller[j][1];
-            let dn3 = miller[i][2] - miller[j][2];
+            // Miller entries are `i16` (TYPE-A); widen before subtracting
+            // and before the `% (nx as i32)` wrap arithmetic.
+            let dn1 = i32::from(miller[i][0]) - i32::from(miller[j][0]);
+            let dn2 = i32::from(miller[i][1]) - i32::from(miller[j][1]);
+            let dn3 = i32::from(miller[i][2]) - i32::from(miller[j][2]);
             let [nx, ny, nz] = grid_dims;
             let fi1 = ((dn1 % nx as i32) + nx as i32) as usize % nx;
             let fi2 = ((dn2 % ny as i32) + ny as i32) as usize % ny;
