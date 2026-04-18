@@ -21,11 +21,18 @@ pub fn find_symmetry_operations(crystal: &Crystal, tolerance: f64) -> Vec<SpaceG
     // Step 1: Find all point group rotations preserving the metric tensor
     let rotations = find_metric_preserving_rotations(&metric, tolerance);
 
-    // Step 2: For each rotation, find compatible translations via atom mapping
+    // Step 2: For each rotation, find compatible translations via atom mapping.
+    //
+    // The internal enumeration works in `i32` (unchanged) but the public
+    // `SpaceGroupOp` now stores rotations as `i8`. `narrow_rotation` performs
+    // the `i32 → i8` narrow via `try_from` + `expect`: crystallographic
+    // rotations never exceed `|R_ij| ≤ 3`, so the narrowing is infallible
+    // in practice; a failure would indicate a bug in
+    // `find_metric_preserving_rotations`.
     let mut ops = Vec::new();
     for rot in &rotations {
         if let Some(tau) = find_translation(crystal, rot, tolerance) {
-            ops.push(SpaceGroupOp::new(*rot, tau));
+            ops.push(SpaceGroupOp::new(narrow_rotation(rot), tau));
         }
     }
 
@@ -149,7 +156,7 @@ fn find_translation(
     let ref_pos = ref_atom.position;
 
     // Rotated position of reference atom
-    let r_pos = SymmOp { rotation: *rotation }.apply(&ref_pos);
+    let r_pos = SymmOp { rotation: narrow_rotation(rotation) }.apply(&ref_pos);
 
     // For each atom of the same species, compute candidate translation
     for target in crystal.atoms.iter().filter(|a| a.z == ref_z) {
@@ -169,6 +176,21 @@ fn find_translation(
     None
 }
 
+/// Narrow a `[[i32; 3]; 3]` rotation matrix to the `[[i8; 3]; 3]` storage
+/// used by `SymmOp` / `SpaceGroupOp`. Panics if any entry overflows `i8`,
+/// which would indicate a non-crystallographic rotation escaping from
+/// `find_metric_preserving_rotations`.
+fn narrow_rotation(r: &[[i32; 3]; 3]) -> [[i8; 3]; 3] {
+    let to_i8 = |v: i32| {
+        i8::try_from(v).expect("symmetry::detect: rotation entry exceeds i8 range")
+    };
+    [
+        [to_i8(r[0][0]), to_i8(r[0][1]), to_i8(r[0][2])],
+        [to_i8(r[1][0]), to_i8(r[1][1]), to_i8(r[1][2])],
+        [to_i8(r[2][0]), to_i8(r[2][1]), to_i8(r[2][2])],
+    ]
+}
+
 /// Check if {R|τ} maps every atom to an equivalent atom.
 fn all_atoms_map(
     crystal: &Crystal,
@@ -176,8 +198,9 @@ fn all_atoms_map(
     tau: &[f64; 3],
     tolerance: f64,
 ) -> bool {
+    let r_i8 = narrow_rotation(rotation);
     for atom in &crystal.atoms {
-        let r_pos = SymmOp { rotation: *rotation }.apply(&atom.position);
+        let r_pos = SymmOp { rotation: r_i8 }.apply(&atom.position);
         let mapped = wrap_to_unit_cell([r_pos[0] + tau[0], r_pos[1] + tau[1], r_pos[2] + tau[2]]);
 
         let found = crystal.atoms.iter().any(|other| {

@@ -24,13 +24,18 @@ fn rotate_miller(r: &[[i32; 3]; 3], n: [i32; 3]) -> [i32; 3] {
     ]
 }
 
-/// Transpose of an integer 3×3 rotation matrix.
+/// Transpose of an integer 3×3 rotation matrix, widened to `i32`.
+///
+/// `SpaceGroupOp` stores rotations as `i8` for cache-density (per TYPE-A);
+/// the inner symmetrizer loop keeps multiplication in `i32` to preserve
+/// overflow-free behavior for `R^T · n` where `|n_i| ≤ N/2`. This function
+/// performs both the transpose and the `i8 → i32` widen in a single pass.
 #[inline]
-fn transpose_rotation(r: &[[i32; 3]; 3]) -> [[i32; 3]; 3] {
+fn transpose_rotation(r: &[[i8; 3]; 3]) -> [[i32; 3]; 3] {
     [
-        [r[0][0], r[1][0], r[2][0]],
-        [r[0][1], r[1][1], r[2][1]],
-        [r[0][2], r[1][2], r[2][2]],
+        [i32::from(r[0][0]), i32::from(r[1][0]), i32::from(r[2][0])],
+        [i32::from(r[0][1]), i32::from(r[1][1]), i32::from(r[2][1])],
+        [i32::from(r[0][2]), i32::from(r[1][2]), i32::from(r[2][2])],
     ]
 }
 

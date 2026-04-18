@@ -5,6 +5,16 @@
 //!
 //! R is always a 3×3 integer matrix with det(R) = ±1.
 //! τ is a fractional translation with components in [0, 1).
+//!
+//! Storage note: the rotation matrix is held as `[[i8; 3]; 3]`. Entries in
+//! the fractional basis are `{-1, 0, 1}` for cubic groups and at most
+//! `{-2, -1, 0, 1, 2}` for rare hexagonal settings — `i8`'s range
+//! `[-128, 127]` gives ~40× headroom over any value `detect.rs`
+//! produces. Arithmetic (det, compose, adjugate) widens entries to `i32`
+//! at method entry to avoid any risk of overflow in the worst-case
+//! triple product (max ~27 in the cubic case). This narrower storage
+//! shaves 27 bytes per op vs the prior `[[i32; 3]; 3]` layout and
+//! packs all 48 ops of `Fd-3m` into ~2 cache lines.
 
 /// A crystallographic symmetry operation {R|τ} in fractional coordinates.
 ///
@@ -14,8 +24,11 @@
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SymmOp {
     /// 3×3 integer rotation/reflection matrix in fractional coordinates.
-    /// Row-major: `rotation[i][j]` is element (i,j).
-    pub rotation: [[i32; 3]; 3],
+    /// Row-major: `rotation[i][j]` is element (i,j). Entries are in the
+    /// bounded set produced by `detect::find_symmetry_operations` (at most
+    /// `|R_ij| ≤ 3` for crystallographic point groups); all arithmetic on
+    /// the matrix widens to `i32` to preserve overflow-free behavior.
+    pub rotation: [[i8; 3]; 3],
 }
 
 /// A symmetry operation with an associated fractional translation.
@@ -23,8 +36,9 @@ pub struct SymmOp {
 /// comparison and cannot participate in Eq/Hash.
 #[derive(Debug, Clone)]
 pub struct SpaceGroupOp {
-    /// The point group rotation part.
-    pub rotation: [[i32; 3]; 3],
+    /// The point group rotation part. Stored as `i8` (see `SymmOp::rotation`
+    /// for the range argument).
+    pub rotation: [[i8; 3]; 3],
     /// Fractional translation, each component in [0, 1).
     pub translation: [f64; 3],
 }
@@ -47,22 +61,33 @@ impl SymmOp {
     }
 
     /// Construct from a flat row-major array.
+    ///
+    /// Accepts `i32` for backward-compatible call sites; entries are
+    /// narrowed to the internal `i8` storage. Values outside `i8::MIN..=i8::MAX`
+    /// are a programming error and will panic (checked via `i8::try_from`).
     #[must_use]
     pub fn from_flat(m: [i32; 9]) -> Self {
+        let to_i8 = |v: i32| {
+            i8::try_from(v).expect("SymmOp::from_flat: rotation entry out of i8 range")
+        };
         Self {
             rotation: [
-                [m[0], m[1], m[2]],
-                [m[3], m[4], m[5]],
-                [m[6], m[7], m[8]],
+                [to_i8(m[0]), to_i8(m[1]), to_i8(m[2])],
+                [to_i8(m[3]), to_i8(m[4]), to_i8(m[5])],
+                [to_i8(m[6]), to_i8(m[7]), to_i8(m[8])],
             ],
         }
     }
 
     /// Determinant of the rotation matrix.
     /// +1 for proper rotations, -1 for improper (inversion, mirrors, rotoinversion).
+    ///
+    /// Widens each entry to `i32` before multiplying; the worst-case triple
+    /// product for crystallographic entries (`|R_ij| ≤ 3`) is 81, far below
+    /// `i32::MAX`.
     #[must_use]
     pub fn det(&self) -> i32 {
-        let r = &self.rotation;
+        let r = self.rotation_i32();
         r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1])
             - r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0])
             + r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0])
@@ -71,7 +96,9 @@ impl SymmOp {
     /// Trace of the rotation matrix.
     #[must_use]
     pub fn trace(&self) -> i32 {
-        self.rotation[0][0] + self.rotation[1][1] + self.rotation[2][2]
+        i32::from(self.rotation[0][0])
+            + i32::from(self.rotation[1][1])
+            + i32::from(self.rotation[2][2])
     }
 
     /// Whether this is the identity operation.
@@ -85,26 +112,30 @@ impl SymmOp {
     /// divided by the determinant (which is also integer).
     #[must_use]
     pub fn inverse(&self) -> Self {
-        let r = &self.rotation;
+        let r = self.rotation_i32();
         let d = self.det();
         assert!(d == 1 || d == -1, "invalid rotation: det = {d}");
+
+        let to_i8 = |v: i32| {
+            i8::try_from(v).expect("SymmOp::inverse: adjugate entry out of i8 range")
+        };
 
         // Adjugate (cofactor matrix transposed)
         let adj = [
             [
-                (r[1][1] * r[2][2] - r[1][2] * r[2][1]) * d,
-                (r[0][2] * r[2][1] - r[0][1] * r[2][2]) * d,
-                (r[0][1] * r[1][2] - r[0][2] * r[1][1]) * d,
+                to_i8((r[1][1] * r[2][2] - r[1][2] * r[2][1]) * d),
+                to_i8((r[0][2] * r[2][1] - r[0][1] * r[2][2]) * d),
+                to_i8((r[0][1] * r[1][2] - r[0][2] * r[1][1]) * d),
             ],
             [
-                (r[1][2] * r[2][0] - r[1][0] * r[2][2]) * d,
-                (r[0][0] * r[2][2] - r[0][2] * r[2][0]) * d,
-                (r[0][2] * r[1][0] - r[0][0] * r[1][2]) * d,
+                to_i8((r[1][2] * r[2][0] - r[1][0] * r[2][2]) * d),
+                to_i8((r[0][0] * r[2][2] - r[0][2] * r[2][0]) * d),
+                to_i8((r[0][2] * r[1][0] - r[0][0] * r[1][2]) * d),
             ],
             [
-                (r[1][0] * r[2][1] - r[1][1] * r[2][0]) * d,
-                (r[0][1] * r[2][0] - r[0][0] * r[2][1]) * d,
-                (r[0][0] * r[1][1] - r[0][1] * r[1][0]) * d,
+                to_i8((r[1][0] * r[2][1] - r[1][1] * r[2][0]) * d),
+                to_i8((r[0][1] * r[2][0] - r[0][0] * r[2][1]) * d),
+                to_i8((r[0][0] * r[1][1] - r[0][1] * r[1][0]) * d),
             ],
         ];
 
@@ -114,12 +145,15 @@ impl SymmOp {
     /// Compose two operations: self ∘ other = R_self · R_other.
     #[must_use]
     pub fn compose(&self, other: &Self) -> Self {
-        let a = &self.rotation;
-        let b = &other.rotation;
-        let mut r = [[0i32; 3]; 3];
+        let a = self.rotation_i32();
+        let b = other.rotation_i32();
+        let to_i8 = |v: i32| {
+            i8::try_from(v).expect("SymmOp::compose: product entry out of i8 range")
+        };
+        let mut r = [[0i8; 3]; 3];
         for i in 0..3 {
             for j in 0..3 {
-                r[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j];
+                r[i][j] = to_i8(a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j]);
             }
         }
         Self { rotation: r }
@@ -130,9 +164,9 @@ impl SymmOp {
     pub fn apply(&self, f: &[f64; 3]) -> [f64; 3] {
         let r = &self.rotation;
         [
-            r[0][0] as f64 * f[0] + r[0][1] as f64 * f[1] + r[0][2] as f64 * f[2],
-            r[1][0] as f64 * f[0] + r[1][1] as f64 * f[1] + r[1][2] as f64 * f[2],
-            r[2][0] as f64 * f[0] + r[2][1] as f64 * f[1] + r[2][2] as f64 * f[2],
+            f64::from(r[0][0]) * f[0] + f64::from(r[0][1]) * f[1] + f64::from(r[0][2]) * f[2],
+            f64::from(r[1][0]) * f[0] + f64::from(r[1][1]) * f[1] + f64::from(r[1][2]) * f[2],
+            f64::from(r[2][0]) * f[0] + f64::from(r[2][1]) * f[1] + f64::from(r[2][2]) * f[2],
         ]
     }
 
@@ -150,12 +184,25 @@ impl SymmOp {
             ],
         }
     }
+
+    /// Widen the rotation matrix to `i32` for arithmetic that can overflow
+    /// `i8` (adjugate, compose, determinant). Inlined; the compiler emits a
+    /// handful of sign-extension moves for a 9-element `i8` read.
+    #[inline]
+    fn rotation_i32(&self) -> [[i32; 3]; 3] {
+        let r = &self.rotation;
+        [
+            [i32::from(r[0][0]), i32::from(r[0][1]), i32::from(r[0][2])],
+            [i32::from(r[1][0]), i32::from(r[1][1]), i32::from(r[1][2])],
+            [i32::from(r[2][0]), i32::from(r[2][1]), i32::from(r[2][2])],
+        ]
+    }
 }
 
 impl SpaceGroupOp {
     /// Construct from rotation and translation.
     #[must_use]
-    pub fn new(rotation: [[i32; 3]; 3], translation: [f64; 3]) -> Self {
+    pub fn new(rotation: [[i8; 3]; 3], translation: [f64; 3]) -> Self {
         Self {
             rotation,
             translation: wrap_to_unit_cell(translation),
@@ -208,11 +255,17 @@ impl SpaceGroupOp {
     pub fn apply_to_fractional(&self, f: &[f64; 3]) -> [f64; 3] {
         let r = &self.rotation;
         wrap_to_unit_cell([
-            r[0][0] as f64 * f[0] + r[0][1] as f64 * f[1] + r[0][2] as f64 * f[2]
+            f64::from(r[0][0]) * f[0]
+                + f64::from(r[0][1]) * f[1]
+                + f64::from(r[0][2]) * f[2]
                 + self.translation[0],
-            r[1][0] as f64 * f[0] + r[1][1] as f64 * f[1] + r[1][2] as f64 * f[2]
+            f64::from(r[1][0]) * f[0]
+                + f64::from(r[1][1]) * f[1]
+                + f64::from(r[1][2]) * f[2]
                 + self.translation[1],
-            r[2][0] as f64 * f[0] + r[2][1] as f64 * f[1] + r[2][2] as f64 * f[2]
+            f64::from(r[2][0]) * f[0]
+                + f64::from(r[2][1]) * f[1]
+                + f64::from(r[2][2]) * f[2]
                 + self.translation[2],
         ])
     }
