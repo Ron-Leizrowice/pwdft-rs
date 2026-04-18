@@ -17,7 +17,7 @@ use crate::{
     crystal::Crystal,
     error::{PwdftError, Result},
     kpoints::KPoint,
-    potential::xc,
+    potential::xc::{self, XcEvaluator},
     pseudopotential::PseudopotentialData,
 };
 
@@ -45,6 +45,7 @@ pub(crate) fn run_scf_spin(
     pseudopotentials: &[&PseudopotentialData],
     params: &ScfParams,
     symmetry: &crate::symmetry::SymmetryInfo,
+    xc_evaluator: XcEvaluator,
 ) -> Result<ScfResult> {
     let mut ctx = context::ScfContext::new(crystal, basis, kpoints, pseudopotentials, params, symmetry)?;
 
@@ -142,10 +143,19 @@ pub(crate) fn run_scf_spin(
         // 1. Hartree from total density
         let v_h_fft = hartree_on_fft_grid(&rho_total_g, &ctx.g_squared);
 
-        // 2. Spin-dependent XC
+        // 2. Spin-dependent XC (routed through the Phase A dispatcher).
+        //    v2_*_r stays None for LDA — the LDA path produces zero FFT
+        //    work beyond pre-Phase-A behaviour.
         let rho_up_xc = add_core_density(&rho_up_r, &rho_core_half);
         let rho_down_xc = add_core_density(&rho_down_r, &rho_core_half);
-        let (exc_r, vxc_up_r, vxc_down_r) = xc::lda_xc_spin_grid(&rho_up_xc, &rho_down_xc);
+        let xc_in = xc_evaluator.eval_spin(&rho_up_xc, &rho_down_xc, None, None)?;
+        debug_assert!(
+            xc_in.v2_up_r.is_none() && xc_in.v2_down_r.is_none(),
+            "GGAP Phase A: LDA spin eval must produce v2_*_r = None"
+        );
+        let exc_r = xc_in.exc_r;
+        let vxc_up_r = xc_in.v1_up_r;
+        let vxc_down_r = xc_in.v1_down_r;
 
         let vxc_up_g = real_to_g_space(&vxc_up_r, &mut ctx.grid.fft);
         let vxc_down_g = real_to_g_space(&vxc_down_r, &mut ctx.grid.fft);
@@ -306,8 +316,10 @@ pub(crate) fn run_scf_spin(
         // INPUT-based quantities (exc_r, vxc_up_r, vxc_down_r) remain for E_HF below.
         let rho_up_xc_out = add_core_density(&rho_up_sym, &rho_core_half);
         let rho_down_xc_out = add_core_density(&rho_down_sym, &rho_core_half);
-        let (exc_r_out, vxc_up_r_out, vxc_down_r_out) =
-            xc::lda_xc_spin_grid(&rho_up_xc_out, &rho_down_xc_out);
+        let xc_out = xc_evaluator.eval_spin(&rho_up_xc_out, &rho_down_xc_out, None, None)?;
+        let exc_r_out = xc_out.exc_r;
+        let vxc_up_r_out = xc_out.v1_up_r;
+        let vxc_down_r_out = xc_out.v1_down_r;
 
         // Spin XC double-counting (OUTPUT density): E_vxc = integral(V_xc_up rho_up_out + V_xc_down rho_down_out) dr
         // Both V_xc and rho_sigma here come from the OUTPUT (symmetrized) density,

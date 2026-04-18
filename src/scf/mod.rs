@@ -232,24 +232,18 @@ pub fn run_scf(
     symmetry: &crate::symmetry::SymmetryInfo,
 ) -> Result<ScfResult> {
     params.validate()?;
-    // XCNI safety trap: the YAML parser accepts `pbe`, `pbe0`, `hse06`, but the
-    // SCF pipeline currently dispatches unconditionally to the LDA XC kernel.
-    // Running with a non-LDA functional label would silently produce LDA
-    // numbers — exactly the silent-wrong-physics bug this codebase forbids.
-    // Fail fast here, at the SCF entry point, before any compute work begins.
-    // Lifted when GGAP Phase A lands a real PBE path.
-    match params.xc_functional {
-        crate::settings::XcFunctional::Pz => {}
-        crate::settings::XcFunctional::Pbe => {
-            return Err(PwdftError::NotImplemented { what: "pbe".into() });
-        }
-        crate::settings::XcFunctional::Pbe0 => {
-            return Err(PwdftError::NotImplemented { what: "pbe0".into() });
-        }
-        crate::settings::XcFunctional::Hse06 => {
-            return Err(PwdftError::NotImplemented { what: "hse06".into() });
-        }
-    }
+    // GGAP Phase A dispatch: construct the XC evaluator up-front so that
+    // unsupported functional labels (pbe0, hse06) fail fast at SCF entry,
+    // before any compute work — the same XCNI guarantee. `Pbe` constructs
+    // successfully here but its evaluation returns NotImplemented from
+    // inside the driver; Phase B replaces that branch with real PBE.
+    //
+    // The evaluator is a *data* enum. This shape is load-bearing for HYBR
+    // (PBE0/HSE06) because hybrid functionals need (ρ, ψ) access during
+    // Hamiltonian construction, which a closure-shaped dispatch could not
+    // reach. See `proposals/HYBR-hybrid-functional-support.md` §3.
+    let xc_evaluator =
+        crate::potential::xc::XcEvaluator::from_settings(params.xc_functional)?;
     if crystal.atoms.is_empty() {
         return Err(PwdftError::InvalidInput("at least one atom is required".into()));
     }
@@ -262,9 +256,13 @@ pub fn run_scf(
     }
 
     if params.nspin == 2 {
-        driver_spin::run_scf_spin(crystal, basis, kpoints, pseudopotentials, params, symmetry)
+        driver_spin::run_scf_spin(
+            crystal, basis, kpoints, pseudopotentials, params, symmetry, xc_evaluator,
+        )
     } else {
-        driver::run_scf_unpolarized(crystal, basis, kpoints, pseudopotentials, params, symmetry)
+        driver::run_scf_unpolarized(
+            crystal, basis, kpoints, pseudopotentials, params, symmetry, xc_evaluator,
+        )
     }
 }
 
