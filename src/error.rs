@@ -22,6 +22,13 @@ pub enum PwdftError {
 
     #[error("GPU error: {0}")]
     Gpu(String),
+
+    /// A configuration path that is syntactically valid but has no working
+    /// implementation yet. Used to guard against silent-wrong-physics when
+    /// the YAML parser accepts an option that the SCF pipeline does not
+    /// dispatch on (see XCNI and `proposals/GGAP-gga-pbe-functional.md`).
+    #[error("xc_functional {what} is not yet implemented (GGAP Phase A tracks PBE; see proposals/GGAP-gga-pbe-functional.md)")]
+    NotImplemented { what: String },
 }
 
 pub type Result<T> = std::result::Result<T, PwdftError>;

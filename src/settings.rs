@@ -324,8 +324,11 @@ impl From<MixingModeType> for crate::scf::mixing::MixingMode {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct XcSettings {
-    /// Functional name. Currently supported: "pz" (LDA).
-    /// Future: "pbe" (GGA), "pbe0", "hse06".
+    /// Functional name. Currently implemented: `"pz"` (Perdew-Zunger LDA).
+    /// The YAML parser also accepts `"pbe"`, `"pbe0"`, `"hse06"`, but these
+    /// are rejected with [`crate::error::PwdftError::NotImplemented`] at
+    /// SCF entry (XCNI safety trap) until the GGAP proposal lands a real
+    /// GGA path.
     pub functional: XcFunctional,
 }
 
@@ -337,10 +340,23 @@ pub enum XcFunctional {
     #[default]
     Pz,
     /// Perdew-Burke-Ernzerhof GGA. QE: input_dft = 'PBE'.
+    ///
+    /// **Not yet implemented.** Returns [`crate::error::PwdftError::NotImplemented`]
+    /// at SCF entry (XCNI safety trap) so a YAML typo cannot silently
+    /// produce LDA numbers under a PBE label. Tracked by the GGAP proposal
+    /// (`proposals/GGAP-gga-pbe-functional.md`).
     Pbe,
     /// PBE0 hybrid functional.
+    ///
+    /// **Not yet implemented.** Returns [`crate::error::PwdftError::NotImplemented`]
+    /// at SCF entry (XCNI safety trap). Tracked by the GGAP proposal
+    /// (`proposals/GGAP-gga-pbe-functional.md`).
     Pbe0,
     /// Heyd-Scuseria-Ernzerhof screened hybrid.
+    ///
+    /// **Not yet implemented.** Returns [`crate::error::PwdftError::NotImplemented`]
+    /// at SCF entry (XCNI safety trap). Tracked by the GGAP proposal
+    /// (`proposals/GGAP-gga-pbe-functional.md`).
     Hse06,
 }
 
@@ -487,6 +503,7 @@ impl Settings {
             starting_magnetization: self.electrons.starting_magnetization.clone(),
             tot_magnetization: self.electrons.tot_magnetization,
             eigensolver: self.scf.eigensolver.into(),
+            xc_functional: self.xc.functional,
         }
     }
 
@@ -781,6 +798,30 @@ kpoints:
         assert_eq!(params.nspin, 1);
         assert!(params.starting_magnetization.is_empty());
         assert!(params.tot_magnetization.is_none());
+    }
+
+    #[test]
+    fn to_scf_params_threads_xc_functional() {
+        // XCNI: the XC functional must flow from YAML → ScfParams so the
+        // SCF entry dispatch can fail-fast on non-LDA options.
+        let s_lda = Settings::from_yaml_str(FULL_YAML).unwrap();
+        let p_lda = s_lda.to_scf_params(4);
+        assert_eq!(p_lda.xc_functional, XcFunctional::Pz);
+
+        // `xc_functional: pbe` must propagate through, so the SCF layer
+        // can trigger NotImplemented at entry.
+        let yaml_pbe = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+xc:
+  functional: pbe
+"#;
+        let s_pbe = Settings::from_yaml_str(yaml_pbe).unwrap();
+        let p_pbe = s_pbe.to_scf_params(4);
+        assert_eq!(p_pbe.xc_functional, XcFunctional::Pbe);
     }
 
     #[test]

@@ -427,3 +427,73 @@ fn test_fe_ferromagnetic_fixed_moment() {
         }
     }
 }
+
+/// XCNI: non-LDA xc_functional must fail fast at SCF entry with
+/// `PwdftError::NotImplemented`, not silently reinterpret as LDA.
+///
+/// This test must not trigger any real SCF compute work — the dispatch check
+/// lives before the crystal/kpoints/volume guards in `run_scf`, so we can use
+/// an otherwise minimal (even technically invalid) setup. We pick a valid Si
+/// Gamma-only config so the test stays meaningful if the dispatch ever moves
+/// a few lines.
+#[test]
+fn non_lda_xc_functional_is_rejected_at_scf_entry() {
+    use pwdft_rs::error::PwdftError;
+    use pwdft_rs::settings::XcFunctional;
+
+    let crystal = si_crystal();
+    let basis = BasisSet::new(&crystal.lattice, 100.0);
+    let pp = pwdft_rs::pseudopotential::load(
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pseudopotentials/nc/lda/Si.upf"),
+    )
+    .unwrap();
+    let kpoints = gamma_only();
+    let sym = pwdft_rs::symmetry::SymmetryInfo::identity_only();
+
+    // Each non-LDA variant must return NotImplemented with the expected
+    // `what` label. Keep max_iter = 1 so that if the dispatch ever regresses,
+    // the test fails loudly instead of hanging an SCF run.
+    for (variant, want_label) in [
+        (XcFunctional::Pbe, "pbe"),
+        (XcFunctional::Pbe0, "pbe0"),
+        (XcFunctional::Hse06, "hse06"),
+    ] {
+        let params = scf::ScfParams {
+            n_bands: 4,
+            max_iter: 1,
+            xc_functional: variant,
+            ..Default::default()
+        };
+        let err = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, &sym)
+            .expect_err("non-LDA xc_functional must fail at SCF entry");
+        match err {
+            PwdftError::NotImplemented { what } => {
+                assert_eq!(
+                    what, want_label,
+                    "NotImplemented.what should name the functional ({variant:?})"
+                );
+            }
+            other => panic!(
+                "expected PwdftError::NotImplemented for {variant:?}, got: {other:?}"
+            ),
+        }
+    }
+
+    // Sanity pin: the baseline LDA path still enters the SCF body (and will
+    // fail for some other reason — max_iter=1 — which is fine; we only need
+    // to prove the dispatch does NOT trip NotImplemented on Pz).
+    let params_pz = scf::ScfParams {
+        n_bands: 4,
+        max_iter: 1,
+        xc_functional: XcFunctional::Pz,
+        ..Default::default()
+    };
+    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_pz, &sym);
+    // Any outcome (Ok, ConvergenceFailure, Eigensolver, …) is acceptable; we
+    // only care that the XCNI trap does NOT fire on LDA. A NotImplemented
+    // leak here would break every existing LDA test.
+    if let Err(PwdftError::NotImplemented { .. }) = result {
+        panic!("LDA (Pz) must not trigger NotImplemented — that would break every existing test");
+    }
+}

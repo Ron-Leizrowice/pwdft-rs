@@ -89,6 +89,14 @@ pub struct ScfParams {
     /// when the problem is too small for Arnoldi to be profitable or when
     /// iteration fails to converge in the restart budget.
     pub eigensolver: crate::eigensolver::EigensolverKind,
+    /// Exchange-correlation functional selector.
+    ///
+    /// Only [`crate::settings::XcFunctional::Pz`] (Perdew-Zunger LDA) is
+    /// actually implemented today. Any other variant causes `run_scf` to
+    /// fail fast with [`PwdftError::NotImplemented`] (XCNI safety trap),
+    /// so that a YAML typo cannot silently produce LDA results under a
+    /// PBE/PBE0/HSE06 label. Real GGA support is tracked by GGAP.
+    pub xc_functional: crate::settings::XcFunctional,
 }
 
 impl ScfParams {
@@ -151,6 +159,7 @@ impl Default for ScfParams {
             starting_magnetization: std::collections::HashMap::new(),
             tot_magnetization: None,
             eigensolver: crate::eigensolver::EigensolverKind::default(),
+            xc_functional: crate::settings::XcFunctional::default(),
         }
     }
 }
@@ -223,6 +232,24 @@ pub fn run_scf(
     symmetry: &crate::symmetry::SymmetryInfo,
 ) -> Result<ScfResult> {
     params.validate()?;
+    // XCNI safety trap: the YAML parser accepts `pbe`, `pbe0`, `hse06`, but the
+    // SCF pipeline currently dispatches unconditionally to the LDA XC kernel.
+    // Running with a non-LDA functional label would silently produce LDA
+    // numbers — exactly the silent-wrong-physics bug this codebase forbids.
+    // Fail fast here, at the SCF entry point, before any compute work begins.
+    // Lifted when GGAP Phase A lands a real PBE path.
+    match params.xc_functional {
+        crate::settings::XcFunctional::Pz => {}
+        crate::settings::XcFunctional::Pbe => {
+            return Err(PwdftError::NotImplemented { what: "pbe".into() });
+        }
+        crate::settings::XcFunctional::Pbe0 => {
+            return Err(PwdftError::NotImplemented { what: "pbe0".into() });
+        }
+        crate::settings::XcFunctional::Hse06 => {
+            return Err(PwdftError::NotImplemented { what: "hse06".into() });
+        }
+    }
     if crystal.atoms.is_empty() {
         return Err(PwdftError::InvalidInput("at least one atom is required".into()));
     }
