@@ -6,7 +6,7 @@
 
 Replaced LAPACK zheev (unsafe FFI via nalgebra-lapack + Apple Accelerate) with faer (pure Rust, safe, multi-threaded). Full migration: `DMatrix<Complex64>` → `faer::Mat<Complex64>` across 5 source files and 4 test files. Removed `nalgebra-lapack` and `lapack` dependencies entirely. nalgebra retained for `Vector3<f64>` geometry only.
 
-## Benchmark (M2 Mac, criterion, release)
+## Benchmark (M3 Max, criterion, release)
 
 | Matrix size | LAPACK/Accelerate | faer | Speedup |
 |-------------|-------------------|------|---------|

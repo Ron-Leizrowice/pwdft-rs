@@ -131,9 +131,11 @@ cargo test
 # so two concurrent run calls serialize instead of racing:
 .claude/bin/machine-lock run "Core Engineer" "cargo test" -- cargo test
 
-# QE runs use the same lock — wrap the whole mpirun invocation:
+# QE runs use the same lock — wrap the whole mpirun invocation.
+# Auto-detect cores; do not hardcode rank counts:
+NP=$(sysctl -n hw.ncpu)  # macOS; use $(nproc) on Linux
 .claude/bin/machine-lock run "Researcher" "QE Si SCF validation" -- \
-  gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in si.in
+  gtimeout 600 mpirun -np "$NP" qe-7.5/build/bin/pw.x -in si.in
 ```
 
 - **The lock is worktree-scoped (MLFX 2026-04-18).** `acquire` records your

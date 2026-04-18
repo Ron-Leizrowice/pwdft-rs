@@ -469,7 +469,7 @@ integration test.
 - **Source:** PERF post-MXBA benchmark pass (PR #59), ANOM-3.
 - **Resolution:** outcome (a) — the 78.5 ms `vnl_new_n725` in VNLM PR #49
   was a criterion outlier. Three clean runs on current main
-  (Apple M2, machine-locked, criterion `--measurement-time 6 s / 100 samples`,
+  (Apple M3 Max, machine-locked, criterion `--measurement-time 6 s / 100 samples`,
   same config as PERF): 44.37 ms [44.28, 44.51] → 44.36 ms [44.30, 44.45]
   (p = 0.93 vs run 1) → 44.23 ms [44.19, 44.28]. All three land within
   ±0.3 % of each other and within 5 % of the pre-VNLM 42.33 ms baseline.

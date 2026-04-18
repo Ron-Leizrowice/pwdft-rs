@@ -61,7 +61,7 @@ whenever they allocate on behalf of the loop.
 | `n_atoms`  | Atoms in the unit cell                                                  | 2 (Si) – 8+ (Fe, supercells)           |
 | `n_sym`    | Space-group operations                                                  | 1 (identity) – 48 (Fd-3m)              |
 
-**Hardware reference.** All savings estimates target Apple M2 (8-core, 8
+**Hardware reference.** All savings estimates target Apple M3 Max (8-core, 8
 GB unified LPDDR5), release profile, where `malloc`/`free` for a
 medium-sized `Vec` typically costs 300 ns–1 µs and a 64³ `Vec<f64>`
 allocation+touch is ~30 µs. Grid sizes that clear the 2 MB L2

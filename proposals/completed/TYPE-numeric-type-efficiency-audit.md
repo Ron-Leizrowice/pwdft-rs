@@ -12,7 +12,7 @@ blocks: []
 
 **Phase A landed** as PR `TYPE-A: i32→i8 SpaceGroupOp rotations + i32→i16 BasisSet Miller + dead index_map`. All three items in the ranked-implementable table were implemented as three commits.
 
-**Measured wins (Apple M2, machine lock held):**
+**Measured wins (Apple M3 Max, machine lock held):**
 
 | Bench | Before | After | Δ |
 |-------|--------|-------|---|
@@ -142,7 +142,7 @@ Not an action item — just noting that `u32` for mesh sizes is already appropri
 
 ### 2.2 [REJECTED] V_local(r), V_xc(r), V_H(r) on the FFT grid → `f32`
 
-**Why rejected:** These ARE transient-after-construction on the CPU path, and the GPU path already does this (`gpu/shaders/*.wgsl`). But on the CPU path, the final consumer is `build_hamiltonian` via `v_eff_fft_to_g`, which needs `Complex64` because H is `Mat<Complex64>` for the eigensolver. Any f32 intermediate requires f32→f64 conversion at the handoff — not free. **On Apple M2 the XC path is bound by `cbrt`/`ln` scalar latency (see logbook 2026-04-17 XCPR entry), not SIMD width; M1/M2 NEON is 128-bit so 2 × f64 or 4 × f32 — no vector-width win from f32 on transcendentals.** The cbrt/ln latency is identical f32 vs f64 on Apple Silicon.
+**Why rejected:** These ARE transient-after-construction on the CPU path, and the GPU path already does this (`gpu/shaders/*.wgsl`). But on the CPU path, the final consumer is `build_hamiltonian` via `v_eff_fft_to_g`, which needs `Complex64` because H is `Mat<Complex64>` for the eigensolver. Any f32 intermediate requires f32→f64 conversion at the handoff — not free. **On Apple M3 Max the XC path is bound by `cbrt`/`ln` scalar latency (see logbook 2026-04-17 XCPR entry), not SIMD width; M1/M2 NEON is 128-bit so 2 × f64 or 4 × f32 — no vector-width win from f32 on transcendentals.** The cbrt/ln latency is identical f32 vs f64 on Apple Silicon.
 
 **Savings that were on offer:** halves one or two Vec<f64> of size n_grid. At 32³ grid = 32 768 elements that's 262 kB → 131 kB, one-time peak.
 
@@ -164,7 +164,7 @@ Not an action item — just noting that `u32` for mesh sizes is already appropri
 
 ### 2.4 [REJECTED] FFT scratch buffers `ndrustfft<f64>` → `ndrustfft<f32>`
 
-**Why rejected:** Per-iteration SCF does ~6 FFTs on the full density grid (forward, V_H, inverse, inverse-normalized). At 32³ = 32 768 complex × 16 B = 524 kB, the buffer is too big for L2 on Apple M2 (4 MB shared). Narrowing to f32 halves to 262 kB — still L2-resident. Bandwidth-bound transforms might see 15–25% gain, but ρ(r) needs to return to f64 for XC, so every FFT incurs an f64→f32→f32→f64 conversion chain. **Existing FFTB (completed) already captured the buffer-reuse win; further narrowing is a functional change requiring a second ndrustfft handler path.**
+**Why rejected:** Per-iteration SCF does ~6 FFTs on the full density grid (forward, V_H, inverse, inverse-normalized). At 32³ = 32 768 complex × 16 B = 524 kB, the buffer is too big for L2 on Apple M3 Max (4 MB shared). Narrowing to f32 halves to 262 kB — still L2-resident. Bandwidth-bound transforms might see 15–25% gain, but ρ(r) needs to return to f64 for XC, so every FFT incurs an f64→f32→f32→f64 conversion chain. **Existing FFTB (completed) already captured the buffer-reuse win; further narrowing is a functional change requiring a second ndrustfft handler path.**
 
 **Verdict:** defer indefinitely. Revisit only if `criterion --bench fft` shows FFT dominant post-ITEV (currently 2.1% of user CPU per the logbook).
 

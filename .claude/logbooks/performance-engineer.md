@@ -6,7 +6,7 @@ Entries: date, measurements (actual numbers), bottleneck findings, proposals ass
 
 F-4 + F-11 (§4 PR-B). Pool now covers all 3 kernels: 5 complex + 3 real-scalar + 2 staging + 2 uniform + 3 cached bind groups. Steady-state SCF iter now issues zero `create_buffer` and zero `create_bind_group` — only `queue.write_buffer` uploads. Fresh-alloc fallback preserved.
 
-Apple M2, lock held, `cargo bench --features gpu --bench gpu_benchmarks -- --quick`:
+Apple M3 Max, lock held, `cargo bench --features gpu --bench gpu_benchmarks -- --quick`:
 
 | Kernel  | 32³ fresh→pool | 64³ fresh→pool | 128³ fresh→pool |
 |---------|:--------------:|:--------------:|:---------------:|
@@ -28,7 +28,7 @@ Apple M2, lock held, `cargo bench --features gpu --bench gpu_benchmarks -- --qui
 
 Per-k `faer::Mat<Complex64>` scratch now lives in `ScfContext::h_scratch` (length `nspin * n_k`), fully overwritten by new `fill_hamiltonian_with_v_eff`. Zero per-iter `Mat::zeros(n_pw, n_pw)`.
 
-Apple M2, per-k assembly bench (inline old vs new, VNL included, lock held):
+Apple M3 Max, per-k assembly bench (inline old vs new, VNL included, lock held):
 
 | n_pw | alloc_and_fill (old) | fill_into_cached (new) | Δ/call         |
 |------|---------------------:|-----------------------:|:---------------|
@@ -52,7 +52,7 @@ Saving per iter scales `n_k · 91 µs` at n_pw=725 → ~0.9 ms/iter @ n_k=10. **
 
 Subspace warm-start on dense eigensolver. **Default OFF** per spec — small-n regression rules out default-on. Numerical equivalence: Si |ΔE| = 1.39e-10 eV (proposal gate = 1e-8; 2 orders tighter).
 
-Apple M2, isolated-kernel bench (lock held):
+Apple M3 Max, isolated-kernel bench (lock held):
 
 | n_pw | full_dense | subspace_warm | warm / full |
 |------|-----------:|--------------:|------------:|
@@ -95,7 +95,7 @@ Static read-only audit of the SCF iteration body. 17 findings (F-1 to F-17) acro
 
 ## 2026-04-19 — VNLT: VNLM vnl_new regression was bench noise
 
-Three clean runs on current main (Apple M2, lock held ~134 s): `hamiltonian/vnl_new_n725` = 44.37 / 44.36 / 44.23 ms (CI < 0.5%). PR #49's 78.5 ms was a single-run criterion outlier. Only two commits touched `src/potential/nonlocal.rs` since VNLM — CAST added `#[allow]` + asserts (zero runtime cost), RDOC a docstring edit; neither can explain a ~35 ms swing.
+Three clean runs on current main (Apple M3 Max, lock held ~134 s): `hamiltonian/vnl_new_n725` = 44.37 / 44.36 / 44.23 ms (CI < 0.5%). PR #49's 78.5 ms was a single-run criterion outlier. Only two commits touched `src/potential/nonlocal.rs` since VNLM — CAST added `#[allow]` + asserts (zero runtime cost), RDOC a docstring edit; neither can explain a ~35 ms swing.
 
 VNLM now credited as 4.5× per-k-point over 15 iters with zero break-even. Struck VNLB from FLUP (no regression to recover). EIGV/EIGW anomalies still open — same re-bench protocol would clear them.
 
@@ -105,7 +105,7 @@ VNLM now credited as 4.5× per-k-point over 15 iters with zero break-even. Struc
 
 **Gotcha preserved:** naive `par_iter_mut` on `symmetrize_density_g`'s per-G loop regressed 72³·8 by 1.5× (26 → 39 ms) — per-item scheduling overhead eats wins when inner work is a few sin_cos + complex MAC. Fix: `par_chunks_mut(ny·nz)` over xy-slabs. Coarsens scheduling; output-write locality better.
 
-Best speedups (Apple M2, lock held): 36³·48 ops **5.24×**, 72³·48 ops **6.00×**. All PCFX tests bit-identical (per-slot reduction stays serial).
+Best speedups (Apple M3 Max, lock held): 36³·48 ops **5.24×**, 72³·48 ops **6.00×**. All PCFX tests bit-identical (per-slot reduction stays serial).
 
 **Tangential:** xy-slab chunking pattern may fit `scf/density.rs` accumulation + V_eff assembly. Audit anywhere `par_iter_mut` was tried naively.
 
@@ -141,7 +141,7 @@ Wrapper + SCF dispatch + YAML switch + 8 correctness tests. Default still Dense.
 
 ## 2026-04-17 — Post-FFTB/FMAD profiling pass; ITEV proposal opened
 
-Baseline re-measured (Apple M2, criterion, lock held):
+Baseline re-measured (Apple M3 Max, criterion, lock held):
 
 | n_pw | `faer_eigen` | `vnl_apply` | `vnl_new` |
 |------|--------------|-------------|-----------|
@@ -157,7 +157,7 @@ End-to-end SCF sample profile: eigensolver 60.7% of classified user CPU; after r
 
 ## 2026-04-17 — XCPR Step 1 (PR #19) + FMAD
 
-**XCPR threshold calibration:** rayon fork/join overhead ~70 µs/region on Apple M2; sequential `lda_xc_grid` ~11 ns/point, spin variant ~26 ns/point. n=4096 naive parallel is 161% regression. `XC_PARALLEL_THRESHOLD = 16384`. At 64³, spin XC drops 10× — prior "marginal" label was wrong.
+**XCPR threshold calibration:** rayon fork/join overhead ~70 µs/region on Apple M3 Max; sequential `lda_xc_grid` ~11 ns/point, spin variant ~26 ns/point. n=4096 naive parallel is 161% regression. `XC_PARALLEL_THRESHOLD = 16384`. At 64³, spin XC drops 10× — prior "marginal" label was wrong.
 
 **FMAD:** 24 `mul_add` substitutions; measured -3 to -4% on `lda_xc_grid_*`. Spin kernel within noise (dominated by cbrt, not additive).
 
@@ -167,6 +167,6 @@ End-to-end SCF sample profile: eigensolver 60.7% of classified user CPU; after r
 
 ## 2026-04-16 — Orientation + baseline
 
-Apple M2, end-to-end SCF. `si_scf.yaml` (ecut=100, 2×2×2): 0.11 s wall, 12 MB peak. `si_scf_converged.yaml` (ecut=200, 4×4×4): 0.34 s wall, 75 MB peak. Rayon ~6× across 10 k-points.
+Apple M3 Max, end-to-end SCF. `si_scf.yaml` (ecut=100, 2×2×2): 0.11 s wall, 12 MB peak. `si_scf_converged.yaml` (ecut=200, 4×4×4): 0.34 s wall, 75 MB peak. Rayon ~6× across 10 k-points.
 
 FFTB well-motivated (fresh Array3 per call); XCPR marginal on small grids (later revised — see 2026-04-17 entry); WFRX 25× claim optimistic (likely 5-15% net). Gap: no allocator proposal (jemalloc/mimalloc) — macOS libmalloc underperforms under multithreaded pressure.

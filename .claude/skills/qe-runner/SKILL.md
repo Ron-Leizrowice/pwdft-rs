@@ -28,15 +28,16 @@ Use the `machine-lock run` one-liner, which handles acquire / release / cleanup 
 # Wrap the full mpirun pw.x invocation — lock covers compile-free runtime only,
 # so acquire is cheap and the lock window is as short as the run itself.
 .claude/bin/machine-lock run "Researcher" "QE Si SCF reference" -- \
-  gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in si.in > si.out 2>&1
+  gtimeout 600 mpirun -np "${NP:-$(sysctl -n hw.ncpu)}" qe-7.5/build/bin/pw.x -in si.in > si.out 2>&1
 ```
 
 For multi-step pipelines (e.g. scf → bands → bands.x), either wrap the whole shell pipeline in one `machine-lock run` (preferred — holds the lock across the full workflow), or acquire / release explicitly around each step if there's user-facing waiting time between them:
 
 ```bash
 .claude/bin/machine-lock acquire "Researcher" "QE Si band structure"
-gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in si.scf.in  > si.scf.out
-gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in si.bands.in > si.bands.out
+NP=$(sysctl -n hw.ncpu)  # auto-detect all cores on macOS; use $(nproc) on Linux
+gtimeout 600 mpirun -np "$NP" qe-7.5/build/bin/pw.x -in si.scf.in  > si.scf.out
+gtimeout 600 mpirun -np "$NP" qe-7.5/build/bin/pw.x -in si.bands.in > si.bands.out
 gtimeout 600 qe-7.5/build/bin/bands.x        -in si.bandsx.in   > si.bandsx.out
 .claude/bin/machine-lock release
 ```
@@ -49,21 +50,27 @@ If the lock is held by another agent, wait and retry — never force-remove anot
 
 On macOS, `timeout` is not built in. Install once: `brew install coreutils` (provides `gtimeout`). The examples below assume `gtimeout` is available; fall back to `perl -e 'alarm shift; exec @ARGV' 600 ...` if not.
 
-For **small systems** (< 16 atoms), pure MPI is fastest:
+**Detect core count once per shell session.** Do NOT hardcode MPI rank or OMP thread counts — values that work on a 12-core laptop become oversubscription on an 8-core runner and vice versa. Always parameterize via `$NP` (or a caller-supplied override `NP=...`). On macOS: `NP=$(sysctl -n hw.ncpu)`. On Linux: `NP=$(nproc)`.
+
+For **small systems** (< 16 atoms), pure MPI is fastest (`ranks = cores, 1 thread each`):
 ```bash
+NP=${NP:-$(sysctl -n hw.ncpu)}
 export OMP_NUM_THREADS=1 LC_ALL=C LANG=C
 export OMPI_MCA_btl=self,vader OMPI_MCA_pml=ob1
 ulimit -s unlimited
 .claude/bin/machine-lock run "Researcher" "QE small-system pw.x" -- \
-  gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in input.in > output.out 2>&1
+  gtimeout 600 mpirun -np "$NP" qe-7.5/build/bin/pw.x -in input.in > output.out 2>&1
 ```
 
-For **larger systems** (16+ atoms), the installed optimized build may benefit from hybrid MPI+OMP:
+For **larger systems** (16+ atoms), the installed optimized build may benefit from hybrid MPI+OMP. Split `$NP` into `RANKS × OMP` so the product stays close to `$NP` (e.g. on 12 cores: 6×2; on 8 cores: 4×2):
 ```bash
-export OMP_NUM_THREADS=2 OMP_PLACES=cores OMP_PROC_BIND=close
+NP=${NP:-$(sysctl -n hw.ncpu)}
+OMP=${OMP:-2}
+RANKS=$(( NP / OMP ))
+export OMP_NUM_THREADS="$OMP" OMP_PLACES=cores OMP_PROC_BIND=close
 export VECLIB_MAXIMUM_THREADS=1 LC_ALL=C LANG=C
 .claude/bin/machine-lock run "Researcher" "QE large-system pw.x" -- \
-  gtimeout 600 mpirun -np 6 $HOME/qe/bin/pw.x -in input.in > output.out 2>&1
+  gtimeout 600 mpirun -np "$RANKS" $HOME/qe/bin/pw.x -in input.in > output.out 2>&1
 ```
 
 Always set `outdir = './tmp'` in input files.

@@ -47,7 +47,7 @@ date: 2026-04-18
 
 ### Hardware target
 
-Apple M2 (integrated GPU, 10-core, unified memory, Metal backend via
+Apple M3 Max (integrated GPU, 10-core, unified memory, Metal backend via
 wgpu 26). Findings reference Apple Metal SIMD-group size (32 lanes) and
 Apple-silicon buffer-coalescing rules. A few findings apply equally to
 the Vulkan fallback on non-Apple hardware, but the benchmarking plan
@@ -314,7 +314,7 @@ zero for non-spin runs.
 ## §3 Benchmarking plan
 
 All measurements must be run under the machine lock (CLAUDE.md
-"Machine Coordination") on Apple M2 with no other heavy processes,
+"Machine Coordination") on Apple M3 Max with no other heavy processes,
 using the existing `benches/gpu_benchmarks.rs` harness extended where
 needed.
 
