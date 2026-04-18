@@ -16,6 +16,33 @@ Relative to the pwdft-rs project root:
 - **Working dirs**: create under `qe-7.5/runs/<material>/<calc_type>/`
 - **Benchmark data**: `$HOME/qe-bench/results/` (baseline.json, optimized.json, comparison.md)
 
+### Machine lock — MANDATORY for every QE run
+
+**Every QE invocation must be wrapped in the machine lock.** QE runs (`pw.x`, `mpirun pw.x`, `ph.x`, `pp.x`, `bands.x`, `projwfc.x`, `q2r.x`, `matdyn.x`, `dos.x`) are CPU- and memory-intensive. The machine lock serializes them against `cargo bench` windows so that benchmark wall-time measurements aren't polluted by background CPU load.
+
+**The concern is benchmark integrity, not test isolation.** Two QE calculations can run concurrently against each other without correctness issues — the lock exists so that the Performance Engineer's bench numbers stay clean. Skipping the lock corrupts someone else's measurements silently.
+
+Use the `machine-lock run` one-liner, which handles acquire / release / cleanup on failure:
+
+```bash
+# Wrap the full mpirun pw.x invocation — lock covers compile-free runtime only,
+# so acquire is cheap and the lock window is as short as the run itself.
+.claude/bin/machine-lock run "Researcher" "QE Si SCF reference" -- \
+  gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in si.in > si.out 2>&1
+```
+
+For multi-step pipelines (e.g. scf → bands → bands.x), either wrap the whole shell pipeline in one `machine-lock run` (preferred — holds the lock across the full workflow), or acquire / release explicitly around each step if there's user-facing waiting time between them:
+
+```bash
+.claude/bin/machine-lock acquire "Researcher" "QE Si band structure"
+gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in si.scf.in  > si.scf.out
+gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in si.bands.in > si.bands.out
+gtimeout 600 qe-7.5/build/bin/bands.x        -in si.bandsx.in   > si.bandsx.out
+.claude/bin/machine-lock release
+```
+
+If the lock is held by another agent, wait and retry — never force-remove another agent's lock. See the "Machine Coordination" section in the project root `CLAUDE.md` for the full policy.
+
 ### Runtime configuration
 
 **Every QE invocation must be bounded by a timeout — 10 minutes max.** Use both QE's internal `max_seconds` (graceful stop, writes checkpoint) and an external wall-clock timeout (hard kill) as belt-and-suspenders. If a validation run doesn't finish in 10 min, the parameters are wrong — cut them down rather than extend the timeout.
@@ -27,14 +54,16 @@ For **small systems** (< 16 atoms), pure MPI is fastest:
 export OMP_NUM_THREADS=1 LC_ALL=C LANG=C
 export OMPI_MCA_btl=self,vader OMPI_MCA_pml=ob1
 ulimit -s unlimited
-gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in input.in > output.out 2>&1
+.claude/bin/machine-lock run "Researcher" "QE small-system pw.x" -- \
+  gtimeout 600 mpirun -np 12 qe-7.5/build/bin/pw.x -in input.in > output.out 2>&1
 ```
 
 For **larger systems** (16+ atoms), the installed optimized build may benefit from hybrid MPI+OMP:
 ```bash
 export OMP_NUM_THREADS=2 OMP_PLACES=cores OMP_PROC_BIND=close
 export VECLIB_MAXIMUM_THREADS=1 LC_ALL=C LANG=C
-gtimeout 600 mpirun -np 6 $HOME/qe/bin/pw.x -in input.in > output.out 2>&1
+.claude/bin/machine-lock run "Researcher" "QE large-system pw.x" -- \
+  gtimeout 600 mpirun -np 6 $HOME/qe/bin/pw.x -in input.in > output.out 2>&1
 ```
 
 Always set `outdir = './tmp'` in input files.
