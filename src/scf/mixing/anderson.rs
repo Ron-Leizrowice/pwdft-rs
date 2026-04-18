@@ -139,9 +139,14 @@ impl AndersonMixer {
         let residual = Array1::from(residual);
 
         // Adaptive β (Eyert 1996 §3.3): update β from the ratio of this
-        // iteration's (preconditioned) residual norm to the previous one.
-        // No-op when `adaptive_beta = false`; otherwise the next DIIS /
-        // linear step will use the updated β for the entire combination.
+        // iteration's residual norm to the previous one. The residual here
+        // is the *Kerker-preconditioned* residual when Kerker is on
+        // (G=0 zeroed + damped long-wavelength components) — that's the
+        // right quantity to feed the monitor because it is the one β
+        // multiplies in the linear step. With Kerker off it's the raw
+        // density residual. No-op when `adaptive_beta = false`; otherwise
+        // the next DIIS / linear step will use the updated β for the
+        // entire combination.
         let residual_norm = residual.dot(&residual).sqrt();
         self.beta = self.adaptive.update(residual_norm, self.beta);
 

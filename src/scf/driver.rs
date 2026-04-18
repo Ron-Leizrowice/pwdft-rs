@@ -299,7 +299,7 @@ pub(crate) fn run_scf_unpolarized(
             hf_diff,
             de,
             delta,
-            beta: mixer.current_beta(),
+            beta: ctx.params.adaptive_beta.then(|| mixer.current_beta()),
             spin: None,
         });
 

@@ -364,12 +364,12 @@ pub(crate) fn run_scf_spin(
             hf_diff,
             de,
             delta,
-            beta: mixer_total.current_beta(),
+            beta: ctx.params.adaptive_beta.then(|| mixer_total.current_beta()),
             spin: Some(SpinIterationFields {
                 delta_up,
                 delta_down,
                 magnetization: mag,
-                mag_beta: mixer_mag.current_beta(),
+                mag_beta: ctx.params.adaptive_beta.then(|| mixer_mag.current_beta()),
             }),
         });
 

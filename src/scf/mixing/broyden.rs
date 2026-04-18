@@ -119,10 +119,14 @@ impl BroydenMixer {
         };
 
         // Adaptive β (Eyert 1996 §3.3): update β from the ratio of this
-        // iteration's (preconditioned) residual norm to the previous one.
-        // No-op when `adaptive_beta = false`; otherwise the Broyden step
-        // below uses the updated β for both the linear combination and
-        // the correction terms.
+        // iteration's residual norm to the previous one. The residual here
+        // is the *Kerker-preconditioned* residual when Kerker is on
+        // (G=0 zeroed + damped long-wavelength components) — that's the
+        // right quantity to feed the monitor because it is the one β
+        // multiplies in the linear step. With Kerker off it's the raw
+        // density residual. No-op when `adaptive_beta = false`; otherwise
+        // the Broyden step below uses the updated β for both the linear
+        // combination and the correction terms.
         let residual_norm = residual
             .iter()
             .map(|&r| r * r)

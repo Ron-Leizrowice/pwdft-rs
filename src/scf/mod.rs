@@ -224,7 +224,6 @@ pub fn run_scf(
     } else {
         driver::run_scf_unpolarized(crystal, basis, kpoints, pseudopotentials, params, symmetry)
     }
-
 }
 
 #[cfg(test)]
