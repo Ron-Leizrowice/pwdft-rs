@@ -134,6 +134,11 @@ impl SymmetryInfo {
 }
 
 #[cfg(test)]
+// `symmetrize_with_identity_only_is_noop` exercises the deprecated legacy
+// real-space `density::symmetrize_density` on purpose — pinning the
+// n_ops ≤ 1 short-circuit so the SCF identity-only fallback stays
+// bit-identical to the no-symmetrization path.
+#[allow(deprecated)]
 mod tests {
     use super::*;
 

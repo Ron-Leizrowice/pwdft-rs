@@ -412,10 +412,22 @@ pub fn run_scf(
             ctx.kpoints, &all_kpoint_wavefns, &occupations,
         );
 
-        // 6b. Symmetrize density. `symmetrize_density` short-circuits for a
-        //     trivial group (identity-only), so this call is a no-op when the
-        //     user disabled symmetry — bit-identical to the legacy skip.
-        crate::symmetry::density::symmetrize_density(&mut rho_r_new, ctx.grid.dims, ctx.symmetry);
+        // 6b. Symmetrize density in G-space (PCFX). The G-space form applies
+        //     each space-group fractional translation τ_S as an analytic
+        //     phase factor `exp(-i G · τ_S)`, so it is exact for non-
+        //     symmorphic groups on arbitrary FFT grids. The real-space
+        //     form used pre-PCFX rounded τ to the nearest grid point and
+        //     smeared density across neighbours whenever `N_i · τ_i` was
+        //     not integer (e.g. Fd-3m τ=(¼,¼,¼) on an 18³ grid),
+        //     producing a ~1.2 eV per-component residual on Si.
+        //     `symmetrize_density_g` short-circuits for identity-only
+        //     groups (bit-identical to the pre-PCFX skip).
+        crate::symmetry::density::symmetrize_density_g(
+            &mut rho_r_new,
+            ctx.grid.dims,
+            &mut ctx.grid.fft,
+            ctx.symmetry,
+        );
 
         // 7. Convergence check (dual criterion: density AND energy)
         let delta = density_diff(&rho_r, &rho_r_new, ctx.omega, ctx.n_grid);
@@ -805,13 +817,24 @@ fn run_scf_spin(
             ctx.kpoints, &wfn_down, &occ_down,
         );
 
-        // Symmetrize each channel. Trivial (identity-only) groups
-        // short-circuit inside `symmetrize_density`, preserving the legacy
-        // "no symmetrization" behavior bit-identically.
+        // Symmetrize each channel in G-space (PCFX). See the non-spin
+        // run_scf for the full rationale; key point: the real-space form
+        // is exact only when τ_S lands on an integer grid point, which
+        // fails for Fd-3m on an 18³ grid. G-space is exact for any τ.
         let mut rho_up_sym = rho_up_new;
         let mut rho_down_sym = rho_down_new;
-        crate::symmetry::density::symmetrize_density(&mut rho_up_sym, ctx.grid.dims, ctx.symmetry);
-        crate::symmetry::density::symmetrize_density(&mut rho_down_sym, ctx.grid.dims, ctx.symmetry);
+        crate::symmetry::density::symmetrize_density_g(
+            &mut rho_up_sym,
+            ctx.grid.dims,
+            &mut ctx.grid.fft,
+            ctx.symmetry,
+        );
+        crate::symmetry::density::symmetrize_density_g(
+            &mut rho_down_sym,
+            ctx.grid.dims,
+            &mut ctx.grid.fft,
+            ctx.symmetry,
+        );
 
         // 7. Convergence check
         let rho_total_new: Vec<f64> = rho_up_sym.iter().zip(rho_down_sym.iter())

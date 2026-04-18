@@ -187,13 +187,14 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
 
     // Consistency: components should sum to total_energy.
     //
-    // NB: The identity is exact only when rho_in == rho_out at the final
-    // iteration. In practice conv_threshold is RMS-based and there can be
-    // a small but nonzero rho_in vs rho_out difference at the last step,
-    // yielding an O(V_xc · Δρ) residual. Observed residual for Si at
-    // conv_threshold=1e-8 is ~1.2 eV (tracked by the PCRS follow-up
-    // proposal); the tests pin the observed per-component values as a
-    // regression guard rather than asserting the sum identity here.
+    // Post-PCFX (`proposals/completed/PCFX-symmetrize-rho-g-space.md`),
+    // density symmetrization is exact in G-space for any fractional
+    // translation τ, so the identity closes to machine precision
+    // regardless of grid–τ commensurability. Pre-PCFX the real-space
+    // symmetrizer rounded τ=(¼,¼,¼) to nearest-integer on an 18³ grid
+    // (18·¼ = 4.5 ∉ ℤ), smearing density into wrong grid points and
+    // producing a plateau residual of 1.204 eV on Si that was invariant
+    // under conv_threshold tightening — see the PCRS investigation.
     let e_sum = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal
         + c.e_hartree + c.e_xc + c.e_ewald;
     let sum_err = e_sum - result.total_energy;
@@ -201,7 +202,6 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
         "  [self-check] Σ(components) = {e_sum:.6} eV, E_total = {:.6} eV, Δ = {sum_err:.2e} eV",
         result.total_energy
     );
-    // Don't assert — report only. Larger residuals flag under-converged SCF.
 }
 
 // ----------------------------------------------------------------------------
@@ -262,10 +262,15 @@ fn vgc5_si_per_component() {
     print_side_by_side("Si diamond", &result, &QeReference::si());
 
     // -------- Regression pins (pwdft-rs, NOT QE-match) --------
-    // Post-NCFX values (see `proposals/completed/NCFX-nlcc-core-density-fix.md`).
-    // Per-component tolerances are 0.05 eV (CI / machine noise budget). If
-    // these shift, the failure message records the new numbers — update the
-    // pins to match and note the follow-up proposal that caused the change.
+    // Post-PCFX values (see `proposals/completed/PCFX-symmetrize-rho-g-space.md`).
+    // PCFX moved density symmetrization from real-space (rounding-sensitive,
+    // wrong for non-symmorphic τ on incompatible grids) to G-space (exact
+    // via phase factors). That shifted the Si total by ~23 meV
+    // (-231.865 → -231.843 eV) — this is the bug being fixed; the
+    // pre-PCFX pin was numerically stable but off by the symmetrization
+    // artefact documented in the PCRS residual scan.
+    //
+    // Per-component tolerances are 0.05 eV (CI / machine noise budget).
     let tol = 0.05;
     let pin = |name: &str, got: f64, expected: f64| {
         let d = (got - expected).abs();
@@ -276,15 +281,28 @@ fn vgc5_si_per_component() {
     };
 
     let c = &result.components;
-    pin("E_band",             c.e_band,             -3.6189); // PRE-NCFX: -1.4683
-    pin("E_kinetic",          c.e_kinetic,          83.7203); // PRE-NCFX:  82.8657
-    pin("E_local (G≠0)",      c.e_local,           -62.1961); // PRE-NCFX: -58.4678
-    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   10.7447); // PRE-NCFX:  10.7447 (unchanged)
-    pin("E_nonlocal",         c.e_nonlocal,         35.9570); // PRE-NCFX:  33.4650
-    pin("E_hartree",          c.e_hartree,          14.3111); // PRE-NCFX:  13.5930  (Δ_QE: −1.51 → −0.79)
-    pin("E_xc",               c.e_xc,              -84.7026); // PRE-NCFX: -70.6575  (Δ_QE: +13.74 → −0.31)
-    pin("E_ewald",            c.e_ewald,          -228.5192); // PRE-NCFX: -228.5192 (unchanged)
-    pin("E_total",            result.total_energy, -231.8653); // PRE-NCFX: -218.1806 (Δ_QE: +13.43 → −0.26)
+    // PCFX correction: τ now applied exactly in G-space; pre-PCFX was E_total=-231.8653 eV.
+    pin("E_band",             c.e_band,             -2.9699); // pre-PCFX: -3.6189
+    pin("E_kinetic",          c.e_kinetic,          83.4120); // pre-PCFX: 83.7203
+    pin("E_local (G≠0)",      c.e_local,           -63.7219); // pre-PCFX: -62.1961
+    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   10.7447); // unchanged (no density dep)
+    pin("E_nonlocal",         c.e_nonlocal,         35.7641); // pre-PCFX: 35.9570
+    pin("E_hartree",          c.e_hartree,          14.8249); // pre-PCFX: 14.3111
+    pin("E_xc",               c.e_xc,              -84.3474); // pre-PCFX: -84.7026
+    pin("E_ewald",            c.e_ewald,          -228.5192); // unchanged (lattice-only)
+    pin("E_total",            result.total_energy, -231.8429); // pre-PCFX: -231.8653
+
+    // PCFX regression guard: the per-component identity closes to machine
+    // precision post-fix (was 1.204 eV plateau pre-PCFX). Target was
+    // ≤ 1e-5 eV; observed ~3.5e-11 eV.
+    let e_sum = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal
+        + c.e_hartree + c.e_xc + c.e_ewald;
+    let sum_residual = (e_sum - result.total_energy).abs();
+    assert!(
+        sum_residual < 1e-5,
+        "PCFX per-component self-check regressed: Σ - E_total = {sum_residual:.2e} eV, \
+         pre-PCFX plateau was 1.204 eV"
+    );
 }
 
 /// VGC5 Fe BCC per-component audit.
@@ -364,4 +382,16 @@ fn vgc5_fe_per_component() {
     pin("E_xc",               c.e_xc,             -392.5675); // PRE-NCFX: -442.1090 (Δ_QE: −48.85 → +0.69)
     pin("E_ewald",            c.e_ewald,         -2337.1672); // PRE-NCFX: -2337.1672 (unchanged)
     pin("E_total",            result.total_energy, -3051.8909); // PRE-NCFX: -3101.2389 (Δ_QE: −41.08 → +8.27)
+
+    // PCFX regression guard. Fe BCC Im-3m is symmorphic (τ=0), so the
+    // pre-PCFX residual was already small (~0.045 eV at conv=1e-6) and
+    // PCFX doesn't change this case materially — but keep the guard so
+    // any future regression in the G-space symmetrizer surfaces here.
+    let e_sum = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal
+        + c.e_hartree + c.e_xc + c.e_ewald;
+    let sum_residual = (e_sum - result.total_energy).abs();
+    assert!(
+        sum_residual < 0.1,
+        "PCFX per-component self-check: Σ - E_total = {sum_residual:.2e} eV on Fe"
+    );
 }

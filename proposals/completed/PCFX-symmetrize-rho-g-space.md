@@ -1,6 +1,6 @@
 ---
 id: PCFX
-status: active
+status: completed
 priority: high
 complexity: medium
 risk: medium
@@ -9,6 +9,58 @@ blocks: []
 ---
 
 # PCFX: Density Symmetrization in G-Space (Fix for Non-Symmorphic τ)
+
+## Outcome (2026-04-18 — landed)
+
+Implemented in `src/symmetry/density.rs` as
+`symmetrize_density_g(rho, dims, fft, symmetry)`. The SCF non-spin and
+spin paths (`src/scf/mod.rs`) now call this instead of the real-space
+`symmetrize_density`. The real-space form remains for direct-grid unit
+tests and the identity-only short-circuit.
+
+**Key numbers on Si diamond (ecut=15 Ry, 4×4×4 MP, conv=1e-8):**
+
+- Per-component self-check `|Σ(components) − E_total|`:
+  **1.204 eV → 3.5 × 10⁻¹¹ eV** (target was ≤ 10⁻⁵ eV; vastly exceeded).
+  Pre-PCFX plateau across 4 orders of `conv_threshold` confirmed the
+  residual was a structural bug, not SCF noise.
+- Total energy `E_total`: **−231.8653 eV → −231.8429 eV** (23 meV shift,
+  consistent with proposal's ~17 meV estimate; the shift is the removal
+  of the symmetrization-induced bias, not a new error).
+- Fe BCC (symmorphic Im-3m, τ=0) was unchanged as expected.
+- Unit tests (`test_symmetrize_g_*`) cover preserve-integral, uniform
+  invariance, idempotence on 18³ band-limited input, match-real-space
+  on compatible grid, and the P·ρ = ρ fixed point on a
+  real-space-symmetrized density.
+
+**Convention (worth reading before extending):** our
+`SpaceGroupOp::rotation` is the fractional-direct-space rotation `R`
+acting on `f' = R·f + τ`. In Fourier, under the pull-back action
+`(S·ρ)(r) = ρ(S⁻¹ r)`, Miller indices rotate as `n → R^T · n` (NOT
+`R⁻¹`, and NOT `R^{-T}`). The phase is `exp(-i·2π·n_dst·τ_S)` using
+the destination Miller; the combination gives a left group
+homomorphism and a true projector (`P² = P` verified analytically and
+numerically). This matches QE's `sym_rho_serial` exactly after
+accounting for QE's stored `s(:,:,ns)` being the transpose of our
+direct-space `R` (atoms rotate as `rau = s^T · xau` per
+`symm_base.f90:533`).
+
+**Band-limitation requirement:** the G-space formula is exact only when
+rotations applied to destination Miller indices do not wrap around the
+Nyquist plane — otherwise DFT periodicity introduces a residual phase
+`exp(-i·2π·N·δ·τ)` that is a group-unit only when `N·τ ∈ ℤ` (the same
+grid-compatibility as the real-space form). For pwdft-rs this is
+automatic: `ρ = Σ|ψ|²` has support on `|G|² ≤ ecutrho = 4·ecutwfc`, and
+`FftGrid::new` with default `ecutrho_ratio = 4` chooses a grid strictly
+larger than `2·G_max,density`, with margin for the largest cubic
+rotation coefficient (|R| ≤ 3). The doc-comment on
+`symmetrize_density_g` documents this requirement.
+
+**Not in scope, flagged for follow-up:**
+
+- GPU-resident symmetrization (out-of-scope per proposal); the
+  density-grid FFT is still CPU-serial in `run_scf`, so even with
+  `--features gpu` enabled the symmetrization runs on the host.
 
 ## Origin
 
