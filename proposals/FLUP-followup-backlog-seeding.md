@@ -11,18 +11,26 @@ blocks: []
 
 # FLUP — Follow-up backlog from 2026-04-18
 
-Seven distinct follow-up items surfaced during today's 13-PR merge wave but
-were deliberately not fixed inline — either they were out of their source
-PR's scope, blocked on upstream, or better-owned by a different agent
-role. Rather than leave them as comments in review replies (which
-evaporate), this file records them with enough detail to spin each into
-its own proposal and PR when the EM schedules it.
+Follow-up items surfaced during 2026-04-18's 13-PR merge wave (and the
+2026-04-19 follow-on reviews) but were deliberately not fixed inline —
+either they were out of their source PR's scope, blocked on upstream, or
+better-owned by a different agent role. Rather than leave them as comments
+in review replies (which evaporate), this file records them with enough
+detail to spin each into its own proposal and PR when the EM schedules it.
 
 Each entry includes a suggested 4-letter ID, owner role, priority,
 concrete file paths, and an acceptance criterion. When the EM activates
 an entry, it gets promoted to a standalone `proposals/<ID>-<slug>.md`
 and the FLUP entry is struck through (not deleted — history of what was
 seeded when).
+
+## Status summary (post-2026-04-19 sweep)
+
+- **Landed:** G0SH, GLUS, SYMP, FDLT, VNMT, RDOC, UPFV, FGRD, MXB1, MXB3, VNLT, VNLB (struck by VNLT), DWGT.
+- **Still live (drive-by):** G2ZT, DFLT (both < 0.1 day — replace literal with named constant).
+- **Still live (larger):** MXB2 (Fe CCMX retune, small-medium), ITVF (tracker, blocked on faer 0.25).
+- **Still live (performance investigation):** EIGV, EIGW (bench-noise triage; may self-resolve on next bench pass).
+- **Added 2026-04-19:** TYPE-AX (5 `try_from` expect sites flagged by ERR2 P0 report).
 
 ## Entries
 
@@ -464,21 +472,65 @@ investigation with EIGV — same tool, same worktree, same afternoon.
 measurement → mark as noise, or (b) win confirmed → git bisect across
 the week's landings to attribute and document.
 
-### DWGT — Add `cargo doc` to the quality gate
+### ~~DWGT — Add `cargo doc` to the quality gate~~ (landed 2026-04-18, commit `5456c80`)
 
-- **Role:** Technical Writer
-- **Priority:** low, **Complexity:** trivial, **Risk:** low
-- **Source:** RDOC agent suggestion, PR #61.
+~~- **Role:** Technical Writer~~
+~~- **Priority:** low, **Complexity:** trivial, **Risk:** low~~
+~~- **Source:** RDOC agent suggestion, PR #61.~~
 
-Today's RDOC cleanup cleared 17 pre-existing `cargo doc --no-deps`
+~~Today's RDOC cleanup cleared 17 pre-existing `cargo doc --no-deps`
 warnings to 0. Without CI enforcement, regressions will accumulate
 again. Add `cargo doc --no-deps -- -D warnings` to the "Code Quality"
 section of `CLAUDE.md` alongside the existing two clippy invocations.
 Also update each agent definition under `.claude/agents/*.md` whose
-workflow mentions the quality gate.
+workflow mentions the quality gate.~~
 
-**Acceptance criterion:** CLAUDE.md + agent defs updated; any new PR
-touching docstrings that introduces a warning is blocked by the gate.
+~~**Acceptance criterion:** CLAUDE.md + agent defs updated; any new PR
+touching docstrings that introduces a warning is blocked by the gate.~~
+
+Landed: CLAUDE.md § Code Quality now lists `cargo doc --no-deps -- -D
+warnings` alongside both clippy invocations (lines 47 and 52 of CLAUDE.md
+on today's main). Agent definitions updated: `.claude/agents/core-engineer.md:53`
+chains the cargo-doc gate into the quality-gate block, and
+`.claude/agents/technical-writer.md:64` documents DWGT as mandatory and
+forbids `#[allow]` on rustdoc warnings. ERR2 P0 (PR #86) and subsequent
+merges have run clean against the gate.
+
+### TYPE-AX — Decide on TYPE-A narrowing `expect` sites in ERR2 P1
+
+- **Role:** Core Engineer (ERR2 P1 owner)
+- **Priority:** low, **Complexity:** trivial (decision + either `reason`
+  comments or Result-returning refactor), **Risk:** low
+- **Source:** ERR2 P0 post-landing signal (PR #86); five new
+  `.expect(...)` sites introduced by TYPE-A (PR #80) when narrowing
+  `i32 → i8` rotation entries and `i32 → i16` Miller indices.
+
+The TYPE-A narrowing introduced five `expect` call sites guarded by
+`try_from`:
+
+- `src/basis.rs:65` — `i16::try_from(n).expect(...)` on Miller indices.
+  Comment (line 60) asserts "infallible under physically meaningful
+  `ecut`".
+- `src/symmetry/operations.rs:71` — `i8::try_from(v).expect("SymmOp::from_flat: rotation entry out of i8 range")`.
+- `src/symmetry/operations.rs:120` — `i8::try_from(v).expect("SymmOp::inverse: adjugate entry out of i8 range")`.
+- `src/symmetry/operations.rs:151` — `i8::try_from(v).expect("SymmOp::compose: product entry out of i8 range")`.
+- `src/symmetry/detect.rs:185` — `i8::try_from(v).expect("symmetry::detect: rotation entry exceeds i8 range")`.
+
+ERR2 P0 intentionally left all 15+ production `expect` sites as warnings
+rather than fixing them; P1 is where each site gets decided. For TYPE-A's
+five sites the bound is structural (crystallographic rotation entries are
+in {-2..2}, Miller indices are bounded by `sqrt(ecut / HBAR2_OVER_2M)`),
+so these are candidate "legitimate invariant, add `reason = "..."` and
+move on" — **not** candidates for Result propagation. P1 should either
+(a) add a `reason` comment citing the bound, matching the `BUG:` pattern
+established by ERRH + FGRD, or (b) if treating them as user-reachable,
+convert to `PwdftError::InvalidParam`. Option (a) is the sane default.
+
+**Acceptance criterion:** each of the five sites either carries a
+`reason = "..."` comment referencing the structural bound, or its
+enclosing function returns `Result<_, PwdftError>`. No bare `expect`
+remains in the narrowing path. Does not need its own proposal — fold
+into ERR2 P1 when that starts.
 
 ## What this is NOT
 
@@ -487,10 +539,12 @@ touching docstrings that introduces a warning is blocked by the gate.
   upstream issue, which is a one-PR drive-by).
 - **Not ordered by priority.** Ordering within this file is roughly
   "flagged first came first"; the EM picks a real order when activating.
-- **Not a promise to land all seven.** Some may turn out to be not
+- **Not a promise to land every entry.** Some may turn out to be not
   worth the round-trip cost — ITVF in particular is a tracker whose
   preconditions may never arrive (faer may deprecate the affected API
-  path and we swap to LOBPCG, closing ITVF as obsolete).
+  path and we swap to LOBPCG, closing ITVF as obsolete). EIGV/EIGW may
+  self-resolve under longer `--measurement-time` and just get struck as
+  noise on the next bench pass.
 
 ## Proposal-file etiquette when activating
 
