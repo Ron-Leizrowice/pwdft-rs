@@ -289,3 +289,29 @@ PR #39 created: `PRPL/periodic-pulay`. Periodic Pulay mixer (Banerjee et al., JC
 - `PeriodicPulayMixer::mix` non-Pulay path reaches into private fields `anderson.{beta, history_in, history_res}`. Fine within the module, but future refactors may want to move this into `AndersonMixer::apply_linear_step_from_last_history` to localize knowledge. Not worth a proposal on its own — notional cleanup.
 - Paper recommends `period = 5–8` for metals; our default is 3 (insulator/semiconductor sweet spot). Consider auto-selecting based on system class (gap-detected via initial-density sloshing amplitude, or explicit `system.metallic: bool`). Likely a new proposal if anyone has a concrete metallic test case to tune against.
 - No real metallic regression test for PRPL — the existing Γ-only Si test is an insulator. A follow-up might add a BCC Fe SCF test with PRPL vs Broyden, but BROY already covers Fe well enough that the marginal value is unclear.
+
+## 2026-04-18 — PCFX landed (PR #44)
+
+Branch `PCFX/g-space-symmetrization`. Moved density symmetrization from real-space (rounding-sensitive on non-symmorphic grids) to G-space (exact via phase factors).
+
+**Convention — verified against QE line-by-line, worth pinning here:**
+
+- `SpaceGroupOp::rotation` is the fractional-direct-space rotation `R`: atoms transform as `r' = R·r + τ`.
+- Under the pullback `(S·ρ)(r) = ρ(S⁻¹ r)`, Miller indices rotate as `n → R^T · n` (NOT `R⁻¹`, NOT `R^{-T}`).
+- Phase: `exp(-i·2π·n_dst·τ_S)` using the DESTINATION Miller, not source.
+- `P² = P` proven analytically via `m·τ_{S₁·S₂} = m·τ_{S₁} + (R_{S₁}^T m)·τ_{S₂}` cancellation. Numerically verified on 12³.
+- QE stores `s(:,:,ns)` as the *transpose* of our `R` (proof: `symm_base.f90:533` atoms rotate as `rau = s^T · xau`). So QE's `s(:,:,invs(ns))·g0 = R^{-T}·g0` matches our R^T under the `S → S⁻¹` relabel.
+
+**Key numbers (Si, ecut=15, 4×4×4):**
+- Per-component self-check: **1.204 eV → 3.5e-11 eV** (10 orders of magnitude; target was 1e-5 eV).
+- E_total: −231.8653 → −231.8429 eV (23 meV; matches proposal's 17 meV estimate).
+- Fe Im-3m (τ=0): unchanged as expected.
+
+**Non-obvious landmine (hit this; avoid in future work):** the G-space formula ALSO requires the grid-compatibility condition `N·τ ∈ ℤ` UNLESS the input density is band-limited away from the Nyquist. Derivation: the projector proof uses `miller_to_flat(R^T m)` to reduce mod N. If R^T m wraps (i.e. `R^T m ∉ [−N/2, N/2]`), the coefficient read corresponds to Miller `k = R^T m − N·δ` for some integer `δ`. The inner application's phase `exp(-i·2π·k·τ)` differs from `exp(-i·2π·R^T m·τ)` by `exp(+i·2π·N·δ·τ)` which is 1 iff `N·τ ∈ ℤ`. For our SCF use case the density is band-limited (|G|² ≤ 4·ecutwfc; FftGrid sized with ≥ factor-2 margin), so rotations don't wrap. Unit tests had to use band-limited inputs; the naive `sin(i·0.37).abs()` generator broke idempotence by 5% on 18³ until I synthesized modes with |m| ≤ 2.
+
+**Handoff notes:**
+- `src/symmetry/density.rs` has an extensive docstring on the convention and band-limitation requirement. Read before modifying.
+- GPU-resident symmetrization is out-of-scope (proposal explicit); density-grid FFT stays CPU-serial even with `--features gpu`. If someone wants to move it, they'd need to expose the FFT buffer to a GPU kernel and redo the phase sum in WGSL.
+- The PCFX self-check now pins `|Σ − E_total| < 1e-5 eV` in `vgc5_per_component_si.rs`. Any regression in symmetrization (or the density reconstruction path) will fail this aggressively.
+
+**Machine lock:** ~900s total (compile + tests + clippy + GPU tests).
