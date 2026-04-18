@@ -1,15 +1,19 @@
-//! Parser for UPF v2 pseudopotential files (Quantum ESPRESSO format).
+//! Unit conversion from UPF native (Ry, Bohr) to internal (eV, Å) units.
 //!
-//! UPF files use Rydberg atomic units: energies in Ry, lengths in Bohr.
-//! We convert to internal units (eV, Å) on parse.
+//! The UPF format stores quantities in Rydberg atomic units with various
+//! on-disk conventions (`r·β(r)`, `4πr²·ρ_at(r)`, bare ρ_core(r)). This
+//! module reads those blocks via [`super::xml`] and converts each one to
+//! the engine's internal representation.
 
+use crate::consts::{BOHR3_TO_ANG3, BOHR_TO_ANG, RY_TO_EV};
 use crate::error::{PwdftError, Result};
 
-use super::{BetaProjector, PseudopotentialData, BOHR_TO_ANG, RY_TO_EV};
-use crate::consts::BOHR3_TO_ANG3;
+use super::super::{BetaProjector, PseudopotentialData};
+use super::xml::{extract_attr, extract_beta_angular_momentum, extract_data_block};
 
-/// Parse a UPF v2 file from its text content.
-pub fn parse(content: &str) -> Result<PseudopotentialData> {
+/// Parse the full UPF body and return a unit-converted
+/// [`PseudopotentialData`].
+pub(super) fn parse_body(content: &str) -> Result<PseudopotentialData> {
     let element = extract_attr(content, "element")
         .ok_or_else(|| PwdftError::Parse("missing element in PP_HEADER".into()))?
         .trim()
@@ -138,67 +142,10 @@ pub fn parse(content: &str) -> Result<PseudopotentialData> {
     })
 }
 
-/// Extract an XML attribute value: `attr_name="value"`.
-fn extract_attr<'a>(content: &'a str, attr_name: &str) -> Option<&'a str> {
-    let pattern = format!("{attr_name}=\"");
-    let start = content.find(&pattern)? + pattern.len();
-    let end = content[start..].find('"')? + start;
-    Some(&content[start..end])
-}
-
-/// Extract angular_momentum from a PP_BETA tag.
-fn extract_beta_angular_momentum(content: &str, tag: &str) -> Option<i32> {
-    // Find the tag opening
-    let tag_start = content.find(&format!("<{tag}"))?;
-    let tag_end = content[tag_start..].find('>')? + tag_start;
-    let tag_content = &content[tag_start..tag_end];
-    let am_str = extract_attr(tag_content, "angular_momentum")?;
-    am_str.trim().parse().ok()
-}
-
-/// Extract a block of floating-point data between `<TAG ...>` and `</TAG>`.
-fn extract_data_block(content: &str, tag: &str, expected_size: usize) -> Result<Vec<f64>> {
-    let open_tag = format!("<{tag}");
-    let close_tag = format!("</{tag}>");
-
-    let tag_pos = content
-        .find(&open_tag)
-        .ok_or_else(|| PwdftError::Parse(format!("missing tag <{tag}>")))?;
-
-    // Find end of opening tag
-    let data_start = content[tag_pos..]
-        .find('>')
-        .ok_or_else(|| PwdftError::Parse(format!("malformed tag <{tag}>")))?
-        + tag_pos
-        + 1;
-
-    let data_end = content[data_start..]
-        .find(&close_tag)
-        .ok_or_else(|| PwdftError::Parse(format!("missing closing tag </{tag}>")))?
-        + data_start;
-
-    let data_str = &content[data_start..data_end];
-    let values: Vec<f64> = data_str
-        .split_whitespace()
-        .map(|s| {
-            s.parse::<f64>()
-                .map_err(|e| PwdftError::Parse(format!("float parse error in {tag}: {e} ({s})")))
-        })
-        .collect::<Result<Vec<f64>>>()?;
-
-    if values.len() != expected_size {
-        return Err(PwdftError::Parse(format!(
-            "{tag}: expected {expected_size} values, got {}",
-            values.len()
-        )));
-    }
-
-    Ok(values)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::parse;
+    use crate::pseudopotential::PseudopotentialData;
 
     fn si_content() -> String {
         std::fs::read_to_string(

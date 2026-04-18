@@ -62,9 +62,6 @@ pub struct BetaProjector {
     pub values: Vec<f64>,
 }
 
-// Unit conversion constants (Rydberg a.u. → internal eV/Å)
-use crate::consts::{RY_TO_EV, BOHR_TO_ANG};
-
 /// Load and parse a UPF v2 pseudopotential file.
 pub fn load(path: &Path) -> Result<PseudopotentialData> {
     let content = std::fs::read_to_string(path)?;
