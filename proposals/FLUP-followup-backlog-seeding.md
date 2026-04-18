@@ -181,6 +181,47 @@ would-be-links to private items. No text rewrites, just mechanical fixes.
 
 **Acceptance criterion:** `cargo doc --no-deps` emits zero warnings.
 
+### UPFV — Parse-time validation for UPF `angular_momentum`
+
+- **Role:** Researcher or Core Engineer
+- **Priority:** low, **Complexity:** small, **Risk:** low
+- **Source:** CAST code review, PR #56 nit 2.
+
+`src/pseudopotential/upf/xml.rs::extract_beta_angular_momentum` returns
+`am_str.trim().parse().ok()`, which happily accepts `-1`, `-2`, etc.
+CAST added a runtime assertion in `NonlocalPotential::new` (real
+belt-and-suspenders, not vacuous), but a parser-level
+`PwdftError::InvalidInput("angular_momentum must be non-negative")`
+would (a) fail fast at UPF load time instead of at projector-build
+time and (b) give a clearer error message ("bad UPF file" vs "internal
+assertion"). Add a regression test that synthesizes a malformed UPF
+with `angular_momentum="-1"` and asserts the parse returns
+`PwdftError::InvalidInput`.
+
+**Acceptance criterion:** parse of a malformed UPF fails with a
+domain-specific error string; `NonlocalPotential::new` runtime assert
+remains as defense-in-depth.
+
+### FGRD — Explicit FFT-grid upper-bound check
+
+- **Role:** Core Engineer
+- **Priority:** low, **Complexity:** trivial, **Risk:** low
+- **Source:** CAST code review, PR #56 nit 3.
+
+Several CAST `#[allow(clippy::cast_possible_truncation, reason = "...")]`
+sites in `src/scf/grid.rs:80,106` and `src/symmetry/density/*.rs` cite
+"FFT grid dims ≤ ~512 per axis in practice". In practice ecut + Miller
+truncation + grid-size heuristics keep us well under 512, but the
+bound is load-bearing on convention, not a checked invariant. Either
+(a) add an explicit `debug_assert!(nx <= 1024, "FFT grid too large")`
+at `FftGrid::new`, or (b) rewrite the reason strings to cite the `ecut`
+bound that actually limits them — whichever makes the invariant
+visible to a future grep.
+
+**Acceptance criterion:** every CAST `#[allow]` that currently cites
+"grid ≤ 512" either backs the bound with a `debug_assert!` or cites a
+first-principles bound (ecut ≤ X Ry → grid ≤ Y).
+
 ## What this is NOT
 
 - **Not an implementation plan.** Each entry needs to be promoted to
