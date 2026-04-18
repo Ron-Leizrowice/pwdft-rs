@@ -42,8 +42,22 @@ fn frac_to_grid_idx(frac: f64, n: usize) -> usize {
 /// maps each grid point to another grid point (for compatible grids).
 /// The symmetrized density is the average over all operations.
 ///
+/// **Do not call from SCF.** This form uses `nint`-based grid rotation
+/// that is exact only when `N_i · τ_i ∈ ℤ` for every symmetry operation.
+/// For non-symmorphic space groups on grids that don't satisfy the
+/// divisibility constraint (e.g. Fd-3m's τ = (¼,¼,¼) on an 18³ grid —
+/// 18 not divisible by 4), every application bleeds charge into the
+/// wrong grid point, producing a ~1 eV per-component residual on Si.
+/// Use [`symmetrize_density_g`] instead; it applies the fractional
+/// translation as an exact `exp(i·G·τ)` phase in reciprocal space.
+/// This function is retained only for unit tests that pin the legacy
+/// behavior on symmorphic (τ = 0) systems.
+///
 /// **Important**: The FFT grid dimensions must be compatible with the symmetry
 /// operations. Use [`check_grid_compatibility`] before calling this.
+#[deprecated(
+    note = "use `symmetrize_density_g` in SCF — this real-space form is exact only when N_i·τ_i ∈ ℤ"
+)]
 pub fn symmetrize_density(rho: &mut [f64], dims: [usize; 3], symmetry: &SymmetryInfo) {
     let [nx, ny, nz] = dims;
     let n_grid = nx * ny * nz;
@@ -274,13 +288,19 @@ fn flat_to_miller(dims: [usize; 3], idx: usize) -> [i32; 3] {
 /// only a group-unit when `N·τ ∈ ℤ` — the same grid-compatibility
 /// condition as the real-space form. To avoid this, the input density
 /// must be band-limited to `|G|² < |G|²_Nyquist / |R|_op,max²` so that
-/// rotations never wrap. In the pwdft-rs SCF this is automatic: the
-/// density `ρ(r) = Σ_nk |ψ_nk(r)|²` has Fourier support on
-/// `|G|² ≤ 4 · ecutwfc = ecutrho`, and the FFT grid is chosen via
-/// `scf::grid::FftGrid::new` (with `ecutrho_ratio ≥ 4`) to be strictly
-/// larger, so the density cutoff sits inside the representable Miller
-/// range with enough margin for the largest rotation coefficient
-/// (cubic groups have |R| ≤ 3).
+/// rotations never wrap. In the pwdft-rs SCF this is automatic **at the
+/// default `ecutrho_ratio = 4`**: the density `ρ(r) = Σ_nk |ψ_nk(r)|²`
+/// has Fourier support on `|G|² ≤ 4 · ecutwfc = ecutrho`, and the FFT
+/// grid is chosen via `scf::grid::FftGrid::new` to be strictly larger,
+/// so the density cutoff sits inside the representable Miller range
+/// with enough margin for the largest rotation coefficient (cubic
+/// groups have |R| ≤ 3).
+///
+/// For `ecutrho_ratio ∈ {1, 2, 3}` (allowed by `ScfParams::validate`
+/// down to 1, though not the default), the grid is not strictly larger
+/// than the density support and aliasing can occur at the Nyquist
+/// boundary — but at those ratios the Hartree/XC path already aliases
+/// independently, so the pathology is not introduced by this routine.
 ///
 /// # Parameters
 ///
@@ -388,6 +408,10 @@ pub fn symmetrize_density_g(
 }
 
 #[cfg(test)]
+// Legacy real-space `symmetrize_density` is `#[deprecated]` to prevent SCF
+// re-introduction; tests below legitimately exercise it to pin the short-
+// circuit + symmorphic (τ=0) behavior that the G-space form must match.
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::crystal::{Atom, Crystal, Lattice};
