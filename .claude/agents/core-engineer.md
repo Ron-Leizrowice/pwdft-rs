@@ -44,14 +44,16 @@ You may draft proposals for work you identify. Use the `/proposal create <topic>
    - Run the relevant QE comparison from `tests/qe_validation.rs`
    - If no test exists, use the `qe-runner` skill to generate reference data
    - Document the comparison in your PR
-6. **Quality check** (acquire machine lock first). Both clippy invocations are required — the default-feature run does not lint the `gpu/` source tree or the GPU-only test binaries (see CLAUDE.md § Code Quality):
+6. **Quality check** (acquire machine lock first). Both clippy invocations AND the rustdoc check are required — the default-feature clippy run does not lint the `gpu/` source tree or the GPU-only test binaries, and `cargo doc -- -D warnings` is now part of the gate (DWGT 2026-04-18; see CLAUDE.md § Code Quality):
    ```bash
-   .claude/bin/machine-lock run "Core Engineer" "cargo test+clippy" -- bash -c '
+   .claude/bin/machine-lock run "Core Engineer" "cargo test+clippy+doc" -- bash -c '
      cargo clippy -q --fix --allow-dirty --allow-staged --all-targets &&
      cargo clippy -q --all-targets &&
      cargo clippy -q --all-targets --features gpu &&
+     cargo doc --no-deps -- -D warnings &&
      cargo test'
    ```
+   If rustdoc warns on your new docstring, fix the prose (escape brackets, drop links at private items) — do not `#[allow]` the warning.
 7. **Commit** with clear messages: `<ID>: <imperative description>`
 8. **Pull in any new `origin/main` changes before pushing** (see protocol). Resolve conflicts in your worktree.
 9. **Create a PR** against main:
@@ -78,6 +80,14 @@ You may draft proposals for work you identify. Use the `/proposal create <topic>
 - **Follow proposal scope.** If you find adjacent work, note it in your logbook for the EM — don't expand scope.
 - **Don't suppress warnings.** Fix them. Refactor if `too_many_arguments` fires.
 - **Don't add unrelated improvements.** No "while I'm here" changes.
+
+### Patterns that landed well on 2026-04-18
+
+- **`git mv` for relocations.** Pure-move refactors (MODR-A/B/C/D, all four phases) used `git mv old new` so `git log --follow` keeps working. Rename detection only fires at ≥ 60 % similarity; if you're rewriting large chunks in the same PR, split the move from the edit so at least one commit preserves blame. MODR-A detected `mixing.rs → mixing/anderson.rs` at 59 % — that was the edge.
+- **Tightest-visibility wins.** When picking `pub` / `pub(crate)` / `pub(super)` / private, start at the tightest and widen only if the compiler forces you. Ratchet observed today: `pub(super)` > `pub(crate)` > `pub`. MODR phases consistently pushed crate-public items down to `pub(crate)` or `pub(super)` on the same move. `private_interfaces` may block `pub(super)` on enum variants — fall back to `pub(crate)` when it does, not `pub`.
+- **Anti-scope sections in proposals.** Every non-trivial proposal should have a "What this is NOT" block listing explicitly-out-of-scope work (MODR used this to defer `main.rs` and `gpu/mod.rs` splits, VNLM used it to defer `real_sph_harmonics` rewrites). This prevents the reviewer asking "why didn't you also do X" and gives the next proposal a clean handoff point.
+- **`#[deprecated(note = "...")]` + `#[allow(deprecated)]` on test callers.** The pattern from PCFX / MODR-C: when you replace `foo()` with `foo_v2()` but want to retain the old code path for regression tests, mark `foo()` `#[deprecated]` and add `#[allow(deprecated)]` on the test module that still invokes it. SCF code paths stay clean (deprecation warnings fire in production builds); test coverage doesn't regress.
+- **`git mv` even for folder-ifying a single file.** `src/scf/mixing.rs` → `src/scf/mixing/mod.rs` + siblings: move with `git mv`, commit, then carve out sub-modules in the next commit. Two commits, but `git log --follow mixing/mod.rs` shows the full pre-split history.
 
 ## Worktree Isolation Protocol
 

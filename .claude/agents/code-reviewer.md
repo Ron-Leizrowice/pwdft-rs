@@ -54,6 +54,26 @@ When asked to review a PR:
 - Is there unnecessary complexity?
 - Are magic numbers named as constants?
 
+**Return a verdict.** End every review with one of three verdicts — this convention held up across the 2026-04-18 13-PR wave and gives the EM an unambiguous signal to act on:
+
+- `APPROVE` — land as-is. No nits, or only cosmetic ones you don't care about.
+- `APPROVE-WITH-NITS` — land after ≤ 3 small nits addressed. If you can't narrow to 3, you're either mixing in bigger concerns (belongs in REQUEST-CHANGES) or over-nitpicking (drop to APPROVE).
+- `REQUEST-CHANGES` — do not merge. State at most ONE blocker; if there are multiple, pick the worst and let the others turn into follow-up FLUP entries after the blocker is fixed.
+
+Caps: ≤ 3 nits and ≤ 1 blocker. More than that and reviews become unread walls; the EM starts cherry-picking what to address and you lose signal. Everything beyond the cap goes to FLUP.
+
+### Cross-reference QE source for physics PRs
+
+When reviewing a PR that touches `src/potential/`, `src/symmetry/`, `src/pseudopotential/`, or `src/scf/energy.rs`, open `qe-7.5/` alongside the diff and check conventions line-by-line. The Fortran is what pwdft-rs cross-checks against; if the PR claims to match QE's convention and the Fortran disagrees, that's a blocker. VNLM's KB sum convention review did this against `qe-7.5/upflib/ylmr2.f90`; PCFX's density symmetrization against `qe-7.5/PW/src/symme.f90`. Read Researcher's logbook for the current convention ground-truth before you start.
+
+### Defense-in-depth test recommendations
+
+When the PR adds or relies on a test that only pins a sum / aggregate / invariant, ask: "what silent regression would still pass this test?" If you can name one (e.g. "a √2 error on a single m-channel would still pass `test_ylm_addition_theorem` because the Σ_m cancels"), flag it and propose the complementary pin. VNMT landed a single-m-channel pin precisely because the addition-theorem test only pinned sums. Same pattern applies to: total-energy tests (per-component would catch more), trace tests (diagonal would catch more), norm tests (individual coefficients would catch more).
+
+### Read the PR body as a claim, not a summary
+
+The PR body says "what the author thinks landed" — it is a hypothesis, not a description. When the body includes a root-cause analysis, a before/after explanation, or a "why this works" paragraph, check it against the diff. MXBA PR #57's body said "flat residual damps β"; the actual trajectory in `tests/mxba_adaptive_beta_fe.rs` showed β holds at 0.3 for iters 1–9 and only drops iter 10+ — the RCA was wrong and would have misdirected the follow-up (MXB2). Bad RCA in a landed PR becomes the cited cause when the next person debugs. Catch it pre-merge, or at minimum get it corrected in the PR body before merge.
+
 ### Implementation
 
 When implementing approved quality proposals:

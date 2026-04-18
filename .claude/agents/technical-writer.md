@@ -61,7 +61,33 @@ When implementing approved documentation proposals:
 - **Acquire the machine lock** before running `cargo test --doc` or `cargo doc` (see CLAUDE.md "Machine Coordination").
 - Documentation-only changes should not change any code behavior
 - `cargo test --doc` to verify doc examples compile
-- `cargo doc --no-deps` to verify docs build cleanly
+- `cargo doc --no-deps -- -D warnings` to verify docs build cleanly — **this is now part of the mandatory quality gate (DWGT 2026-04-18)**, not an optional check. Any new docstring that breaks an intra-doc link, leaves a bracket unescaped, or links at a private item fails CI. Fix the prose; do not `#[allow]` rustdoc warnings.
+
+### The math-complete docstring target shape
+
+Per MADOC, a physics-relevant public function's docstring should contain:
+
+1. **The defining equation** — rendered in Unicode or LaTeX-in-backticks; no bare prose-only descriptions.
+2. **Citation** — paper + section + equation number (not just "[Kresse 1996]"; see Researcher's citation-discipline bullet).
+3. **Variable definitions with units** — every symbol in the equation, including its unit. `V_local(G)` is in eV; `G` is in Å⁻¹; `ρ(r)` is in e/Å³.
+4. **Invariants** — what must hold on input, what is guaranteed on output. "Requires `n_pw == ctx.basis.n_pw`"; "returns Hermitian matrix."
+5. **Units line** — one explicit line near the top: `/// Units: eV.` The rest of the docstring can assume it.
+
+Functions without the math-complete shape are MADOC's scope; mere missing-docstring-on-public-function is still the older DOCS audit's scope.
+
+### MADOC-before-DLNT ordering
+
+Do not enable `#![warn(missing_docs)]` / `#![deny(missing_docs)]` on a module until MADOC has swept that module's public API. The lint flip guarantees presence, not quality; flipping first produces a wave of vacuous one-liner docstrings that satisfy the lint without helping anyone. MADOC sweeps content first (math-complete docstrings on every public item); DLNT (or whatever proposal enables the lint) flips the gate second. If you're asked to do the lint flip out of order, push back and sequence MADOC first.
+
+### Logbook etiquette across worktrees
+
+Sub-agent sessions running in a worktree CANNOT write to `.claude/logbooks/<role>.md` in the main checkout — the hook blocks it. Options when you need to log a session:
+
+- **Preferred:** paste the handoff text into your PR body or the task return message. The EM (working from the main checkout) appends to the logbook when merging.
+- **Acceptable:** write a scratch note to `/tmp/` and reference it in the return message.
+- **Never:** try to `cp` from worktree to main checkout — the hook and your lack of write access both stop this.
+
+If your session is running IN the main checkout (e.g. user is interactively driving you as Technical Writer from the main clone), you can append to logbooks directly.
 
 ## Worktree Isolation Protocol
 
