@@ -19,7 +19,7 @@
 //!   double-counting integral `∫ ρ_val · v_xc dr`.
 //! - In LSDA, `ρ_core` is spin-unpolarized and split evenly as
 //!   `ρ_core/2` between the two spin channels before being added to each
-//!   `ρ_σ` (see `scf::run_scf_spin`).
+//!   `ρ_σ` (see `scf::driver_spin::run_scf_spin`).
 //!
 //! `ρ_core` itself is built on the FFT grid by
 //! [`scf::potentials::compute_core_density`](super::potentials::compute_core_density)
@@ -353,4 +353,169 @@ pub(crate) fn nonlocal_expectation(
 /// `rho_xc` = ρ_val + ρ_core (for NLCC) or ρ_val otherwise.
 pub(crate) fn xc_energy_bare(rho_xc: &[f64], exc_r: &[f64], omega: f64) -> f64 {
     xc::lda_xc_energy(rho_xc, exc_r, omega)
+}
+
+// ---------------------------------------------------------------------------
+// Per-component decomposition (VGC5 diagnostic)
+// ---------------------------------------------------------------------------
+
+/// Per-component energy decomposition of a converged SCF total energy.
+///
+/// All values in eV. Identity (at convergence):
+/// ```text
+/// E_total = e_kinetic
+///         + e_local
+///         + e_local_g0_shift   (= V_local(G=0) · N_el)
+///         + e_nonlocal
+///         + e_hartree
+///         + e_xc
+///         + e_ewald
+/// ```
+/// and by the Kohn-Sham double-counting identity:
+/// ```text
+/// e_band = e_kinetic + e_local + e_nonlocal + 2·e_hartree + e_vxc
+/// ```
+/// where `e_vxc = ∫ρ(r)·V_xc(r)dr`. The `V_local(G=0)·N_el` background shift
+/// is the compensating term for zeroing the G=0 component of the local
+/// pseudopotential in the Hamiltonian; see `scf::context::ScfContext::new`.
+///
+/// Mirrors QE's `pw.x` standard-output decomposition:
+/// ```text
+///   one-electron contribution = e_kinetic + e_local + e_nonlocal + e_local_g0_shift
+///   hartree    contribution = e_hartree
+///   xc         contribution = e_xc
+///   ewald      contribution = e_ewald
+/// ```
+/// Intended for validation (see proposal VGC5) rather than routine SCF use.
+/// Computed on the final iteration by one extra pass over wavefunctions,
+/// V_local on the FFT grid, and the V_NL operator.
+#[derive(Debug, Clone)]
+pub struct EnergyComponents {
+    /// Band energy: Σ_{n,k} f_{n,k} w_k ε_{n,k}.
+    pub e_band: f64,
+    /// Kinetic: Σ_{n,k} f·w·⟨ψ|T|ψ⟩ = Σ_{n,k} f·w·Σ_G |c_G|² · ℏ²/(2m)·|k+G|².
+    pub e_kinetic: f64,
+    /// Local PP (G ≠ 0): ∫ρ(r)·V_local(r)dr on the FFT grid (G=0 excluded).
+    pub e_local: f64,
+    /// Local PP G=0 compensating shift: V_local(G=0)·N_el.
+    /// Constant background subtracted from `v_local_fft` at setup to keep the
+    /// Hamiltonian diagonal finite.
+    pub e_local_g0_shift: f64,
+    /// Non-local (KB separable): Σ_{n,k} f·w·⟨ψ|V_NL|ψ⟩.
+    pub e_nonlocal: f64,
+    /// Hartree: (Ω/2) Σ_G |ρ(G)|² · 4πe²/|G|² (from OUTPUT density).
+    pub e_hartree: f64,
+    /// XC energy: ∫ρ(r)·ε_xc(r)dr (from OUTPUT density; same sign as QE's
+    /// "xc contribution"). NLCC: ρ here is ρ_val + ρ_core.
+    pub e_xc: f64,
+    /// Ewald ion-ion energy (spin- and density-independent).
+    pub e_ewald: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use approx::relative_eq;
+    use crate::fft::FFT3D;
+
+    #[test]
+    fn test_real_to_g_space_dc_component() {
+        // A constant real-space function f(r) = C should give
+        // F(G=0) = C and F(G≠0) = 0.
+        let mut fft = FFT3D::new(8, 8, 8);
+        let n = fft.total_size();
+        let c = 3.5;
+        let data_r = vec![c; n];
+        let data_g = real_to_g_space(&data_r, &mut fft);
+
+        // G=0 component (index 0) should be C
+        assert!(
+            relative_eq!(data_g[0].re, c, epsilon = 1e-10),
+            "DC component: expected {c}, got {}", data_g[0].re
+        );
+        assert!(data_g[0].im.abs() < 1e-10);
+
+        // All other G-components should be ~0
+        for (i, &v) in data_g.iter().enumerate().skip(1) {
+            assert!(
+                v.norm() < 1e-10,
+                "G≠0 component at {i}: expected ~0, got {v}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_real_to_g_space_roundtrip() {
+        let mut fft = FFT3D::new(8, 8, 8);
+        let n = fft.total_size();
+        let data_r: Vec<f64> = (0..n).map(|i| (i as f64 * 0.1).sin()).collect();
+        let data_g = real_to_g_space(&data_r, &mut fft);
+
+        // Inverse FFT should recover original (unnormalized → need N factor)
+        let mut data_back = data_g;
+        fft.inverse(&mut data_back);
+        // real_to_g_space divides by N, inverse multiplies by N → should recover original
+        for (i, (&orig, &back)) in data_r.iter().zip(data_back.iter()).enumerate() {
+            assert!(
+                relative_eq!(orig, back.re, epsilon = 1e-10),
+                "Roundtrip failed at {i}: original={orig}, recovered={}", back.re
+            );
+            assert!(back.im.abs() < 1e-10, "Imaginary part at {i}: {}", back.im);
+        }
+    }
+
+    #[test]
+    fn test_assemble_v_eff_adds_correctly() {
+        let n = 100;
+        let v1: Vec<Complex64> = (0..n).map(|i| Complex64::new(i as f64, 0.0)).collect();
+        let v2: Vec<Complex64> = (0..n).map(|i| Complex64::new(0.0, i as f64 * 0.1)).collect();
+        let v3: Vec<Complex64> = (0..n).map(|i| Complex64::new(-(i as f64) * 0.5, 0.0)).collect();
+
+        let result = assemble_v_eff(&v1, &v2, &v3);
+
+        for i in 0..n {
+            let expected = v1[i] + v2[i] + v3[i];
+            assert!(
+                (result[i] - expected).norm() < 1e-14,
+                "V_eff mismatch at {i}: expected {expected}, got {}", result[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_hartree_on_fft_grid_g0_zero() {
+        // V_H(G=0) should be zero (no divergence)
+        let rho_g = vec![Complex64::new(1.0, 0.0); 10];
+        let g_squared = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
+        let v_h = hartree_on_fft_grid(&rho_g, &g_squared);
+        assert!(v_h[0].norm() < 1e-15, "V_H(G=0) should be zero, got {}", v_h[0]);
+        // V_H(G≠0) should be finite and positive real for positive ρ
+        for &v in &v_h[1..] {
+            assert!(v.re > 0.0, "V_H should be positive for positive ρ: {v}");
+        }
+    }
+
+    #[test]
+    fn test_density_diff_identical() {
+        let rho = vec![1.0; 100];
+        let diff = density_diff(&rho, &rho, 40.0, 100);
+        assert!(diff < 1e-15, "Identical densities should give zero diff: {diff}");
+    }
+
+    #[test]
+    fn test_density_diff_known() {
+        let omega = 40.0;
+        let n = 100;
+        let rho_a = vec![1.0; n];
+        let rho_b = vec![2.0; n];
+        // diff = sqrt(Σ(1.0)² × dvol / omega) = sqrt(n × dvol / omega) = sqrt(dvol × n / omega)
+        // dvol = omega / n = 0.4
+        // diff = sqrt(0.4 * 100 / 40) = sqrt(1.0) = 1.0
+        let diff = density_diff(&rho_a, &rho_b, omega, n);
+        assert!(
+            relative_eq!(diff, 1.0, epsilon = 1e-10),
+            "Expected diff=1.0, got {diff}"
+        );
+    }
 }
