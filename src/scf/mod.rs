@@ -651,6 +651,20 @@ fn run_scf_spin(
             mixing::MixingMode::PeriodicPulay { period: *period, kerker: false }
         }
     };
+    // Surface the silent Kerker-off on m once — otherwise a user who configures
+    // Kerker sees the charge channel preconditioned but gets no signal about
+    // the magnetization channel running plain.
+    if matches!(
+        ctx.params.mixing_mode,
+        mixing::MixingMode::Kerker { .. }
+            | mixing::MixingMode::PeriodicPulay { kerker: true, .. }
+            | mixing::MixingMode::Broyden { kerker: true }
+    ) {
+        info!(
+            "nspin=2 CCMX: Kerker preconditioning applied to ρ_total channel only; \
+             magnetization (m = ρ↑ − ρ↓) channel mixes plain (no charge-response kernel on spin)."
+        );
+    }
     let mut mixer_total = mixing::Mixer::new(
         ctx.params.mixing_beta, ctx.params.mixing_ndim, &ctx.params.mixing_mode,
         Some(&ctx.g_squared), ctx.n_electrons, ctx.omega,

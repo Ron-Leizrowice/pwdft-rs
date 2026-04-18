@@ -232,16 +232,18 @@ fn test_ccmx_fe_free_magnetization_converges() {
     // |HF-KS| ~ 13 eV (see test_fe_ferromagnetic_fixed_moment comment and
     // proposals/SPNC-spin-per-density-convergence.md). Post-CCMX, the
     // (ρ_total, m) basis change decouples the two physical modes and the
-    // SCF converges properly: by iter ~11 at 8×8×8 Kerker the energy is
-    // stable to 6 decimals, |HF-KS| is O(5e-5 eV), and the system is
-    // magnetically collapsed (LDA ground state is non-magnetic for this
-    // PP). This test pins the post-CCMX convergence against regression:
-    // if the mixer topology accidentally reverts to per-channel mixing,
-    // the assertion on `final_delta` below will fail hard.
+    // SCF converges properly.
     //
-    // Uses a 4×4×4 grid for speed. At 15 Ry ecut with Kerker:
-    //   pre-CCMX: Δρ pinned at 0.254 after iter 5, |HF-KS| ≈ 13 eV, M ≈ 0.05 μB (spurious).
-    //   post-CCMX: Δρ ≈ 3e-6 by iter ~40, |HF-KS| ≈ 6e-5 eV, M ≈ 0 μB.
+    // Uses a 4×4×4 grid with Kerker at 15 Ry ecut for speed. Observed:
+    //   pre-CCMX:  Δρ pinned at 0.254, consumes all max_iter=80, |HF-KS| ≈ 13 eV, M ≈ 0.05 μB (spurious).
+    //   post-CCMX: converges in ~14 iters, |HF-KS| ≈ 1e-4 eV, M ≈ 0 μB.
+    //
+    // Regression guards (see assertions below): (1) |HF-KS| stays sub-meV,
+    // (2) magnetization collapses to near-zero (no spurious spin leakage),
+    // (3) iteration count stays under max_iter — pre-CCMX would exhaust it.
+    // `ScfResult.final_delta` is not currently exposed; adding it would
+    // enable a tighter pathology-specific assertion (Δρ ≈ 0.254 vs ≈ 1e-3).
+    // Flagged as a Core Engineer follow-up on MODR Phase B.
     let crystal = fe_bcc();
     let pp = pwdft_rs::pseudopotential::load(
         &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
