@@ -18,13 +18,15 @@
 //! Γ-centered grid convention (tracked in SYKP — `src/kpoints.rs::monkhorst_pack`
 //! hard-codes MP-1976 shift while QE uses Γ-centered grids). Light-atom
 //! (Z ≤ 14) and wide-gap systems inherit the same SYKP grid residual.
-//! Heavy-atom (Z > 14) systems carry an additional ≈9.5 eV V_local(G)
-//! discrepancy tracked under VGCMP (continuing cross-check past the Phase
-//! 1-4 work that closed the assembly pipeline on Si). Each `#[ignore]`
-//! reason cites the specific blocker (SYKP or VGCMP) plus the measured
-//! pwdft-rs and QE values. Drop an `#[ignore]` once both codes sample the
-//! same grid (SYKP/MPSH) or the V_local(G) heavy-atom residual closes
-//! (VGCMP).
+//! Heavy-atom (Z > 14) systems carry an additional 7–34 eV residual whose
+//! root cause is TBD — VGCMP Phases 1–4 proved the V_local(G) assembly
+//! pipeline bit-correct on Si, so the heavy-atom residual is *not*
+//! V_local(G) and the continuing investigation is tracked under VGCH
+//! (candidate root causes: semicore/ecut convergence, V_local(G=0) Z-scaling,
+//! Ewald for large Z, etc.). Each `#[ignore]` reason cites the specific
+//! blocker (SYKP or VGCH) plus the measured pwdft-rs and QE values. Drop
+//! an `#[ignore]` once both codes sample the same grid (SYKP/MPSH) or the
+//! heavy-atom residual closes (VGCH).
 
 #![allow(
     clippy::unwrap_used,
@@ -281,7 +283,7 @@ fn test_si_diamond_vs_qe() {
 /// (tracked in SYKP: `src/kpoints.rs::monkhorst_pack` hard-codes MP-1976
 /// shift while QE uses Γ-centered `4 4 4 0 0 0`). Unlike Si the wider C
 /// gap leaves the mixer short of conv_threshold inside max_iter. C is
-/// Z=6 (light) so no VGCMP heavy-atom dependency. Drop `#[ignore]` once
+/// Z=6 (light) so no VGCH heavy-atom dependency. Drop `#[ignore]` once
 /// SYKP/MPSH lands and both codes sample the same grid.
 #[test]
 #[ignore = "SYKP: MP shifted-vs-Γ grid mismatch keeps SCF from reaching conv_threshold; pwdft-rs stalls at Δρ ≈ 4.1e-6 after 80 iters (QE converges in 9)"]
@@ -321,7 +323,7 @@ fn test_c_diamond_vs_qe() {
 /// Attribution is the Monkhorst-Pack shifted-vs-Γ-centered grid convention
 /// tracked in SYKP (QE uses Γ-centered `8 8 8 0 0 0`; pwdft-rs hard-codes
 /// the shifted MP-1976 convention in `src/kpoints.rs::monkhorst_pack`).
-/// Al is Z=13 (light) — no VGCMP heavy-atom dependency; behavior mirrors
+/// Al is Z=13 (light) — no VGCH heavy-atom dependency; behavior mirrors
 /// Si (Z=14, ~23 meV residual). Drop `#[ignore]` once SYKP/MPSH lands.
 /// VERF did not close the Si gap and is archived — replacing the old
 /// VERF attribution with SYKP.
@@ -363,16 +365,17 @@ fn test_al_fcc_vs_qe() {
 ///
 /// Post-CCMX (2026-04-18) the SCF converges cleanly (no more spin-flip
 /// limit cycle), but the total energy still differs from QE by ~9.5 eV —
-/// the residual Z>14 heavy-atom gap tracked under VGCMP (V_local(G)
-/// convention cross-check vs QE). See
-/// proposals/VGCMP-vloc-g-cross-check.md.
+/// the residual Z>14 heavy-atom gap (root cause TBD) tracked under VGCH.
+/// VGCMP Phases 1–4 proved the V_local(G) assembly pipeline bit-correct
+/// on Si, so the heavy-atom residual is *not* V_local(G). See
+/// proposals/VGCH-heavy-atom-vloc-residual.md.
 ///
 /// Reference values (for year-later readers):
 ///   pwdft-rs post-CCMX:  E = -3050.80 eV  (8×8×8, 15 Ry, Kerker)
 ///   QE ref:              E = -3060.158 eV (-224.917_449_34 Ry)
-///   residual:            ~9.5 eV  →  tracked as VGCMP heavy-atom V_local
+///   residual:            ~9.5 eV  →  tracked under VGCH (root cause TBD)
 #[test]
-#[ignore = "CCMX fixes convergence (E = -3050.80 eV); ~9.5 eV gap vs QE -3060.16 eV blocked on VGCMP (heavy-atom V_loc)"]
+#[ignore = "~9.5 eV gap vs QE (E_pwdft = -3050.80, E_qe = -3060.16 eV); root cause TBD, tracked in VGCH"]
 fn test_fe_bcc_fm_vs_qe() {
     let crystal = bcc_crystal(2.87, Atom::new(26, [0.0, 0.0, 0.0]));
     let pp_fe = load_pp("Fe");
@@ -415,19 +418,20 @@ fn test_fe_bcc_fm_vs_qe() {
 ///
 /// QE ref: E = -307.928_895_02 Ry, E_F = 6.5212 eV, 11 iters, ecut = 20 Ry.
 ///
-/// Ignored: both Ga (Z=31) and As (Z=33) are heavy-atom Z>14 — residual is
-/// dominated by the V_local(G) heavy-atom discrepancy tracked in VGCMP
-/// (cross-check against QE beyond the Phase 1-4 work that closed the
-/// assembly pipeline; ~9.5 eV seen on Fe BCC carries over and compounds
-/// across two heavy species here). VERF did not close the Si gap and is
-/// archived — replacing the old VERF attribution with VGCMP.
+/// Ignored: both Ga (Z=31) and As (Z=33) are heavy-atom Z>14 — residual
+/// has root cause TBD (tracked in VGCH). VGCMP Phases 1–4 ruled out a
+/// V_local(G) assembly bug on Si, so the heavy-atom residual lives
+/// elsewhere (candidate causes: semicore/ecut convergence, V_local(G=0)
+/// Z-scaling, Ewald for large Z); ~9.5 eV seen on Fe BCC carries over and
+/// compounds across two heavy species here. VERF did not close the Si gap
+/// and is archived — replacing the old VERF attribution with VGCH.
 ///
 /// Reference values (for year-later readers):
 ///   pwdft-rs: E = −4155.9543 eV
 ///   QE:       E = −4189.5860 eV  (−307.928_895_02 Ry)
 ///   residual: ~33.6 eV
 #[test]
-#[ignore = "VGCMP: heavy-atom V_loc residual ≈33.6 eV on GaAs (Z=31+33); pwdft-rs E = -4155.954 eV, QE = -4189.586 eV"]
+#[ignore = "VGCH: heavy-atom residual ≈33.6 eV (root cause TBD) on GaAs (Z=31+33); pwdft-rs E = -4155.954 eV, QE = -4189.586 eV"]
 fn test_gaas_zincblende_vs_qe() {
     let crystal = fcc_crystal(
         5.653,
@@ -463,19 +467,21 @@ fn test_gaas_zincblende_vs_qe() {
 /// QE ref: E = -356.736_028_69 Ry, E_F = 19.2056 eV, 9 iters, ecut = 25 Ry,
 /// 8x8x8 k-grid, degauss = 0.02 Ry, Kerker (QE `local-TF`).
 ///
-/// Ignored: Cu is Z=29 heavy-atom — residual is dominated by the V_local(G)
-/// heavy-atom discrepancy tracked in VGCMP (cross-check against QE beyond
-/// the Phase 1-4 work that closed the assembly pipeline; ~9.5 eV seen on
-/// Fe BCC carries over here). Cu has 3s/3p/3d semicore so the heavy-atom
-/// V_loc effect is pronounced. VERF did not close the Si gap and is
-/// archived — replacing the old VERF attribution with VGCMP.
+/// Ignored: Cu is Z=29 heavy-atom — residual has root cause TBD (tracked
+/// in VGCH). VGCMP Phases 1–4 ruled out a V_local(G) assembly bug on Si,
+/// so the heavy-atom residual lives elsewhere (candidate causes:
+/// semicore/ecut convergence, V_local(G=0) Z-scaling, Ewald for large Z);
+/// ~9.5 eV seen on Fe BCC carries over here. Cu has 3s/3p/3d semicore so
+/// the semicore sensitivity is especially plausible. VERF did not close
+/// the Si gap and is archived — replacing the old VERF attribution with
+/// VGCH.
 ///
 /// Reference values (for year-later readers):
 ///   pwdft-rs: E = −4837.4659 eV
 ///   QE:       E = −4853.6409 eV  (−356.736_028_69 Ry)
 ///   residual: ~16.2 eV
 #[test]
-#[ignore = "VGCMP: heavy-atom V_loc residual ≈16.2 eV on Cu (Z=29, 3s/3p/3d semicore); pwdft-rs E = -4837.466 eV, QE = -4853.641 eV"]
+#[ignore = "VGCH: heavy-atom residual (root cause TBD) ≈16.2 eV on Cu (Z=29, 3s/3p/3d semicore); pwdft-rs E = -4837.466 eV, QE = -4853.641 eV"]
 fn test_cu_fcc_vs_qe() {
     let crystal = fcc_crystal(3.61, vec![Atom::new(29, [0.0, 0.0, 0.0])]);
     let pp_cu = load_pp("Cu");
@@ -506,19 +512,20 @@ fn test_cu_fcc_vs_qe() {
 /// QE ref: E = -119.779_703_03 Ry, E_F = 3.4704 eV, 9 iters, ecut = 25 Ry.
 /// Na at (0,0,0), Cl at (½,½,½) in the FCC primitive cell.
 ///
-/// Ignored: Cl is Z=17 (heavy, Z>14) — residual is dominated by the
-/// V_local(G) heavy-atom discrepancy tracked in VGCMP (cross-check
-/// against QE beyond the Phase 1-4 work that closed the assembly
-/// pipeline; ~9.5 eV seen on Fe BCC carries over here). VERF did not
+/// Ignored: Cl is Z=17 (heavy, Z>14) — residual has root cause TBD
+/// (tracked in VGCH). VGCMP Phases 1–4 ruled out a V_local(G) assembly
+/// bug on Si, so the heavy-atom residual lives elsewhere (candidate
+/// causes: semicore/ecut convergence, V_local(G=0) Z-scaling, Ewald for
+/// large Z); ~9.5 eV seen on Fe BCC carries over here. VERF did not
 /// close the Si gap and is archived — replacing the old VERF attribution
-/// with VGCMP.
+/// with VGCH.
 ///
 /// Reference values (for year-later readers):
 ///   pwdft-rs: E = −1621.9441 eV
 ///   QE:       E = −1629.6859 eV  (−119.779_703_03 Ry)
 ///   residual: ~7.7 eV
 #[test]
-#[ignore = "VGCMP: heavy-atom V_loc residual ≈7.7 eV on NaCl (Cl Z=17); pwdft-rs E = -1621.944 eV, QE = -1629.686 eV"]
+#[ignore = "VGCH: heavy-atom residual (root cause TBD) ≈7.7 eV on NaCl (Cl Z=17); pwdft-rs E = -1621.944 eV, QE = -1629.686 eV"]
 fn test_nacl_rocksalt_vs_qe() {
     let crystal = fcc_crystal(
         5.614,
@@ -554,19 +561,21 @@ fn test_nacl_rocksalt_vs_qe() {
 /// QE ref: E = -147.235_477_68 Ry, E_F = 10.2064 eV, 8 iters, ecut = 30 Ry.
 /// Mg at (0,0,0), O at (½,½,½) in the FCC primitive cell.
 ///
-/// Ignored: measured residual (~10 eV) is at the VGCMP heavy-atom V_local
-/// scale despite nominal Z<14 — the Mg ONCV LDA PP includes 2s/2p
-/// semicore which triggers the same V_local(G) heavy-atom discrepancy
-/// (tracked in VGCMP, cross-check against QE beyond the Phase 1-4 work
-/// that closed the assembly pipeline). VERF did not close the Si gap
-/// and is archived — replacing the old VERF attribution with VGCMP.
+/// Ignored: measured residual (~10 eV) is at the heavy-atom scale despite
+/// nominal Z<14 — the Mg ONCV LDA PP includes 2s/2p semicore, which places
+/// it in the same heavy-atom residual class (tracked in VGCH, root cause
+/// TBD). VGCMP Phases 1–4 ruled out a V_local(G) assembly bug on Si, so
+/// the heavy-atom residual lives elsewhere (candidate causes: semicore/ecut
+/// convergence, V_local(G=0) Z-scaling, Ewald for large Z). VERF did not
+/// close the Si gap and is archived — replacing the old VERF attribution
+/// with VGCH.
 ///
 /// Reference values (for year-later readers):
 ///   pwdft-rs: E = −1993.1458 eV
 ///   QE:       E = −2003.2407 eV  (−147.235_477_68 Ry)
 ///   residual: ~10.1 eV
 #[test]
-#[ignore = "VGCMP: heavy-atom V_loc residual ≈10.1 eV on MgO (Mg semicore PP); pwdft-rs E = -1993.146 eV, QE = -2003.241 eV"]
+#[ignore = "VGCH: heavy-atom residual (root cause TBD) ≈10.1 eV on MgO (Mg semicore PP); pwdft-rs E = -1993.146 eV, QE = -2003.241 eV"]
 fn test_mgo_rocksalt_vs_qe() {
     let crystal = fcc_crystal(
         4.212,
