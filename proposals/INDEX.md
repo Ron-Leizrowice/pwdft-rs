@@ -6,30 +6,39 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 **2026-04-18:** Critical-Physics slate is **empty**. NCFX closed the 13.4 eV Si gap to 0.26 eV; PCFX (this release) closed the 1.2 eV per-component residual to 3.5e-11 eV by moving density symmetrization to G-space. The remaining ~23 meV Si residual vs QE is attributed to Monkhorst-Pack shifted-vs-Γ-centered grid convention (SYKP territory), below proposal-priority threshold.
 
+**2026-04-19 (GRUM grooming pass):** VNLM closed (PR #49, 2.9–4.5× V_NL speedup); MODR closed (all phases A–D landed as PRs #46/#50/#48/#47). ITEV moved to "Deferred — Blocked on upstream" pending a faer 0.24 `iterate_lanczos` reorthogonalization bug fix. WFRX elevated from Low to High under a new "High — Performance" subsection: technique 1 (subspace diag) is independent of ITEV and delivers 20–30% SCF speedup on the current dense eigensolver.
+
 ### High — Foundation & Code Quality
+
+_No active entries (MODR's 4 phases all landed; see Completed)._
+
+### High — Performance
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` (supersedes DVSN) | medium | medium | — | — |
-| MODR | Modular refactor audit — split god-modules (plan; phases A–D) | large | medium | ITEV | — |
+| WFRX | Wavefunction Reuse Between SCF Iterations (technique 1 on dense now; technique 2 gated on ITEV) | medium | low | — | — |
 
 ### Medium — Enhancements & Performance
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
 | CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
-| VNLM | V_NL Hamiltonian assembly via single GEMM | small-medium | low | — | — |
 | MADOC | Mathematical documentation push (phased; MADOC-A first) | large | low | — | DLNT |
 | GGAP | GGA/PBE exchange-correlation functional (phased A–F; ~9–13 CE-days) | large | medium | — | HYBR |
 | HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP | — |
 | ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; phased) | medium | low | — | — |
+
+### Deferred — Blocked on upstream
+
+| ID | Title | Complexity | Risk | Depends On | Blocks | Blocked On |
+|----|-------|-----------|------|------------|--------|------------|
+| ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` (supersedes DVSN) | medium | medium | — | — | faer 0.24 `iterate_lanczos` reorthogonalization bug — revisit when upstream releases 0.25+ |
 
 ### Low / Deferred
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
 | CLSS | `cast_lossless` + Doc Hygiene | small | low | — | — |
-| WFRX | Wavefunction Reuse Between SCF Iterations (re-scope as ITEV warm-start) | medium | low | — | — |
 | DVSN | Iterative Eigensolver (Davidson / LOBPCG) — SUPERSEDED BY ITEV | large | medium | — | — |
 | HD5I | HDF5 Restart and Structured Output | large | medium | — | — |
 | SPRS | Sparse Matrix Support | large | medium | DVSN | — |
@@ -105,6 +114,8 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | MXBA | Adaptive Mixing Beta (Eyert 1996 residual-norm monitor; opt-in, default off — hurts Fe CCMX) |
 | TACC | Test Accuracy + Relevance Audit (findings #2–#6 landed via TACC-I; finding #1 fixed in TACC-II) |
 | TYPE | Numeric-type audit Phase A — i32→i8 SpaceGroupOp rotations + i32→i16 Miller + dead `index_map` (5% on `symmetrize_density_g`) |
+| VNLM | V_NL Hamiltonian assembly via single GEMM (n_pw=725: 27 ms → 5.2 ms, 5.2×; 4.5× per-k over 15 SCF iters) |
+| MODR | Modular refactor — split god-modules (all 4 phases A–D landed: PRs #46/#50/#48/#47) |
 
 ## Notes
 
