@@ -222,6 +222,69 @@ visible to a future grep.
 "grid ≤ 512" either backs the bound with a `debug_assert!` or cites a
 first-principles bound (ecut ≤ X Ry → grid ≤ Y).
 
+### MXB1 — Verify Eyert §3.3 vs §5 threshold constants
+
+- **Role:** Researcher
+- **Priority:** low, **Complexity:** small, **Risk:** low
+- **Source:** MXBA code review, PR #57 flagged follow-up.
+
+The coded `AdaptiveBeta` defaults in `src/scf/mixing/mod.rs:112-169` are
+`(growth_threshold=1.2, damp_factor=0.7, restore_threshold=0.5, restore_window=3)`.
+The archived proposal (`proposals/completed/MXBA-adaptive-mixing-beta.md`)
+cites Eyert 1996 §5 with constants `(γ_up=1.2, γ_down=0.5, c_down=0.8, c_up=1.0)`
+— a different set (§5 says "damp when ratio > 1.0"; code says "ratio > 1.2").
+Without paper access the reviewer couldn't tell whether §3.3 prescribes the
+stricter thresholds or whether the agent chose them empirically. Get the
+paper, verify, and either update the citation or the constants. If
+empirically chosen, document the sweep that justified them.
+
+**Acceptance criterion:** MXBA proposal's archived `Notes` section cites
+the correct Eyert section + table for the default thresholds; if the
+constants were empirical, adds a reproducible sweep script in
+`scripts/validate/`.
+
+### MXB2 — Re-diagnose MXBA Fe failure + retune
+
+- **Role:** Core Engineer
+- **Priority:** medium (blocks default-on), **Complexity:** small-medium, **Risk:** low
+- **Source:** MXBA code review, PR #57 RCA correction.
+
+The PR body says "flat residual damps β" — wrong. A flat ratio ≈ 1.0
+is inside the hysteresis band `[0.5, 1.2]` and fires neither damp nor
+restore. The `tests/mxba_adaptive_beta_fe.rs` trajectory shows β stays
+at 0.3 for iters 1-9 (monitor silent) and only starts dropping iter 10+.
+Real failure mode: the residual *oscillates past 1.2× often enough to
+chain damps, while the 3-iter streak of <0.5× needed to restore is
+unreachable once DIIS is starved*. The "DIIS warm-up window" the MXBA
+PR flagged is therefore the wrong mitigation. Candidates to try instead:
+(a) require a 2-iter *growth* streak before damping, (b) raise `β_min`
+floor from `0.05·β_start` to e.g. `0.2·β_start`, (c) relax
+`restore_threshold` from 0.5 to 0.8. Bench on Fe CCMX + C diamond at
+30 Ry plain mixing.
+
+**Acceptance criterion:** `tests/mxba_adaptive_beta_fe.rs` either
+converges with adaptive=on or remains `#[ignore]`'d with an updated
+reason explaining which tuning was tried and why it didn't work. If a
+tuning makes Fe converge, flip `adaptive_beta` default to `true`.
+
+### MXB3 — Direct `AdaptiveBeta::update` Fe-trajectory unit test
+
+- **Role:** Code Reviewer (or Core Engineer)
+- **Priority:** low, **Complexity:** trivial, **Risk:** low
+- **Source:** MXBA code review, PR #57 companion-test recommendation.
+
+Add a ~20-line direct unit test on `AdaptiveBeta::update` that feeds
+the documented Fe-failure trajectory shape (initial flat plateau
+followed by the 1.2×+ oscillation pattern) and asserts β floors at
+`β_min` within the observed 80-iter envelope. Deterministic and
+millisecond-cost — a cheap companion to the expensive `#[ignore]`'d
+integration test in `tests/mxba_adaptive_beta_fe.rs`. If MXB2 changes
+the failure mode, this test updates with it.
+
+**Acceptance criterion:** new unit test in `src/scf/mixing/mod.rs::tests`
+reproduces the β schedule that leads to ConvergenceFailure on Fe,
+without running an SCF.
+
 ## What this is NOT
 
 - **Not an implementation plan.** Each entry needs to be promoted to
