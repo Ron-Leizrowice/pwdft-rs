@@ -480,7 +480,7 @@ the week's landings to attribute and document.
 
 ~~Today's RDOC cleanup cleared 17 pre-existing `cargo doc --no-deps`
 warnings to 0. Without CI enforcement, regressions will accumulate
-again. Add `cargo doc --no-deps -- -D warnings` to the "Code Quality"
+again. Add `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` to the "Code Quality"
 section of `CLAUDE.md` alongside the existing two clippy invocations.
 Also update each agent definition under `.claude/agents/*.md` whose
 workflow mentions the quality gate.~~
@@ -488,13 +488,16 @@ workflow mentions the quality gate.~~
 ~~**Acceptance criterion:** CLAUDE.md + agent defs updated; any new PR
 touching docstrings that introduces a warning is blocked by the gate.~~
 
-Landed: CLAUDE.md § Code Quality now lists `cargo doc --no-deps -- -D
-warnings` alongside both clippy invocations (lines 47 and 52 of CLAUDE.md
-on today's main). Agent definitions updated: `.claude/agents/core-engineer.md:53`
-chains the cargo-doc gate into the quality-gate block, and
-`.claude/agents/technical-writer.md:64` documents DWGT as mandatory and
-forbids `#[allow]` on rustdoc warnings. ERR2 P0 (PR #86) and subsequent
-merges have run clean against the gate.
+Landed: CLAUDE.md § Code Quality now lists `RUSTDOCFLAGS='-D warnings'
+cargo doc --no-deps` alongside both clippy invocations (lines 47 and 52
+of CLAUDE.md on today's main). Agent definitions updated:
+`.claude/agents/core-engineer.md:53` chains the cargo-doc gate into the
+quality-gate block, and `.claude/agents/technical-writer.md:64` documents
+DWGT as mandatory and forbids `#[allow]` on rustdoc warnings. ERR2 P0
+(PR #86) and subsequent merges have run clean against the gate. (DOCX
+2026-04-18 corrected the historical `cargo doc --no-deps -- -D warnings`
+recipe to the env-var form; current cargo rejects `-D warnings` passed
+after `--`.)
 
 ### TYPE-AX — Decide on TYPE-A narrowing `expect` sites in ERR2 P1
 
