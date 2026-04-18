@@ -18,6 +18,12 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 |----|-------|-----------|------|------------|--------|
 | WFRX | Wavefunction Reuse Between SCF Iterations (technique 1 on dense now; technique 2 gated on ITEV) | medium | low | — | — |
 
+### High — Validation
+
+| ID | Title | Complexity | Risk | Depends On | Blocks |
+|----|-------|-----------|------|------------|--------|
+| VQEF | Full LDA+PBE QE validation matrix (8 systems × 2 functionals) — roadmap | medium | low | VGCMP, GGAP, QELK | — |
+
 ### Medium — Enhancements & Performance
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
