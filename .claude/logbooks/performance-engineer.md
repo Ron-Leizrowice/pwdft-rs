@@ -2,6 +2,30 @@
 
 Entries: date, measurements (actual numbers), bottleneck findings, proposals assessed. Always include hardware context.
 
+## 2026-04-19 — ALOC F-5 landed (Hamiltonian Mat cache)
+
+Per-k `faer::Mat<Complex64>` scratch now lives in `ScfContext::h_scratch` (length `nspin * n_k`), fully overwritten by new `fill_hamiltonian_with_v_eff`. Zero per-iter `Mat::zeros(n_pw, n_pw)`.
+
+Apple M2, per-k assembly bench (inline old vs new, VNL included, lock held):
+
+| n_pw | alloc_and_fill (old) | fill_into_cached (new) | Δ/call         |
+|------|---------------------:|-----------------------:|:---------------|
+|  89  |    88.4 µs           |   103 µs (noisy)       | within noise   |
+| 259  |   723.6 µs           |   721.1 µs             | −0.3%          |
+| 725  |  5.585 ms            |  5.494 ms              | **−91 µs (−1.6%)** |
+
+Saving per iter scales `n_k · 91 µs` at n_pw=725 → ~0.9 ms/iter @ n_k=10. **Allocator traffic saved: ~84 MB × n_iter transient → zero** (the real structural win; 1.68 GB → 0 on a 20-iter Si 4×4×4 ecut=400 run).
+
+**End-to-end SCF wall-times, post-ALOC-F5:** Si Γ ecut=100 523 ms, Γ ecut=200 1.18 s, 2×2×2 ecut=200 1.14 s, 4×4×4 ecut=200 1.58 s.
+
+**Gotcha:** `VNL::add_to_hamiltonian` uses `matmul(Accum::Add, ...)` — accumulates into H. The assembly contract is therefore "fill fully first, then accumulate." Zero-fill skippable only because we rewrote kinetic+V_eff loop to write each `(i,j)` with `=` (diagonal) or `=` (off-diag) rather than `+=`.
+
+**Bit-identity verified:** `aloc_f5_si_scf_is_deterministic` asserts `to_bits()` equality across two back-to-back SCFs on identical inputs. Eigenvalues match exactly at every (k, band). Si SCF pin (50 meV tol): E_total = −229.0566 eV.
+
+**Flagged for Core Engineer:** `tests/vgc5_per_component_si.rs::test_madoc_band_sum_identity_si` fails under `--features gpu` on origin/main (216e050 and current). Residual 5.58e-6 eV vs tol 1e-7 eV — CPU version passes. Pre-existing MADOC vs GPU f32 precision issue, not an ALOC-F5 regression.
+
+**Next-highest perf wins (from ALOC §2.5):** F-7 (psi_g in band loop, 200–1000 µs/iter), F-12 (FFT3D twiddle rebuild in fold init, 100–500 µs/iter), F-2 (XC grid in-place, 50–200 µs/iter).
+
 ## 2026-04-19 — WFRX Phase 1 landed (PR #99)
 
 Subspace warm-start on dense eigensolver. **Default OFF** per spec — small-n regression rules out default-on. Numerical equivalence: Si |ΔE| = 1.39e-10 eV (proposal gate = 1e-8; 2 orders tighter).
