@@ -365,3 +365,24 @@ Branch `PCFX/g-space-symmetrization`. Moved density symmetrization from real-spa
 - The PCFX self-check now pins `|Σ − E_total| < 1e-5 eV` in `vgc5_per_component_si.rs`. Any regression in symmetrization (or the density reconstruction path) will fail this aggressively.
 
 **Machine lock:** ~900s total (compile + tests + clippy + GPU tests).
+
+## 2026-04-18 — MODR-B landed (PR #50)
+
+Pure-move refactor of `src/scf/mod.rs`. Branch `MODR-B/split-scf-mod`.
+
+**Split:**
+- `run_scf` (non-spin hot loop) → `scf/driver.rs::run_scf_unpolarized` (pub(crate))
+- `run_scf_spin` → `scf/driver_spin.rs::run_scf_spin` (pub(crate))
+- logging helpers → `scf/report.rs` (IterationReport + log_iteration + log_convergence_summary + log_entropy + log_components, all pub(super))
+- `EnergyComponents` → `scf/energy.rs`; re-exported via `pub use`
+- Helper unit tests (real_to_g_space, assemble_v_eff, hartree_on_fft_grid, density_diff) moved to `scf::energy::tests` with their production code. `validate_rejects_zero_pulay_period` stays with `ScfParams` in mod.rs.
+
+**mod.rs: 1292 → 271 LOC.** `mod driver`, `mod driver_spin`, `mod report` all fully private (tighter than Phase A's `pub mod mixing`).
+
+**Landmine avoided:** first draft of report.rs collapsed both drivers into one `log_convergence_summary(..., ts, n_atoms)`. The original spin driver never emitted `Entropy (-TS):`; non-spin emits it when `|TS| > 1e-8`. That would have been a behavior change. Split into `log_convergence_summary` (both drivers) + `log_entropy` (non-spin only). Pinned by `log_entropy` docstring.
+
+**Results:** 209 CPU + 212 GPU unit tests pass, all integration tests pass, clippy clean on both feature sets. Rebased onto origin/main after MODR-C (#48) and MODR-D (#47) landed mid-session — zero conflicts (disjoint file sets, as predicted in the phase plan).
+
+## Flagged for follow-up
+- The `+ ctx.v_local_g0 * ctx.n_electrons` G0-shift expression is now duplicated in `scf/driver.rs` (e_total + e_harris) and `scf/driver_spin.rs` (e_total + e_harris) — 4 call sites across 2 files. A `with_g0_shift()` helper in `scf/energy.rs` is the natural DRY. Proposal MODR flags as Core Engineer follow-up; did NOT do it here per explicit scope fence.
+- `SpinIterationFields` in `scf::report` is currently pub(super) and could stay that way, but if a third driver variant ever lands (non-collinear spin? DFT+U?), the spin-extension pattern of "Option<SpinIterationFields>" on IterationReport will not generalize cleanly. Revisit if/when.
