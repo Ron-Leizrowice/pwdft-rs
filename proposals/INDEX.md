@@ -8,6 +8,8 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 **2026-04-19 (GRUM grooming pass):** VNLM closed (PR #49, 2.9–4.5× V_NL speedup); MODR closed (all phases A–D landed as PRs #46/#50/#48/#47). ITEV moved to "Deferred — Blocked on upstream" pending a faer 0.24 `iterate_lanczos` reorthogonalization bug fix. WFRX elevated from Low to High under a new "High — Performance" subsection: technique 1 (subspace diag) is independent of ITEV and delivers 20–30% SCF speedup on the current dense eigensolver.
 
+**2026-04-19 (Stack decision):** Engineering stack codified — observability stays on `log` + `env_logger` + `indicatif`; profiling adopts `samply` (PROF); benchmarks stay on `criterion`. The `tracing` ecosystem was considered and dropped; reopen triggers documented in PROF § "When to reconsider tracing". MIXL/LOGH/MOAD/DEAD/XCTH/PROF land independently — each is the simplest tool for its job rather than a piece of a unified observability framework.
+
 **2026-04-19 (GRM2 grooming pass — 22 PRs #80–#101 merged today):** WFRX Technique 1 landed (PR #99, opt-in `scf.subspace_diag`, 7% at n_pw=725; Technique 2 stays deferred on ITEV). Promoted WFRX to Completed. Added MLFX/QELK/UNTS/DOCX/CLNP to Completed as small/reactive landings (no proposal files). GGAP Phase A landed (PR #85) — title annotated with phase state. ALOC Finding F-5 landed (PR #100, alloc traffic 16.8 GB → 0 per SCF at production sizes); F-7 and F-12 remain. TRV2 F1 (PR #98) and F3 (PR #96) landed; F2 (CCMX extraction) deferred on WFRX/driver refactor; 10 Category 2–5 findings remain. ERR2 P0 landed (PR #86); ERR2-AX (operations.rs annotations) and P1 (InvalidInput split) remain. MAUD-AC still in flight — title left as-is this pass. Machine-lock enforcement is now owner-scoped end-to-end (MLFX). Next strategic item: GGAP Phase B (PBE semilocal + gradient FFT helper) once MPSH drivers land; that unblocks 7 PBE validation cells in VQEF. Path forward — Validation: MPSH drivers (in flight) → 3 LDA cells; VGCH Phase 1 (Fe ecut sweep) after Phase 0 landed via CLNP. Perf: WFRX Technique 1 done, ALOC F-7/F-12 + GOPT PR-B next. "High — Foundation & Code Quality" subsection retained as a header slot but empty (MODR phases A–D all landed).
 
 ### High — Foundation & Code Quality
@@ -39,6 +41,10 @@ _No active entries (WFRX Technique 1 landed as PR #99; Technique 2 gated on ITEV
 | TRV2 | Fresh test-suite review — post-PCFX/CCMX/NCFX/GGAP coverage pass (F1+F3 landed PRs #98/#96; F2 CCMX-extraction deferred on WFRX/driver refactor; 10 Categories 2–5 findings remain) | medium | low | — | — |
 | MAUD | Mathematical accuracy audit of core physics modules (post-MADOC-A cold read; 1 docstring A + 9 C findings; MAUD-AC in flight will address top 2) | small | low | MADOC | — |
 | ALOC | Per-iteration allocation audit for SCF hot loop (F-5 landed PR #100: alloc traffic 16.8 GB → 0 per SCF at production sizes; F-7 in flight; F-12 remains) | medium | low | — | — |
+| DEAD | Dead-code + visibility cleanup (DRSD drop ~250-LOC real-space symmetrize_density module + SMRT delete misleading test + DHPC narrow `diagonalize_hermitian` to `pub(crate)`) | small | low | — | — |
+| MIXL | Mixer init & event logging (mixer-init `info!`, auto-q_TF, DIIS truncation `debug!`, adaptive-β trigger `debug!`) | small | low | — | — |
+| MOAD | Module-orientation `//!` docstrings on 14 source files including `src/lib.rs` (cargo doc landing page is empty) | small | low | — | — |
+| PROF | Adopt `samply` as canonical profiler; codify observability vs. profiling vs. benchmarking split (CLAUDE.md + perf-engineer agent + logbook baseline) | trivial | low | — | — |
 
 ### Deferred — Blocked on upstream
 
@@ -52,7 +58,8 @@ _No active entries (WFRX Technique 1 landed as PR #99; Technique 2 gated on ITEV
 |----|-------|-----------|------|------------|--------|
 | CLSS | `cast_lossless` + Doc Hygiene | small | low | — | — |
 | HKIN | Drop unused `Option<&dyn Fn>` V_eff param from `build_hamiltonian` + `compute_band_structure` (zero `Some` call sites) | trivial | low | — | — |
-| TRCE | Migrate `log` + `env_logger` → `tracing` + `tracing-subscriber` (span timing, structured events, indicatif integration) | small | low | — | — |
+| LOGH | Logging hygiene — `eprintln!` cleanup (MELG main.rs SCF summary → `info!`; TXEP+PCEP delete 16 test debug prints) | trivial | low | — | — |
+| XCTH | Remove `XC_PARALLEL_THRESHOLD`; always use rayon in `lda_xc_grid` / `lda_xc_spin_grid` (consistency with rest of engine; SCF impact <5 ms over 30 iters) | trivial | low | — | — |
 | DVSN | Iterative Eigensolver (Davidson / LOBPCG) — SUPERSEDED BY ITEV | large | medium | — | — |
 | HD5I | HDF5 Restart and Structured Output | large | medium | — | — |
 | SPRS | Sparse Matrix Support | large | medium | DVSN | — |
