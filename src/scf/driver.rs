@@ -76,8 +76,9 @@ use crate::{
     crystal::Crystal,
     eigensolver::{EigenResult, EigensolverKind, dense, iterative},
     error::{PwdftError, Result},
+    fft::compute_density_gradient,
     kpoints::KPoint,
-    potential::xc::XcEvaluator,
+    potential::xc::{XcEvaluator, assemble_semilocal_vxc},
     pseudopotential::PseudopotentialData,
 };
 #[cfg(feature = "gpu")]
@@ -387,21 +388,55 @@ pub(crate) fn run_scf_unpolarized(
         // `gpu.lda_xc` call — same numbers as pre-Phase-A — because the
         // GPU kernel is LDA-specific. Once Phase E adds a GPU PBE shader
         // this branch extends; the CPU side of the enum carries the shape.
+        //
+        // GGAP Phase A.1: for GGAs, compute ∇(ρ_val + ρ_core) via FFT
+        // before the XC evaluation, and assemble the full semilocal
+        // V_xc = v1 − ∇·h in real space after. The LDA branch bypasses
+        // both (`needs_gradient() == false`, `v2_r == None`) and remains
+        // bit-identical to pre-Phase-A.1.
         let rho_for_xc = add_core_density(&rho_r, &ctx.rho_core_r);
+        // For GGAs, compute ∇ρ_val via FFT and add the cached
+        // ∇ρ_core from `ctx.rho_core_grad_r` (populated once at
+        // construction time). Linearity of ∇ gives
+        // `∇(ρ_val + ρ_core) = ∇ρ_val + ∇ρ_core`, and the core piece
+        // is geometry-frozen so the FFT-per-iteration cost is on the
+        // valence density alone (3 inverse FFTs per component = 9 FFT
+        // passes versus 12 for the naive FFT-on-the-sum version).
+        let rho_grad_for_xc: Option<Vec<[f64; 3]>> = xc_evaluator.needs_gradient().then(|| {
+            let mut grad_val = compute_density_gradient(
+                &rho_r, &mut ctx.grid.fft, &ctx.g_vectors,
+            );
+            if let Some(ref grad_core) = ctx.rho_core_grad_r {
+                for (g, gc) in grad_val.iter_mut().zip(grad_core.iter()) {
+                    g[0] += gc[0];
+                    g[1] += gc[1];
+                    g[2] += gc[2];
+                }
+            }
+            grad_val
+        });
+
         #[cfg(feature = "gpu")]
         let xc_in = eval_xc_with_gpu(
-            &xc_evaluator, &rho_for_xc, None, gpu.as_ref(),
+            &xc_evaluator, &rho_for_xc, rho_grad_for_xc.as_deref(), gpu.as_ref(),
         )?;
         #[cfg(not(feature = "gpu"))]
-        let xc_in = xc_evaluator.eval(&rho_for_xc, None)?;
+        let xc_in = xc_evaluator.eval(&rho_for_xc, rho_grad_for_xc.as_deref())?;
         let exc_r_in = xc_in.exc_r;
-        let vxc_r = xc_in.v1_r;
-        // v2_r stays None for LDA — Phase B wires it into the semilocal
-        // divergence assembly. No change in behaviour in Phase A.
-        debug_assert!(
-            xc_in.v2_r.is_none(),
-            "GGAP Phase A: LDA eval must produce v2_r = None"
-        );
+
+        // Assemble V_xc = v1 − ∇·h. For LDA, v2_r = None and the helper
+        // is skipped (no FFT work). For GGAs, `h(r) = v2·∇ρ(r)` is the
+        // QE-convention vector field returned by `eval` in `v2_r`.
+        // `vxc_r` is the full semilocal XC potential that (a) enters
+        // V_eff for the Hamiltonian on this iteration and (b) is the
+        // integrand of the `∫ρ·V_xc` double-counting correction — both
+        // sites consume the same quantity so the variational identity
+        // `E_band = Σ_terms` holds at convergence.
+        let vxc_r = if let Some(ref h_r) = xc_in.v2_r {
+            assemble_semilocal_vxc(&xc_in.v1_r, h_r, &mut ctx.grid.fft, &ctx.g_vectors)
+        } else {
+            xc_in.v1_r
+        };
 
         let vxc_g = real_to_g_space(&vxc_r, &mut ctx.grid.fft);
 
@@ -527,10 +562,30 @@ pub(crate) fn run_scf_unpolarized(
         // Recompute XC from the OUTPUT density for the Kohn-Sham total
         // energy (see SPXC/VGC5 rationale in `scf::energy`). Routed through
         // the same evaluator as the input-density path so a future PBE
-        // swap cannot leave one site on LDA.
-        let xc_out = xc_evaluator.eval(&rho_new_for_xc, None)?;
+        // swap cannot leave one site on LDA. For GGAs we also recompute
+        // ∇ρ from the OUTPUT density and assemble the full V_xc =
+        // v1 − ∇·h so `xc_energy_corrected`'s `∫ρ·V_xc` term matches
+        // the Hamiltonian's V_xc that produced `e_band`.
+        let rho_grad_out: Option<Vec<[f64; 3]>> = xc_evaluator.needs_gradient().then(|| {
+            let mut grad_val = compute_density_gradient(
+                &rho_r_new, &mut ctx.grid.fft, &ctx.g_vectors,
+            );
+            if let Some(ref grad_core) = ctx.rho_core_grad_r {
+                for (g, gc) in grad_val.iter_mut().zip(grad_core.iter()) {
+                    g[0] += gc[0];
+                    g[1] += gc[1];
+                    g[2] += gc[2];
+                }
+            }
+            grad_val
+        });
+        let xc_out = xc_evaluator.eval(&rho_new_for_xc, rho_grad_out.as_deref())?;
         let exc_r = xc_out.exc_r;
-        let vxc_r_energy = xc_out.v1_r;
+        let vxc_r_energy = if let Some(ref h_r) = xc_out.v2_r {
+            assemble_semilocal_vxc(&xc_out.v1_r, h_r, &mut ctx.grid.fft, &ctx.g_vectors)
+        } else {
+            xc_out.v1_r
+        };
 
         let e_band = band_energy(&eigenvalues_all, &occupations, &ctx.kpt_weights);
 

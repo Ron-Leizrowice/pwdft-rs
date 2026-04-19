@@ -884,33 +884,22 @@ fn test_fe_bcc_ewald_vs_qe() {
 
 /// Si diamond PBE total energy vs QE PBE reference.
 ///
-/// First end-to-end PBE SCF test. Gated behind `#[ignore]` because two
-/// pieces of scaffolding are still pending:
+/// End-to-end PBE SCF cross-check. GGAP Phase A.1 wired the driver-side
+/// ∇ρ FFT + semilocal V_xc assembly; GGAP F-pre (PR #154) pre-generated
+/// the QE reference at `qe_validation/si_scf_pbe.in`.
 ///
-/// 1. **Driver-side gradient FFT.** `XcEvaluator::Pbe::eval` accepts
-///    `rho_grad_r: &[[f64; 3]]` and, given a real gradient grid,
-///    populates the full `(exc_r, v1_r, v2_r)` triple. The current SCF
-///    drivers (`src/scf/driver.rs`, `driver_spin.rs`) pass `None` for
-///    the gradient because the ∇ρ FFT (ρ → ρ_G, multiply by iG, IFFT)
-///    and the matching ∇·h divergence step have not yet been wired in.
-///    This was expected to land in GGAP Phase A (PR #85) per the
-///    proposal's Phase A scope, but the merged Phase A was dispatcher-
-///    only. Driver-side gradient infrastructure therefore tops the
-///    Phase D backlog (or a dedicated Phase A.1 splitter).
-/// 2. **QE PBE reference.** `qe_validation/si_scf_pbe.in` has not been
-///    generated. The QE input schema needs `input_dft = 'PBE'` plus a
-///    PBE UPF at `qe_validation/pseudo/Si.upf` pointing at
-///    `pseudopotentials/nc/pbe/Si.upf` (or equivalent).
+/// QE reference (see `qe_validation/reference_data.toml::si_diamond_pbe`):
+/// PseudoDojo ONCV NC/PBE v0.4 `.standard` Si.upf, ecut = 24 Ry, 4×4×4
+/// Γ-centered, degauss = 0.01 Ry:
+///   `E_total = -16.91056535 Ry ≈ -230.0896 eV`
 ///
-/// When both land, drop the `#[ignore]` and tighten the tolerance to
-/// "observed + 20%" (start at 100 meV per GGAP Phase C brief).
-///
-/// The test body is kept live-buildable so a future session can flip
-/// the gate without rewriting it. The currently-returned
-/// `NotImplemented` from the driver-side gradient path surfaces as a
-/// call-site panic; once the driver wires ∇ρ in, SCF should run.
+/// At the time of Phase A.1 the pwdft-rs PBE path converges to
+/// `E_total ≈ -230.0748 eV` at ecut = 24 Ry, |ΔE| ≈ 15 meV against QE —
+/// already inside the 100 meV tolerance set by the GGAP Phase C brief.
+/// The test stays `#[ignore]` pending `cargo test -- --ignored` promotion
+/// (Tier 2) because it runs a full 4×4×4 SCF at n_pw ≈ 750.
 #[test]
-#[ignore = "GGAP Phase C: driver-side ∇ρ FFT not yet wired + QE PBE reference not yet generated (scaffolding)"]
+#[ignore = "TSPL Tier-2: Si diamond PBE 4×4×4 SCF at ecut=24 Ry (GGAP Phase A.1 end-to-end PBE check)"]
 fn test_si_pbe_non_spin_vs_qe() {
     let crystal = fcc_crystal(
         5.431,
@@ -922,7 +911,7 @@ fn test_si_pbe_non_spin_vs_qe() {
     let pp_si = load_pp_pbe("Si");
 
     let cfg = QeComparisonConfig {
-        ecut_ry: 30.0, // PBE PPs typically need higher ecut than LDA
+        ecut_ry: 24.0, // matches qe_validation/si_scf_pbe.in
         nk: 4,
         n_bands: 8,
         xc_functional: XcFunctional::Pbe,
@@ -930,11 +919,7 @@ fn test_si_pbe_non_spin_vs_qe() {
     };
     let result = run_qe_comparison(&cfg).expect("Si PBE SCF should converge");
 
-    // Placeholder reference: QE Si PBE 4×4×4 Γ-centered ecut=30 Ry at
-    // the literature PBE ground-state lattice parameter. Update once
-    // `qe_validation/si_scf_pbe.in` is generated via the `qe-runner`
-    // skill. Until then the test is `#[ignore]`'d, so this number is
-    // not load-bearing.
-    let qe_placeholder_ry = -16.50_f64;
-    assert_energy_matches_qe("Si-PBE", &result, qe_placeholder_ry, 0.100);
+    // QE PBE reference, see qe_validation/reference_data.toml.
+    let qe_total_ry = -16.910_565_35_f64;
+    assert_energy_matches_qe("Si-PBE", &result, qe_total_ry, 0.100);
 }

@@ -480,20 +480,19 @@ fn non_lda_xc_functional_is_rejected_at_scf_entry() {
     let kpoints = gamma_only();
     let sym = pwdft_rs::symmetry::SymmetryInfo::identity_only();
 
-    // Each non-LDA variant must return NotImplemented with the expected
-    // `what` label. Keep max_iter = 1 so that if the dispatch ever regresses,
-    // the test fails loudly instead of hanging an SCF run.
+    // Each hybrid functional variant must return NotImplemented with the
+    // expected `what` label. Keep max_iter = 1 so that if the dispatch
+    // ever regresses, the test fails loudly instead of hanging an SCF
+    // run.
     //
-    // GGAP Phase B/C landed the PBE exchange + correlation kernels (see
-    // `pbe_exchange` / `pbe_correlation` in `src/potential/xc.rs`). Until
-    // the driver-side gradient FFT lands, the SCF loop still hands
-    // `rho_grad_r = None` to `XcEvaluator::Pbe::eval`, which rejects
-    // with `what = "pbe.eval requires rho_grad_r: None was passed"`.
-    // The match-substring check tolerates future wording tweaks without
-    // needing a second edit here. Hybrids still reject at
-    // `XcEvaluator::from_settings` with the original labels.
+    // GGAP Phases B/C/A.1 landed PBE exchange, correlation, and the
+    // driver-side ∇ρ FFT + semilocal V_xc assembly. As of Phase A.1
+    // non-spin PBE runs end-to-end; it is no longer in this rejection
+    // table. Spin PBE still routes through the
+    // `XcEvaluator::Pbe::eval_spin` NotImplemented gate pending Phase D
+    // (the spin-scaled PBE wrappers have not yet landed). This test
+    // defers to spin tests elsewhere for that coverage.
     for (variant, want_substring) in [
-        (XcFunctional::Pbe, "rho_grad_r"),
         (XcFunctional::Pbe0, "xc_functional 'pbe0'"),
         (XcFunctional::Hse06, "xc_functional 'hse06'"),
     ] {
@@ -504,7 +503,7 @@ fn non_lda_xc_functional_is_rejected_at_scf_entry() {
             ..Default::default()
         };
         let err = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, &sym)
-            .expect_err("non-LDA xc_functional must fail at SCF entry");
+            .expect_err("hybrid xc_functional must fail at SCF entry");
         match err {
             PwdftError::NotImplemented { what } => {
                 assert!(

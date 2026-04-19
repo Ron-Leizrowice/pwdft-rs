@@ -63,8 +63,9 @@ use crate::{
     basis::BasisSet,
     crystal::Crystal,
     error::{PwdftError, Result},
+    fft::compute_density_gradient,
     kpoints::KPoint,
-    potential::xc::{self, XcEvaluator},
+    potential::xc::{self, XcEvaluator, assemble_semilocal_vxc},
     pseudopotential::PseudopotentialData,
 };
 
@@ -80,6 +81,12 @@ use super::energy::{
 use super::potentials::fill_hamiltonian_with_v_eff;
 use super::report::{log_components, log_convergence_summary, log_iteration, IterationReport, SpinIterationFields};
 use super::{ScfParams, ScfResult, context, density, initial_density, mixing, smearing};
+
+/// Per-channel real-space density gradient pair for the spin PBE path.
+/// `None` on the LDA path (no gradient needed); `Some` with both
+/// channels populated for GGAs. Kept as a type alias so clippy's
+/// `type_complexity` lint stays happy at the `rho_grad_*` binding sites.
+type SpinGradPair = (Option<Vec<[f64; 3]>>, Option<Vec<[f64; 3]>>);
 
 /// Run the spin-polarized (nspin=2) LSDA SCF loop.
 ///
@@ -245,16 +252,57 @@ pub(crate) fn run_scf_spin(
         // 2. Spin-dependent XC (routed through the Phase A dispatcher).
         //    v2_*_r stays None for LDA — the LDA path produces zero FFT
         //    work beyond pre-Phase-A behaviour.
+        //
+        //    GGAP Phase A.1: compute per-channel ∇ρ for GGAs. The spin
+        //    XC signature takes both channels' gradients; Phase D's
+        //    spin PBE wrapper consumes them. Until Phase D lands, the
+        //    GGA branch bails on the `NotImplemented` already produced
+        //    by `XcEvaluator::eval_spin` for the `Pbe` arm — but we
+        //    thread the gradients in now so Phase D just fills in the
+        //    evaluator body.
         let rho_up_xc = add_core_density(&rho_up_r, &rho_core_half);
         let rho_down_xc = add_core_density(&rho_down_r, &rho_core_half);
-        let xc_in = xc_evaluator.eval_spin(&rho_up_xc, &rho_down_xc, None, None)?;
-        debug_assert!(
-            xc_in.v2_up_r.is_none() && xc_in.v2_down_r.is_none(),
-            "GGAP Phase A: LDA spin eval must produce v2_*_r = None"
-        );
+        // For GGAs, `∇(ρ_σ + ρ_core/2) = ∇ρ_σ + 0.5·∇ρ_core`. The
+        // half-core gradient is a tight inner loop, so we read the
+        // cached `ctx.rho_core_grad_r` and scale on the fly rather than
+        // pre-scaling into a new allocation.
+        let (rho_grad_up_in, rho_grad_down_in): SpinGradPair =
+            if xc_evaluator.needs_gradient() {
+                let mut gu = compute_density_gradient(&rho_up_r, &mut ctx.grid.fft, &ctx.g_vectors);
+                let mut gd = compute_density_gradient(&rho_down_r, &mut ctx.grid.fft, &ctx.g_vectors);
+                if let Some(ref grad_core) = ctx.rho_core_grad_r {
+                    for ((gu_i, gd_i), gc) in gu.iter_mut().zip(gd.iter_mut()).zip(grad_core.iter()) {
+                        let half = [0.5 * gc[0], 0.5 * gc[1], 0.5 * gc[2]];
+                        gu_i[0] += half[0];
+                        gu_i[1] += half[1];
+                        gu_i[2] += half[2];
+                        gd_i[0] += half[0];
+                        gd_i[1] += half[1];
+                        gd_i[2] += half[2];
+                    }
+                }
+                (Some(gu), Some(gd))
+            } else {
+                (None, None)
+            };
+        let xc_in = xc_evaluator.eval_spin(
+            &rho_up_xc, &rho_down_xc,
+            rho_grad_up_in.as_deref(), rho_grad_down_in.as_deref(),
+        )?;
         let exc_r = xc_in.exc_r;
-        let vxc_up_r = xc_in.v1_up_r;
-        let vxc_down_r = xc_in.v1_down_r;
+        // Full semilocal V_xc per channel. For LDA `v2_*_r = None` and
+        // the helper short-circuits to `v1_*_r` (bit-identical to
+        // pre-Phase-A.1); for GGAs it adds the `−∇·h_σ` divergence.
+        let vxc_up_r = if let Some(ref h_r) = xc_in.v2_up_r {
+            assemble_semilocal_vxc(&xc_in.v1_up_r, h_r, &mut ctx.grid.fft, &ctx.g_vectors)
+        } else {
+            xc_in.v1_up_r
+        };
+        let vxc_down_r = if let Some(ref h_r) = xc_in.v2_down_r {
+            assemble_semilocal_vxc(&xc_in.v1_down_r, h_r, &mut ctx.grid.fft, &ctx.g_vectors)
+        } else {
+            xc_in.v1_down_r
+        };
 
         let vxc_up_g = real_to_g_space(&vxc_up_r, &mut ctx.grid.fft);
         let vxc_down_g = real_to_g_space(&vxc_down_r, &mut ctx.grid.fft);
@@ -462,10 +510,40 @@ pub(crate) fn run_scf_spin(
         // INPUT-based quantities (exc_r, vxc_up_r, vxc_down_r) remain for E_HF below.
         let rho_up_xc_out = add_core_density(&rho_up_sym, &rho_core_half);
         let rho_down_xc_out = add_core_density(&rho_down_sym, &rho_core_half);
-        let xc_out = xc_evaluator.eval_spin(&rho_up_xc_out, &rho_down_xc_out, None, None)?;
+        let (rho_grad_up_out, rho_grad_down_out): SpinGradPair =
+            if xc_evaluator.needs_gradient() {
+                let mut gu = compute_density_gradient(&rho_up_sym, &mut ctx.grid.fft, &ctx.g_vectors);
+                let mut gd = compute_density_gradient(&rho_down_sym, &mut ctx.grid.fft, &ctx.g_vectors);
+                if let Some(ref grad_core) = ctx.rho_core_grad_r {
+                    for ((gu_i, gd_i), gc) in gu.iter_mut().zip(gd.iter_mut()).zip(grad_core.iter()) {
+                        let half = [0.5 * gc[0], 0.5 * gc[1], 0.5 * gc[2]];
+                        gu_i[0] += half[0];
+                        gu_i[1] += half[1];
+                        gu_i[2] += half[2];
+                        gd_i[0] += half[0];
+                        gd_i[1] += half[1];
+                        gd_i[2] += half[2];
+                    }
+                }
+                (Some(gu), Some(gd))
+            } else {
+                (None, None)
+            };
+        let xc_out = xc_evaluator.eval_spin(
+            &rho_up_xc_out, &rho_down_xc_out,
+            rho_grad_up_out.as_deref(), rho_grad_down_out.as_deref(),
+        )?;
         let exc_r_out = xc_out.exc_r;
-        let vxc_up_r_out = xc_out.v1_up_r;
-        let vxc_down_r_out = xc_out.v1_down_r;
+        let vxc_up_r_out = if let Some(ref h_r) = xc_out.v2_up_r {
+            assemble_semilocal_vxc(&xc_out.v1_up_r, h_r, &mut ctx.grid.fft, &ctx.g_vectors)
+        } else {
+            xc_out.v1_up_r
+        };
+        let vxc_down_r_out = if let Some(ref h_r) = xc_out.v2_down_r {
+            assemble_semilocal_vxc(&xc_out.v1_down_r, h_r, &mut ctx.grid.fft, &ctx.g_vectors)
+        } else {
+            xc_out.v1_down_r
+        };
 
         // Spin XC double-counting (OUTPUT density): E_vxc = integral(V_xc_up rho_up_out + V_xc_down rho_down_out) dr
         // Both V_xc and rho_sigma here come from the OUTPUT (symmetrized) density,
