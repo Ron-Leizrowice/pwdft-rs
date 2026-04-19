@@ -110,7 +110,10 @@ pub(crate) fn run_scf_spin(
 
     // Determine initial spin split from starting_magnetization
     let per_atom_mag: Vec<f64> = ctx.crystal.atoms.iter().map(|a| {
-        let sym = crate::atoms::from_z(a.z).map(|e| e.symbol().to_string()).unwrap_or_default();
+        let sym = crate::atoms::Element::iter()
+            .find(|e| e.atomic_number() == a.z)
+            .map(|e| e.symbol().to_string())
+            .unwrap_or_default();
         *ctx.params.starting_magnetization.get(&sym).unwrap_or(&0.0)
     }).collect();
 

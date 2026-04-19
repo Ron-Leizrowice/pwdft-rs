@@ -527,9 +527,11 @@ impl Settings {
             .atoms
             .iter()
             .map(|ai| {
-                let elem = crate::atoms::from_symbol(&ai.symbol).ok_or_else(|| {
-                    PwdftError::InvalidInput(format!("unknown element: {}", ai.symbol))
-                })?;
+                let elem = crate::atoms::Element::iter()
+                    .find(|e| e.symbol() == ai.symbol)
+                    .ok_or_else(|| {
+                        PwdftError::InvalidInput(format!("unknown element: {}", ai.symbol))
+                    })?;
                 Ok(Atom::new(elem.atomic_number(), ai.position))
             })
             .collect::<Result<Vec<_>>>()?;

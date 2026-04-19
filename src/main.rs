@@ -109,7 +109,8 @@ fn main() -> pwdft_rs::error::Result<()> {
             let input_dir = cli.input.parent().unwrap_or(std::path::Path::new("."));
             let mut pp_data = Vec::new();
             for atom in &crystal.atoms {
-                let sym = pwdft_rs::atoms::from_z(atom.z)
+                let sym = pwdft_rs::atoms::Element::iter()
+                    .find(|e| e.atomic_number() == atom.z)
                     .map(|e| e.symbol().to_string())
                     .unwrap_or_default();
                 if pp_data
