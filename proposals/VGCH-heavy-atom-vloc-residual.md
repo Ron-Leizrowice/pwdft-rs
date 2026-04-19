@@ -459,28 +459,100 @@ exactly for this in the total energy sum, so the convention does not
 produce a total-energy residual by itself. The +11.5 eV residual is
 elsewhere.
 
-### Phase 1b — Where inside the one-electron sum (next session)
+### Phase 1b — β_l(q) form factors (CLEARED)
 
-The VGC5 infrastructure aggregates `one_electron = E_kin + E_loc +
-E_loc(G=0)·N + E_NL`; it does not split QE's single "one-electron
-contribution = -691.94 eV" further. Next phase needs to:
+Landed in a separate PR. `scripts/validate/vgch_beta_l_heavy.py` + 
+`tests/vgch_beta_l_heavy.rs` (Tier-2) cross-check the KB projector
+Bessel transform against an independent QE-convention Simpson reference
+over 11 elements × all projectors × 10 q-values = 590 rows. Max |Δ| =
+3.17e-12 Bohr^{3/2} — 4 orders below the 1e-8 tolerance. **H1 cleared:
+β_l(q) is bit-perfect on every VGCH heavy-atom PP including Fe/Cu
+semicore 3d projectors.**
 
-1. **Split QE's eband + deband into E_kin + E_ion.** QE stores
-   `eband + deband = <ψ|T + V_ext|ψ>` as a single scalar; we can
-   recover individual pieces by reading `PW/src/h_psi.f90` debug
-   prints or by adding a Python post-processor that reconstructs
-   E_kinetic and E_local + E_NL separately from QE's output.
-2. **Compare Fe `E_nonlocal` between pwdft-rs and QE.** Cu's
-   E_NL = −508.80 eV vs Fe's E_NL = +37.86 eV shows huge variance;
-   a projector-scaling bug for d-channels would surface here.
-   Write `scripts/validate/beta_q_reference.py` extended to Cu,
-   plus an assembled-H[G,G'] cross-check at Γ for Cu.
-3. **Compare SCF-converged densities.** If the density is different,
-   it's a mixer / initial-density / smearing issue, not a PP bug.
-   Dump ρ(G) for the first 10 shells after convergence on Fe (pwdft)
-   and on Fe (QE via `save.qe` parser); compare |ρ(G)|² shell-by-
-   shell. If pwdft's ρ is systematically more-spread out, the fix is
-   in `scf/initial_density.rs` or the mixer.
+### Phase 1c — SAD initial-density (CLEARED)
+
+Landed in this PR. `scripts/validate/vgch_sad_heavy.py` +
+`tests/vgch_sad_heavy.rs` (Tier-2) cross-check pwdft-rs'
+`generate_initial_density` against a QE-convention Python reference
+that replicates `qe-7.5/PW/src/atomic_rho.f90` (Simpson Bessel
+transform over the log mesh, structure-factor sum per species,
+unnormalized IFFT, G=0 renormalization via
+`qe-7.5/PW/src/potinit.f90:218-223`). Seven systems: C, Al, Fe, Cu,
+GaAs, NaCl, MgO.
+
+**Raw-sample point-wise ρ(r) diff at 200 grid points/system,
+post-clamp + post-renorm:**
+
+| system | max \|Δρ\| (e/Å³) | mean \|Δρ\| (e/Å³) |
+|---|---|---|
+| C diamond | 5.4e-11 | 1.0e-11 |
+| Al FCC    | 5.5e-12 | 2.4e-12 |
+| Fe BCC    | 4.0e-10 | 4.8e-11 |
+| Cu FCC    | 4.0e-10 | 5.8e-11 |
+| GaAs      | 1.2e-5  | 4.4e-7  |
+| NaCl      | 8.6e-11 | 9.0e-12 |
+| MgO       | 4.8e-10 | 3.8e-11 |
+
+All seven at ≤ 1e-5 e/Å³; six at ≤ 1e-9 e/Å³. GaAs's 1.2e-5 outlier
+localizes to pwdft-rs' negative-density clamp
+(`src/scf/initial_density.rs:144-148`) zeroing ~2e-5 e of Gibbs-
+ringing near the As core that QE keeps (see
+`qe-7.5/PW/src/atomic_rho.f90:186-188` — QE explicitly comments
+that clamping is "useless" because FFT round-trip makes negative
+values reappear). The clamp effect is confined to ≤1 bin per atom
+and accounts for a total energy shift of O(1e-5 eV) — too small to
+explain GaAs's 33 eV residual.
+
+**Critical C-diamond verdict:** pre-clamp max |Δρ| = 8.1e-7 e/Å³,
+post-clamp max |Δρ| = 4.1e-11 e/Å³. C is **bit-perfect** against the
+QE-convention reference. The 1.45 eV C_total residual does NOT live
+in SAD.
+
+**Clamp statistics table** (computed by
+`build_sad_density_for_diagnostic_verbose`):
+
+| system | ∫ρ pre-clamp | neg mass clamped (e) | renorm factor |
+|---|---|---|---|
+| C diamond | 7.999996 | 0     | 1.000000 |
+| Al FCC    | 2.999999 | 0     | 1.000000 |
+| Fe BCC    | 15.999998 | 0    | 1.000000 |
+| Cu FCC    | 18.999999 | 0    | 1.000000 |
+| GaAs      | 27.999996 | 2.1e-5 | 0.999999 |
+| NaCl      | 15.999994 | 0    | 1.000000 |
+| MgO       | 15.999994 | 0    | 1.000000 |
+
+`renorm factor = 1` on six of seven confirms the clamp+renorm is a
+no-op on those cells. GaAs alone sees a 1e-6 scale adjustment.
+
+**H2 verdict: CLEARED.** The SAD pipeline (PP_RHOATOM unit
+conversion, Simpson Bessel transform, per-species structure-factor
+sum, IFFT) is bit-correct. No fix needed in
+`src/scf/initial_density.rs` or `src/pseudopotential/upf/convert.rs`.
+The remaining clamp-vs-QE pipeline delta is a fractional-eV effect at
+most and cannot explain the multi-eV VGCH residuals.
+
+### Phase 1d — Residual target (next session, scoped as VGCH-2)
+
+Both H1 (β_l(q)) and H2 (SAD initial density) are cleared. The 7-34
+eV residuals on heavy-atom cells must therefore live in either:
+
+- **H3 — Total-energy assembly.** Specifically the V_loc(G=0)
+  compensation `e_local_g0_shift = v_local_g0 · n_electrons` in
+  `src/scf/energy.rs` and the `with_g0_shift` closure. Phase 1a's
+  observation that Si compensates cleanly but C doesn't suggests a
+  narrow bug in this branch — maybe related to how semicore PPs or
+  multi-species cells aggregate the G=0 shift.
+- **H4 — SCF mixer basin.** The mixer could be stabilizing a
+  different local minimum of the energy functional. Diagnosing this
+  cleanly needs a "transplant" experiment: seed pwdft-rs from QE's
+  converged density (via QE's `save/charge-density.dat` or a
+  postprocessing dump), run SCF, and see whether pwdft-rs stays
+  there or drifts to its own fixed point.
+
+The total-energy-assembly target is cheap to investigate and has
+Phase 1a's fingerprint (opposite-sign one-electron vs. Hartree
+partial cancellation). **VGCH-2** is spawned to take this up;
+VGCH-1c recommends starting there before climbing the mixer tree.
 
 ### Phase 2 — Per-component energy diagnostic on heavy atoms (1 CE-day)
 

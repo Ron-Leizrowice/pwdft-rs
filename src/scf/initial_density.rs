@@ -58,6 +58,154 @@ impl InitialDensityConfig {
     }
 }
 
+/// Public diagnostic wrapper around the private SCF-driver SAD
+/// assembler for integration tests that need the output on an
+/// explicitly-sized FFT grid (e.g. to compare against a Python
+/// reference computed on the same grid).
+///
+/// Returns `(dims, rho_r)`: the chosen FFT grid dimensions (echoed back
+/// so the caller can verify) and the flat row-major real-space density
+/// in e/Å³ on that grid, post-clamp and post-renormalization (i.e. the
+/// same object the SCF driver would hand off to its hot loop).
+/// Integration tests can then shell-average `rho_r` around each atom
+/// and compare bin-by-bin against an independent reference.
+///
+/// The caller supplies the crystal, pseudopotentials, electron count,
+/// an `ecutwfc` (eV) used only to seed a dummy [`crate::basis::BasisSet`]
+/// (FFT grid dims come from `explicit_dims` when supplied), and an
+/// [`InitialDensityConfig`]. Pass `explicit_dims = Some([nx, ny, nz])` to
+/// force a specific grid; the wrapper then constructs the same internal
+/// grid state the SCF driver would use for that size.
+#[must_use]
+pub fn build_sad_density_for_diagnostic(
+    crystal: &Crystal,
+    pseudopotentials: &[&PseudopotentialData],
+    n_electrons: f64,
+    ecutwfc_ev: f64,
+    ecutrho_ratio: u32,
+    explicit_dims: Option<[usize; 3]>,
+    config: &InitialDensityConfig,
+) -> ([usize; 3], Vec<f64>) {
+    let basis = crate::basis::BasisSet::new(&crystal.lattice, ecutwfc_ev);
+    let mut grid = FftGrid::new(&basis, &crystal.lattice, ecutrho_ratio, explicit_dims);
+    let dims = grid.dims;
+    let rho_r = generate_initial_density(crystal, &mut grid, pseudopotentials, n_electrons, config);
+    (dims, rho_r)
+}
+
+/// Extra statistics from the SAD assembly — returned by
+/// [`build_sad_density_for_diagnostic_verbose`] so integration tests
+/// can separately diagnose the Bessel + IFFT, the negative-density
+/// clamp, and the renormalization-to-N_el steps.
+#[derive(Debug, Clone, Copy)]
+pub struct SadDiagnosticStats {
+    /// ∫ρ d³r immediately after the inverse FFT, before any clamp or
+    /// renormalization is applied. Ideally `= n_electrons` to double
+    /// precision if the Bessel transform and FFT conventions are
+    /// consistent.
+    pub integrated_pre_clamp: f64,
+    /// Total *negative* mass: Σ_{j: ρ_j < 0} ρ_j · dV  (≤ 0 by construction).
+    /// Large magnitude here means the clamp step removes a physically
+    /// meaningful amount of charge and the subsequent renormalization
+    /// deforms the density non-uniformly relative to a no-clamp pipeline.
+    /// The initial-density clamp is a production-only safety net against
+    /// Gibbs ringing at the atom cores; a no-op on all systems that have
+    /// strictly non-negative radial atomic densities on the FFT grid.
+    pub negative_mass_clamped: f64,
+    /// Renormalization scale factor applied after the clamp:
+    /// `rho *= n_electrons / integral_post_clamp`. Value `= 1.0` means
+    /// clamp removed zero net charge and ρ was already normalized.
+    pub renorm_scale: f64,
+}
+
+/// Verbose variant of [`build_sad_density_for_diagnostic`] that returns
+/// diagnostic statistics alongside the clamped-and-renormalized ρ(r),
+/// plus the intermediate ρ(r) BEFORE the clamp+renorm so integration
+/// tests can attribute mismatches to the upstream (Bessel+FFT) vs.
+/// downstream (clamp+renorm) parts of the pipeline.
+///
+/// Returns `(dims, rho_pre_clamp, rho_final, stats)`.
+///
+/// # Panics
+///
+/// Panics if any atom in `crystal` does not have a matching
+/// pseudopotential in `pseudopotentials` — the caller is expected to
+/// pre-validate, mirroring the production path through the SCF driver.
+#[must_use]
+pub fn build_sad_density_for_diagnostic_verbose(
+    crystal: &Crystal,
+    pseudopotentials: &[&PseudopotentialData],
+    n_electrons: f64,
+    ecutwfc_ev: f64,
+    ecutrho_ratio: u32,
+    explicit_dims: Option<[usize; 3]>,
+    config: &InitialDensityConfig,
+) -> ([usize; 3], Vec<f64>, Vec<f64>, SadDiagnosticStats) {
+    let basis = crate::basis::BasisSet::new(&crystal.lattice, ecutwfc_ev);
+    let mut grid = FftGrid::new(&basis, &crystal.lattice, ecutrho_ratio, explicit_dims);
+    let dims = grid.dims;
+
+    // Manually walk the SAD path so we can snapshot the intermediate.
+    let omega = crystal.lattice.volume();
+    let n_grid = grid.total_size();
+    let sigma = config.gaussian_sigma.unwrap_or(DEFAULT_GAUSSIAN_SIGMA);
+
+    let mut rho_g = vec![Complex64::new(0.0, 0.0); n_grid];
+    for atom in &crystal.atoms {
+        // Mirrors the sibling `generate_initial_density` precondition:
+        // callers must pre-validate PPs. The diagnostic entry point is
+        // documented as such in the `# Panics` section above.
+        #[expect(
+            clippy::expect_used,
+            reason = "BUG: atom has no matching pseudopotential — pre-validation is the caller's contract"
+        )]
+        let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials)
+            .expect("BUG: atom has no matching pseudopotential (should have been validated at startup)");
+        let tau = atom.cart_position(&crystal.lattice);
+        let z_val = pp.z_valence;
+        if pp.has_rho_atom() {
+            add_atomic_density_from_pp(pp, &tau, &grid, omega, &mut rho_g);
+        } else {
+            add_gaussian_density(&tau, z_val, sigma, &grid, omega, &mut rho_g);
+        }
+    }
+    grid.fft.inverse(&mut rho_g);
+    let rho_pre_clamp: Vec<f64> = rho_g.iter().map(|c| c.re).collect();
+
+    let dvol = omega / n_grid as f64;
+    let integrated_pre_clamp: f64 = rho_pre_clamp.iter().sum::<f64>() * dvol;
+    let negative_mass_clamped: f64 = rho_pre_clamp
+        .iter()
+        .filter(|v| **v < 0.0)
+        .copied()
+        .sum::<f64>()
+        * dvol;
+
+    // Apply the production clamp + renorm on a fresh copy.
+    let mut rho_final: Vec<f64> = rho_pre_clamp.clone();
+    for v in &mut rho_final {
+        if *v < 0.0 {
+            *v = 0.0;
+        }
+    }
+    let post_clamp_integral: f64 = rho_final.iter().sum::<f64>() * dvol;
+    let renorm_scale = if post_clamp_integral.abs() > 1e-15 {
+        n_electrons / post_clamp_integral
+    } else {
+        1.0
+    };
+    for v in &mut rho_final {
+        *v *= renorm_scale;
+    }
+
+    let stats = SadDiagnosticStats {
+        integrated_pre_clamp,
+        negative_mass_clamped,
+        renorm_scale,
+    };
+    (dims, rho_pre_clamp, rho_final, stats)
+}
+
 /// Generate initial charge density on the FFT real-space grid via
 /// Superposition of Atomic Densities (SAD).
 ///
