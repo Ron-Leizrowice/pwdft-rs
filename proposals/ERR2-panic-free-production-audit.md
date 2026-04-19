@@ -247,15 +247,12 @@ test` unchanged.
 
 ### Phase 1 — Category D splitting (stringly-typed → structured)
 
-- Add `InvalidParam`, `InvalidCrystal`, `UnknownElement` variants to
-  `PwdftError`.
-- Migrate the 12 `InvalidInput(String)` sites in the census table.
-- Update match-arms in `src/scf/mod.rs::tests` (lines 248, 254, 267)
-  and `src/settings.rs::tests` to match on the new variants.
-- No clippy lint change; pure `PwdftError` enrichment.
-
-Acceptance: `grep PwdftError::InvalidInput src/` returns ≤ 2 sites (main
-CLI glue + a deliberate catch-all at the `Settings` level).
+P0 (clippy lint floor) landed as PR #86 and ERR2-AX (TYPE-A narrowing
+`expect` annotations) landed as PR #111. P1 covers the Category D
+`InvalidInput(String)` variant split, fully scoped in the
+`## P1 — InvalidInput variant split (2026-04-19 scoping pass)` section
+below. The scoping pass supersedes the brief outline originally drafted
+here.
 
 ### Phase 2 — Assert → Result where genuinely user-reachable
 
@@ -347,3 +344,376 @@ This proposal does **not**:
    level and (because of the pre-PR `-D warnings` gate) blocks the PR.
 5. **`scf/mixing/broyden.rs:66`** picks up the `BUG:` prefix aligning it
    with the rest of the codebase.
+
+## P1 — InvalidInput variant split (2026-04-19 scoping pass)
+
+P0 landed as PR #86 (blanket `clippy::unwrap_used` / `expect_used` /
+`panic` = warn across the crate, plus the surviving-expect annotation
+pass). ERR2-AX landed as PR #111 (TYPE-A narrowing `expect` sites got
+`#[expect(reason = "...")]`). TYPB #134 closed the PR #80 spillover. P1
+is the remaining Category D work: split today's catch-all
+`PwdftError::InvalidInput(String)` into structured variants so callers
+can branch on error kind rather than string-match the payload.
+
+### Ground truth re-scan
+
+The original Category D table (drafted pre-P0) listed 12 production call
+sites. A full `PwdftError::InvalidInput` scan on `origin/main` as of
+2026-04-19 surfaces **15** production sites (three new sites have landed
+since the original census: `gaussian_sigma` from CFGN Phase 1,
+`resolve_ecutwfc` from the recommended-cutoff path, and the UPF
+`angular_momentum < 0` validator from UPFV).
+
+Current `PwdftError` enum (`src/error.rs`, unchanged since P0):
+
+```rust
+pub enum PwdftError {
+    Io(#[from] std::io::Error),
+    ConvergenceFailure { iterations: usize, delta: f64 },
+    InvalidInput(String),
+    MissingPseudopotential(String),
+    Parse(String),
+    Eigensolver { size: usize, detail: String },
+    Gpu(String),
+    NotImplemented { what: String },
+}
+```
+
+Note the shape is `InvalidInput(String)` — a newtype tuple, not the
+`{ what: String }` struct shape the task brief hypothesized. The P1
+migration keeps tuple-style consistency where it fits ("unknown element
+X" is fundamentally `String`) and switches to struct-style only for
+variants that benefit from named fields (`{ name, reason }` parameter
+errors).
+
+### 1. Production call-site enumeration
+
+Each row is a production call site (`#[cfg(test)]` bodies excluded).
+The *cluster* column groups sites by the invariant kind; sites sharing
+a cluster will migrate in the same PR and map to the same new variant.
+
+| # | File:line | What it represents | Cluster | Proposed variant |
+|---|---|---|---|---|
+| 1 | `src/scf/mod.rs:158` | `ScfParams::n_bands == 0` | **PARAM** | `InvalidParam { name: "n_bands", reason }` |
+| 2 | `src/scf/mod.rs:161` | `ScfParams::conv_threshold <= 0` | **PARAM** | `InvalidParam { name: "conv_threshold", reason }` |
+| 3 | `src/scf/mod.rs:164` | `ScfParams::mixing_beta ∉ (0, 1]` | **PARAM** | `InvalidParam { name: "mixing_beta", reason }` — interpolates value |
+| 4 | `src/scf/mod.rs:169` | `ScfParams::smearing_sigma < 0` | **PARAM** | `InvalidParam { name: "smearing_sigma", reason }` |
+| 5 | `src/scf/mod.rs:172` | `ScfParams::ecutrho_ratio < 1` | **PARAM** | `InvalidParam { name: "ecutrho_ratio", reason }` — interpolates value |
+| 6 | `src/scf/mod.rs:177` | `ScfParams::nspin ∉ {1, 2}` | **PARAM** | `InvalidParam { name: "nspin", reason }` — interpolates value |
+| 7 | `src/scf/mod.rs:187` | `PeriodicPulay::period == 0` | **PARAM** | `InvalidParam { name: "pulay_period", reason }` |
+| 8 | `src/scf/mod.rs:196` | `gaussian_sigma` non-finite / non-positive | **PARAM** | `InvalidParam { name: "gaussian_sigma", reason }` — interpolates value |
+| 9 | `src/scf/mod.rs:329` | `crystal.atoms` is empty | **CRYSTAL** | `InvalidCrystal { reason: "at least one atom is required" }` |
+| 10 | `src/scf/mod.rs:332` | `kpoints` is empty | **CRYSTAL** | `InvalidCrystal { reason: "at least one k-point is required" }` |
+| 11 | `src/scf/mod.rs:336` | lattice volume < 1e-10 ų | **CRYSTAL** | `InvalidCrystal { reason: "lattice has zero or near-zero volume" }` |
+| 12 | `src/settings.rs:539` | unknown element symbol in YAML | **ELEMENT** | `UnknownElement { symbol: String }` |
+| 13 | `src/settings.rs:617` | `basis.ecutwfc` unset + no recommended cutoff tabulated for any species | **PARAM** | `InvalidParam { name: "basis.ecutwfc", reason }` — reason string describes the tabulated-cutoff fallback |
+| 14 | `src/main.rs:47` | `BandPath` mode but no high-sym path configured | **CLI** | stays `InvalidInput(String)` (CLI glue only; one site) |
+| 15 | `src/pseudopotential/upf/xml.rs:46` | `angular_momentum < 0` in PP_BETA | **UPF** | `InvalidPseudopotential { source: String, reason: String }` — see discussion below |
+
+**Total**: 15 production sites. Proposed outcome:
+- **PARAM cluster** (8 sites): `InvalidParam { name: &'static str, reason: String }`
+- **CRYSTAL cluster** (3 sites): `InvalidCrystal { reason: &'static str }`
+- **ELEMENT cluster** (1 site): `UnknownElement { symbol: String }`
+- **UPF cluster** (1 site): `InvalidPseudopotential { source: String, reason: String }`
+- **CLI catch-all** (1 site): keep as `InvalidInput(String)` — single CLI-glue call in `main.rs`, not worth a dedicated variant.
+- **Post-P1 `InvalidInput` count: 1 / 15 = 6.7 %**, beating the < 20 % target.
+
+### 2. Variant design
+
+Final proposed enum (additions only; existing variants preserved):
+
+```rust
+#[derive(Debug, thiserror::Error)]
+pub enum PwdftError {
+    // --- existing variants unchanged ---
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("SCF did not converge after {iterations} iterations (delta = {delta:.2e})")]
+    ConvergenceFailure { iterations: usize, delta: f64 },
+    #[error("missing pseudopotential for element {0}")]
+    MissingPseudopotential(String),
+    #[error("parse error: {0}")]
+    Parse(String),
+    #[error("eigendecomposition failed for {size}x{size} matrix: {detail}")]
+    Eigensolver { size: usize, detail: String },
+    #[error("GPU error: {0}")]
+    Gpu(String),
+    #[error("{what} is not yet implemented")]
+    NotImplemented { what: String },
+
+    // --- P1 additions ---
+
+    /// User-supplied parameter failed a range/shape check.
+    /// `name` is a compile-time-constant parameter label (YAML key or
+    /// `ScfParams` field name). `reason` interpolates the offending value
+    /// when useful.
+    #[error("invalid parameter {name}: {reason}")]
+    InvalidParam { name: &'static str, reason: String },
+
+    /// Crystal / k-point / lattice structural precondition failed.
+    /// Used for whole-input shape errors (empty atom list, degenerate
+    /// lattice) rather than per-parameter range checks.
+    #[error("invalid crystal input: {reason}")]
+    InvalidCrystal { reason: &'static str },
+
+    /// YAML referenced an element symbol not in the `crate::atoms`
+    /// periodic table.
+    #[error("unknown element symbol: {symbol}")]
+    UnknownElement { symbol: String },
+
+    /// A pseudopotential file parsed structurally but failed a
+    /// physical-validity check (e.g. negative angular momentum, missing
+    /// required block). Distinct from `Parse(String)`, which is reserved
+    /// for syntax-level UPF errors. `source` is the file path or tag
+    /// context; `reason` is the specific invariant that was violated.
+    #[error("invalid pseudopotential {source}: {reason}")]
+    InvalidPseudopotential { source: String, reason: String },
+
+    /// Catch-all for the one remaining CLI-glue call site in
+    /// `src/main.rs`. Not to be used by new code — the next unknown
+    /// error kind should become its own structured variant. Post-P1
+    /// usage sites: 1 (audit pre-merge).
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+}
+```
+
+Design notes:
+
+- **Field naming.** `InvalidParam` uses `name: &'static str` (all param
+  labels are compile-time constants), `reason: String` (values
+  interpolated at runtime). `InvalidCrystal` uses `reason: &'static str`
+  because all three current sites have static reason strings.
+  `UnknownElement` and `InvalidPseudopotential` use owned `String`
+  fields because the payload is user-supplied.
+- **Why a new `InvalidPseudopotential` vs reusing `Parse`?** The UPF
+  `angular_momentum < 0` check at `xml.rs:46` is structurally distinct
+  from the tag/attribute parse errors in the same file — the XML
+  parsed fine; the *value* was out of physical range. `Parse` already
+  covers 15 syntax sites in `upf/xml.rs` and `upf/convert.rs` (all
+  using `PwdftError::Parse(format!(...))`); keeping those separate
+  means callers can distinguish "malformed file" from "file is
+  syntactically valid but carries impossible physics."
+- **`InvalidCrystal` scope.** Deliberately narrow — just the three
+  pre-SCF shape checks in `scf::run_scf`. Future "crystal-ish"
+  validation (e.g. overlapping atoms, inversion-symmetry check
+  failure) can either extend the reason space or graduate to its own
+  variant.
+- **CLI catch-all discussion.** The one surviving `InvalidInput`
+  site at `src/main.rs:47` is pure CLI glue — `band_path` mode
+  requires a path definition and the user omitted it. The error text
+  is already user-facing and a caller unwinding to exit(1) doesn't
+  need to discriminate. Keeping `InvalidInput` as a tiny remainder
+  plus a doc comment "use a dedicated variant for new error kinds" is
+  cheaper than inventing a one-shot `MissingBandPath` variant.
+  Optional future step: if a 16th `InvalidInput` site shows up in
+  review, re-audit.
+- **Visibility.** `InvalidInput` stays `pub`. Making it `pub(crate)`
+  would break the existing downstream pattern where integration tests
+  (and any future consumers of the `pwdft_rs::error` module) match on
+  this variant. Documented as "catch-all for CLI glue; prefer a
+  structured variant" in the doc comment is enough friction.
+
+### 3. Migration ordering
+
+Four small PRs, each ≤ 10 call sites, each mergeable independently. No
+behavior change; only the error *type* surface widens.
+
+#### P1.a — Add variants + formatting tests (0 call-site migrations)
+
+**Scope:** `src/error.rs` only. Add `InvalidParam`, `InvalidCrystal`,
+`UnknownElement`, `InvalidPseudopotential`. Existing `InvalidInput`
+usages are unchanged; the 15 production sites still compile.
+
+**Tests added** (in `src/error.rs`'s existing `#[cfg(test)] mod tests`
+or new if none exists):
+
+- `fn invalid_param_fmt()` — asserts
+  `PwdftError::InvalidParam { name: "n_bands", reason: "must be > 0".into() }.to_string()`
+  returns `"invalid parameter n_bands: must be > 0"`.
+- `fn invalid_crystal_fmt()` — analogous.
+- `fn unknown_element_fmt()` — asserts `{symbol}` interpolation.
+- `fn invalid_pseudopotential_fmt()` — asserts `{source}` and
+  `{reason}` both appear.
+
+**Acceptance:** `cargo test` Tier-1 + `cargo clippy` clean. No src/
+changes outside `error.rs` and its test module.
+
+**Estimated size:** ~50 lines added; ~30 lines of tests.
+
+#### P1.b — Migrate the CRYSTAL cluster (3 call sites)
+
+**Scope:** Sites #9, #10, #11 in `src/scf/mod.rs:329,332,336`. Convert
+each `PwdftError::InvalidInput("...".into())` to
+`PwdftError::InvalidCrystal { reason: "..." }`.
+
+**Test changes:**
+- The integration test at `tests/` currently has no direct match on the
+  empty-atoms error (grep confirmed: `PwdftError::InvalidInput` returns
+  zero hits in `tests/`). So no test breakage from the migration.
+- One *new* integration test `tests/err2_p1_crystal.rs` (or a
+  unit test in `src/scf/mod.rs::tests`) asserts that calling
+  `scf::run_scf` with an empty atom list returns
+  `PwdftError::InvalidCrystal { reason }` containing "atom".
+
+**Acceptance:** `cargo test` Tier-1 still passes (Tier 2 not needed —
+no SCF physics touched). `grep 'PwdftError::InvalidInput' src/`
+decreases by 3.
+
+**Estimated size:** ~10 lines of production change + ~20 lines of test.
+
+#### P1.c — Migrate the PARAM cluster (8 call sites)
+
+**Scope:** Sites #1–#8 and #13 in `src/scf/mod.rs:158,161,164,169,172,
+177,187,196` and `src/settings.rs:617`. Convert each
+`PwdftError::InvalidInput(format!(...))` to
+`PwdftError::InvalidParam { name: "<param>", reason: "..." }`.
+
+Worked example for site #3 (`mixing_beta`):
+
+```rust
+// BEFORE:
+if self.mixing_beta <= 0.0 || self.mixing_beta > 1.0 {
+    return Err(PwdftError::InvalidInput(
+        format!("mixing_beta must be in (0, 1], got {}", self.mixing_beta),
+    ));
+}
+
+// AFTER:
+if self.mixing_beta <= 0.0 || self.mixing_beta > 1.0 {
+    return Err(PwdftError::InvalidParam {
+        name: "mixing_beta",
+        reason: format!("must be in (0, 1], got {}", self.mixing_beta),
+    });
+}
+```
+
+**Test changes required** — the existing tests that currently match
+`PwdftError::InvalidInput(msg)` must be updated:
+
+- `src/scf/mod.rs:369` — `validate_rejects_zero_pulay_period` matches
+  `PwdftError::InvalidInput(msg)` for site #7 → update to match
+  `PwdftError::InvalidParam { name: "pulay_period", reason }`.
+- `src/scf/mod.rs:388` — same test, `matches!(…, Err(InvalidInput(_)))`
+  → `Err(InvalidParam { name: "pulay_period", .. })`.
+- `src/settings.rs:1280` — `scf_params_validate_rejects_non_positive_gaussian_sigma`
+  matches `PwdftError::InvalidInput(msg)` for site #8 → update.
+
+**Acceptance:** `cargo test` Tier-1 passes; the nine affected sites
+still produce actionable error text (eyeball-verified in test
+assertions).
+
+**Estimated size:** ~30 lines of production change + ~30 lines of test
+updates.
+
+#### P1.d — Migrate ELEMENT + UPF clusters (2 call sites) + drop `InvalidInput` usage
+
+**Scope:**
+- Site #12 in `src/settings.rs:539` → `UnknownElement { symbol }`.
+- Site #15 in `src/pseudopotential/upf/xml.rs:46` →
+  `InvalidPseudopotential { source: tag.to_string(), reason: format!("angular_momentum must be non-negative (got {l})") }`.
+- Site #14 in `src/main.rs:47` stays as `InvalidInput(String)` — the
+  CLI catch-all.
+
+**Test changes required:**
+- `src/pseudopotential/upf/convert.rs:555,561,596,602` — four test
+  match arms currently expect `PwdftError::InvalidInput(msg)` →
+  update to `PwdftError::InvalidPseudopotential { source, reason }`
+  and assert the `reason` still mentions `angular_momentum`.
+- Add one test in `src/settings.rs::tests` for the unknown-element
+  path (pattern-match on `PwdftError::UnknownElement { symbol }`).
+
+**Acceptance:**
+- `grep 'PwdftError::InvalidInput' src/` returns exactly 1 site
+  (`src/main.rs:47`) — down from 15.
+- CLAUDE.md § Code Quality (or equivalent) grows a one-line note:
+  "`PwdftError::InvalidInput(String)` is reserved for CLI glue in
+  `main.rs`. New error kinds get a dedicated variant — see the P1
+  taxonomy in `proposals/ERR2-panic-free-production-audit.md`."
+
+**Estimated size:** ~10 lines production change + ~20 lines test
+updates + ~5 lines CLAUDE.md.
+
+### 4. Test policy
+
+Minimum coverage per new variant:
+
+- **Formatting test** in `src/error.rs::tests`: one `#[test]` per new
+  variant asserting `to_string()` produces the exact `#[error(...)]`
+  template output. Landed in P1.a.
+- **Integration test per migration PR**: one test per cluster that
+  triggers the error path through a realistic caller entry point and
+  asserts the new variant discriminant (not the string). These keep
+  the migration from silently downgrading an error to
+  `InvalidInput` or `Parse`.
+- **No regression tests on the old `InvalidInput(String)` shape.**
+  The migration deletes the test match-arm on `InvalidInput` for every
+  site it moves. Leaving test expectations behind defeats the purpose
+  of the split.
+
+Total new test count across P1.a–d: approximately
+- P1.a: 4 formatting tests (unit)
+- P1.b: 1 integration or unit test
+- P1.c: 3 test updates + 1 new test
+- P1.d: 4 test updates + 1 new test
+- **Total: ~13 test touchpoints, ~8 genuinely new tests.**
+
+Test overhead is deliberately minimal — the P1 migration is structural
+refactoring, not a new feature. The existing UPF / YAML / SCF
+integration tests already exercise the error *paths*; P1 only changes
+the *shape* of the returned discriminant.
+
+### 5. Summary of counts
+
+| Quantity | Pre-P1 | Post-P1 target |
+|---|---|---|
+| `PwdftError::InvalidInput` production sites | 15 | 1 |
+| `PwdftError::InvalidInput` catch-all share | 100 % | 6.7 % |
+| New variants added to `PwdftError` | 0 | 4 (`InvalidParam`, `InvalidCrystal`, `UnknownElement`, `InvalidPseudopotential`) |
+| PRs | — | 4 (P1.a, P1.b, P1.c, P1.d) |
+| Max call-site migrations per PR | — | 9 (P1.c) |
+| New tests | — | ~8 new + ~5 updates |
+
+### 6. Surprising findings from the re-scan
+
+- **Site count went 12 → 15, not 12 → 12.** CFGN (gaussian_sigma),
+  EAUT-style recommended-cutoff (resolve_ecutwfc), and UPFV
+  (angular_momentum) all landed after the original census. Always
+  re-scan at the start of any P1-style migration — the drift is one
+  site per month on this codebase.
+- **`Parse(String)` is stable at 15 sites.** A separate cluster, not
+  conflated with `InvalidInput`; no consolidation needed. The task
+  brief asked "are half the sites parser errors that should become a
+  new `PwdftError::Parse` family?" — the answer is *no*. `Parse` is
+  already its own variant and already has 15 sites inside the UPF
+  parser. The UPFV site (#15 above) is the *only* `InvalidInput` hit
+  in UPF code, and it's a value-range check, not a syntax parse — so
+  it needs `InvalidPseudopotential`, not another `Parse`.
+- **Existing test match-arms are the main friction.** Seven test
+  locations (`scf/mod.rs:369,388`, `settings.rs:1280`,
+  `pseudopotential/upf/convert.rs:555,561,596,602`) match on
+  `PwdftError::InvalidInput(_)`. Each P1.b–d PR must update the
+  specific test arms it touches; P1.a adds no test-arm debt.
+- **`InvalidInput { what: String }` in the task brief is a typo** —
+  the actual enum is the tuple shape `InvalidInput(String)`. The P1
+  plan keeps `InvalidInput` tuple-shaped for backward compatibility
+  with the surviving CLI site; new variants use struct fields where
+  they help (`InvalidParam { name, reason }`) and tuple fields where
+  they don't (`UnknownElement { symbol }` — could be tuple, but named
+  for API consistency with sibling variants).
+
+### Anti-scope of P1 (explicit)
+
+- **Does not touch P2** (FFT grid `assert!` → `Result`). That's
+  `scf/grid.rs:68` and lives in the separately-scoped Phase 2.
+- **Does not tighten clippy lints** beyond the P0 floor. `unwrap_used`
+  stays `warn`; no promotion to `deny`.
+- **Does not modify `Parse(String)`, `MissingPseudopotential(String)`,
+  `Gpu(String)`.** Those already have coherent single-purpose semantics.
+- **Does not touch `tests/` integration tests that don't currently
+  match on `InvalidInput`.** Net-new tests in P1.b–d are additive.
+- **Does not rebase onto any in-flight branch** (GGAP-C, VGCH-1b,
+  Al-QE-regen, TSPL, MIXA). The 15 sites touched are all in
+  `src/scf/mod.rs`, `src/settings.rs`, `src/main.rs`,
+  `src/pseudopotential/upf/xml.rs`, and `src/error.rs` — files not
+  owned by any of those parallel proposals.
