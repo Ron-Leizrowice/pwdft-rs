@@ -25,17 +25,24 @@ cargo run --release -- --input examples/si_free_electron.yaml -o bands.tsv
 ## Tests & Benchmarks
 
 ```bash
-cargo test                                    # all tests (~265, ~24s)
-cargo test --features gpu                     # with GPU tests (~268, ~28s)
+cargo test                                    # all tests
+cargo test --features gpu                     # with GPU tests
 cargo test test_name                          # single test by name
 cargo test --test free_electron_bands         # single integration test file
 cargo test -- --nocapture                     # with stdout
+cargo test -- --ignored                       # run Tier-2 heavy SCF suites only (see TSPL)
+cargo test -- --include-ignored               # run both tiers
 
 cargo bench --bench scf_benchmarks            # SCF benchmarks
 cargo bench --bench gpu_benchmarks --features gpu  # GPU benchmarks
 ```
 
-Integration tests in `tests/`: free-electron band validation (Si, C diamond, BCC Fe), KB projector validation, non-local symmetry, parallel consistency, GPU vs CPU consistency.
+Runtime (M3 Max, 2026-04-19, post-TPRF with `[profile.test] opt-level=3`):
+`cargo test` ~95 s wall (down from ~11 min at opt-level=0 — 7× overall, 44× on the vgc5 / qe_validation integration binaries). Clippy + doc each ≲30 s.
+
+Integration tests in `tests/`: free-electron band validation (Si, C diamond, BCC Fe), KB projector validation, non-local symmetry, parallel consistency, GPU vs CPU consistency, VGC5 per-component energies + MADOC band-sum identity (Si, Fe), QE validation (8-system reference set), spin polarization, WFRX subspace consistency.
+
+Test-suite tiers (TSPL, 2026-04-19): `cargo test` is the Tier-1 fast tier (unit tests + lightweight integration). Heavy SCF suites (QE validation, VGC5, MADOC identity, spin polarization with tight conv, WFRX) are Tier-2 and gated by `#[ignore]` — run `cargo test -- --ignored` when touching SCF / density / mixing / XC / NLCC / symmetry / eigensolver / GPU / basis / fft / ewald / pseudopotential code. Doc- or proposal-only changes skip Tier 2.
 
 ## Code Quality
 

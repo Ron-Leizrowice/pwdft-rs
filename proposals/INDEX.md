@@ -16,7 +16,10 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 
 ### High — Performance
 
-_No active entries (WFRX Technique 1 landed as PR #99; Technique 2 gated on ITEV upstream fix — see Deferred)._
+| ID | Title | Complexity | Risk | Depends On | Blocks |
+|----|-------|-----------|------|------------|--------|
+| TPRF | `[profile.test] opt-level=3` — shrink full gate from ~11 min to seconds (in flight — this PR) | trivial | low | — | TSPL |
+| TSPL | Bifurcate test suite — fast Tier-1 default + heavy Tier-2 opt-in via `#[ignore]` (follow-up to TPRF) | small | low | TPRF | — |
 
 ### High — Validation
 
