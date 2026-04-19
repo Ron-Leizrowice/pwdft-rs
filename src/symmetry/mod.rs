@@ -59,7 +59,7 @@ impl SymmetryInfo {
     /// - K-point reduction leaves every input k-point unchanged (each
     ///   orbit has size 1, so weights remain `1/n_total`).
     /// - Density symmetrization is a no-op (see
-    ///   [`density::symmetrize_density`], which short-circuits when
+    ///   [`density::symmetrize_density_g`], which short-circuits when
     ///   `n_ops <= 1`).
     ///
     /// The resulting behavior is bit-identical to the legacy path that
@@ -145,11 +145,6 @@ impl SymmetryInfo {
 }
 
 #[cfg(test)]
-// `symmetrize_with_identity_only_is_noop` exercises the deprecated legacy
-// real-space `density::symmetrize_density` on purpose — pinning the
-// n_ops ≤ 1 short-circuit so the SCF identity-only fallback stays
-// bit-identical to the no-symmetrization path.
-#[allow(deprecated)]
 mod tests {
     use super::*;
 
@@ -183,29 +178,6 @@ mod tests {
             "identity-only with time-reversal must not be considered trivial: \
              k ↔ −k folding is still meaningful"
         );
-    }
-
-    #[test]
-    fn symmetrize_with_identity_only_is_noop() {
-        // Verify the "identity-only SymmetryInfo" is numerically indistinguishable
-        // from the legacy "no symmetrization" path: the density must be left
-        // bit-identical after a call to `symmetrize_density` because the
-        // short-circuit `n_ops <= 1` applies.
-        let s = SymmetryInfo::identity_only();
-        let dims = [8, 8, 8];
-        let n = dims[0] * dims[1] * dims[2];
-        let rho_original: Vec<f64> = (0..n).map(|i| (i as f64 * 0.13).sin() + 1.0).collect();
-        let mut rho = rho_original.clone();
-        density::symmetrize_density(&mut rho, dims, &s);
-        for (orig, sym) in rho_original.iter().zip(rho.iter()) {
-            // Bit-identical, not just numerically close. The short-circuit
-            // returns before touching `rho`, so no rounding occurs.
-            assert_eq!(
-                orig.to_bits(),
-                sym.to_bits(),
-                "identity-only symmetrization must leave density bit-identical"
-            );
-        }
     }
 
     #[test]

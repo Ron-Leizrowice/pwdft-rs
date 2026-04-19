@@ -1,33 +1,21 @@
 //! Charge density symmetrization on the FFT grid.
 //!
-//! Two forms are implemented:
+//! The SCF uses the G-space form:
 //!
-//! * [`symmetrize_density`] — real-space form
-//!   `ρ_sym(r) = (1/N_ops) Σ_S ρ(S⁻¹ r)`, implemented by rotating each
-//!   grid point and rounding to the nearest neighbour. Exact only when
-//!   `τ_{S,i} · n_i ∈ ℤ` for every operation S and axis i — i.e. the
-//!   fractional translation lands on an integer grid point.
+//! ```text
+//! ρ_sym(G) = (1/N_ops) Σ_S exp(-i G · τ_S) · ρ(R_S^T · G)
+//! ```
 //!
-//! * [`symmetrize_density_g`] — G-space form (preferred for SCF)
-//!   `ρ_sym(G) = (1/N_ops) Σ_S exp(-i G · τ_S) · ρ(R_S⁻¹ G)`,
-//!   exact for any fractional translation because the phase factor is
-//!   analytic. Matches QE 7.5 `PW/src/symme.f90::sym_rho_serial`.
-//!
-//! The real-space form silently smears density across the wrong grid
-//! points for non-symmorphic space groups whose τ doesn't land on the
-//! grid (e.g. Fd-3m with τ=(¼,¼,¼) on an 18³ grid). Always use the
-//! G-space form in SCF; keep the real-space form for direct-grid unit
-//! tests where translation exactness is guaranteed by construction.
-//!
-//! See `proposals/completed/PCFX-symmetrize-rho-g-space.md`.
+//! implemented by [`symmetrize_density_g`]. The fractional translation
+//! enters analytically as an `exp(i·G·τ)` phase, so the result is exact
+//! for any `τ` on any sufficiently band-limited density — including the
+//! non-symmorphic case `τ=(¼,¼,¼)` on an 18³ grid that defeats a
+//! real-space `nint`-based averager. Matches QE 7.5
+//! `PW/src/symme.f90::sym_rho_serial`.
 
 mod g_space;
-mod real_space;
 
 use super::SymmetryInfo;
-
-#[allow(deprecated)]
-pub use real_space::symmetrize_density;
 
 pub use g_space::symmetrize_density_g;
 
