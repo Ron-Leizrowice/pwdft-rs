@@ -126,7 +126,7 @@ pub(super) fn log_entropy(ts: f64, n_atoms: usize) {
 
 /// Emit the per-component energy breakdown (VGC5 diagnostic) at SCF
 /// convergence.
-pub(super) fn log_components(c: &EnergyComponents, e_total: f64, n_electrons: f64) {
+pub(super) fn log_components(c: &EnergyComponents, e_total: f64) {
     let e_sum = c.e_kinetic
         + c.e_local
         + c.e_local_g0_shift
@@ -137,11 +137,13 @@ pub(super) fn log_components(c: &EnergyComponents, e_total: f64, n_electrons: f6
         + c.e_smearing;
     info!("--- Per-component energies (eV) ---");
     info!("  E_band       = {:.6}", c.e_band);
-    info!("  E_kinetic    = {:.6}", c.e_kinetic);
-    info!("  E_local      = {:.6}", c.e_local);
     info!(
-        "  E_local(G=0) = {:.6}  (= V_loc(G=0)·N_el, N_el={:.3})",
-        c.e_local_g0_shift, n_electrons
+        "  E_kinetic    = {:.6}",
+        c.e_kinetic
+    );
+    info!(
+        "  E_local      = {:.6}  (includes V_loc(G=0)·N_el)",
+        c.e_local
     );
     info!("  E_nonlocal   = {:.6}", c.e_nonlocal);
     info!("  E_hartree    = {:.6}", c.e_hartree);

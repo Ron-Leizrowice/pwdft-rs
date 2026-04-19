@@ -76,7 +76,7 @@ use super::energy::{
     EnergyComponents, add_core_density, assemble_v_eff, band_energy, density_diff,
     density_r_to_g, harris_foulkes_energy, hartree_energy, hartree_on_fft_grid,
     kinetic_expectation, local_pp_energy_grid, nonlocal_expectation, real_to_g_space,
-    total_energy, with_g0_shift, xc_energy_bare,
+    total_energy, xc_energy_bare,
 };
 use super::potentials::fill_hamiltonian_with_v_eff;
 use super::report::{log_components, log_convergence_summary, log_entropy, log_iteration, IterationReport, SpinIterationFields};
@@ -571,14 +571,17 @@ pub(crate) fn run_scf_spin(
         );
         let e_smearing = -ts;
 
-        // Kohn-Sham energy: double-counting from OUTPUT density
-        let e_total = with_g0_shift(total_energy(
+        // Kohn-Sham energy: double-counting from OUTPUT density. V_loc(G=0)
+        // enters the Hamiltonian diagonal directly (post-VGCH-SiEF-B1; see
+        // `ScfContext::new`), so the band sum already includes its
+        // contribution and no external G=0 shift is required here.
+        let e_total = total_energy(
             e_band,
             hartree_energy(&rho_total_new_g, &ctx.g_squared, ctx.omega),
             e_xc_corrected_out,
             ctx.e_ewald,
             e_smearing,
-        ), &ctx);
+        );
 
         // Harris-Foulkes energy: double-counting from INPUT density
         // rho_total_g, rho_up_xc, rho_down_xc, exc_r, vxc_up_r, vxc_down_r
@@ -591,13 +594,13 @@ pub(crate) fn run_scf_spin(
             .sum();
         let e_xc_corrected_in = e_xc_in - e_vxc_spin_in;
 
-        let e_harris = with_g0_shift(harris_foulkes_energy(
+        let e_harris = harris_foulkes_energy(
             e_band,
             hartree_energy(&rho_total_g, &ctx.g_squared, ctx.omega),
             e_xc_corrected_in,
             ctx.e_ewald,
             e_smearing,
-        ), &ctx);
+        );
 
         let hf_diff = (e_harris - e_total).abs();
 
@@ -664,11 +667,15 @@ pub(crate) fn run_scf_spin(
             );
             let e_kinetic = e_kin_up + e_kin_down;
 
+            // V_local in real space (G=0 kept — it lives on the Hamiltonian
+            // diagonal under the post-VGCH-SiEF-B1 convention, so the
+            // ∫ρ·V_local integral picks up the uniform-background piece
+            // automatically; `e_local_g0_shift` is zero by construction).
             let mut v_local_cplx = ctx.v_local_fft.clone();
             ctx.grid.fft.inverse(&mut v_local_cplx);
             let v_local_r: Vec<f64> = v_local_cplx.iter().map(|c| c.re).collect();
             let e_local = local_pp_energy_grid(&rho_total_new, &v_local_r, ctx.omega, ctx.n_grid);
-            let e_local_g0_shift = ctx.v_local_g0 * ctx.n_electrons;
+            let e_local_g0_shift = 0.0;
 
             let e_nl_up = nonlocal_expectation(
                 ctx.basis, ctx.crystal, &k_vecs, &ctx.kpt_weights,
@@ -704,7 +711,7 @@ pub(crate) fn run_scf_spin(
 
             log_convergence_summary(e_total, e_harris, hf_diff, free_energy, energy_sigma0);
             log_entropy(ts, ctx.crystal.atoms.len());
-            log_components(&components, e_total, ctx.n_electrons);
+            log_components(&components, e_total);
 
             return Ok(ScfResult {
                 total_energy: e_total,

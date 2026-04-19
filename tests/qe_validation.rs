@@ -15,17 +15,24 @@
 //! defaults to Γ-centered — matching QE's `K_POINTS automatic / Nx Ny Nz
 //! 0 0 0`. With this both codes now sample the same k-mesh. Empirically
 //! MPSH closed the **Si 4×4×4 total-energy** residual from 0.26 eV to
-//! 33 meV, but the eigenvalue / E_F assertions on Si still fail due to
-//! a V_loc(G=0) absolute-reference shift (≈ 1.35 eV constant offset;
-//! VGCH territory), and Al (83 meV) and C (SCF-stall fixed by
-//! Broyden+Kerker but 1.45 eV residual remains) were **not** resolved
-//! by MPSH alone — per-cell investigation is logged in each test's
-//! `#[ignore]` reason string and docstring.
+//! 33 meV; Al (83 meV) and C (SCF-stall fixed by Broyden+Kerker but
+//! 1.45 eV residual remains) were **not** resolved by MPSH alone —
+//! per-cell investigation is logged in each test's `#[ignore]` reason
+//! string and docstring.
+//!
+//! Post-VGCH-SiEF-B1 (2026-04-19): every Kohn-Sham eigenvalue now
+//! carries `V_local(G=0)` as a DC offset (QE-compatible gauge;
+//! `src/scf/context.rs::ScfContext::new`), closing the ≈ 1.35 eV rigid
+//! shift on Si E_F and the corresponding shifts on the Γ eigenvalues
+//! of every system. Total energies are algebraically identical to the
+//! pre-B1 values to within floating-point rounding (`e_band` gains
+//! `V_loc(G=0)·N_el` and the compensating `with_g0_shift` term that
+//! previously added it back is gone).
 //!
 //! Post-VQEF-QC (2026-04-19): Si E_total split off as non-ignored
-//! `test_si_diamond_energy_vs_qe` (33 meV residual within 40 meV tol),
-//! Si Fermi energy remains ignored pending VGCH Phase 1b. Al test-arm
-//! kept at QE's ecut=15 Ry until the QE reference is regenerated at
+//! `test_si_diamond_energy_vs_qe` (33 meV residual within 40 meV tol);
+//! Si Fermi energy passes under the B1 gauge. Al test-arm kept at
+//! QE's ecut=15 Ry until the QE reference is regenerated at
 //! PseudoDojo .standard ≥ 24 Ry (ecut-sweep table in the test
 //! docstring). C test-arm now uses `Broyden { kerker: true }` — SCF
 //! converges cleanly in 12 iters but the remaining 1.45 eV gap is a
@@ -335,19 +342,19 @@ fn test_si_diamond_energy_vs_qe() {
 
 /// Si diamond Fermi energy vs QE (FCC, 2 atoms, LDA insulator).
 ///
-/// Separated from `test_si_diamond_energy_vs_qe` because the Fermi
-/// energy inherits the absolute V_loc(G=0) eigenvalue shift (≈ 1.35 eV)
-/// that the total energy does not: pwdft-rs sets V_eff(G=0) = 0 and
-/// adds the compensating `V_loc(G=0)·N_el` at the total-energy stage,
-/// so every KS eigenvalue (and thus E_F) is offset by a constant while
-/// the total energy is correct. Closing the eigenvalue shift is a
-/// VGCH Phase 1b / V_loc(G=0) convention change that will touch the
-/// Hamiltonian assembly, so this arm stays ignored until that lands.
+/// Separated from `test_si_diamond_energy_vs_qe` because pre-VGCH-SiEF-B1
+/// the Fermi energy inherited an absolute V_loc(G=0) eigenvalue shift
+/// (≈ 1.35 eV) that the total energy did not: pwdft-rs set V_eff(G=0) = 0
+/// and added the compensating `V_loc(G=0)·N_el` at the total-energy stage,
+/// so every KS eigenvalue (and thus E_F) was offset by a constant.
 ///
-/// Measured residual at 4×4×4 ecut=15 Ry (2026-04-19 baseline):
-/// `E_F_pwdft = 4.9954 eV`, `E_F_QE = 6.3449 eV`, `|ΔE_F| = 1.3495 eV`.
+/// Post-B1 (2026-04-19): `V_loc(G=0)` lives on the Hamiltonian diagonal
+/// (QE convention), so every eigenvalue carries the DC offset directly.
+/// Measured residual at 4×4×4 Γ-centered, ecut=15 Ry:
+/// `|ΔE_F| ≲ 10 meV` (the residual that remains is Si's MPSH / ecut
+/// floor, far below the pre-B1 1.35 eV gauge offset).
 #[test]
-#[ignore = "VGCH Phase 1b: ≈1.35 eV absolute-reference shift on every eigenvalue (V_loc(G=0) convention); E_total stays within 40 meV (guarded separately)"]
+#[ignore = "TSPL Tier-2: Si diamond 4×4×4 SCF at ecut=15 Ry (Fermi energy vs QE, post-VGCH-SiEF-B1 gauge); run with cargo test -- --ignored when touching scf/, potential/, pseudopotential/, or symmetry/ paths"]
 fn test_si_diamond_fermi_vs_qe() {
     let crystal = fcc_crystal(
         5.431,
@@ -365,7 +372,125 @@ fn test_si_diamond_fermi_vs_qe() {
         ..QeComparisonConfig::new(&crystal, vec![&pp_si])
     };
     let result = run_qe_comparison(&cfg).expect("Si SCF should converge");
-    assert_fermi_matches_qe("Si", &result, 6.3449, 0.05);
+    // 30 meV tolerance = ~3× headroom over the expected MPSH / numeric
+    // residual under the B1 gauge. Pre-B1 the residual was 1.35 eV.
+    assert_fermi_matches_qe("Si", &result, 6.3449, 0.030);
+}
+
+/// Si diamond total-energy bit-stability pin (VGCH-SiEF-B1).
+///
+/// The B1 gauge fix is algebraically identical on the total-energy
+/// side: the old `total_energy + V_loc(G=0)·N_el` compensation was
+/// removed at the same time `e_band` gained the matching
+/// `V_loc(G=0)·N_el` piece (via the Hamiltonian diagonal). This
+/// regression pin locks Si's post-TSEN total energy against its pre-B1
+/// value so any future change that breaks the algebraic-identity
+/// invariant trips this test before it pollutes the QE-comparison
+/// arms.
+///
+/// Observed 2026-04-19: `E_pwdft = −231.6544 eV` at 4×4×4 Γ-centered,
+/// ecut = 15 Ry (the `test_si_diamond_energy_vs_qe` fixture).
+#[test]
+#[ignore = "TSPL Tier-2: Si diamond 4×4×4 SCF at ecut=15 Ry (VGCH-SiEF-B1 bit-identity pin); run with cargo test -- --ignored when touching scf/, potential/, pseudopotential/, or symmetry/ paths"]
+fn test_si_total_energy_bit_identity_post_siefb1() {
+    let crystal = fcc_crystal(
+        5.431,
+        vec![
+            Atom::new(14, [0.00, 0.00, 0.00]),
+            Atom::new(14, [0.25, 0.25, 0.25]),
+        ],
+    );
+    let pp_si = load_pp("Si");
+
+    let cfg = QeComparisonConfig {
+        ecut_ry: 15.0,
+        nk: 4,
+        n_bands: 8,
+        ..QeComparisonConfig::new(&crystal, vec![&pp_si])
+    };
+    let result = run_qe_comparison(&cfg).expect("Si SCF should converge");
+
+    // Pre-B1 pin, captured against the pre-fix build. Any shift > 1 meV
+    // indicates the algebraic-identity invariant has drifted and needs
+    // investigating before shipping.
+    let pre_b1_energy = -231.6544_f64;
+    let drift = (result.total_energy - pre_b1_energy).abs();
+    eprintln!(
+        "  [Si B1 bit-identity] E_pwdft_post_B1 = {:.6} eV,  pre-B1 pin = {:.6} eV,  |Δ| = {:.4} meV",
+        result.total_energy, pre_b1_energy, drift * 1000.0,
+    );
+    assert!(
+        drift < 0.001,
+        "Si E_total drifted by {:.4} meV against the pre-B1 pin \
+         (E_pwdft = {:.6} eV, pin = {:.6} eV) — VGCH-SiEF-B1 \
+         algebraic-identity invariant broken",
+        drift * 1000.0,
+        result.total_energy,
+        pre_b1_energy,
+    );
+}
+
+/// C diamond Fermi energy vs QE (FCC, 2 atoms, LDA wide-gap insulator).
+///
+/// Split out from [`test_c_diamond_vs_qe`] so the Fermi-energy check
+/// runs even while the total-energy residual (1.45 eV, VGCH light-atom
+/// signature) blocks the full match. Pre-VGCH-SiEF-B1 this would also
+/// have failed by ≈ 3.09 eV — two C atoms × 1.546 eV V_loc(G=0)/atom —
+/// but under the B1 gauge the C Fermi should close to the MPSH/ecut
+/// noise floor (a few tens of meV).
+#[test]
+#[ignore = "TSPL Tier-2: C diamond 4×4×4 SCF at ecut=30 Ry (Fermi energy vs QE, post-VGCH-SiEF-B1 gauge); run with cargo test -- --ignored when touching scf/, potential/, pseudopotential/, or symmetry/ paths"]
+fn test_c_diamond_fermi_vs_qe() {
+    let crystal = fcc_crystal(
+        3.567,
+        vec![
+            Atom::new(6, [0.00, 0.00, 0.00]),
+            Atom::new(6, [0.25, 0.25, 0.25]),
+        ],
+    );
+    let pp_c = load_pp("C");
+
+    let cfg = QeComparisonConfig {
+        ecut_ry: 30.0,
+        nk: 4,
+        n_bands: 8,
+        mixing: MixingMode::Broyden { kerker: true },
+        ..QeComparisonConfig::new(&crystal, vec![&pp_c])
+    };
+    let result = run_qe_comparison(&cfg).expect("C SCF should converge");
+    // 100 meV tolerance covers the MPSH/ecut residual on C diamond
+    // (the total-energy residual is larger — 1.45 eV — but that's a
+    // different, density-level effect tracked under VGCH light-atom
+    // extension; the Fermi-level alignment closes under the B1 gauge).
+    assert_fermi_matches_qe("C", &result, 15.8873, 0.100);
+}
+
+/// Al FCC Fermi energy vs QE (1 atom, simple metal).
+///
+/// Split out from [`test_al_fcc_vs_qe`] so the Fermi check runs under
+/// the post-VGCH-SiEF-B1 gauge on an independent arm. Pre-B1 the Al
+/// Fermi was shifted by ≈ 0.14 eV (1 atom × 0.140 eV V_loc(G=0)/atom);
+/// post-B1 it should close to well below the 150 meV tolerance that
+/// [`test_al_fcc_vs_qe`] used for the same assertion.
+#[test]
+#[ignore = "TSPL Tier-2: Al FCC 8×8×8 SCF at ecut=24 Ry (Fermi energy vs QE, post-VGCH-SiEF-B1 gauge); run with cargo test -- --ignored when touching scf/, potential/, pseudopotential/, or symmetry/ paths"]
+fn test_al_fcc_fermi_vs_qe() {
+    let crystal = fcc_crystal(4.05, vec![Atom::new(13, [0.0, 0.0, 0.0])]);
+    let pp_al = load_pp("Al");
+
+    let cfg = QeComparisonConfig {
+        ecut_ry: 24.0,
+        nk: 8,
+        n_bands: 6,
+        mixing: MixingMode::Kerker { q_tf: None },
+        degauss_ry: 0.02,
+        ..QeComparisonConfig::new(&crystal, vec![&pp_al])
+    };
+    let result = run_qe_comparison(&cfg).expect("Al SCF should converge");
+    // 100 meV tolerance matches the C Fermi arm; Al's Fermi residual
+    // under the B1 gauge is driven by the metallic-smearing / k-mesh
+    // noise floor rather than a gauge constant.
+    assert_fermi_matches_qe("Al", &result, 7.5876, 0.100);
 }
 
 /// C diamond (FCC, 2 atoms, LDA wide-gap insulator).

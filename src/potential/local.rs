@@ -18,9 +18,9 @@
 //!
 //! Units: `r` in Å, `G` in 1/Å, `τ_α` in Å, `Ω` in Å³, `V_local(G)` in eV.
 //! The `G = 0` component is finite (the Coulomb tail is subtracted inside
-//! `v_local_of_g`); it is zeroed out inside the Hamiltonian to keep the
-//! one-body operator diagonal-finite and re-added to the total energy by
-//! the `scf::energy::with_g0_shift` helper.
+//! `v_local_of_g`) and is kept on the Hamiltonian diagonal so every
+//! Kohn-Sham eigenvalue carries the uniform-background DC offset
+//! (QE-compatible gauge; see `scf::context::ScfContext::new`).
 //!
 //! Reference: Martin, *Electronic Structure*, §11.4, Eq. (11.15)
 //! (reciprocal-space form of a superposition of spherical atomic
@@ -56,10 +56,11 @@ use crate::{
 /// - The `G = 0` entry carries the finite residual after the Coulomb
 ///   `−4πZ_α·e²/|G|²` tail has been subtracted inside
 ///   [`crate::pseudopotential::PseudopotentialData::v_local_of_g`]. That
-///   residual enters the total energy as `V_local(G=0) · N_el` via the
-///   `scf::energy::with_g0_shift` helper, while the one-body
-///   Hamiltonian keeps `V_local(G=0) = 0` so the diagonal stays
-///   finite under the neutral-background convention.
+///   residual stays on the Hamiltonian diagonal, so every Kohn-Sham
+///   eigenvalue carries the uniform-background DC offset (QE-compatible
+///   gauge; see `scf::context::ScfContext::new`). The ion-ion Ewald
+///   sum supplies the matching divergent piece so the total
+///   electrostatic energy is cutoff-independent.
 ///
 /// Reference: Kleinman & Bylander, *Phys. Rev. Lett.* **48**, 1425
 /// (1982) for the local+separable split that keeps this struct
@@ -169,12 +170,10 @@ impl LocalPotential {
     ///   is fixed at 1 Å and cancels identically in the sum).
     /// - The `G = 0` component carries a finite residual; the divergent
     ///   `−4π·Z_α·e²/|G|²` piece has been subtracted by the two
-    ///   branches of `v_local_of_g`. That residual is paid back into
-    ///   the total energy as `V_local(G=0) · N_el` via the
-    ///   `scf::energy::with_g0_shift` helper; the Hamiltonian's
-    ///   diagonal keeps its own G=0 entry zero under the neutral-
-    ///   background convention (stashed by `ScfContext::new` in
-    ///   `scf::context`).
+    ///   branches of `v_local_of_g`. That residual stays on the
+    ///   Hamiltonian diagonal (QE-compatible gauge) so every
+    ///   Kohn-Sham eigenvalue carries the uniform-background DC
+    ///   offset; see `ScfContext::new` in `scf::context`.
     ///
     /// Reference: Martin, *Electronic Structure*, §11.4 for the
     /// reciprocal-space structure-factor form; Kleinman & Bylander,

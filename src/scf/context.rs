@@ -51,6 +51,12 @@ pub(crate) struct ScfContext<'a> {
     /// the Vec<[f64;3]> every SCF iteration.
     pub g_vectors: Vec<[f64; 3]>,
     pub v_local_fft: Vec<Complex64>,
+    /// Diagnostic copy of `V_local(G=0)` in eV — the uniform-background
+    /// DC offset carried by every Kohn-Sham eigenvalue under the
+    /// QE-compatible gauge. Logged at `ScfContext::new` time and kept
+    /// on the struct for downstream diagnostic callers; the SCF loop
+    /// itself does not read it.
+    #[allow(dead_code, reason = "diagnostic-only field; consumed via info! log at construction site")]
     pub v_local_g0: f64,
     pub vnl_cache: Vec<NonlocalPotential>,
     pub rho_core_r: Vec<f64>,
@@ -119,11 +125,17 @@ impl<'a> ScfContext<'a> {
 
         let g_to_fft = grid.basis_to_fft(basis);
 
-        // V_local with G=0 excluded
-        let mut v_local_fft = potentials::compute_v_local(crystal, &grid, pseudopotentials, omega)?;
+        // V_local in G-space. The G=0 component is kept on the Hamiltonian
+        // diagonal (via `v_local_fft[0]`) so every Kohn-Sham eigenvalue
+        // carries the uniform-background DC offset, matching QE's
+        // convention (`qe-7.5/PW/src/setlocal.f90:91-96`: `v_of_0 =
+        // DBLE(aux(1))` is recorded for diagnostics but `aux(1)` stays on
+        // `vltot(r)`). The `v_local_g0` stash is retained for logging and
+        // diagnostic scripts; it is no longer subtracted out of the
+        // Hamiltonian and re-added to the total energy.
+        let v_local_fft = potentials::compute_v_local(crystal, &grid, pseudopotentials, omega)?;
         let v_local_g0 = v_local_fft[0].re;
-        v_local_fft[0] = Complex64::new(0.0, 0.0);
-        info!("V_local(G=0) = {v_local_g0:.6} eV (excluded from Hamiltonian)");
+        info!("V_local(G=0) = {v_local_g0:.6} eV (on Hamiltonian diagonal)");
 
         // Precompute |G|² and the full G-vector cache. `g_vectors` is
         // reused by GGA gradient / divergence FFTs (GGAP Phase A.1);
