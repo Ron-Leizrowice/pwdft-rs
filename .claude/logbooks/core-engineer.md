@@ -2,6 +2,26 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-20 — BSUM: band-sum identity gate (PR #165)
+
+Added `assert_band_sum_matches_qe` helper in `tests/qe_validation.rs` comparing QE's labeled `one-electron contribution` (`eband + deband = <ψ|T + V_ion|ψ>`, `electrons.f90:1719`) against pwdft-rs's `e_kinetic + e_local + e_local_g0_shift + e_nonlocal`. New `QeComparisonConfig::one_electron_qe_ry: Option<f64>` (default `None`, additive). `reference_data.toml` gets `one_electron_ry` on all 16 cells — harvested from existing `*.out` files, no QE re-runs. Diagnostic `E_1e^pwdft` print always emitted in `run_qe_comparison` so VGCH-2B-owned heavy-atom cells still yield machine-parsable residuals without me touching their bodies.
+
+**Terminology gotcha — brief was imprecise.** Brief wrote `E_1e = Σ w_k f ε` but explicitly mapped it to QE's "one-electron contribution". Those are different: QE's label is `eband + deband = <T + V_ion>`, not `eband` alone. I went with `<T + V_ion>` because (1) it's what QE prints as a scalar, (2) it's **invariant** to the V_loc(G=0) rigid shift (VGCH Phase 1b territory) while the literal `eband` is **dominated** by it (~10 eV on heavy-atom cells), and (3) it's a density-drift indicator orthogonal to Hartree/XC/Ewald on the cancellation axis. Kept the `assert_band_sum_matches_qe` name from the brief but the docstring explicitly walks through why it's the shift-compensated form.
+
+**Heavy-atom ratio pattern.** 16-cell `|ΔE_1e|/|ΔE_total|` landed in:
+- Light atoms (Si/Al/C, both functionals): 0.1–5.3× (order-of-magnitude agreement; C at 1.19× the VGCH baseline).
+- Heavy atoms (Fe/Cu/GaAs/NaCl/MgO, both functionals): **1.5–3.3×**. Every Z>14 cell has `|ΔE_1e|` > `|ΔE_total|`, directly quantifying the VGCH partial-cancellation signature that VGCH-2B's transplant experiment hypothesizes. Fe PBE at 3.25× is the most extreme; Fe LDA at 0.99× is the only heavy-atom exception (different diagnostic path — E_1e and E_total move together on Fe LDA).
+
+**Per-test tolerances.** Asserted on 6 owned cells:
+- GREEN: Si-E 80 meV (obs 17), Si-PBE 40 meV (obs 13), Al-LDA 120 meV (obs 3), Al-PBE 40 meV (obs 0.8).
+- YELLOW: C-LDA 2.0 eV (obs 1.72), C-PBE 0.6 eV (obs 0.37). Per BSUM-YELLOW policy from brief: `|ΔE_total| + 100 meV`, don't tighten beyond E_total.
+
+**Didn't touch** (concurrent-agent ownership): Si-Fermi (Si-EF-B1), Fe-LDA / Fe-PBE / Cu-LDA/PBE / GaAs-LDA/PBE / NaCl-LDA/PBE / MgO-LDA/PBE bodies (VGCH-2B). Those stay `one_electron_qe_ry: None` — the diagnostic print still fires, so VGCH-2B can harvest residuals from their Tier-2 runs.
+
+**Gate:** Tier-1 cargo test 2/17 unchanged. Tier-2 `qe_validation` 9 passed / 8 failed — all 8 failures are pre-existing VGCH heavy-atom E_total panics at `qe_validation.rs:286` (`assert_energy_matches_qe`), no new BSUM-attributable failures. Clippy 21/28 = origin/main baseline (verified by stash + re-run; no new warnings from BSUM). Rustdoc clean. PR #165.
+
+**Email push footgun again.** First push rejected with GH007 because the worktree's git config had the protonmail address. Fixed with `--amend --author=...@users.noreply.github.com` + `GIT_COMMITTER_EMAIL=` env override (not `--reset-author` + `--author=` — those are mutually exclusive). Shouldn't be used together again.
+
 ## 2026-04-19 — GGAP Phase A.1: driver-side ∇ρ FFT + semilocal V_xc assembly (PR #155)
 
 Shipped `fft::compute_density_gradient(ρ_r, fft, G)` and `potential::xc::assemble_semilocal_vxc(v1, h, fft, G)` — the two missing pieces between Phase B (PBE exchange kernel, PR #145) and Phase C (PBE correlation, PR #151) and a working end-to-end PBE SCF loop. Caches `g_vectors: Vec<[f64;3]>` + conditionally `rho_core_grad_r` on `ScfContext` so per-iteration FFT work is bounded to ∇ρ_val; ∇ρ_core is geometry-frozen, computed once at SCF entry. Both `driver.rs` and `driver_spin.rs` wired. LDA path bit-identical (`XcEvaluator::needs_gradient()` → false on Pz, FFT work skipped, `v2_r = None` short-circuits divergence assembly).
