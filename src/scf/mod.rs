@@ -291,9 +291,12 @@ pub struct ScfResult {
 ///
 /// # Errors
 ///
-/// - `PwdftError::InvalidInput` if [`ScfParams::validate`] rejects the
-///   params, if `crystal.atoms` is empty, if `kpoints` is empty, or if
-///   the lattice volume is effectively zero (< 1e-10 ų).
+/// - `PwdftError::InvalidParam` / `PwdftError::InvalidInput` if
+///   [`ScfParams::validate`] rejects the params (see that method's own
+///   `# Errors` section for the per-field variant map).
+/// - `PwdftError::InvalidCrystal` if `crystal.atoms` is empty, if
+///   `kpoints` is empty, or if the lattice volume is effectively zero
+///   (< 1e-10 ų).
 /// - `PwdftError::NotImplemented` if `params.xc_functional` is an
 ///   unsupported variant (anything other than Perdew-Zunger LDA today);
 ///   surfaced by `XcEvaluator::from_settings` so a YAML typo fails fast
@@ -326,14 +329,20 @@ pub fn run_scf(
     let xc_evaluator =
         crate::potential::xc::XcEvaluator::from_settings(params.xc_functional)?;
     if crystal.atoms.is_empty() {
-        return Err(PwdftError::InvalidInput("at least one atom is required".into()));
+        return Err(PwdftError::InvalidCrystal {
+            reason: "at least one atom is required",
+        });
     }
     if kpoints.is_empty() {
-        return Err(PwdftError::InvalidInput("at least one k-point is required".into()));
+        return Err(PwdftError::InvalidCrystal {
+            reason: "at least one k-point is required",
+        });
     }
     let omega = crystal.lattice.volume();
     if omega < 1e-10 {
-        return Err(PwdftError::InvalidInput("lattice has zero or near-zero volume".into()));
+        return Err(PwdftError::InvalidCrystal {
+            reason: "lattice has zero or near-zero volume",
+        });
     }
 
     if params.nspin == 2 {
@@ -397,5 +406,86 @@ mod tests {
             ..Default::default()
         };
         assert!(ok.validate().is_ok());
+    }
+
+    /// ERR2 P1.b: the three CRYSTAL-cluster preconditions in `run_scf`
+    /// (empty atom list, empty k-point list, degenerate lattice volume)
+    /// must surface as `PwdftError::InvalidCrystal`, not the catch-all
+    /// `InvalidInput`. Exercises all three branches and pins both the
+    /// discriminant and the `Display` output.
+    #[test]
+    fn run_scf_rejects_crystal_shape_errors() {
+        use crate::crystal::{Atom, Lattice};
+        use crate::symmetry::SymmetryInfo;
+        use nalgebra::Vector3;
+
+        let si_a = 5.431_f64;
+        let lattice = Lattice::new(
+            si_a / 2.0 * Vector3::new(0.0, 1.0, 1.0),
+            si_a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
+            si_a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
+        );
+        let basis = BasisSet::new(&lattice, 5.0);
+        let params = ScfParams::default();
+        let sym = SymmetryInfo::identity_only();
+
+        // Branch 1: empty atoms.
+        let crystal_no_atoms = Crystal {
+            lattice: lattice.clone(),
+            atoms: vec![],
+        };
+        let kpts = vec![KPoint {
+            k: Vector3::new(0.0, 0.0, 0.0),
+            weight: 1.0,
+            label: None,
+        }];
+        let err = run_scf(&crystal_no_atoms, &basis, &kpts, &[], &params, &sym)
+            .expect_err("empty atoms must fail");
+        match &err {
+            PwdftError::InvalidCrystal { reason } => {
+                assert!(
+                    reason.contains("atom"),
+                    "InvalidCrystal reason should mention atom, got: {reason}"
+                );
+            }
+            other => panic!("expected InvalidCrystal, got: {other:?}"),
+        }
+        assert_eq!(
+            format!("{err}"),
+            "invalid crystal input: at least one atom is required"
+        );
+
+        // Branch 2: empty k-point list.
+        let crystal_ok = Crystal {
+            lattice,
+            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0])],
+        };
+        let err = run_scf(&crystal_ok, &basis, &[], &[], &params, &sym)
+            .expect_err("empty kpoints must fail");
+        assert!(matches!(
+            err,
+            PwdftError::InvalidCrystal {
+                reason: "at least one k-point is required"
+            }
+        ));
+
+        // Branch 3: degenerate lattice (zero volume from co-planar vectors).
+        let bad_lattice = Lattice::new(
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(2.0, 0.0, 0.0),
+            Vector3::new(3.0, 0.0, 0.0),
+        );
+        let crystal_degenerate = Crystal {
+            lattice: bad_lattice,
+            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0])],
+        };
+        let err = run_scf(&crystal_degenerate, &basis, &kpts, &[], &params, &sym)
+            .expect_err("zero volume must fail");
+        assert!(matches!(
+            err,
+            PwdftError::InvalidCrystal {
+                reason: "lattice has zero or near-zero volume"
+            }
+        ));
     }
 }
