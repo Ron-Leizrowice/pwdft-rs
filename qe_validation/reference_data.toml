@@ -37,15 +37,19 @@ gamma_eigenvalues_ev = [-8.1456, 14.0232, 14.0232, 14.0232, 19.3568, 19.3568, 19
 [al_fcc]
 input_file        = "al_fcc_scf.in"
 lattice_param_ang = 4.05
-ecutwfc_ry        = 15.0
+# Regenerated 2026-04-19 (VQEF-AL) at basis-converged ecut=24 Ry
+# (PseudoDojo `.standard` for Al). Old ref was ecut=15 Ry with
+# total_energy_ry = -4.72371790; QE itself was under-converged at ecut=15
+# (48 meV of basis truncation from ecut=15 → 24).
+ecutwfc_ry        = 24.0
 k_grid            = [8, 8, 8]
 degauss_ry        = 0.02
 nspin             = 1
-total_energy_ry   = -4.72371790
-fermi_energy_ev   = 7.6130
+total_energy_ry   = -4.72724484
+fermi_energy_ev   = 7.5876
 n_iterations      = 6
-# Al FCC: only 6 bands at Γ with ecut=15 Ry, 3 valence electrons.
-gamma_eigenvalues_ev = [-3.4111, 20.3573, 20.3573, 21.5721, 21.5721, 21.5721]
+# Al FCC: 3 valence electrons → 6 bands at Γ. 229 PWs at Γ (ecut=24).
+gamma_eigenvalues_ev = [-3.4118, 20.2167, 20.2167, 21.5192, 21.5192, 21.5192]
 
 [fe_bcc_fm]
 input_file        = "fe_bcc_fm_scf.in"
