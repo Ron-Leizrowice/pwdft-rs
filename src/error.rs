@@ -1,3 +1,13 @@
+//! Crate-wide error type and result alias.
+//!
+//! [`PwdftError`] is the single fallible boundary for pwdft-rs — I/O
+//! failures, YAML / UPF parse errors, SCF non-convergence, eigensolver
+//! breakdowns, GPU failures, and the [`PwdftError::NotImplemented`]
+//! guard that keeps syntactically valid but unimplemented YAML options
+//! from silently picking up the wrong physics path.
+//!
+//! [`Result<T>`] is shorthand for `std::result::Result<T, PwdftError>`.
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]

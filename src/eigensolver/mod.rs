@@ -1,3 +1,18 @@
+//! Eigensolvers for the Kohn-Sham Hamiltonian.
+//!
+//! Each SCF iteration diagonalizes the Hermitian Hamiltonian at every
+//! k-point. Two backends are available:
+//!
+//! - [`dense`] — full `faer::SelfAdjointEigen` decomposition (all n
+//!   eigenpairs, LAPACK-equivalent O(n³)); also home of the WFRX
+//!   subspace-rotation warm-start path used between SCF iterations.
+//! - [`iterative`] — implicitly-restarted Arnoldi / Krylov-Schur
+//!   partial solver that computes only the lowest `n_bands` eigenpairs.
+//!
+//! Pick between them via [`EigensolverKind`] on
+//! [`crate::scf::ScfParams`]. Dense is the default and the only fully
+//! validated path at present.
+
 pub mod dense;
 pub mod iterative;
 

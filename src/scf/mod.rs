@@ -1,3 +1,20 @@
+//! Self-consistent field (SCF) driver and supporting machinery.
+//!
+//! [`run_scf`] is the public entry point: it validates its
+//! [`ScfParams`], dispatches to the non-spin or spin-polarized driver,
+//! and returns a converged [`ScfResult`] with eigenvalues, density, and
+//! [`EnergyComponents`]. The dispatch is thin — the real work lives in
+//! the private `driver` / `driver_spin` modules.
+//!
+//! Supporting submodules:
+//! - [`mixing`] — density mixing schemes (Anderson, Broyden, Kerker).
+//! - [`smearing`] — finite-temperature occupation functions.
+//! - [`initial_density`] — superposition-of-atomic-densities (SAD) start.
+//! - [`density`] — density reconstruction from occupied orbitals.
+//!
+//! Internal helpers (context, energy, grid, potentials, report) are
+//! crate-private and shared between the two drivers.
+
 pub(crate) mod context;
 pub mod density;
 mod driver;

@@ -1,3 +1,15 @@
+//! Kinetic part of the Kohn-Sham Hamiltonian in the plane-wave basis.
+//!
+//! Exposes [`build_kinetic`], which returns the diagonal matrix
+//! `H⁰_{G,G'}(k) = δ_{GG'} · (ℏ²/2m) |k + G|²` at a given k-point.
+//! This is the kinetic-only (free-electron) Hamiltonian used by the
+//! band-structure diagnostic in [`crate::bandstructure`] and by tests
+//! that isolate the kinetic contribution.
+//!
+//! The full SCF Hamiltonian (kinetic + local + Hartree + XC + non-local)
+//! is assembled inline inside the SCF driver; this module only owns the
+//! kinetic block.
+
 use nalgebra::Vector3;
 use num_complex::Complex64;
 
