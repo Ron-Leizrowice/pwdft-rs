@@ -2,6 +2,35 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-19 — GGAP Phase A.1: driver-side ∇ρ FFT + semilocal V_xc assembly (PR #155)
+
+Shipped `fft::compute_density_gradient(ρ_r, fft, G)` and `potential::xc::assemble_semilocal_vxc(v1, h, fft, G)` — the two missing pieces between Phase B (PBE exchange kernel, PR #145) and Phase C (PBE correlation, PR #151) and a working end-to-end PBE SCF loop. Caches `g_vectors: Vec<[f64;3]>` + conditionally `rho_core_grad_r` on `ScfContext` so per-iteration FFT work is bounded to ∇ρ_val; ∇ρ_core is geometry-frozen, computed once at SCF entry. Both `driver.rs` and `driver_spin.rs` wired. LDA path bit-identical (`XcEvaluator::needs_gradient()` → false on Pz, FFT work skipped, `v2_r = None` short-circuits divergence assembly).
+
+**Si PBE end-to-end:** |ΔE| = 12.4 meV at ecut=24 Ry, 4×4×4 Γ-centered vs QE (pwdft −230.0675, QE −230.0800). Inside the 100 meV Phase C tolerance.
+
+**Nyquist-mode aliasing gotcha — documented in `src/fft.rs:164-172,211-223,249-259`.** On any even axis the Nyquist DFT slot (n = N/2) is self-conjugate — `+N/2` and `−N/2` alias onto the same slot — so the signed `G_α` value is ambiguous and naive `iG·ρ(G)` multiplication produces a non-Hermitian perturbation whose inverse-FFT picks up an imaginary residual of order `max|ρ̂(Nyquist)|`. Spectral-method convention (Boyd §3.5) is to zero the Nyquist mode before differentiating — derivative there is not well-defined on the grid. On a band-limited SCF charge the change is bit-identical to the naive path. Implemented as explicit zero-out in `compute_density_gradient`; debug_assert on output imaginary residual `< 1e-8 · max_re + 1e-10` fires if called on a broadband input.
+
+**exc_r convention fix (Phase C amendment).** `XcEvaluator::Pbe::eval` now normalises `exc_r` to eV-per-electron at the evaluator boundary (dividing ε^total by ρ), matching LDA's convention. Downstream `lda_xc_energy` / `xc_energy_corrected` already consume that form. Phase C had shipped ε_x^PBE·ρ (energy density); the mismatch would have shifted E by XC-scale values in E_HF double-counting — caught by a unit-conversion pin, not an integration test.
+
+**GGA double-counting / Harris-Foulkes pairing.** With gradient dependence, E_xc double-counting in HF stationary estimator becomes `∫ε_xc·ρ_in − ∫v1·ρ_out − ∫h·∇ρ_out`. Old LDA-only `xc_energy_corrected` path already computes v1·ρ → now threaded with the ∇·h divergence term from `assemble_semilocal_vxc` so HF and KS stay within 1e-4 eV at convergence.
+
+**NLCC + GGA pattern.** When both are active (Fe PBE with core correction), XC functional sees ρ_val + ρ_core as its input density *and* gradient (∇ρ_val + ∇ρ_core). ∇ρ_core computed once at SCF entry (geometry-frozen, ~1 MB cache on 32³). Avoids 3 FFTs/iter when NLCC is active.
+
+**Flagged for follow-up:**
+- Phase D (spin-polarized PBE): `XcEvaluator::Pbe::eval_spin` still returns `NotImplemented { what: "pbe_correlation" }`. Spin-channel gradients already threaded into `driver_spin.rs`, so Phase D just fills evaluator body (port `pbex` spin wrapper + `pbec_spin` from QE). Fe BCC FM PBE is the validation target.
+- Phase F (remaining QE PBE validations): Al/C/Fe/Cu/GaAs/MgO/NaCl PBE refs all in `qe_validation/*_pbe.{in,out}` (GGAP-F-pre, PR #154); no test binds them yet.
+- `ScfContext::rho_core_grad_r` cache wired but droppable in favour of FFT-on-the-sum if 1 MB becomes a memory concern.
+
+## 2026-04-19 — GGAP Phase C: PBE correlation + PW92 helper (PR #151)
+
+Ported QE's PW92 LDA correlation (`qe_funct_corr_lda_lsda.f90::pw` iflag=1) and PBE correlation (`pbec` lines 195-259) into `src/potential/xc.rs`. Constants pinned: PW92 a=0.031091, a1=0.2137, b1-4; PBE γ=0.0310906908696548950, β=0.06672455060314922. q2D (iflag=3) explicitly not implemented.
+
+**PZ-vs-PW92 is a real ~0.1 meV/electron issue** — PBE's gradient term was fitted against PW92 LDA correlation, NOT Perdew-Zunger. Using `perdew_zunger_correlation` inside PBE would systematically shift E_c. New `pw92_correlation` helper kept private, wired only into `XcEvaluator::Pbe::eval`. LDA XC path (Pz) unchanged.
+
+**Canonical-point tests (1e-14 pins):** `pw92_correlation(r_s ∈ {0.5, 1, 2, 3, 5})` vs analytic formula; `pbe_correlation(0.1, 0.05)` vs hand-rolled QE port on ε_c, v1_c, v2_c simultaneously; `pbe_correlation(ρ, 0)` reduces exactly to `pw92_correlation(ρ)` at 1e-14 across 6 densities.
+
+At Phase C ship time Si PBE test stayed `#[ignore]` with `NotImplemented` — driver-side ∇ρ plumbing was Phase A.1 (PR #155), not Phase C.
+
 ## 2026-04-19 — GGAP Phase B: PBE exchange, non-spin (PR #145)
 
 Ported QE 7.5 `pbex` CASE DEFAULT (iflag=1) into private `pbe_exchange(rho, |∇ρ|) -> (eps_x, v1_x, v2_x)` in `src/potential/xc.rs`. Constants κ=0.804, μ=0.2195149727645171 pinned against `k(1)` / `mu(1)`.

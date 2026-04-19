@@ -2,6 +2,49 @@
 
 Entries: date, measurements (actual numbers), bottleneck findings, proposals assessed. Always include hardware context.
 
+## 2026-04-19 — ITEV2: adaptive Krylov budget + WFRX warm-start on iterative path (PR #140)
+
+Closed the two correctness defects pinned in ITEVF. `EigensolverKind` default stays on Dense; perf gate is a follow-up.
+
+**Defect 1 — adaptive Krylov subspace budget.** Pre-ITEV2 fixed `n_request = n_bands + n_bands/2` (12 at n_bands=8) dropped the 3-fold-degenerate Γ valence cluster at n_pw ≳ 500 (1.1–3.2 eV/band error). Diagnostic sweep showed the defect was dominated by `max_dim` (ARPACK NCV / faer Krylov subspace dimension), not `n_request`:
+
+| n_pw | old max_dim (faer default) | pass threshold |
+|---|---|---|
+| 89 | 64 | 64 |
+| 259 | 64 | 128 |
+| 725 | 64 | 176 |
+
+New heuristic: `n_request` keeps pre-ITEV2 base + adds cluster-margin `max(n_bands, 8)` at n_pw ≥ 500; `max_dim = max(128, max(2·n_request, n_pw/2))` capped at n−2. Ref: Lehoucq & Sorensen, SIAM J. Matrix Anal. Appl. 17, 789 (1996) §3.2 — implicitly-restarted Arnoldi converges on a cluster of multiplicity m only when the Krylov subspace has room for the whole cluster plus slack; the restart step silently projects out cluster members otherwise.
+
+**Defect 2 — WFRX warm-start on iterative path.** `diagonalize_dispatch` now threads caller-supplied `v_prev` to both backends. Iterative path extracts first column of `prev_eigvecs[ik]` and passes to faer as Arnoldi `v0`. Previously iterative unconditionally passed `v0 = None`, giving cold Arnoldi a different Krylov subspace per SCF iteration → different fixed point than Dense.
+
+**SCF fixed-point agreement:**
+- Si ecut=100, 2×2×2 MP (n_pw=89, Tier-1): Dense vs Iterative, **|ΔE| = 4.52e-12 eV** (gate 1e-8). Pre-ITEV2 gap was 0.77 eV.
+- Si ecut=200, 4×4×4 MP (n_pw=259, Tier-2): **|ΔE| = 1.75e-5 eV** (gate 1e-4), at the conv_threshold=1e-6 SCF noise floor.
+
+WFRX log-counter verifies wiring on 8-k / 67-iter Si run: 528 warm + 8 cold (= 8 cold starts at iter 0). ITEV still not default — perf still to be gated after single-shot n_pw=725 sweeps.
+
+## 2026-04-19 — GOPT-A F10: scratch Vec<f32> pool (PR #138)
+
+Host-side `.iter().map(|&v| v as f32).collect()` allocated fresh per GPU upload across all 3 kernels. Added `Mutex<Vec<f32>>` scratch to `BufferPool` sized to `2·n_grid`; conversion writes into reusable slice.
+
+Apple M3 Max, `cargo bench --features gpu --bench gpu_benchmarks -- --quick`, lock held:
+
+| Kernel | 32³ | 64³ | 128³ |
+|---|---|---|---|
+| hartree | −1.5% | **−28.6%** | **−33.9%** |
+| v_eff | −2.7% | **−20.4%** | **−39.9%** |
+| lda_xc | −1.1% | −0.3% | +4.1% (noise) |
+
+64³/128³ hartree + v_eff wins comfortably outside CI, reproducible across reruns. At 32³ pooled path is already dominated by ~1.3 ms wgpu submission floor, so allocation elimination barely shows. ~11 MB transient allocator traffic / iter at 64³ → zero.
+
+**F5/F6/F8 investigated and reverted.**
+- **F5 workgroup-size sweep:** all three tested sizes (64/128/256) showed no measurable improvement. The current 128 is fine — stale.
+- **F6 `vec2<f32>` storage:** naga's Metal backend already coalesces the two f32 loads. The hand-written vec2 hint was unnecessary. Stale.
+- **F8 `cbrt` Newton-Raphson in lda_xc.wgsl:** Metal is already lowering `pow(x, 1/3)` through its native `cbrt` intrinsic. No improvement. Stale.
+
+GOPT-A findings that stay relevant: F10 (this PR), F11 (already landed PR #106). F1/F2/F3 still open but require driver.rs changes (out of GOPT-A scope).
+
 ## 2026-04-19 — PROF landed: samply is the canonical profiler
 
 `samply` is now named as the single canonical profiler in CLAUDE.md § Observability, profiling, benchmarking. Install via `cargo install samply`; always hold the machine lock while recording. `cargo flamegraph`, `tracing-flame`, and hand-rolled `Instant::now()` timers are off-menu for new work. Instruments.app stays as a fallback only for Metal GPU timeline questions. See CLAUDE.md § Profiling recipe (samply) for the invocation; § When to reconsider `tracing` captures the triggers that would reopen the decision.

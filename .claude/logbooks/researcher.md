@@ -2,6 +2,41 @@
 
 Entries: date, what was validated, discrepancies found (with numbers), references used. Physics findings only — not code quality or docs.
 
+**Load-bearing cross-language convention (→ candidate CLAUDE.md promotion):** Rust's `f64::round()` is half-away-from-zero; numpy's `np.round` is half-to-even (banker's rounding). At exactly `d = ±0.5` they disagree in sign of the integer. Any Rust↔Python validation that maps real-valued distances/fractions to grid bins must either (a) avoid `.round()` entirely or (b) use an explicit wrap like `d - (d + 0.5).floor()` on both sides. VGCH Phase 1c (2026-04-19) lost half a day to this in a shell-average diagnostic — C diamond showed a bogus 0.2 e/Å³ asymmetry that evaporated on raw-sample diff. No production-code impact yet; diagnostic-only. Worth a §Conventions bullet if it bites again.
+
+## 2026-04-19 — VQEF-AL: Al ecut=24 QE regen, VGCH light-atom reclassification (PR #146)
+
+Regenerated QE 7.5 Al FCC reference at basis-converged cutoff (ecut=24 Ry = PseudoDojo `.standard`, up from 15 Ry) to close the basis-truncation side of VQEF Al.
+
+**QE itself moves 48 meV from ecut=15 → ecut=24**, confirming ecut=15 was under-converged on the QE side. New reference: E_total = −4.72724484 Ry = −64.317443 eV, E_F = 7.5876 eV, 6 SCF iterations, 229 PWs at Γ.
+
+**pwdft-rs vs QE at matched ecut=24 (8×8×8):** |ΔE| = **74.9 meV**, essentially unchanged from pre-regen 83 meV at ecut=15. The pure-basis-truncation hypothesis (pwdft ecut sweep projected ~27 meV at ecut=24) was only partly right: both codes carry basis-set truncation at ecut=15, but pwdft-rs's basis convergence slope vs QE's is not a simple offset — aligning the basis does not close the gap.
+
+**Reclassification:** Al moves from "SYKP/MPSH basis truncation" to **VGCH light-atom "different converged density"** class — same family as C diamond's 1.45 eV gap (PR #144), opposite-sign Δone-e / ΔE_H signature per the per-component audit. 75 meV is much closer to 0 than heavy-atom VGCH (7.7–33.6 eV), but structurally the same shape: pwdft-rs and QE converge to different Kohn-Sham densities.
+
+No Fermi level comparison this PR (|ΔE_F| = 145 meV).
+
+## 2026-04-19 — VQEF-QC: Si/Al/C quickchecks with new ECUT + MIXL + MPSH tools (PR #144)
+
+Per-arm measurement for three light-atom YELLOW cells in the VQEF scoreboard using new per-PP ecut policy (ECUT, PR #136), mixer event logging (MIXL, PR #133), and Γ-centered MP (MPSH, PR #110).
+
+**Si LDA split (GREEN energy, YELLOW Fermi).** Single combined `test_si_diamond_vs_qe` ignored; now two arms: `test_si_diamond_energy_vs_qe` passing at ΔE = 33.2 meV (< 40 meV tol), `test_si_diamond_fermi_vs_qe` still ignored with |ΔE_F| = 1.3495 eV. Band-to-band differences at Γ agree with QE to <10 meV as the old `#[ignore]` text promised; absolute eigenvalue shift is V_loc(G=0) convention and lives in the Fermi arm only. **First GREEN scoreboard cell** (was 0 GREEN / 8 YELLOW / 8 RED).
+
+**Al ecut sweep at 8×8×8 Γ-centered.** Seven configs vs QE ecut=15 Ry ref (E_QE = −64.269 eV):
+
+| ecut (Ry) | E_pwdft (eV) | ΔE (meV) | iters |
+|---|---|---|---|
+| 15 (baseline) | −64.186 | 83.1 | 10 |
+| 20 | −64.227 | 42.7 | 10 |
+| 24 | −64.243 | 26.9 | 10 |
+| 30 | −64.261 | 8.8 | 10 |
+
+Mixer variants at ecut=15 agree on E to 0.001 meV — residual is pure basis-set truncation on pwdft's side. Hypothesis at the time: regenerate QE ref at ecut=24+ closes it (VQEF-AL #146 later proved this partially wrong — real gap is 75 meV at matched ecut, VGCH light-atom class).
+
+**C diamond SCF stall fixed (YELLOW stays YELLOW with root cause).** Nine configs at ecut=30 Ry, 4×4×4 Γ-centered vs QE's E = −324.407 eV. Plain Anderson stalls at Δρ≈1.7e-8 past 150 iters. **Broyden+Kerker converges in 12 iters** at Δρ=8.0e-11 → E_pwdft = −322.957 eV, ΔE = 1.45 eV. Pinned `MixingMode::Broyden { kerker: true }` on the test. Per-component at convergence (eV, ours − QE): Δone-e = +1.76, ΔE_H = −0.59, ΔE_xc = +0.29, ΔE_ewald ≈ 0. **Opposite-sign split across one-electron and Hartree matches the Cu/Fe VGCH signature.**
+
+Seeded the hypothesis that became VGCH Phase 1b/1c (light-atom extension): C's 1.45 eV gap is in the same "different converged density" class as Cu/Fe, NOT mixer/basis/V_loc(G=0).
+
 ## 2026-04-19 — VGCH Phase 1c H2 cleared — SAD initial density bit-perfect vs QE; VGCH-2 spawned for energy assembly
 
 Added `scripts/validate/vgch_sad_heavy.py` (Python reference for
