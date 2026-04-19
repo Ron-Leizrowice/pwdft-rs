@@ -18,21 +18,40 @@ pub mod iterative;
 
 pub use dense::EigenResult;
 
-/// Which dense-Hamiltonian eigensolver backend the SCF loop should use.
+/// Which Hermitian-eigensolver backend the SCF loop should use for the
+/// Kohn-Sham Hamiltonian.
 ///
 /// `Dense` is the reference `faer::SelfAdjointEigen` full decomposition
-/// (LAPACK-equivalent O(n³)). `Iterative` uses faer's implicitly-restarted
-/// Arnoldi / Krylov-Schur partial solver ([`iterative::diagonalize_lowest_iterative`])
-/// which computes only the lowest `n_bands` eigenpairs.
-///
-/// The iterative solver is typically 3-10× faster at `n_pw ≥ 200` and
-/// 10-50× faster at `n_pw ≥ 700`, but falls back transparently to dense
-/// when convergence within the restart budget fails. See proposal ITEV.
+/// (LAPACK-equivalent O(n³)) and is the default and the only fully
+/// validated path. `Iterative` uses faer's implicitly-restarted Arnoldi
+/// / Krylov-Schur partial solver
+/// ([`iterative::diagonalize_lowest_iterative`]), which computes only
+/// the lowest `n_bands` eigenpairs via a shift-and-flip of the spectrum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EigensolverKind {
-    /// Full dense Hermitian eigendecomposition (default for now).
+    /// Full dense Hermitian eigendecomposition. Default.
     #[default]
     Dense,
-    /// Iterative partial Hermitian eigensolver (ITEV).
+    /// Partial Hermitian eigensolver returning only the lowest `n_bands`
+    /// eigenpairs.
+    ///
+    /// Opt-in via `scf.eigensolver: iterative` in YAML. Experimental —
+    /// correctness and performance are still under investigation:
+    ///
+    /// - On a realistic Si Kohn-Sham Hamiltonian at `n_pw = 725`,
+    ///   single-shot iterative is ~0.48× the wall-time of `Dense`
+    ///   (i.e. slower). Earlier projections of a 3–10× speedup were
+    ///   built from synthetic matrices and do not survive contact with
+    ///   real clustered/degenerate spectra.
+    /// - The iterative dispatch path does not yet consume the
+    ///   subspace-rotation warm start used by `Dense`, so SCF wall-time
+    ///   parity depends on an end-to-end benchmark that has not been
+    ///   run.
+    /// - Size-independent `n_request` padding can drop 3-fold-degenerate
+    ///   valence clusters at larger `n_pw`.
+    ///
+    /// Prefer `Dense` until the end-to-end warm-started SCF benchmark
+    /// lands. See `proposals/ITEV-faer-partial-eigen.md` for the full
+    /// status and the open follow-ups.
     Iterative,
 }

@@ -1,3 +1,12 @@
+//! Plane-wave basis set.
+//!
+//! Builds the set of reciprocal-lattice vectors `G = n₁ b₁ + n₂ b₂ + n₃ b₃`
+//! satisfying the kinetic-energy cutoff `(ℏ²/2m) |G|² ≤ E_cut`.
+//! The basis size scales as `N_pw ∝ Ω · E_cut^{3/2}` where `Ω` is the
+//! cell volume. Every G-space array in the SCF pipeline (density, local
+//! potential, wavefunction coefficients) is indexed against the
+//! [`BasisSet`] produced here.
+
 use nalgebra::Vector3;
 
 use crate::{consts::HBAR2_OVER_2M, crystal::Lattice};

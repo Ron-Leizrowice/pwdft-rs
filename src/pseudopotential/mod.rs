@@ -1,3 +1,14 @@
+//! Pseudopotential data and loading.
+//!
+//! Holds the unit-converted norm-conserving pseudopotential in internal
+//! units (eV, Å) as [`PseudopotentialData`]: radial grid, local potential
+//! `V_local(r)`, Kleinman–Bylander `β` projectors with the `D_ij` coupling
+//! matrix, atomic density `ρ_atom`, and the optional NLCC core density.
+//! [`load`] parses a UPF v2 file via [`upf::parse`];
+//! [`PseudopotentialData::v_local_of_g`] returns the spherical-Bessel
+//! transform `V_local(G)` used by the SCF driver to assemble the local
+//! part of the effective potential.
+
 pub mod recommended_ecut;
 pub mod upf;
 
