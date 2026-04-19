@@ -15,9 +15,13 @@
 //!
 //! [`XcEvaluator::Pz`] (LDA) is fully implemented; it calls
 //! [`lda_xc_grid`] / [`lda_xc_spin_grid`] verbatim.
-//! [`XcEvaluator::Pbe`] exists as a variant, but [`XcEvaluator::eval`]
-//! returns [`crate::error::PwdftError::NotImplemented`] until the
-//! semilocal PBE integrator and the gradient FFT helper land.
+//! [`XcEvaluator::Pbe`] is partially implemented: the exchange half
+//! (`pbe_exchange` in this module) is ported from QE's `pbex` with
+//! `iflag=1` and is unit-tested. [`XcEvaluator::eval`] /
+//! [`XcEvaluator::eval_spin`] still return
+//! [`crate::error::PwdftError::NotImplemented`] with
+//! `what = "pbe_correlation"` because PW92-based PBE correlation has
+//! not yet landed; Phase C wires it in.
 //!
 //! References:
 //! - Exchange: Slater, Phys. Rev. 81, 385 (1951)
@@ -573,6 +577,207 @@ fn pz_correlation_rs(rs: f64, polarized: bool) -> (f64, f64) {
 }
 
 // ---------------------------------------------------------------------------
+// GGAP Phase B: PBE exchange (non-spin)
+// ---------------------------------------------------------------------------
+//
+// `pbe_exchange` is the non-spin PBE exchange port. It is unit-tested
+// against the PBE 1996 paper's enhancement-factor form directly (see
+// `pbe_exchange_*` below). The full grid evaluation lives in
+// `XcEvaluator::Pbe::eval`, which currently returns
+// `NotImplemented { what: "pbe_correlation" }` — the matching
+// correlation half lands in Phase C, at which point the Phase-B
+// function will be folded into the per-grid-point loop. The Pbe arm
+// already exercises `pbe_exchange` on the first grid point as a
+// defensive smoke call so refactors can't silently bitrot the Phase-B
+// port.
+
+/// Density floor below which the PBE exchange integrand is clamped to zero
+/// (QE `rho_threshold_gga`, in e/Bohr³ after conversion).
+///
+/// QE uses `rho_threshold_gga = 1.E-6` e/Bohr³ as its default (see
+/// `qe-7.5/XClib/dft_setting_params.f90:85`). The check is applied in
+/// atomic units after the input-unit conversion so the short-circuit
+/// threshold tracks QE's exactly.
+const PBE_RHO_THRESHOLD_AU: f64 = 1.0e-6;
+
+/// Gradient-magnitude-squared floor (same convention as QE's
+/// `grho_threshold_gga = 1.E-10` in (e/Bohr⁴)²). Below this, the
+/// gradient correction is suppressed and PBE exchange reduces exactly
+/// to the Slater/LDA limit.
+const PBE_GRHO2_THRESHOLD_AU: f64 = 1.0e-10;
+
+/// PBE exchange constant κ ("LO" Lieb-Oxford bound). PBE eq. 14.
+const PBE_KAPPA: f64 = 0.804;
+
+/// PBE exchange constant μ = β π² / 3. PBE eq. 12 + §III.
+const PBE_MU: f64 = 0.219_514_972_764_517_1;
+
+/// Perdew-Burke-Ernzerhof (1996) exchange, non-spin, with the canonical
+/// `iflag = 1` parameter choice (the original PBE, *not* revPBE or
+/// PBEsol).
+///
+/// Given a single grid point with density `ρ` (e/Å³) and gradient
+/// magnitude `|∇ρ|` (e/Å⁴), returns the triple
+///
+/// ```text
+///     ε_x(r)  = ρ · ε_x^PBE(ρ, s)           (eV / Å³ — energy density)
+///     v1_x(r) = ∂(ρ · ε_x^PBE) / ∂ρ         (eV)
+///     v2_x(r) = "QE's v2x convention" — the scalar that contracts with
+///               ∇ρ into the semilocal h-vector by h(r) = v2_x(r) · ∇ρ(r).
+/// ```
+///
+/// PBE eq. 14 uses the enhancement-factor form
+///
+/// ```text
+///     ε_x^PBE(ρ, s) = ε_x^LDA(ρ) · F_x(s)
+///     F_x(s)        = 1 + κ − κ / (1 + μ s² / κ)
+///     s             = |∇ρ| / (2 k_F ρ)
+///     k_F           = (3 π² ρ)^{1/3}
+///     ε_x^LDA(ρ)    = −(3 / (4π)) · k_F
+/// ```
+///
+/// with constants `κ = 0.804` and `μ = 0.21951492776…` pinned against
+/// the `k(1)` / `mu(1)` entries of QE 7.5's `pbex` subroutine.
+///
+/// The v2 return follows QE's convention exactly: the semilocal h-vector
+/// used by the driver is `h(r) = v2_x(r) · ∇ρ(r)` (no extra factor of
+/// two), which dimensionally means `v2_x = 2 · ∂(ρ·ε_x) / ∂(|∇ρ|²)` — QE
+/// has already absorbed the `2 ∇ρ` from the chain rule into `v2x`.
+/// Staying faithful to this convention means the Phase-D driver can
+/// read QE's `gcxc_spin` and `v_of_rho.f90:306,343-344` as canonical
+/// without any re-scaling.
+///
+/// For `ρ < 1e-6 e/Bohr³` (QE's `rho_threshold_gga`) or
+/// `|∇ρ|² < 1e-10 (e/Bohr⁴)²` (QE's `grho_threshold_gga`) the gradient
+/// enhancement is skipped. For very low density the return is
+/// `(0, 0, 0)`; for low gradient we return the Slater/LDA limit
+/// (F_x = 1, v2 = 0). The thresholds are applied in atomic units to
+/// track QE line-for-line; the function is internally pure AU.
+///
+/// Returns `(eps_x, v1_x, v2_x)` in the units given above.
+//
+// Source: qe-7.5/XClib/qe_funct_exch_gga.f90::pbex lines 111-331, CASE
+// DEFAULT branch (iflag = 1 matches the default because case arms 4-9
+// handle revPBE / PBEsol / PBEQ2D / optB88 / optB86b / EV / RPBE /
+// W31X). The internal AU→eV/Å conversion uses HA_TO_EV and
+// BOHR3_TO_ANG3 from `crate::consts`.
+#[inline]
+fn pbe_exchange(rho: f64, grad_rho_mag: f64) -> (f64, f64, f64) {
+    // Convert inputs to atomic units so the port is line-for-line
+    // identical to QE's pbex. QE: rho in e/Bohr³, |∇ρ| in e/Bohr⁴
+    // (grho = |∇ρ|²).
+    let bohr3 = crate::consts::BOHR3_TO_ANG3;
+    let bohr = crate::consts::BOHR_TO_ANG;
+
+    let rho_au = rho * bohr3;
+    // 1 e/Å⁴ = (BOHR_TO_ANG)⁴ e/Bohr⁴, so the AU-side magnitude is
+    // `grad_rho_mag · BOHR_TO_ANG⁴`. Squared for QE's `grho`.
+    let bohr4 = bohr3 * bohr;
+    let agrho_au = grad_rho_mag * bohr4;
+    let grho_au = agrho_au * agrho_au;
+
+    // Low-density short-circuit (QE `rho_threshold_gga`).
+    if rho_au <= PBE_RHO_THRESHOLD_AU {
+        return (0.0, 0.0, 0.0);
+    }
+
+    // QE-equivalent locals. `c1 = 3/(4π)` (Slater exchange prefactor in
+    // Hartree), `c2 = (3π²)^{1/3}` (the k_F prefactor).
+    let c1 = 0.75 / PI;
+    // (3π²)^(1/3) computed at compile time from the true constant π.
+    // QE uses the literal 3.093667726280136 at line 153; we recompute
+    // from PI to avoid a literal drift if a future toolchain widens π.
+    let c2: f64 = (3.0 * PI * PI).cbrt();
+    let c5 = 4.0 / 3.0;
+
+    // QE: kf = c2 * rho^(1/3).
+    let kf = c2 * rho_au.cbrt();
+    // exunif = ε_x^LDA (Hartree, per electron).
+    let exunif = -c1 * kf;
+
+    // Low-gradient short-circuit: drop the gradient enhancement and
+    // return bare LDA. This matches QE's `grho_threshold_gga` guard and
+    // also protects the `/agrho_au` inside the v2 assembly below.
+    if grho_au <= PBE_GRHO2_THRESHOLD_AU {
+        // sx = rho · ε_x^LDA (Hartree · e/Bohr³).
+        let sx_ha = rho_au * exunif;
+        // v1 = d(ρ ε_x^LDA)/dρ = (4/3) ε_x^LDA.
+        let v1_ha = c5 * exunif;
+        // Convert: Ha · e/Bohr³ → eV/Å³  (multiply by HA_TO_EV / BOHR3_TO_ANG3);
+        // Ha → eV for v1.
+        let ha = crate::consts::HA_TO_EV;
+        return (sx_ha * ha / bohr3, v1_ha * ha, 0.0);
+    }
+
+    // QE CASE DEFAULT (iflag = 1), lines 301-324.
+    //
+    // dsg = 0.5 / kf,  s = |∇ρ| · dsg / ρ,  s² = s·s.
+    let dsg = 0.5 / kf;
+    let s1 = agrho_au * dsg / rho_au;
+    let s2 = s1 * s1;
+
+    // QE's `fx` for the default arm is the *gradient correction* to
+    // the enhancement factor, `fx = F_x^{PBE}(s) − 1 = κ − κ/(1 + μs²/κ)`.
+    // The task's enhancement factor F_x(s) from PBE eq. 14 is therefore
+    // `1 + fx` — identical value, different labelling.
+    let f1 = s2 * PBE_MU / PBE_KAPPA;
+    let f2 = 1.0 + f1;
+    let f3 = PBE_KAPPA / f2;
+    let fx = PBE_KAPPA - f3;
+
+    // Full PBE exchange energy density ρ·ε_x^PBE = ρ·ε_x^LDA·F_x(s).
+    // QE only stores the gradient-only part (ρ·exunif·fx) in `sx`; we
+    // add the LDA piece explicitly so downstream callers get the full
+    // ε_x in one shot.
+    let sx_full_ha = rho_au * exunif * (1.0 + fx);
+
+    // Derivatives — keep QE's assembly verbatim for the gradient piece
+    // and add the LDA ∂/∂ρ externally. QE's v1x equals d(ρ·exunif·fx)/dρ
+    // (the gradient-only partial), via the chain-rule decomposition
+    //   d(ρ·exunif·fx)/dρ = exunif·fx + (exunif/3)·fx + exunif·(dfx/ds)·(ρ·ds/dρ)
+    //                     = sx_s    + dxunif·fx      + exunif·dfx·ds
+    // where ρ·ds/dρ = −(4/3)·s = `ds` in QE's locals. The LDA v1
+    // contribution `(4/3)·exunif` is added once below.
+    let dxunif = exunif / 3.0;
+    // dfx/ds for the default branch: dfx1 = (1 + μs²/κ)², dfx = 2μs/dfx1.
+    let dfx1 = f2 * f2;
+    let dfx = 2.0 * PBE_MU * s1 / dfx1;
+    // ρ·ds/dρ = −(4/3)·s. (Used as ds in QE's naming.)
+    let ds = -c5 * s1;
+
+    // QE's v1x for the gradient piece equals d(sx_qe)/dρ where
+    // sx_qe = rho · exunif · fx. We extend this to the full PBE
+    // partial d(rho · exunif · F_x)/dρ by adding the LDA
+    // derivative d(rho · exunif)/dρ = (4/3) · exunif, since
+    // `d(exunif)/dρ = exunif / (3ρ)` and `rho · d(exunif)/dρ = exunif/3`,
+    // so total d(rho · exunif)/dρ = exunif + exunif/3 = (4/3) exunif.
+    let sx_s = exunif * fx;
+    let v1_grad_ha = sx_s + dxunif * fx + exunif * dfx * ds;
+    let v1_lda_ha = c5 * exunif;
+    let v1_ha = v1_lda_ha + v1_grad_ha;
+
+    // v2 follows QE's convention (h = v2 · ∇ρ). The LDA exchange is
+    // ∇ρ-independent so v2 has no LDA contribution.
+    let v2_ha = exunif * dfx * dsg / agrho_au;
+
+    // Unit conversion back to pwdft-rs native units (eV, Å).
+    //   ε_x (Ha · e/Bohr³)   → ε_x (eV/Å³):  × HA_TO_EV / BOHR3_TO_ANG3
+    //   v1  (Ha)             → v1  (eV):     × HA_TO_EV
+    //   v2  (Ha · Bohr⁵ / e) → v2 (eV·Å⁵/e): × HA_TO_EV · BOHR_TO_ANG⁵
+    //
+    // The target v2 unit is fixed by the driver contract h = v2·∇ρ:
+    //   h[eV·Å]  = v2[eV·Å⁵/e] · ∇ρ[e/Å⁴]
+    //   ∇·h[eV]  = (1/Å) · h[eV·Å]  →  adds cleanly to v1 giving V_xc [eV].
+    let ha = crate::consts::HA_TO_EV;
+    let bohr5 = bohr4 * bohr;
+    let eps_x = sx_full_ha * ha / bohr3;
+    let v1 = v1_ha * ha;
+    let v2 = v2_ha * ha * bohr5;
+
+    (eps_x, v1, v2)
+}
+
+// ---------------------------------------------------------------------------
 // GGAP Phase A: data-enum dispatch
 // ---------------------------------------------------------------------------
 
@@ -590,11 +795,13 @@ pub enum XcEvaluator {
     /// Perdew-Zunger 81 LDA + Ceperley-Alder correlation + Slater exchange.
     /// The only fully-implemented variant today.
     Pz,
-    /// Perdew-Burke-Ernzerhof GGA (1996). Variant exists so that the
-    /// gradient infrastructure and `pbex` / `pbec` ports can slot in
-    /// without touching the driver dispatch shape. Today
-    /// [`XcEvaluator::eval`] returns [`PwdftError::NotImplemented`] when
-    /// this variant is active.
+    /// Perdew-Burke-Ernzerhof GGA (1996). The exchange half
+    /// (`pbe_exchange`) is implemented and unit-tested in this module.
+    /// PW92-based PBE correlation still has to land before the full
+    /// functional is usable; until then [`XcEvaluator::eval`] /
+    /// [`XcEvaluator::eval_spin`] return
+    /// [`PwdftError::NotImplemented`] with
+    /// `what = "pbe_correlation"`.
     Pbe,
 }
 
@@ -604,7 +811,9 @@ impl XcEvaluator {
     /// This is the single site that concentrates the "is this functional
     /// implemented yet?" check. `Pbe0` and `Hse06` map to
     /// [`PwdftError::NotImplemented`]; `Pbe` constructs successfully but
-    /// its `eval` / `eval_spin` methods currently return the same error.
+    /// its `eval` / `eval_spin` methods currently return
+    /// [`PwdftError::NotImplemented`] with `what = "pbe_correlation"`
+    /// (exchange has landed, correlation is Phase C).
     ///
     /// Returning an error at this construction site (rather than at first
     /// evaluation) lets `scf::run_scf` fail fast before any compute work.
@@ -686,7 +895,25 @@ impl XcEvaluator {
                 let (exc_r, v1_r) = lda_xc_grid(rho_r);
                 Ok(XcGridResult { exc_r, v1_r, v2_r: None })
             }
-            Self::Pbe => Err(PwdftError::NotImplemented { what: "xc_functional 'pbe'".into() }),
+            Self::Pbe => {
+                // GGAP Phase B: `pbe_exchange` (the non-spin exchange half)
+                // is implemented and unit-tested in this module, but the
+                // matching correlation is still pending Phase C. Without
+                // PW92-based PBE correlation the functional is not
+                // well-defined. If the caller supplies the density
+                // gradient we exercise `pbe_exchange` on the first grid
+                // point (defensive call so a future refactor cannot
+                // silently bitrot the Phase-B routine), then fail fast
+                // with a scoped NotImplemented until Phase C lands.
+                if let Some(grad) = rho_grad_r
+                    && let Some(&rho0) = rho_r.first()
+                    && let Some(&g0) = grad.first()
+                {
+                    let grad_mag0 = (g0[0] * g0[0] + g0[1] * g0[1] + g0[2] * g0[2]).sqrt();
+                    let _ = pbe_exchange(rho0, grad_mag0);
+                }
+                Err(PwdftError::NotImplemented { what: "pbe_correlation".into() })
+            }
         }
     }
 
@@ -745,7 +972,15 @@ impl XcEvaluator {
                     v2_down_r: None,
                 })
             }
-            Self::Pbe => Err(PwdftError::NotImplemented { what: "xc_functional 'pbe'".into() }),
+            Self::Pbe => {
+                // GGAP Phase B: exchange half implemented (see
+                // `pbe_exchange` in this module) but PBE correlation is
+                // still pending Phase C. Spin scaling will be wired up
+                // in Phase D once Phase C lands; for now the spin path
+                // bails with the same scoped NotImplemented marker.
+                let _ = (rho_grad_up_r, rho_grad_down_r);
+                Err(PwdftError::NotImplemented { what: "pbe_correlation".into() })
+            }
         }
     }
 }
@@ -1040,13 +1275,18 @@ mod tests {
 
     #[test]
     fn xc_evaluator_pbe_eval_returns_not_implemented() {
+        // GGAP Phase B landed the exchange half (see the `pbe_exchange_*`
+        // unit tests below); correlation + PW92 is Phase C. The grid
+        // evaluator therefore bails with a scoped NotImplemented marker
+        // pointing specifically at the correlation half so the next-phase
+        // author can search for it and knows where to drop the fix in.
         let rho_r = vec![0.1; 32];
         let err = XcEvaluator::Pbe
             .eval(&rho_r, None)
-            .expect_err("PBE eval must be NotImplemented");
+            .expect_err("PBE eval must be NotImplemented until Phase C");
         match err {
             PwdftError::NotImplemented { what } => {
-                assert_eq!(what, "xc_functional 'pbe'");
+                assert_eq!(what, "pbe_correlation");
             }
             other => panic!("expected NotImplemented, got {other:?}"),
         }
@@ -1055,7 +1295,191 @@ mod tests {
         let rho_down = vec![0.05; 32];
         let err = XcEvaluator::Pbe
             .eval_spin(&rho_r, &rho_down, None, None)
-            .expect_err("PBE spin eval must be NotImplemented");
-        assert!(matches!(err, PwdftError::NotImplemented { .. }));
+            .expect_err("PBE spin eval must be NotImplemented until Phase C");
+        match err {
+            PwdftError::NotImplemented { what } => {
+                assert_eq!(what, "pbe_correlation");
+            }
+            other => panic!("expected NotImplemented, got {other:?}"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // GGAP Phase B: PBE exchange (non-spin) unit tests.
+    //
+    // Four shapes of test:
+    //   1. F_x(s) pinned against analytic PBE eq. 14 at s ∈ {0, 0.1, 1, 5, 10}
+    //      to 1e-14 (pure analytic expression, no unit conversion drift).
+    //   2. s=0 reduces exactly to the LDA/Slater exchange energy density
+    //      (this is the Slater limit of the PBE enhancement factor).
+    //   3. One-point cross-check at (ρ = 0.1 e/Å³, |∇ρ| = 0.05 e/Å⁴)
+    //      against a hand-derived value from the PBE 1996 paper formula.
+    //   4. Low-density short-circuit (ρ ≪ QE threshold).
+    // -----------------------------------------------------------------------
+
+    /// PBE enhancement factor, eq. (14) of Perdew-Burke-Ernzerhof
+    /// *PRL* **77**, 3865 (1996). Used by the unit tests to pin the
+    /// hard-coded F_x(s) values we claim — kept here so the tests pull
+    /// from the paper's formula, not from the function under test.
+    fn fx_pbe_analytic(s: f64) -> f64 {
+        let kappa = 0.804;
+        let mu = 0.219_514_972_764_517_1;
+        1.0 + kappa - kappa / (1.0 + mu * s * s / kappa)
+    }
+
+    #[test]
+    fn pbe_exchange_fx_matches_pbe_paper_formula() {
+        // At five values of s, the PBE F_x should match the analytic
+        // PBE 1996 paper formula to machine precision. We extract F_x
+        // from the function under test by evaluating at a fixed ρ and
+        // inverting eps_x = ρ · ε_x^LDA · F_x.
+        let rho = 0.10_f64; // e/Å³
+        let bohr3 = crate::consts::BOHR3_TO_ANG3;
+        let rho_bohr = rho * bohr3;
+        let kf_bohr = (3.0 * PI * PI * rho_bohr).cbrt(); // Bohr⁻¹
+        let ex_lda_ha = -(0.75 / PI) * kf_bohr; // Ha per electron
+        // Energy density ρ·ε_x^LDA in eV/Å³. Per-electron exchange is
+        // unit-agnostic (Ha/e = HA_TO_EV eV/e), so no Bohr↔Å factor is
+        // needed — just multiply ρ[e/Å³] by ε_x^LDA[eV/e].
+        let eps_lda = rho * ex_lda_ha * crate::consts::HA_TO_EV; // eV/Å³
+
+        for &s in &[0.0_f64, 0.1, 1.0, 5.0, 10.0] {
+            // s = |∇ρ|/(2 k_F ρ)  ⇒  |∇ρ| = s · 2 k_F · ρ with k_F and
+            // |∇ρ| in matched units. Convert k_F to Å⁻¹ to get |∇ρ| in
+            // e/Å⁴.
+            let kf_inv_ang = kf_bohr / crate::consts::BOHR_TO_ANG;
+            let grad_mag = s * 2.0 * kf_inv_ang * rho; // e/Å⁴
+
+            let (eps_x, _v1, _v2) = pbe_exchange(rho, grad_mag);
+            let fx_numeric = eps_x / eps_lda;
+            let fx_expected = fx_pbe_analytic(s);
+
+            assert!(
+                (fx_numeric - fx_expected).abs() < 1e-14,
+                "F_x(s={s}) numeric={fx_numeric}, analytic={fx_expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn pbe_exchange_zero_gradient_reduces_to_lda() {
+        // |∇ρ| = 0 is the deep Slater limit: eps_x = ρ·ε_x^LDA, v1 =
+        // (4/3)·ε_x^LDA, v2 = 0. Matches the LDA path bit-for-bit
+        // modulo the f64·multiply reordering between `lda_xc_grid` and
+        // the explicit AU→eV/Å conversion inside `pbe_exchange`.
+        for &rho in &[0.01_f64, 0.05, 0.1, 0.5, 1.0, 2.0] {
+            let (eps_pbe, v1_pbe, v2_pbe) = pbe_exchange(rho, 0.0);
+            // LDA reference: ε_x^LDA computed in Hartree at ρ_au, then
+            // converted to per-electron eV and multiplied by ρ[e/Å³]
+            // to get energy density eV/Å³.
+            let bohr3 = crate::consts::BOHR3_TO_ANG3;
+            let kf = (3.0 * PI * PI * rho * bohr3).cbrt();
+            let exunif_ha = -(0.75 / PI) * kf;
+            let eps_lda = rho * exunif_ha * crate::consts::HA_TO_EV;
+            let v1_lda = (4.0 / 3.0) * exunif_ha * crate::consts::HA_TO_EV;
+
+            assert!(
+                (eps_pbe - eps_lda).abs() < 1e-12 * eps_lda.abs().max(1.0),
+                "eps_x(∇ρ=0) mismatch at ρ={rho}: pbe={eps_pbe}, lda={eps_lda}"
+            );
+            assert!(
+                (v1_pbe - v1_lda).abs() < 1e-12 * v1_lda.abs().max(1.0),
+                "v1_x(∇ρ=0) mismatch at ρ={rho}: pbe={v1_pbe}, lda={v1_lda}"
+            );
+            assert!(
+                v2_pbe.abs() < 1e-30,
+                "v2_x(∇ρ=0) must be exactly 0 at ρ={rho}: got {v2_pbe}"
+            );
+        }
+    }
+
+    #[test]
+    fn pbe_exchange_single_point_reference() {
+        // One-point reference at (ρ = 0.1 e/Å³, |∇ρ| = 0.05 e/Å⁴).
+        //
+        // Reference is hand-derived from the PBE 1996 paper formula
+        // (eq. 14 + ε_x^LDA expression) with constants κ=0.804,
+        // μ=0.2195149727645171. We recompute the chain ρ → ρ_au → k_F
+        // → exunif → s → F_x → eps_x inline in the test so a future
+        // unit-conversion refactor can't silently desync from the paper
+        // formula.
+        let rho = 0.10_f64; // e/Å³
+        let grad = 0.05_f64; // e/Å⁴
+
+        let bohr3 = crate::consts::BOHR3_TO_ANG3;
+        let bohr = crate::consts::BOHR_TO_ANG;
+        let ha = crate::consts::HA_TO_EV;
+
+        let rho_au = rho * bohr3;
+        let grho_mag_au = grad * bohr3 * bohr;
+        let kf_au = (3.0 * PI * PI * rho_au).cbrt();
+        let exunif_ha = -(0.75 / PI) * kf_au;
+        let s = grho_mag_au / (2.0 * kf_au * rho_au);
+        let fx = fx_pbe_analytic(s);
+
+        // Expected energy density (eV/Å³): full PBE.
+        let eps_expected = rho_au * exunif_ha * fx * ha / bohr3;
+
+        // Expected v1 = d(ρ·ε_x^LDA)/dρ + d(ρ·ε_x^LDA·(F_x−1))/dρ.
+        // The gradient part equals QE's v1x (see `pbe_exchange` source
+        // comment), so re-derive from that decomposition.
+        let kappa = 0.804_f64;
+        let mu = 0.219_514_972_764_517_1_f64;
+        let s2 = s * s;
+        let f2 = 1.0 + mu * s2 / kappa;
+        let fx_qe = kappa - kappa / f2; // QE's fx = F_x^task − 1
+        let dfx = 2.0 * mu * s / (f2 * f2);
+        let ds = -(4.0 / 3.0) * s;
+        let dxunif = exunif_ha / 3.0;
+        let v1_grad_ha = exunif_ha * fx_qe + dxunif * fx_qe + exunif_ha * dfx * ds;
+        let v1_lda_ha = (4.0 / 3.0) * exunif_ha;
+        let v1_expected = (v1_grad_ha + v1_lda_ha) * ha;
+
+        // Expected v2 (QE convention, so h = v2·∇ρ):
+        //   v2_ha = exunif · dfx · dsg / agrho     [Ha·Bohr⁵/e]
+        //         = exunif · dfx · (0.5/kf) / agrho
+        let dsg = 0.5 / kf_au;
+        let v2_ha = exunif_ha * dfx * dsg / grho_mag_au;
+        let v2_expected = v2_ha * ha * bohr.powi(5);
+
+        let (eps, v1, v2) = pbe_exchange(rho, grad);
+
+        // 1e-14 eV/Å³ is far tighter than the task's 1e-10 eV/atom
+        // downstream budget; the only sources of drift here are f64
+        // rounding in `.cbrt()` and the chain of multiplies.
+        assert!(
+            (eps - eps_expected).abs() < 1e-14,
+            "eps_x mismatch at (ρ=0.1, ∇ρ=0.05): got={eps}, want={eps_expected}"
+        );
+        assert!(
+            (v1 - v1_expected).abs() < 1e-14,
+            "v1_x mismatch at (ρ=0.1, ∇ρ=0.05): got={v1}, want={v1_expected}"
+        );
+        assert!(
+            (v2 - v2_expected).abs() < 1e-14,
+            "v2_x mismatch at (ρ=0.1, ∇ρ=0.05): got={v2}, want={v2_expected}"
+        );
+
+        // Sanity: eps_x and v1_x must be negative (exchange is
+        // attractive) and v2_x must be negative (the gradient correction
+        // raises energy, so its σ-derivative is negative because ε_x^LDA
+        // is negative — double-check by sign tracking).
+        assert!(eps < 0.0, "ε_x must be negative: {eps}");
+        assert!(v1 < 0.0, "V1_x must be negative: {v1}");
+        assert!(v2 < 0.0, "v2_x must be negative: {v2}");
+    }
+
+    #[test]
+    fn pbe_exchange_low_density_short_circuits() {
+        // Below QE's rho_threshold_gga (1e-6 e/Bohr³ ≈ 6.75e-6 e/Å³)
+        // the return must be exact zeros — this protects the SCF driver
+        // from NaNs at density tails far from atoms.
+        for &rho in &[0.0_f64, 1e-8, 1e-7, 1e-6] {
+            let (eps, v1, v2) = pbe_exchange(rho, 0.01);
+            assert!(
+                eps.abs() < 1e-30 && v1.abs() < 1e-30 && v2.abs() < 1e-30,
+                "low-density clamp failed at ρ={rho}: eps={eps}, v1={v1}, v2={v2}"
+            );
+        }
     }
 }
