@@ -215,19 +215,159 @@ binary). At iteration 1 with `ρ_in = ρ_QE`:
   (Δone-e/−ΔE_H = 15.6 is a distinct outlier; rerun with nspin=2
   as a cross-check under Part B).
 
-**Part B — Transplant experiment (1 CE-day, only if Part A clears).**
+**Part B — Transplant experiment (COMPLETE 2026-04-19, 1 CE-day).**
 
-Only run this if Part A pins the assembly to bit-correct. Seed
-pwdft-rs' SCF from QE's converged density (via a new parser for
-QE's `save/charge-density.dat` binary or by regenerating QE with
-`disk_io = 'high'`). Run 1 SCF iteration. Check:
+Artifacts:
 
-- At iter 1, the one-electron and Hartree components should match
-  QE to the per-component tolerance (≤ 50 meV/atom).
-- If SCF drifts away in subsequent iterations, the mixer is the bug
-  (H4); if SCF stays at QE's fixed point with residuals below the
-  per-component tolerance, the assembly was the bug and Part A
-  didn't catch it.
+- `scripts/validate/vgch2_parse_qe_density.py` — parses QE's
+  `charge-density.dat` (Fortran sequential-access binary) and emits
+  a flat little-endian binary bundle (`VGCH2BIN` magic) containing
+  `{mill, rho_g (e/Bohr³), b1/b2/b3}`. Errors out on `gamma_only=True`.
+- `src/scf/transplant.rs` — `#[doc(hidden)]` public module exposing
+  `run_scf_iter1_from_rho_g_fft`. Replicates iter-0 of
+  `driver::run_scf_unpolarized` using a supplied G-space density
+  instead of the SAD initial guess. Zero effect on production SCF —
+  the new code path is only reached from the diagnostic test.
+- `tests/vgch_transplant_cu.rs` — Tier-2 test (`--ignored`) that loads
+  Cu FCC ρ_QE from `/tmp/vgch2b_cu/cu_rho_qe.bin`, scatters it onto
+  pwdft-rs' 15×15×15 FFT grid with e/Bohr³ → e/Å³ unit conversion,
+  runs one iteration, and prints the per-term deltas.
+
+**Cu FCC iter-1 transplant table (Γ-centered 8×8×8, ecut=25 Ry, LDA):**
+
+| term               | pwdft (iter 1) | QE (converged) | Δ (ours − QE) |
+|--------------------|---------------:|---------------:|--------------:|
+| one-electron       |  −1971.014 eV  |  −2033.883 eV  | **+62.87 eV** |
+| Hartree            |   +985.775 eV  |  +1040.511 eV  | **−54.74 eV** |
+| XC (bare)          |   −550.259 eV  |   −559.128 eV  |  +8.87 eV     |
+| Ewald              |  −3301.019 eV  |  −3301.025 eV  |  +0.01 eV     |
+| Total (E_KS, ρ_out)|  −4785.034 eV  |  −4853.641 eV  | **+68.61 eV** |
+| E_HF (ρ_in = ρ_QE) |  −4837.300 eV  |  −4853.641 eV  | **+16.34 eV** |
+
+Supporting per-term breakdown (pwdft, on top of VGCH-SiEF-B1
+V_loc(G=0) on-diagonal gauge merged via PR #166):
+
+- `E_kin = +1760.21 eV`, `E_loc = −3232.01 eV`,
+  `E_loc(G=0)·N_el = 0.00 eV` (lives on H diagonal post-SiEF-B1),
+  `E_nl = −499.21 eV`.
+- Γ eigenvalues now agree with QE's converged spectrum to a
+  uniform **+0.26 ± 0.03 eV** offset across bands 0..7 (semicore
+  3s, 3p; valence d; 4s). Pre-SiEF-B1 the same comparison showed
+  −7.47 eV from the G=0 gauge; SiEF-B1 closed that.
+- `∫ρ_in = 19.00009 e`, `∫ρ_out = 19.00000 e` — both densities
+  have correct total charge.
+- `Δρ (in vs out, RMS) = 1.24 × 10⁻¹ e/Å³` — iter-1 ρ_out from
+  diagonalizing H[ρ_QE] is NOT ρ_QE.
+- pwdft iter-1 Fermi `E_F = 21.29 eV` vs QE `E_F = 19.21 eV` ⇒
+  **Δ = +2.08 eV**. The eigenvalue-average offset is only
+  +0.26 eV, so the Fermi-level mis-gauge is an extra **+1.8 eV of
+  pure DOS/occupation origin** — i.e. pwdft's Fermi finder
+  places E_F 1.8 eV too high for a Cu-like dense-3d DOS, even
+  when the eigenvalues themselves match. Smearing implementation
+  or band-count-vs-k mismatch is the first-order suspect.
+
+### Verdict: H3 CLEARED
+
+The transplant at iter 1 does NOT reproduce QE's per-term
+decomposition at the QE-converged density. Specifically:
+
+1. **E_HF at QE's density is +16.3 eV above QE's total.** This is
+   the same magnitude as the 16.6 eV pwdft↔QE residual seen at
+   pwdft-rs' own self-consistent density (`test_cu_fcc_vs_qe`, which
+   is `#[ignore]`d with that residual). Since both E_HF estimators
+   use the identical ρ_QE for double counting, eigenvalues, and
+   density-dependent terms, the 16 eV gap exists between the two
+   codes' energy functionals evaluated on the same density, not
+   between two different fixed points. The mixer basin is not the
+   cause.
+2. **Eigenvalues match QE within +0.26 eV uniform offset across
+   all bands** (post-SiEF-B1 gauge fix). Pre-SiEF-B1 the offset
+   was −7.47 eV, which SiEF-B1 closed by keeping V_loc(G=0) on
+   the Hamiltonian diagonal (QE convention). The KS Hamiltonian
+   assembly at ρ_QE is correct up to the known gauge. The
+   residual 0.26 eV is small enough to be a k-grid / smearing
+   convention artifact; not a driver issue.
+3. **Δρ (in vs out) at iter-1 is large (0.12 e/Å³).** Despite
+   matching eigenvalues at Γ, the rebuilt density from
+   diagonalizing H[ρ_QE] differs substantially from ρ_QE.
+   Consistent with a Fermi-level / occupation inconsistency:
+   pwdft's Fermi at ρ_QE is 2.08 eV above QE's — but the
+   eigenvalues only differ by 0.26 eV, so **1.8 eV of the Fermi
+   mis-gauge is pure DOS/occupation origin**. That would
+   reshuffle occupations of near-E_F bands and change |ψ|²
+   integrated over the metallic fraction of the 3d manifold. The
+   density feedback propagates through Hartree (−54.7 eV gap)
+   and XC (+8.9 eV gap); their partial cancellation explains the
+   linear-response signature that Phase 1a first observed.
+
+### What Part B rules out
+
+- Mixer-basin effect (H3 cleared — 16.3 eV gap exists at the SAME
+  density).
+- V_loc(G=0) compensation error (compensation is exact up to the
+  uniform eigenvalue shift).
+- Total-energy-assembly mispairing (Part A already cleared; Part B
+  confirms on fresh data).
+
+### Where the bug IS (for Part C scope)
+
+The 16.3 eV iter-1 E_HF residual and **1.8 eV of DOS-origin
+Fermi-level mis-gauge** at ρ_QE point at ρ-based physics that
+differs between pwdft-rs and QE when evaluated on the SAME
+density. Prime suspects, in order of likelihood given the
+post-SiEF-B1 signal:
+
+1. **Fermi-level finder / smearing implementation (new leading
+   suspect post-SiEF-B1).** With eigenvalues now agreeing to
+   +0.26 eV, pwdft's E_F is still +1.80 eV high on Cu. The Cu 3d
+   manifold produces a dense DOS right at E_F; a small difference
+   in the smearing cumulative or the root-finder bracket could
+   move E_F by O(eV) in this regime and trigger the large Δρ
+   between ρ_in and ρ_out. Action: (a) compare
+   `smearing::find_fermi_energy` bisection output on Cu iter-1
+   eigenvalues against a Python Fermi-Dirac root-find reference
+   built from the identical eigenvalue list;
+   (b) log QE's per-iter E_F (it prints it at `verbosity='high'`)
+   and compare bracketing traces;
+   (c) check that the number of bands per k-point is large enough
+   — Cu with `n_bands = 14` leaves only 4.5 unoccupied bands
+   above the 9.5 occupied, and if the Fermi tails need bands
+   substantially above the Fermi level to converge, this margin
+   might be too thin for the DOS peak at E_F.
+2. **NLCC for transition-metal d-systems.** Cu is Z=29 with
+   3s/3p/3d semicore + a `PP_NLCC` block. The NCFX fix (closed the
+   Si 13.4 eV residual) corrected unit conversion and radial
+   weighting for the ρ_core Fourier transform. NCFX has a
+   regression-guard test on Fe
+   (`test_fe_bcc_xc_nlcc_regression_guard`) but no dedicated Cu /
+   GaAs / MgO unit test. If the Bessel transform of `PP_NLCC` has
+   a subtler bug only exposed on high-ρ_core elements, the ΔE_xc
+   at Cu (+8.87 eV) would be partly NLCC-driven — and the Hartree
+   gap would not be NLCC since ρ_core does not enter V_H. Action:
+   parse QE's `rho_core(G)` for Cu and pin-test vs pwdft-rs'
+   `ctx.rho_core_r` FFT-forward, analog to
+   `scripts/validate/rho_core_g_reference.py` but for Cu/GaAs/MgO.
+3. **Semicore projector magnitude (V_nl).** E_nl at iter-1 =
+   −499.21 eV. QE's E_nl is not printed directly; backing it out
+   from the QE one-electron breakdown requires separating kinetic
+   + local + nonlocal. Action: extend the Cu KB projector cross-
+   check (Phase 1b H1) from `β_l(q)` to include the `D_ij · Σ_lm
+   β·β` contraction on a Cu-sized wavefunction; if projector
+   scaling differs between codes by an O(10%) factor, that could
+   account for the 16 eV gap.
+
+### Scaling outlook
+
+Cu's mechanism (semicore d + NLCC) is shared with Fe (semicore
+3s/3p, NLCC), GaAs (Ga 3d + As semicore), MgO (Mg 2s/2p semicore),
+and C (no semicore but potentially NLCC). NaCl has no semicore on
+Na or Cl. If H3 is cleared on Cu and the underlying cause is NLCC
+or semicore-projector, then Fe / GaAs / MgO should show the same
+iter-1-transplant signature. C / NaCl are the differential
+diagnosis: if they also show O(eV) iter-1 E_HF gaps at transplanted
+density, the bug is not semicore-specific. Part C should run the
+transplant on C, Fe, NaCl as the minimum triangulation set before
+proposing a fix.
 
 **Part C — Fix (1–5 CE-days).**
 
