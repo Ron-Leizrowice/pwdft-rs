@@ -90,10 +90,12 @@ pub fn load(path: &Path) -> Result<PseudopotentialData> {
 /// Matches by converting the PP element symbol to an atomic number.
 /// Returns `None` if no matching pseudopotential is loaded.
 pub fn find_for_atom<'a>(z: u32, pseudopotentials: &[&'a PseudopotentialData]) -> Option<&'a PseudopotentialData> {
+    use crate::atoms::Element;
     pseudopotentials
         .iter()
         .find(|pp| {
-            crate::atoms::from_symbol(&pp.element)
+            Element::iter()
+                .find(|e| e.symbol() == pp.element)
                 .is_some_and(|e| e.atomic_number() == z)
         })
         .copied()
