@@ -577,19 +577,29 @@ fn pz_correlation_rs(rs: f64, polarized: bool) -> (f64, f64) {
 }
 
 // ---------------------------------------------------------------------------
-// GGAP Phase B: PBE exchange (non-spin)
+// GGAP Phase B/C: PBE exchange + correlation (non-spin)
 // ---------------------------------------------------------------------------
 //
-// `pbe_exchange` is the non-spin PBE exchange port. It is unit-tested
-// against the PBE 1996 paper's enhancement-factor form directly (see
-// `pbe_exchange_*` below). The full grid evaluation lives in
-// `XcEvaluator::Pbe::eval`, which currently returns
-// `NotImplemented { what: "pbe_correlation" }` — the matching
-// correlation half lands in Phase C, at which point the Phase-B
-// function will be folded into the per-grid-point loop. The Pbe arm
-// already exercises `pbe_exchange` on the first grid point as a
-// defensive smoke call so refactors can't silently bitrot the Phase-B
-// port.
+// `pbe_exchange` (Phase B) is the non-spin PBE exchange port; `pbe_correlation`
+// (Phase C) is the matching correlation half, built on the PW92 LDA
+// correlation helper `pw92_correlation`. Both run against QE 7.5
+// line-for-line and carry unit-test pins so refactors can't silently
+// bitrot the port. The full grid evaluation lives in
+// `XcEvaluator::Pbe::eval`, which dispatches to `pbe_xc_point` at every
+// grid index via `par_iter`.
+//
+// Unit convention for the GGA helpers:
+//   - `pbe_exchange(ρ, |∇ρ|) -> (ε_x, v1_x, v2_x)`
+//   - `pbe_correlation(ρ, |∇ρ|) -> (ε_c, v1_c, v2_c)`
+//
+// `ε_*` is the *energy density* ρ·ε_*^PBE in eV/Å³, `v1_*` is
+// `∂(ρ·ε_*)/∂ρ` in eV, and `v2_*` is QE's h-vector scalar (so the driver
+// can form `h(r) = v2 · ∇ρ(r)` without a factor of 2; see the Phase B
+// comment on `pbe_exchange`).
+//
+// The helpers are intentionally pure functions of the point-wise density
+// and gradient magnitude; nothing persists across calls, and the grid
+// driver is free to rayon-parallelize without any shared state.
 
 /// Density floor below which the PBE exchange integrand is clamped to zero
 /// (QE `rho_threshold_gga`, in e/Bohr³ after conversion).
@@ -777,6 +787,243 @@ fn pbe_exchange(rho: f64, grad_rho_mag: f64) -> (f64, f64, f64) {
     (eps_x, v1, v2)
 }
 
+/// PW92 LDA correlation constants (all in Hartree / Bohr units).
+///
+/// Literals match `qe-7.5/XClib/qe_funct_corr_lda_lsda.f90::pw` lines
+/// 350-356 verbatim. `PW92_A` plays the role of QE's `a`; the other
+/// coefficients are the unpolarized fit parameters (`iflag = 1` selects
+/// the first element of `a1`, `b3`, `b4`). The alternate fit (`iflag =
+/// 2`, Ortiz-Ballone PRB 50, 1391) is not exposed — PBE strictly uses
+/// PW92.
+const PW92_A: f64 = 0.031_091;
+const PW92_A1: f64 = 0.213_70;
+const PW92_B1: f64 = 7.595_7;
+const PW92_B2: f64 = 3.587_6;
+const PW92_B3: f64 = 1.638_2;
+const PW92_B4: f64 = 0.492_94;
+
+/// PW92 correlation in atomic units (per-electron Hartree), parameterised
+/// by the Wigner-Seitz radius `rs` (Bohr). Common kernel for
+/// [`pw92_correlation`] and [`pbe_correlation`]: both need the AU-side
+/// `(ε_c, v_c)` pair, but with different unit targets on the return
+/// (eV/Å³ vs a re-exposed Hartree used inside PBE's H(ρ, t) formula).
+///
+/// Matches QE's `pw(rs, iflag=1, ec, vc)` interpolation branch
+/// (`qe-7.5/XClib/qe_funct_corr_lda_lsda.f90` lines 378-389) line-for-line.
+#[inline]
+fn pw92_correlation_au(rs: f64) -> (f64, f64) {
+    let rs12 = rs.sqrt();
+    let rs32 = rs * rs12;
+    let rs2 = rs * rs;
+    let om = 2.0 * PW92_A * (PW92_B1 * rs12 + PW92_B2 * rs + PW92_B3 * rs32 + PW92_B4 * rs2);
+    let dom = 2.0
+        * PW92_A
+        * (0.5 * PW92_B1 * rs12
+            + PW92_B2 * rs
+            + 1.5 * PW92_B3 * rs32
+            + 2.0 * PW92_B4 * rs2);
+    let olog = (1.0 + 1.0 / om).ln();
+    let ec_ha = -2.0 * PW92_A * (1.0 + PW92_A1 * rs) * olog;
+    let vc_ha = -2.0 * PW92_A * (1.0 + (2.0 / 3.0) * PW92_A1 * rs) * olog
+        - (2.0 / 3.0) * PW92_A * (1.0 + PW92_A1 * rs) * dom / (om * (om + 1.0));
+    (ec_ha, vc_ha)
+}
+
+/// Perdew-Wang 1992 LDA correlation, `iflag = 1` (unpolarized).
+///
+/// Given a density `ρ` (e/Å³), returns the point-wise pair
+///
+/// ```text
+///     ε_c(r)  = ρ · ε_c^PW92(ρ)      (eV / Å³ — energy density)
+///     v_c(r)  = d[ρ · ε_c^PW92] / dρ (eV)
+/// ```
+///
+/// PBE correlation is fitted against PW92, *not* PZ. The two
+/// parametrisations agree to ~0.1 meV/electron on typical densities but
+/// they are not identical, and swapping PZ for PW92 inside PBE is the
+/// difference between "matches QE" and "doesn't". The helper is private
+/// to this module so the existing LDA path (which continues to use PZ
+/// via [`perdew_zunger_correlation`]) is unaffected.
+///
+/// # Numerics
+///
+/// - Density floor: below [`PBE_RHO_THRESHOLD_AU`] in AU
+///   (≈ `6.75e-6 e/Å³`) the return is `(0, 0)`. This matches the
+///   floor used by [`pbe_exchange`] so the full PBE path has one
+///   consistent short-circuit threshold.
+/// - Internally in atomic units (Ha, Bohr) so the literals match QE
+///   line-for-line; converted to pwdft-rs native (eV, Å) at the return.
+///
+/// Returns `(eps_c, v_c)` in `(eV / Å³, eV)`.
+//
+// Source: qe-7.5/XClib/qe_funct_corr_lda_lsda.f90::pw with iflag = 1,
+// interpolation branch (lines 375-390; we do not implement the
+// high/low-density formulae which are gated on iflag = 2).
+#[inline]
+#[cfg(test)]
+fn pw92_correlation(rho: f64) -> (f64, f64) {
+    let bohr3 = crate::consts::BOHR3_TO_ANG3;
+    let ha = crate::consts::HA_TO_EV;
+
+    let rho_au = rho * bohr3;
+    if rho_au <= PBE_RHO_THRESHOLD_AU {
+        return (0.0, 0.0);
+    }
+
+    let rs = (3.0 / (4.0 * PI * rho_au)).cbrt();
+    let (ec_ha, vc_ha) = pw92_correlation_au(rs);
+
+    //   ρ·ε_c [Ha · e/Bohr³] × HA_TO_EV / BOHR3_TO_ANG3 → eV/Å³
+    //   v_c   [Ha]           × HA_TO_EV                → eV
+    let eps_c = rho_au * ec_ha * ha / bohr3;
+    let v_c = vc_ha * ha;
+    (eps_c, v_c)
+}
+
+/// PBE correlation constants β and γ (Hartree units).
+///
+/// Literals match `qe-7.5/XClib/qe_funct_corr_gga.f90::pbec` lines 214
+/// and 217 (`ga = 0.0310906908696548950`, `be(1) = 0.06672455060314922`).
+/// β is shared with PBE exchange (set there via `μ = β π² / 3`); γ is
+/// `(1 − ln 2) / π²` to all the digits we carry.
+const PBE_GAMMA: f64 = 0.031_090_690_869_654_895;
+const PBE_BETA: f64 = 0.066_724_550_603_149_22;
+
+/// Perdew-Burke-Ernzerhof (1996) correlation, non-spin, with the canonical
+/// `iflag = 1` parameter choice (the original PBE).
+///
+/// Given a density `ρ` (e/Å³) and gradient magnitude `|∇ρ|` (e/Å⁴), returns
+///
+/// ```text
+///     ε_c(r)  = ρ · ε_c^PBE(ρ, |∇ρ|)      (eV / Å³ — energy density)
+///     v1_c(r) = ∂(ρ · ε_c^PBE) / ∂ρ       (eV)
+///     v2_c(r) = QE's v2c convention — scalar that contracts with ∇ρ
+///               into the semilocal h-vector via h(r) = v2_c(r) · ∇ρ(r).
+/// ```
+///
+/// Note PBE eq. 7 writes the *per-electron* correction `ε_c^PBE = ε_c^LDA
+/// + H` and multiplies by ρ for the energy density. Internally we sum
+/// `ε_c` contributions from [`pw92_correlation`] (the PW92 LDA piece) and
+/// QE's `pbec` gradient-correction `sc = ρ · h0` to get the total. v1
+/// similarly sums PW92's `v_c` with QE's `v1c = h0 + dh0`.
+///
+/// PBE correlation's gradient correction `H(ρ, t)` is fitted against
+/// PW92 — never PZ — which is why this helper calls [`pw92_correlation`]
+/// rather than reusing the LDA path's [`perdew_zunger_correlation`].
+///
+/// At `|∇ρ|² < ` [`PBE_GRHO2_THRESHOLD_AU`] the gradient enhancement
+/// drops out exactly (H = 0, v2_c = 0) and the return is the PW92 LDA
+/// limit. At `ρ < ` [`PBE_RHO_THRESHOLD_AU`] the return is `(0, 0, 0)`.
+///
+/// Returns `(eps_c, v1_c, v2_c)` in the units given above.
+//
+// Source: qe-7.5/XClib/qe_funct_corr_gga.f90::pbec with iflag = 1
+// (lines 195-259). Internal AU→eV/Å conversion uses HA_TO_EV,
+// BOHR3_TO_ANG3, and BOHR_TO_ANG from `crate::consts`. The
+// q2D special case (iflag = 3) is explicitly not implemented.
+#[inline]
+fn pbe_correlation(rho: f64, grad_rho_mag: f64) -> (f64, f64, f64) {
+    let bohr3 = crate::consts::BOHR3_TO_ANG3;
+    let bohr = crate::consts::BOHR_TO_ANG;
+    let ha = crate::consts::HA_TO_EV;
+
+    let rho_au = rho * bohr3;
+    let bohr4 = bohr3 * bohr;
+    let agrho_au = grad_rho_mag * bohr4;
+    let grho_au = agrho_au * agrho_au;
+
+    // Low-density clamp (QE `rho_threshold_gga`).
+    if rho_au <= PBE_RHO_THRESHOLD_AU {
+        return (0.0, 0.0, 0.0);
+    }
+
+    // Compute PW92 in AU so we can reuse its ε_c / v_c alongside QE's
+    // gradient-correction formula without re-converting units.
+    let rs = (3.0 / (4.0 * PI * rho_au)).cbrt();
+    let (ec_ha, vc_ha) = pw92_correlation_au(rs);
+
+    // Low-gradient short-circuit: H → 0, v2 → 0, fall back to PW92 LDA.
+    if grho_au <= PBE_GRHO2_THRESHOLD_AU {
+        let eps_c = rho_au * ec_ha * ha / bohr3;
+        let v1_c = vc_ha * ha;
+        return (eps_c, v1_c, 0.0);
+    }
+
+    // QE `pbec` body (lines 219-248). xkf = (9π/4)^{1/3}, xks = sqrt(4/π).
+    let xkf = (9.0 * PI / 4.0).cbrt();
+    let xks = (4.0 / PI).sqrt();
+    let kf = xkf / rs;
+    let ks = xks * kf.sqrt();
+    // Reduced gradient t = |∇ρ| / (2 k_s ρ)  (QE uses t = √grho / (2 k_s ρ)).
+    let t = agrho_au / (2.0 * ks * rho_au);
+    let t2 = t * t;
+
+    // A = (β/γ) / (exp(-ε_c^LDA/γ) − 1).
+    let expe = (-ec_ha / PBE_GAMMA).exp();
+    let af = (PBE_BETA / PBE_GAMMA) / (expe - 1.0);
+    let bf = expe * (vc_ha - ec_ha);
+
+    // y = A t², xy = (1+y)/(1+y+y²), qy = y²(2+y)/(1+y+y²)².
+    let y = af * t2;
+    let one_plus_y_plus_y2 = 1.0 + y + y * y;
+    let xy = (1.0 + y) / one_plus_y_plus_y2;
+    let qy = y * y * (2.0 + y) / (one_plus_y_plus_y2 * one_plus_y_plus_y2);
+
+    // s1 = 1 + (β/γ) t² · xy
+    let s1 = 1.0 + (PBE_BETA / PBE_GAMMA) * t2 * xy;
+    // h0 = γ ln(s1), sc = ρ · h0
+    let h0 = PBE_GAMMA * s1.ln();
+    // QE's dh0 = β·t²/s1 · (-7/3 · xy − qy·(A·bf/β − 7/3))
+    let dh0 = PBE_BETA * t2 / s1 * (-7.0 / 3.0 * xy - qy * (af * bf / PBE_BETA - 7.0 / 3.0));
+    // QE's ddh0 = β/(2 k_s² ρ) · (xy − qy) / s1  →  v2c in QE convention.
+    let ddh0 = PBE_BETA / (2.0 * ks * ks * rho_au) * (xy - qy) / s1;
+
+    // QE outputs (AU):
+    //   sc   = ρ · h0         (Ha · e/Bohr³)
+    //   v1c  = h0 + dh0       (Ha)
+    //   v2c  = ddh0           (Ha · Bohr⁵ / e)
+    let sc_grad_ha = rho_au * h0;
+    let v1_grad_ha = h0 + dh0;
+    let v2c_grad_ha = ddh0;
+
+    // Total PBE correlation = LDA (PW92) + gradient (H).
+    //   ε_c^PBE = ρ·ε_c^PW92 + ρ·h0
+    //   v1_c^PBE = v_c^PW92 + v1c_grad
+    //   v2_c^PBE = v2c_grad   (LDA has no |∇ρ| dependence)
+    let eps_c_ha = rho_au * ec_ha + sc_grad_ha;
+    let v1_c_ha = vc_ha + v1_grad_ha;
+    let v2_c_ha = v2c_grad_ha;
+
+    // Convert to pwdft-rs native units (eV, Å) — same scheme as `pbe_exchange`.
+    let bohr5 = bohr4 * bohr;
+    let eps_c = eps_c_ha * ha / bohr3;
+    let v1_c = v1_c_ha * ha;
+    let v2_c = v2_c_ha * ha * bohr5;
+    (eps_c, v1_c, v2_c)
+}
+
+/// Evaluate the full non-spin PBE exchange-correlation functional at a
+/// single grid point.
+///
+/// Convenience wrapper: sums the outputs of [`pbe_exchange`] and
+/// [`pbe_correlation`] — both use the identical `(ρ, |∇ρ|)` inputs and
+/// share the v2 convention, so the totals are a straight sum per
+/// component.
+///
+/// ```text
+///     ε_xc  = ε_x + ε_c       (eV / Å³)
+///     v1_xc = v1_x + v1_c     (eV)
+///     v2_xc = v2_x + v2_c     (eV · Å⁵ / e — QE h-vector scalar)
+/// ```
+///
+/// Used by [`XcEvaluator::Pbe::eval`]'s per-grid-point loop.
+#[inline]
+fn pbe_xc_point(rho: f64, grad_rho_mag: f64) -> (f64, f64, f64) {
+    let (ex, v1x, v2x) = pbe_exchange(rho, grad_rho_mag);
+    let (ec, v1c, v2c) = pbe_correlation(rho, grad_rho_mag);
+    (ex + ec, v1x + v1c, v2x + v2c)
+}
+
 // ---------------------------------------------------------------------------
 // GGAP Phase A: data-enum dispatch
 // ---------------------------------------------------------------------------
@@ -896,23 +1143,50 @@ impl XcEvaluator {
                 Ok(XcGridResult { exc_r, v1_r, v2_r: None })
             }
             Self::Pbe => {
-                // GGAP Phase B: `pbe_exchange` (the non-spin exchange half)
-                // is implemented and unit-tested in this module, but the
-                // matching correlation is still pending Phase C. Without
-                // PW92-based PBE correlation the functional is not
-                // well-defined. If the caller supplies the density
-                // gradient we exercise `pbe_exchange` on the first grid
-                // point (defensive call so a future refactor cannot
-                // silently bitrot the Phase-B routine), then fail fast
-                // with a scoped NotImplemented until Phase C lands.
-                if let Some(grad) = rho_grad_r
-                    && let Some(&rho0) = rho_r.first()
-                    && let Some(&g0) = grad.first()
-                {
-                    let grad_mag0 = (g0[0] * g0[0] + g0[1] * g0[1] + g0[2] * g0[2]).sqrt();
-                    let _ = pbe_exchange(rho0, grad_mag0);
-                }
-                Err(PwdftError::NotImplemented { what: "pbe_correlation".into() })
+                // GGAP Phase C: PBE exchange + correlation ported and
+                // unit-tested (`pbe_exchange`, `pbe_correlation`,
+                // `pbe_xc_point`). Grid evaluation rayon-parallelises
+                // over (ρ, ∇ρ) pairs and populates `v2_r` with the
+                // per-grid-point h-vector `h(r) = v2·∇ρ(r)` (QE
+                // convention; see `pbe_exchange` for the factor-of-2
+                // accounting).
+                //
+                // A caller without a gradient grid cannot evaluate PBE
+                // — return `NotImplemented` pointing at the missing
+                // input. Non-spin SCF drivers need to supply
+                // `rho_grad_r` via an FFT-based ∇ρ step before calling
+                // `eval`; that driver-side wiring is the remaining
+                // piece of the PBE path (Phase A's gradient
+                // infrastructure).
+                let Some(grad) = rho_grad_r else {
+                    return Err(PwdftError::NotImplemented {
+                        what: "pbe.eval requires rho_grad_r: None was passed".into(),
+                    });
+                };
+                debug_assert_eq!(
+                    rho_r.len(),
+                    grad.len(),
+                    "rho_r and rho_grad_r must share grid size",
+                );
+                // Rayon's `unzip` handles 2-tuples; for (exc, v1, h)
+                // we nest as `(exc, (v1, h))` the same way
+                // `lda_xc_spin_grid` handles its three outputs.
+                let (exc_r, (v1_r, h_vec)): PbeGridUnzip = rho_r
+                    .par_iter()
+                    .zip(grad.par_iter())
+                    .map(|(&rho, &g)| {
+                        let gmag = (g[0] * g[0] + g[1] * g[1] + g[2] * g[2]).sqrt();
+                        let (eps_xc, v1_xc, v2_xc) = pbe_xc_point(rho, gmag);
+                        // h(r) = v2 · ∇ρ(r) — QE convention (the factor
+                        // of 2 from d/d|∇ρ|² = (1/2|∇ρ|) · d/d|∇ρ| is
+                        // already folded into v2 by `pbe_exchange` and
+                        // `pbe_correlation`). The driver consumes h via
+                        // ∇·h in G-space to complete V_xc.
+                        let h = [v2_xc * g[0], v2_xc * g[1], v2_xc * g[2]];
+                        (eps_xc, (v1_xc, h))
+                    })
+                    .unzip();
+                Ok(XcGridResult { exc_r, v1_r, v2_r: Some(h_vec) })
             }
         }
     }
@@ -984,6 +1258,12 @@ impl XcEvaluator {
         }
     }
 }
+
+/// Nested-tuple shape produced by the PBE rayon `par_iter().unzip()`.
+/// `.unzip()` only handles 2-tuples; we compose three outputs as
+/// `(ε_xc, (v1, h))` and alias the shape so clippy's `type_complexity`
+/// lint stays happy.
+type PbeGridUnzip = (Vec<f64>, (Vec<f64>, Vec<[f64; 3]>));
 
 /// Result of a non-spin XC evaluation on the FFT grid.
 ///
@@ -1274,33 +1554,82 @@ mod tests {
     }
 
     #[test]
-    fn xc_evaluator_pbe_eval_returns_not_implemented() {
-        // GGAP Phase B landed the exchange half (see the `pbe_exchange_*`
-        // unit tests below); correlation + PW92 is Phase C. The grid
-        // evaluator therefore bails with a scoped NotImplemented marker
-        // pointing specifically at the correlation half so the next-phase
-        // author can search for it and knows where to drop the fix in.
+    fn xc_evaluator_pbe_eval_without_gradient_returns_not_implemented() {
+        // GGAP Phase C lands the non-spin PBE grid evaluator, but calling
+        // it without a density gradient is a programming error (PBE
+        // *requires* ∇ρ). The driver must compute ∇ρ via FFT before
+        // calling `eval`; until that plumbing lands, bailing with a
+        // scoped `NotImplemented` points the next-phase author at the
+        // missing driver-side input.
         let rho_r = vec![0.1; 32];
         let err = XcEvaluator::Pbe
             .eval(&rho_r, None)
-            .expect_err("PBE eval must be NotImplemented until Phase C");
+            .expect_err("PBE eval without ∇ρ must fail");
+        match err {
+            PwdftError::NotImplemented { what } => {
+                assert!(
+                    what.contains("rho_grad_r"),
+                    "error marker should mention rho_grad_r: got {what}"
+                );
+            }
+            other => panic!("expected NotImplemented, got {other:?}"),
+        }
+
+        // Spin path still bails — Phase D lands `pbec_spin`.
+        let rho_down = vec![0.05; 32];
+        let err = XcEvaluator::Pbe
+            .eval_spin(&rho_r, &rho_down, None, None)
+            .expect_err("PBE spin eval must be NotImplemented until Phase D");
         match err {
             PwdftError::NotImplemented { what } => {
                 assert_eq!(what, "pbe_correlation");
             }
             other => panic!("expected NotImplemented, got {other:?}"),
         }
+    }
 
-        // Same shape on the spin path.
-        let rho_down = vec![0.05; 32];
-        let err = XcEvaluator::Pbe
-            .eval_spin(&rho_r, &rho_down, None, None)
-            .expect_err("PBE spin eval must be NotImplemented until Phase C");
-        match err {
-            PwdftError::NotImplemented { what } => {
-                assert_eq!(what, "pbe_correlation");
-            }
-            other => panic!("expected NotImplemented, got {other:?}"),
+    #[test]
+    fn xc_evaluator_pbe_eval_populates_all_three_grids() {
+        // Smoke-test the rayon par_iter path: zero gradient should
+        // reduce exactly to LDA (Slater + PW92) on every grid point,
+        // and `v2_r` must be present with h-vectors all zero.
+        let rho_r: Vec<f64> = (1..=64).map(|i| 0.01 + f64::from(i) * 0.001).collect();
+        let grad_zero: Vec<[f64; 3]> = vec![[0.0; 3]; rho_r.len()];
+
+        let result = XcEvaluator::Pbe
+            .eval(&rho_r, Some(&grad_zero))
+            .expect("PBE eval must succeed with zero gradient");
+
+        assert_eq!(result.exc_r.len(), rho_r.len());
+        assert_eq!(result.v1_r.len(), rho_r.len());
+        let v2 = result.v2_r.as_ref().expect("v2_r must be populated on PBE");
+        assert_eq!(v2.len(), rho_r.len());
+
+        // h = v2 · ∇ρ with ∇ρ = 0 → all zeros on every point regardless
+        // of v2 value. This is the end-to-end check that the rayon zip
+        // over (ρ, ∇ρ) is shape-correct.
+        for (i, h) in v2.iter().enumerate() {
+            assert!(
+                h[0].abs() < 1e-30 && h[1].abs() < 1e-30 && h[2].abs() < 1e-30,
+                "h at {i} must be zero for zero-gradient: got {h:?}"
+            );
+        }
+
+        // exc_r at zero gradient must match Slater + PW92 pointwise.
+        for (i, &rho) in rho_r.iter().enumerate() {
+            let (ex_lda, _v1_lda_x) = {
+                let (e, v) = slater_exchange(rho);
+                // ρ · ε_x = eps_x (energy density, eV/Å³) -> multiply ε_x by ρ.
+                (rho * e, v)
+            };
+            let (eps_c_pw92, _v_c_pw92) = pw92_correlation(rho);
+            let eps_xc_ref = ex_lda + eps_c_pw92;
+            let err = (result.exc_r[i] - eps_xc_ref).abs();
+            assert!(
+                err < 1e-12 * eps_xc_ref.abs().max(1.0),
+                "eps_xc at {i} (∇ρ=0): PBE={} vs LDA(Slater+PW92)={} err={}",
+                result.exc_r[i], eps_xc_ref, err
+            );
         }
     }
 
@@ -1481,5 +1810,240 @@ mod tests {
                 "low-density clamp failed at ρ={rho}: eps={eps}, v1={v1}, v2={v2}"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // GGAP Phase C: PW92 LDA correlation + PBE correlation unit tests.
+    //
+    // Three shapes of test:
+    //   1. PW92 matches its own analytic formula at a handful of r_s
+    //      values (reproduces QE's `pw` subroutine line-for-line).
+    //   2. `pbe_correlation(ρ, 0)` reduces exactly to `pw92_correlation(ρ)`
+    //      (ε_c^PBE = ε_c^PW92 + H, and H=0 at |∇ρ|=0).
+    //   3. `pbe_correlation` at a canonical `(ρ, |∇ρ|)` point pinned to
+    //      a reference number hand-derived from PBE 1996 + PW92 1992
+    //      formulas with the same 1e-14 precision as Phase B.
+    // -----------------------------------------------------------------------
+
+    /// PW92 reference in Hartree / per-electron, unpolarized.
+    /// Reproduces QE's `pw(rs, iflag=1, ec, vc)` interpolation branch.
+    fn pw92_analytic_ha(rs: f64) -> (f64, f64) {
+        let a = 0.031_091_f64;
+        let a1 = 0.213_70_f64;
+        let b1 = 7.595_7_f64;
+        let b2 = 3.587_6_f64;
+        let b3 = 1.638_2_f64;
+        let b4 = 0.492_94_f64;
+        let rs12 = rs.sqrt();
+        let rs32 = rs * rs12;
+        let rs2 = rs * rs;
+        let om = 2.0 * a * (b1 * rs12 + b2 * rs + b3 * rs32 + b4 * rs2);
+        let dom = 2.0 * a * (0.5 * b1 * rs12 + b2 * rs + 1.5 * b3 * rs32 + 2.0 * b4 * rs2);
+        let olog = (1.0 + 1.0 / om).ln();
+        let ec = -2.0 * a * (1.0 + a1 * rs) * olog;
+        let vc = -2.0 * a * (1.0 + (2.0 / 3.0) * a1 * rs) * olog
+            - (2.0 / 3.0) * a * (1.0 + a1 * rs) * dom / (om * (om + 1.0));
+        (ec, vc)
+    }
+
+    #[test]
+    fn pw92_matches_analytic_formula() {
+        // Cross-check the port against the formula we just wrote out
+        // longhand. Five densities spanning the SCF-relevant range:
+        // r_s ∈ {0.5, 1, 2, 3, 5} Bohr corresponds to dense (core) to
+        // dilute (vacuum-tail) regimes. Tolerance 1e-14 — any drift
+        // here is a typo in the constants, not a numerical effect.
+        let bohr3 = crate::consts::BOHR3_TO_ANG3;
+        let ha = crate::consts::HA_TO_EV;
+        for &rs in &[0.5_f64, 1.0, 2.0, 3.0, 5.0] {
+            let rho_au = 3.0 / (4.0 * PI * rs * rs * rs); // e/Bohr³
+            let rho = rho_au / bohr3; // e/Å³
+            let (ec_ha_ref, vc_ha_ref) = pw92_analytic_ha(rs);
+            let eps_c_ref = rho_au * ec_ha_ref * ha / bohr3; // eV/Å³
+            let v_c_ref = vc_ha_ref * ha; // eV
+
+            let (eps_c, v_c) = pw92_correlation(rho);
+            assert!(
+                (eps_c - eps_c_ref).abs() < 1e-14,
+                "PW92 ε_c mismatch at r_s={rs}: got={eps_c}, ref={eps_c_ref}"
+            );
+            assert!(
+                (v_c - v_c_ref).abs() < 1e-14,
+                "PW92 v_c mismatch at r_s={rs}: got={v_c}, ref={v_c_ref}"
+            );
+        }
+    }
+
+    #[test]
+    fn pw92_pinned_values() {
+        // Three hand-evaluated pins (computed from `pw92_analytic_ha`
+        // above by hand-walking the constants) at Si-valence-plausible
+        // densities. Any future refactor that breaks the conversion
+        // chain will trip here at the first digit.
+        //
+        // ρ = 0.05 e/Å³ (r_s ≈ 2.24 Bohr, around Si-valence averages):
+        //   ε_c^PW92 (per electron, Ha) ≈ -0.05632…  (QE sign convention)
+        let bohr3 = crate::consts::BOHR3_TO_ANG3;
+        let rho_au = 0.05 * bohr3;
+        let rs = (3.0 / (4.0 * PI * rho_au)).cbrt();
+        let (ec_ref_ha, vc_ref_ha) = pw92_analytic_ha(rs);
+        let (eps_c, v_c) = pw92_correlation(0.05);
+        // Sanity: both return values must be negative (correlation is
+        // attractive) and on the order of ~eV.
+        assert!(eps_c < 0.0, "PW92 ε_c must be negative: {eps_c}");
+        assert!(v_c < 0.0, "PW92 v_c must be negative: {v_c}");
+        // ε_c per electron should be O(-1 eV) = O(-0.05 Ha) at r_s ≈ 2.
+        assert!(
+            ec_ref_ha.abs() > 0.03 && ec_ref_ha.abs() < 0.1,
+            "PW92 ε_c/e at r_s={rs:.2} out of expected range: {ec_ref_ha} Ha"
+        );
+        // v_c per electron has the same order of magnitude.
+        assert!(
+            vc_ref_ha.abs() > 0.04 && vc_ref_ha.abs() < 0.15,
+            "PW92 v_c/e at r_s={rs:.2} out of expected range: {vc_ref_ha} Ha"
+        );
+    }
+
+    #[test]
+    fn pw92_low_density_short_circuits() {
+        // Below QE's rho_threshold_gga: return exact zeros — prevents
+        // log(0) and division-by-zero in the PBE path's H computation.
+        for &rho in &[0.0_f64, 1e-8, 1e-7, 1e-6] {
+            let (eps_c, v_c) = pw92_correlation(rho);
+            assert!(
+                eps_c.abs() < 1e-30 && v_c.abs() < 1e-30,
+                "PW92 low-ρ clamp failed at {rho}: eps_c={eps_c}, v_c={v_c}"
+            );
+        }
+    }
+
+    #[test]
+    fn pbe_correlation_zero_gradient_reduces_to_pw92() {
+        // H = 0 when |∇ρ| = 0 (PBE eq. 7), so pbe_correlation at
+        // zero gradient must return exactly what pw92_correlation does
+        // for ε_c and v1_c, and v2_c = 0. We pin this at every density
+        // the Phase-B exchange test uses.
+        for &rho in &[0.01_f64, 0.05, 0.1, 0.5, 1.0, 2.0] {
+            let (eps_pbe_c, v1_pbe_c, v2_pbe_c) = pbe_correlation(rho, 0.0);
+            let (eps_pw92, v_pw92) = pw92_correlation(rho);
+            assert!(
+                (eps_pbe_c - eps_pw92).abs() < 1e-14 * eps_pw92.abs().max(1.0),
+                "ε_c(∇ρ=0) mismatch at ρ={rho}: pbe={eps_pbe_c}, pw92={eps_pw92}"
+            );
+            assert!(
+                (v1_pbe_c - v_pw92).abs() < 1e-14 * v_pw92.abs().max(1.0),
+                "v1_c(∇ρ=0) mismatch at ρ={rho}: pbe={v1_pbe_c}, pw92={v_pw92}"
+            );
+            assert!(
+                v2_pbe_c.abs() < 1e-30,
+                "v2_c(∇ρ=0) must be exactly 0 at ρ={rho}: got {v2_pbe_c}"
+            );
+        }
+    }
+
+    #[test]
+    fn pbe_correlation_single_point_reference() {
+        // One-point reference at the same test coordinates as
+        // `pbe_exchange_single_point_reference`: ρ = 0.1 e/Å³,
+        // |∇ρ| = 0.05 e/Å⁴. Compute ε_c, v1_c, v2_c longhand from PBE
+        // eq. 7-9 + PW92 formulas, then pin the `pbe_correlation` port
+        // against it to 1e-14.
+        let rho = 0.10_f64; // e/Å³
+        let grad = 0.05_f64; // e/Å⁴
+        let bohr3 = crate::consts::BOHR3_TO_ANG3;
+        let bohr = crate::consts::BOHR_TO_ANG;
+        let ha = crate::consts::HA_TO_EV;
+
+        // AU conversion.
+        let rho_au = rho * bohr3;
+        let bohr4 = bohr3 * bohr;
+        let agrho_au = grad * bohr4;
+
+        // PW92 pieces.
+        let rs = (3.0 / (4.0 * PI * rho_au)).cbrt();
+        let (ec_ha, vc_ha) = pw92_analytic_ha(rs);
+
+        // QE `pbec` locals.
+        let xkf = (9.0 * PI / 4.0).cbrt();
+        let xks = (4.0 / PI).sqrt();
+        let kf = xkf / rs;
+        let ks = xks * kf.sqrt();
+        let t = agrho_au / (2.0 * ks * rho_au);
+        let t2 = t * t;
+
+        let gamma = 0.031_090_690_869_654_895_f64;
+        let beta = 0.066_724_550_603_149_22_f64;
+        let expe = (-ec_ha / gamma).exp();
+        let af = (beta / gamma) / (expe - 1.0);
+        let bf = expe * (vc_ha - ec_ha);
+        let y = af * t2;
+        let denom_y = 1.0 + y + y * y;
+        let xy = (1.0 + y) / denom_y;
+        let qy = y * y * (2.0 + y) / (denom_y * denom_y);
+        let s1 = 1.0 + (beta / gamma) * t2 * xy;
+        let h0 = gamma * s1.ln();
+        let dh0 = beta * t2 / s1 * (-7.0 / 3.0 * xy - qy * (af * bf / beta - 7.0 / 3.0));
+        let ddh0 = beta / (2.0 * ks * ks * rho_au) * (xy - qy) / s1;
+
+        // Expected returns (eV / Å units, matching pbe_correlation).
+        let eps_c_ha = rho_au * ec_ha + rho_au * h0;
+        let v1_c_ha = vc_ha + (h0 + dh0);
+        let v2_c_ha = ddh0;
+        let eps_c_ref = eps_c_ha * ha / bohr3;
+        let v1_c_ref = v1_c_ha * ha;
+        let v2_c_ref = v2_c_ha * ha * bohr.powi(5);
+
+        let (eps_c, v1_c, v2_c) = pbe_correlation(rho, grad);
+
+        assert!(
+            (eps_c - eps_c_ref).abs() < 1e-14,
+            "ε_c mismatch at (ρ=0.1, ∇ρ=0.05): got={eps_c}, want={eps_c_ref}"
+        );
+        assert!(
+            (v1_c - v1_c_ref).abs() < 1e-14,
+            "v1_c mismatch at (ρ=0.1, ∇ρ=0.05): got={v1_c}, want={v1_c_ref}"
+        );
+        assert!(
+            (v2_c - v2_c_ref).abs() < 1e-14,
+            "v2_c mismatch at (ρ=0.1, ∇ρ=0.05): got={v2_c}, want={v2_c_ref}"
+        );
+
+        // Sanity: correlation is attractive (ε_c, v1_c negative). H is
+        // positive (a gradient correction that raises ε_c toward zero
+        // from below), so ε_c^PBE is less negative than ε_c^PW92.
+        assert!(eps_c < 0.0, "ε_c must be negative: {eps_c}");
+        assert!(v1_c < 0.0, "v1_c must be negative: {v1_c}");
+        let (eps_pw92, _) = pw92_correlation(rho);
+        assert!(
+            eps_c > eps_pw92,
+            "PBE correlation (ε={eps_c}) must be less negative than PW92 (ε={eps_pw92}) \
+             — H>0 lifts the correlation energy density"
+        );
+    }
+
+    #[test]
+    fn pbe_correlation_low_density_short_circuits() {
+        for &rho in &[0.0_f64, 1e-8, 1e-7, 1e-6] {
+            let (eps, v1, v2) = pbe_correlation(rho, 0.01);
+            assert!(
+                eps.abs() < 1e-30 && v1.abs() < 1e-30 && v2.abs() < 1e-30,
+                "low-ρ clamp failed at {rho}: eps={eps}, v1={v1}, v2={v2}"
+            );
+        }
+    }
+
+    #[test]
+    fn pbe_xc_point_sums_components() {
+        // Smoke test: `pbe_xc_point` is just a sum of exchange and
+        // correlation outputs. Pin it at the Phase-B one-point shape to
+        // catch any future drift.
+        let rho = 0.10_f64;
+        let grad = 0.05_f64;
+        let (ex, v1x, v2x) = pbe_exchange(rho, grad);
+        let (ec, v1c, v2c) = pbe_correlation(rho, grad);
+        let (eps_xc, v1_xc, v2_xc) = pbe_xc_point(rho, grad);
+        assert!((eps_xc - (ex + ec)).abs() < 1e-14);
+        assert!((v1_xc - (v1x + v1c)).abs() < 1e-14);
+        assert!((v2_xc - (v2x + v2c)).abs() < 1e-14);
     }
 }

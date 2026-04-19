@@ -64,6 +64,7 @@ use pwdft_rs::{
     kpoints,
     pseudopotential::PseudopotentialData,
     scf::{self, ScfParams, ScfResult, mixing::MixingMode, smearing::SmearingScheme},
+    settings::XcFunctional,
     symmetry::SymmetryInfo,
 };
 use std::collections::HashMap;
@@ -116,6 +117,16 @@ fn load_pp(element: &str) -> PseudopotentialData {
         .unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
 }
 
+/// Load a PBE-family UPF from `pseudopotentials/nc/pbe/`. Used by the
+/// GGAP-family tests; LDA tests continue to use [`load_pp`].
+fn load_pp_pbe(element: &str) -> PseudopotentialData {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("pseudopotentials/nc/pbe")
+        .join(format!("{element}.upf"));
+    pwdft_rs::pseudopotential::load(&path)
+        .unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
+}
+
 // ---------------------------------------------------------------------------
 // Comparison harness
 // ---------------------------------------------------------------------------
@@ -135,6 +146,10 @@ struct QeComparisonConfig<'a> {
     degauss_ry: f64,
     nspin: usize,
     starting_magnetization: HashMap<String, f64>,
+    /// Exchange-correlation functional. Defaults to [`XcFunctional::Pz`]
+    /// (LDA) to preserve the pre-GGAP-C legacy-test shape; GGAP-family
+    /// tests set this to [`XcFunctional::Pbe`].
+    xc_functional: XcFunctional,
 }
 
 impl<'a> QeComparisonConfig<'a> {
@@ -150,6 +165,7 @@ impl<'a> QeComparisonConfig<'a> {
             degauss_ry: 0.01,
             nspin: 1,
             starting_magnetization: HashMap::new(),
+            xc_functional: XcFunctional::default(),
         }
     }
 }
@@ -193,6 +209,7 @@ fn run_qe_comparison(cfg: &QeComparisonConfig<'_>) -> PwdftResult<ScfResult> {
         mixing_mode: cfg.mixing.clone(),
         nspin: cfg.nspin,
         starting_magnetization: cfg.starting_magnetization.clone(),
+        xc_functional: cfg.xc_functional,
         ..Default::default()
     };
 
@@ -859,4 +876,65 @@ fn test_fe_bcc_ewald_vs_qe() {
         diff < 0.01,
         "Fe Ewald energy {e_ewald:.4} eV differs from QE {qe_ewald:.4} eV by {diff:.4} eV"
     );
+}
+
+// ---------------------------------------------------------------------------
+// GGAP Phase C — first end-to-end Si PBE cross-check
+// ---------------------------------------------------------------------------
+
+/// Si diamond PBE total energy vs QE PBE reference.
+///
+/// First end-to-end PBE SCF test. Gated behind `#[ignore]` because two
+/// pieces of scaffolding are still pending:
+///
+/// 1. **Driver-side gradient FFT.** `XcEvaluator::Pbe::eval` accepts
+///    `rho_grad_r: &[[f64; 3]]` and, given a real gradient grid,
+///    populates the full `(exc_r, v1_r, v2_r)` triple. The current SCF
+///    drivers (`src/scf/driver.rs`, `driver_spin.rs`) pass `None` for
+///    the gradient because the ∇ρ FFT (ρ → ρ_G, multiply by iG, IFFT)
+///    and the matching ∇·h divergence step have not yet been wired in.
+///    This was expected to land in GGAP Phase A (PR #85) per the
+///    proposal's Phase A scope, but the merged Phase A was dispatcher-
+///    only. Driver-side gradient infrastructure therefore tops the
+///    Phase D backlog (or a dedicated Phase A.1 splitter).
+/// 2. **QE PBE reference.** `qe_validation/si_scf_pbe.in` has not been
+///    generated. The QE input schema needs `input_dft = 'PBE'` plus a
+///    PBE UPF at `qe_validation/pseudo/Si.upf` pointing at
+///    `pseudopotentials/nc/pbe/Si.upf` (or equivalent).
+///
+/// When both land, drop the `#[ignore]` and tighten the tolerance to
+/// "observed + 20%" (start at 100 meV per GGAP Phase C brief).
+///
+/// The test body is kept live-buildable so a future session can flip
+/// the gate without rewriting it. The currently-returned
+/// `NotImplemented` from the driver-side gradient path surfaces as a
+/// call-site panic; once the driver wires ∇ρ in, SCF should run.
+#[test]
+#[ignore = "GGAP Phase C: driver-side ∇ρ FFT not yet wired + QE PBE reference not yet generated (scaffolding)"]
+fn test_si_pbe_non_spin_vs_qe() {
+    let crystal = fcc_crystal(
+        5.431,
+        vec![
+            Atom::new(14, [0.00, 0.00, 0.00]),
+            Atom::new(14, [0.25, 0.25, 0.25]),
+        ],
+    );
+    let pp_si = load_pp_pbe("Si");
+
+    let cfg = QeComparisonConfig {
+        ecut_ry: 30.0, // PBE PPs typically need higher ecut than LDA
+        nk: 4,
+        n_bands: 8,
+        xc_functional: XcFunctional::Pbe,
+        ..QeComparisonConfig::new(&crystal, vec![&pp_si])
+    };
+    let result = run_qe_comparison(&cfg).expect("Si PBE SCF should converge");
+
+    // Placeholder reference: QE Si PBE 4×4×4 Γ-centered ecut=30 Ry at
+    // the literature PBE ground-state lattice parameter. Update once
+    // `qe_validation/si_scf_pbe.in` is generated via the `qe-runner`
+    // skill. Until then the test is `#[ignore]`'d, so this number is
+    // not load-bearing.
+    let qe_placeholder_ry = -16.50_f64;
+    assert_energy_matches_qe("Si-PBE", &result, qe_placeholder_ry, 0.100);
 }
