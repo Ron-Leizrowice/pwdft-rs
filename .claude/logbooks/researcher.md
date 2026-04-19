@@ -4,6 +4,31 @@ Entries: date, what was validated, discrepancies found (with numbers), reference
 
 **Load-bearing cross-language convention (→ candidate CLAUDE.md promotion):** Rust's `f64::round()` is half-away-from-zero; numpy's `np.round` is half-to-even (banker's rounding). At exactly `d = ±0.5` they disagree in sign of the integer. Any Rust↔Python validation that maps real-valued distances/fractions to grid bins must either (a) avoid `.round()` entirely or (b) use an explicit wrap like `d - (d + 0.5).floor()` on both sides. VGCH Phase 1c (2026-04-19) lost half a day to this in a shell-average diagnostic — C diamond showed a bogus 0.2 e/Å³ asymmetry that evaporated on raw-sample diff. No production-code impact yet; diagnostic-only. Worth a §Conventions bullet if it bites again.
 
+## 2026-04-19 — VGCH-2 Part B: H3 CLEARED on Cu transplant iter-1 (PR #167)
+
+Seed pwdft-rs with QE's converged Cu FCC ρ_QE, diagonalize one SCF iteration, compare per-term to QE.
+
+**Key numbers (post-VGCH-SiEF-B1 #166, merged during session):**
+- E_HF at ρ_QE = −4837.30 eV, QE total = −4853.64 eV → **+16.34 eV gap at SAME density**. E_HF is gauge-invariant so this survives the V_loc(G=0) re-gauge.
+- Γ eigenvalues now +0.26 ± 0.03 eV offset from QE (pre-SiEF-B1: −7.47 eV uniform; SiEF-B1 closed that).
+- pwdft E_F = 21.29 eV, QE E_F = 19.21 eV → Δ = +2.08 eV. **1.82 eV is DOS/occupation origin** (subtract the 0.26 eV eigenvalue offset).
+- Δρ(in vs out) = 0.124 e/Å³ — iter-1 ρ_out ≠ ρ_QE.
+- ρ_in / ρ_out both integrate to 19.00 electrons.
+
+**H3 CLEARED.** pwdft and QE give different E_HF at the same density, so the 16.6 eV Cu residual is not a mixer-basin effect.
+
+**New leading Part C suspect:** Fermi-finder / smearing on dense 3d DOS at E_F (1.82 eV DOS-origin mis-gauge even at matched eigenvalues). Prior suspects (NLCC Cu/GaAs/MgO, projector scaling) still in play.
+
+**Load-bearing conventions:**
+- QE `charge-density.dat` Fortran sequential-access binary, `mill_g(3, ngm_g)` column-major → Rust reshape as C-order `(ngm, 3)`. Verified via `rho(G=0)·Ω ≈ N_el`.
+- pwdft `1/N`-forward FFT normalization matches QE `fwfft('Rho', ..., dfftp)`; no extra scaling needed.
+- ρ(G) unit: QE e/Bohr³ → pwdft e/Å³ via `1/BOHR_TO_ANG³` = 6.7483…
+- numpy `.npz` uses ZIP64 for large entries (comp_size = 0xFFFFFFFF, real in extra field). Avoided by emitting a flat VGCH2BIN bundle.
+
+**Artifacts:** `scripts/validate/vgch2_parse_qe_density.py`, `qe_validation/cu_rho_qe.bin`, `src/scf/transplant.rs`, `tests/vgch_transplant_cu.rs`.
+
+**Next:** Python Fermi-Dirac bisection on Cu iter-1 eigenvalues vs pwdft `smearing::find_fermi_energy`; log QE `verbosity='high'` per-iter bracket. If Fermi-finder closes E_F, re-run Cu transplant and expect Δρ to collapse. If not, escalate to NLCC Cu/GaAs/MgO pin tests and projector cross-check.
+
 ## 2026-04-19 — VGCH-SiEF: Si E_F 1.35 eV offset localized to V_loc(G=0) gauge (PR #164)
 
 Per-band δ_n = ε_n^pwdft − ε_n^QE on Si diamond (4×4×4 Γ-centered,
