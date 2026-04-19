@@ -23,19 +23,18 @@ correctness-blocked**:
 
 - `EigensolverKind::Iterative` is wired end-to-end (`src/eigensolver/iterative.rs`,
   `src/scf/driver.rs` dispatch, YAML `scf.eigensolver: iterative`).
-- `faer::partial_self_adjoint_eigen` ships with an `iterate_lanczos`
-  reorthogonalization bug that spins on near-null Krylov vectors. **Fix
-  applied locally** on branch `ITEVF/vendor-faer-lanczos-fix` (faer clone
-  at `/Users/ronleizrowice/Documents/github/faer`, local commit `6a5edcd`
-  adds a `MAX_REORTH = 3` cap per Parlett & Kahan "Twice Is Enough";
-  not pushed, not PR'd upstream yet). **Not** vendored in this repo yet
-  — the branch sits local while we decide whether to land the
-  `[patch.crates-io]` override or wait for upstream 0.25+.
+- `faer::partial_self_adjoint_eigen` originally shipped with an
+  `iterate_lanczos` reorthogonalization bug that spun on near-null
+  Krylov vectors. **Fix vendored in-tree** as of GRM8 (PR #129) —
+  `./faer/` carries upstream v0.24.0 with a single local edit
+  (`MAX_REORTH = 3` cap per Parlett & Kahan "Twice Is Enough");
+  `Cargo.toml` wires it via `[patch.crates-io]`. See
+  `docs/FAER_ITERATE_LANCZOS_FIX.md` for the patch + upstream-submit
+  procedure.
 - ITEVF (Researcher, 2026-04-19) ran the iterative path against the
   vendored fix and surfaced two pre-existing correctness defects that
   were **hidden by the upstream hang**. Both must be fixed before the
-  default can flip. Details: `docs/FAER_ITERATE_LANCZOS_FIX.md` on
-  the ITEVF branch.
+  default can flip.
 
 ### Correctness defect 1 — size-independent Krylov padding
 
@@ -91,9 +90,10 @@ below)
 
 The default flip now requires, in order:
 
-1. **Vendor** the faer `iterate_lanczos` fix — either upstream 0.25
-   lands it or we add `[patch.crates-io] faer = { path = "..." }` in
-   this repo and document the SHA in `docs/FAER_ITERATE_LANCZOS_FIX.md`.
+1. ~~**Vendor** the faer `iterate_lanczos` fix.~~ **Done (GRM8 #129)** —
+   upstream v0.24.0 vendored at `./faer/` with the `MAX_REORTH = 3` edit;
+   `[patch.crates-io]` routes both `faer` and `faer-traits` to the
+   in-tree copy.
 2. **Fix defect 1** — adaptive `n_request` padding that scales with
    basis size and estimates degeneracy margin. Per-system tests must
    show `|Δ eigvals| ≤ 1e-10 eV` at n_pw ∈ {89, 259, 725} for Si,
@@ -107,10 +107,8 @@ The default flip now requires, in order:
    Iterative wins by ≥ 10 % wall-time at n_pw = 725 *and* loses by
    ≤ 10 % at n_pw = 89.
 
-Local-only work on the vendor branch is acceptable interim state. Do
-**not** land `[patch.crates-io]` on main until defects 1 and 2 are
-also fixed — the only value of vendoring is to run the correctness
-fixes against the unblocked solver.
+The vendored faer (step 1 above) is on main as of GRM8. Steps 2 and 3
+are the remaining correctness work before the default can flip.
 
 ## Problem
 
