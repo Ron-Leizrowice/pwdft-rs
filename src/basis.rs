@@ -6,14 +6,7 @@ pub struct BasisSet {
     /// G-vectors in Cartesian coordinates (1/Å).
     pw: Vec<Vector3<f64>>,
     /// Integer Miller indices (n1, n2, n3) for each G-vector.
-    ///
-    /// Stored as `[i16; 3]`. `i16`'s range `[-32 768, 32 767]` covers
-    /// every physically reasonable `ecut · Ω` combination with three
-    /// orders of magnitude to spare — reaching i16 overflow would require
-    /// `ecut` beyond `10^7 Ry`. All arithmetic on Miller indices
-    /// (rotation, FFT-index mapping, k+G) widens to `i32` at the read
-    /// site to preserve overflow-free behavior.
-    miller: Vec<[i16; 3]>,
+    miller: Vec<[i32; 3]>,
     /// Plane-wave energy cutoff (eV).
     ecut: f64,
 }
@@ -27,14 +20,6 @@ impl BasisSet {
     ///
     /// where b_i are reciprocal lattice vectors (2π/V × a_j × a_k).
     /// The number of basis functions scales as N_pw ∝ E_cut^{3/2} × Ω.
-    ///
-    /// # Panics
-    ///
-    /// Panics with a `BUG:` message if any computed Miller index exceeds
-    /// the `i16` range `[-32 768, 32 767]`. Reaching that bound requires
-    /// an unphysical `ecut` beyond `10⁷ Ry`; at all realistic cutoffs
-    /// (≤ 200 Ry) the narrowing is infallible by construction. See the
-    /// TYPE-A narrowing note on the private `miller` field.
     #[must_use]
     pub fn new(lattice: &Lattice, ecut: f64) -> Self {
         let recip = lattice.reciprocal();
@@ -62,30 +47,13 @@ impl BasisSet {
         let mut pw = Vec::new();
         let mut miller = Vec::new();
 
-        // Miller indices are narrowed from i32 to i16 for storage; the
-        // enumeration driver (n1/n2/n3) remains i32 to keep the loop
-        // bounds and intermediate arithmetic overflow-safe for any
-        // physically meaningful ecut. `i16::try_from` is infallible under
-        // the proposal's argument (ecut > 10^7 Ry is non-physical); the
-        // panic path is a guard against a caller who passes an absurdly
-        // large lattice.
-        #[expect(
-            clippy::expect_used,
-            reason = "BUG: TYPE-A narrowing; Miller indices are bounded by sqrt(ecut / HBAR2_OVER_2M) / |b_min|, giving |n| < 32768 for any physically meaningful ecut (< 10^7 Ry). Infallible by construction; see the preceding comment."
-        )]
-        let to_i16 = |n: i32| {
-            i16::try_from(n).expect(
-                "BasisSet::new: Miller index exceeds i16 range; ecut must be below 10^7 Ry",
-            )
-        };
-
         for n1 in -n1_max..=n1_max {
             for n2 in -n2_max..=n2_max {
                 for n3 in -n3_max..=n3_max {
                     let g = f64::from(n1) * b1 + f64::from(n2) * b2 + f64::from(n3) * b3;
                     if g.norm_squared() <= g_max_sq {
                         pw.push(g);
-                        miller.push([to_i16(n1), to_i16(n2), to_i16(n3)]);
+                        miller.push([n1, n2, n3]);
                     }
                 }
             }
@@ -116,13 +84,8 @@ impl BasisSet {
     }
 
     /// Access integer Miller indices for each G-vector.
-    ///
-    /// Stored as `[i16; 3]` for cache density. Callers that feed the
-    /// values into `i32`-sized arithmetic (rotation, FFT index wrap,
-    /// `miller_to_idx`) should widen with `i32::from(m[k])` — the
-    /// widening is infallible and typically folds into the load.
     #[must_use]
-    pub fn miller_indices(&self) -> &[[i16; 3]] {
+    pub fn miller_indices(&self) -> &[[i32; 3]] {
         &self.miller
     }
 
@@ -136,16 +99,8 @@ impl BasisSet {
     /// ~30 kB of dead memory at `n_pw = 725`. The linear scan's cost
     /// (~n_pw comparisons per call, a handful of calls per test run) is
     /// invisible next to SCF wall time.
-    ///
-    /// Accepts `i32` so out-of-range queries return `None` naturally
-    /// (no narrowing panic at the boundary).
     #[must_use]
     pub fn index_of(&self, n1: i32, n2: i32, n3: i32) -> Option<usize> {
-        // `try_into` folds out-of-i16-range queries into a `None` result,
-        // matching the pre-TYPE-A `HashMap::get` semantics.
-        let n1: i16 = n1.try_into().ok()?;
-        let n2: i16 = n2.try_into().ok()?;
-        let n3: i16 = n3.try_into().ok()?;
         self.miller.iter().position(|m| m == &[n1, n2, n3])
     }
 
@@ -219,7 +174,7 @@ mod tests {
         let basis = si_basis(200.0);
         // Very large indices should not be in the basis
         assert!(basis.index_of(100, 100, 100).is_none());
-        // Values outside i16 range also return None, not panic
+        // Arbitrary large magnitudes return None rather than panicking.
         assert!(basis.index_of(100_000, 0, 0).is_none());
     }
 
@@ -229,10 +184,7 @@ mod tests {
         assert_eq!(basis.g_vectors().len(), basis.miller_indices().len());
         // Every miller index should roundtrip through the linear scan
         for (i, &[n1, n2, n3]) in basis.miller_indices().iter().enumerate() {
-            assert_eq!(
-                basis.index_of(i32::from(n1), i32::from(n2), i32::from(n3)),
-                Some(i)
-            );
+            assert_eq!(basis.index_of(n1, n2, n3), Some(i));
         }
     }
 }
