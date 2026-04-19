@@ -282,6 +282,12 @@ pub(crate) fn run_scf_unpolarized(
         ctx.omega,
         ctx.params.adaptive_beta,
     );
+    mixer.log_init(
+        &ctx.params.mixing_mode,
+        ctx.params.mixing_ndim,
+        ctx.params.adaptive_beta,
+        "",
+    );
     let mut eigenvalues_all: Vec<Vec<f64>>;
     let mut fermi_energy;
     let mut e_prev: Option<f64> = None;
