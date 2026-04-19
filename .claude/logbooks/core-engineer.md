@@ -2,6 +2,26 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-19 — GGAP Phase B: PBE exchange, non-spin (PR #145)
+
+Ported QE 7.5 `pbex` CASE DEFAULT (iflag=1) into private `pbe_exchange(rho, |∇ρ|) -> (eps_x, v1_x, v2_x)` in `src/potential/xc.rs`. Constants κ=0.804, μ=0.2195149727645171 pinned against `k(1)` / `mu(1)`.
+
+**v2 convention gotcha.** QE's `v2x = exunif · dfx · dsg / agrho` computes `2 · ∂(ρε_x)/∂(|∇ρ|²)` — the chain-rule factor of 2 is already absorbed. I verified this from `v_of_rho.f90:306,343-344`: `h(ipol) = v2x · grho(ipol)` with NO factor of 2 in the driver assembly. The task brief wording "(actually `/∂(|∇ρ|²)` times `2·|∇ρ|`)" was slightly misleading but the "match QE's sign convention exactly" directive is clear — return QE's value verbatim. Pinned at -2.5846298991 eV·Å⁵/e for ρ=0.1, |∇ρ|=0.05.
+
+**PBE formula factor landmine.** QE's `sx_s = exunif · fx` is the GRADIENT-ONLY exchange energy density (QE treats the LDA slater piece in `gcxc`). The task asks for the FULL PBE energy density (`ε_x^PBE = ε_x^LDA · F_x`), so `F_x^task = 1 + fx_QE`. For v1, QE's `v1x = sx_s + dxunif·fx + exunif·dfx·ds` is `d(ρ·exunif·fx)/dρ` (gradient-only ∂/∂ρ); the task's full `∂(ρ·ε_x^PBE)/∂ρ = (4/3)·exunif + v1_QE`. Missing this factor would shift E by ~exchange-scale values in Phase C/D SCF.
+
+**Dead-code trap avoided.** Putting the helper behind a tests-only call chain fires `dead_code` because `cfg(test)` modules don't count as "reachable" from the lib build. Fix: `XcEvaluator::Pbe::eval` arm now calls `pbe_exchange` on the first grid point as a smoke-test defensive call (when `rho_grad_r` is Some), then bails with `NotImplemented { what: "pbe_correlation" }`. Defensive smoke call costs one multiply per attempted PBE SCF (which will currently always fail at iter 1 anyway). **Pattern worth remembering** for future staged rollouts where a function is unit-tested before production wiring.
+
+**Rebase surprise.** Worktree was on `worktree-agent-a02a5f41` (stale, d0e7399), NOT on the `GGAP-B/pbe-exchange-non-spin` branch I tried to create at session start. `git checkout -b` ran to completion at the start but something reset afterward. Had to stash, `git checkout GGAP-B/pbe-exchange-non-spin`, rebase onto origin/main (4 commits ahead: VQEF-QC, MOAD-2, LOGH-2, GRM10), stash pop. Pattern to guard against: re-verify `git branch --show-current` after any potentially-interactive setup step.
+
+**VQEF-QC concurrent landing.** `tests/qe_validation.rs` was rewritten on origin/main while I was working. Phase-B scope kept me out of that file — good call in the task brief. qe_validation now has 3 passing + 8 ignored (was 2 passing + 8 ignored) because Si LDA was split into two tests (energy passing, fermi ignored).
+
+**Gate (worktree):** 262 unit + 20 integration bins; clippy default 18, gpu 24 (baseline unchanged); rustdoc clean; tier-2 ignored identical to baseline (8 pre-existing failures across Al / C / Cu / Fe / GaAs / MgO / NaCl / Si-diamond fermi).
+
+**Flagged for follow-up (Phase C dependencies):**
+- PW92 LDA correlation needs a new helper (not `perdew_zunger_correlation` — PBE's gradient was fitted against PW92, ~0.1 meV/electron difference matters for QE validation). Source: `qe-7.5/XClib/qe_funct_corr_lda.f90::pw`.
+- Phase C will remove the defensive smoke call in the Pbe arm and replace with a proper `par_iter` over (ρ, ∇ρ) grids.
+
 ## 2026-04-19 — XCTH: remove XC_PARALLEL_THRESHOLD (PR #124)
 
 Deleted the file-local `XC_PARALLEL_THRESHOLD = 16_384` constant + calibration-table docstring in `src/potential/xc.rs` (was the only size-gated rayon dispatch in `src/`). Collapsed both `lda_xc_grid` and `lda_xc_spin_grid` to the unconditional `par_iter().unzip()` path. Trimmed small-n cases from `bench_xc_grid` — kept {16_384, 32_768, 262_144}. Removed the row from CFGN § 6.3.
