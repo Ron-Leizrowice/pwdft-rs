@@ -241,13 +241,16 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
         result.total_energy - qe.total
     );
 
+    // Post-TSEN: `total_energy` carries `−TS` (= `c.e_smearing`); include it
+    // so the identity still closes to machine precision on metals.
     let e_sum = c.e_kinetic
         + c.e_local
         + c.e_local_g0_shift
         + c.e_nonlocal
         + c.e_hartree
         + c.e_xc
-        + c.e_ewald;
+        + c.e_ewald
+        + c.e_smearing;
     let sum_err = e_sum - result.total_energy;
     eprintln!(
         "  [self-check] Σ(components) = {e_sum:.6} eV, E_total = {:.6} eV, Δ = {sum_err:.2e} eV",
@@ -275,7 +278,8 @@ fn run_and_assert_sum(
     print_side_by_side(label, &result, qe);
 
     // PCFX self-check — the direct-sum identity must hold independently
-    // of how close the residual lands to QE.
+    // of how close the residual lands to QE. Post-TSEN the identity
+    // includes `c.e_smearing` (= −TS).
     let c = &result.components;
     let e_sum = c.e_kinetic
         + c.e_local
@@ -283,7 +287,8 @@ fn run_and_assert_sum(
         + c.e_nonlocal
         + c.e_hartree
         + c.e_xc
-        + c.e_ewald;
+        + c.e_ewald
+        + c.e_smearing;
     let sum_residual = (e_sum - result.total_energy).abs();
     assert!(
         sum_residual < 0.1,

@@ -79,7 +79,7 @@ use super::energy::{
     total_energy, with_g0_shift, xc_energy_bare,
 };
 use super::potentials::fill_hamiltonian_with_v_eff;
-use super::report::{log_components, log_convergence_summary, log_iteration, IterationReport, SpinIterationFields};
+use super::report::{log_components, log_convergence_summary, log_entropy, log_iteration, IterationReport, SpinIterationFields};
 use super::{ScfParams, ScfResult, context, density, initial_density, mixing, smearing};
 
 /// Per-channel real-space density gradient pair for the spin PBE path.
@@ -558,12 +558,26 @@ pub(crate) fn run_scf_spin(
 
         let e_band = band_energy(&eigenvalues_all, &occ_all, &weights_all);
 
+        // Smearing entropy contribution −TS (Mermin free energy). Folded
+        // into both the KS total and the HF estimator so
+        // `ScfResult::total_energy` matches QE's `! total energy` line,
+        // which is `F = E − TS`. For gapped insulators σ → 0 or the
+        // Fixed scheme gives `entropy_ts == 0` exactly and the result
+        // is bit-identical to the pre-TSEN path. See the non-spin
+        // driver for the matching comment block.
+        let ts = smearing::entropy_ts(
+            &eigenvalues_all, &weights_all, fermi_energy,
+            ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
+        );
+        let e_smearing = -ts;
+
         // Kohn-Sham energy: double-counting from OUTPUT density
         let e_total = with_g0_shift(total_energy(
             e_band,
             hartree_energy(&rho_total_new_g, &ctx.g_squared, ctx.omega),
             e_xc_corrected_out,
             ctx.e_ewald,
+            e_smearing,
         ), &ctx);
 
         // Harris-Foulkes energy: double-counting from INPUT density
@@ -582,6 +596,7 @@ pub(crate) fn run_scf_spin(
             hartree_energy(&rho_total_g, &ctx.g_squared, ctx.omega),
             e_xc_corrected_in,
             ctx.e_ewald,
+            e_smearing,
         ), &ctx);
 
         let hf_diff = (e_harris - e_total).abs();
@@ -624,12 +639,12 @@ pub(crate) fn run_scf_spin(
 
             let rho_g_basis: Vec<Complex64> = ctx.g_to_fft.iter().map(|&idx| rho_total_new_g[idx]).collect();
 
-            let ts = smearing::entropy_ts(
-                &eigenvalues_all, &weights_all, fermi_energy,
-                ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
-            );
-            let free_energy = e_total - ts;
-            let energy_sigma0 = f64::midpoint(e_total, free_energy);
+            // `e_total` = Mermin F = E - TS (TSEN); restore the internal
+            // energy and the σ → 0 extrapolation for callers that want
+            // the pre-TSEN `E_internal` number.
+            let internal_energy = e_total + ts;
+            let free_energy = e_total;
+            let energy_sigma0 = f64::midpoint(internal_energy, e_total);
 
             // -------------------------------------------------------------
             // VGC5 per-component decomposition (diagnostic, spin-polarized).
@@ -684,9 +699,11 @@ pub(crate) fn run_scf_spin(
                 e_xc: e_xc_term,
                 e_vxc: e_vxc_term,
                 e_ewald: e_ewald_term,
+                e_smearing,
             };
 
             log_convergence_summary(e_total, e_harris, hf_diff, free_energy, energy_sigma0);
+            log_entropy(ts, ctx.crystal.atoms.len());
             log_components(&components, e_total, ctx.n_electrons);
 
             return Ok(ScfResult {

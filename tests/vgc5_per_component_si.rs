@@ -202,8 +202,12 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
     // (18·¼ = 4.5 ∉ ℤ), smearing density into wrong grid points and
     // producing a plateau residual of 1.204 eV on Si that was invariant
     // under conv_threshold tightening — see the PCRS investigation.
+    //
+    // Post-TSEN (2026-04-19), `total_energy` additionally carries
+    // `−TS` (= `c.e_smearing`); that field is included in the sum so
+    // the identity still closes to machine precision on metals.
     let e_sum = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal
-        + c.e_hartree + c.e_xc + c.e_ewald;
+        + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
     let sum_err = e_sum - result.total_energy;
     eprintln!(
         "  [self-check] Σ(components) = {e_sum:.6} eV, E_total = {:.6} eV, Δ = {sum_err:.2e} eV",
@@ -302,13 +306,14 @@ fn vgc5_si_per_component() {
     pin("E_hartree",          c.e_hartree,          14.8249); // pre-PCFX: 14.3111
     pin("E_xc",               c.e_xc,              -84.3474); // pre-PCFX: -84.7026
     pin("E_ewald",            c.e_ewald,          -228.5192); // unchanged (lattice-only)
-    pin("E_total",            result.total_energy, -231.8429); // pre-PCFX: -231.8653
+    pin("E_total",            result.total_energy, -231.8429); // pre-PCFX: -231.8653; post-TSEN: −TS on Si is ~10 meV
 
     // PCFX regression guard: the per-component identity closes to machine
     // precision post-fix (was 1.204 eV plateau pre-PCFX). Target was
-    // ≤ 1e-5 eV; observed ~3.5e-11 eV.
+    // ≤ 1e-5 eV; observed ~3.5e-11 eV. Post-TSEN the identity includes
+    // `c.e_smearing` (= −TS).
     let e_sum = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal
-        + c.e_hartree + c.e_xc + c.e_ewald;
+        + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
     let sum_residual = (e_sum - result.total_energy).abs();
     assert!(
         sum_residual < 1e-5,
@@ -398,14 +403,21 @@ fn vgc5_fe_per_component() {
     pin("E_hartree",          c.e_hartree,         363.1071); // PRE-NCFX:  363.4925
     pin("E_xc",               c.e_xc,             -392.5675); // PRE-NCFX: -442.1090 (Δ_QE: −48.85 → +0.69)
     pin("E_ewald",            c.e_ewald,         -2337.1672); // PRE-NCFX: -2337.1672 (unchanged)
-    pin("E_total",            result.total_energy, -3051.8909); // PRE-NCFX: -3101.2389 (Δ_QE: −41.08 → +8.27)
+    // Post-TSEN (2026-04-19) `total_energy` includes `−TS`. Fe at σ =
+    // 0.02 Ry (0.272 eV) and 4×4×4 MP (nspin=1) carries a metallic
+    // `−TS` of ≈ −430 meV, shifting the pin down accordingly. If this
+    // pin needs to move by more than the 0.1 eV tolerance, revisit
+    // the smearing entropy formula (`src/scf/smearing.rs::entropy_ts`),
+    // not the per-component decomposition.
+    pin("E_total",            result.total_energy, -3052.3209); // PRE-TSEN: -3051.8909; PRE-NCFX: -3101.2389
 
     // PCFX regression guard. Fe BCC Im-3m is symmorphic (τ=0), so the
     // pre-PCFX residual was already small (~0.045 eV at conv=1e-6) and
     // PCFX doesn't change this case materially — but keep the guard so
     // any future regression in the G-space symmetrizer surfaces here.
+    // Post-TSEN the sum includes `c.e_smearing`.
     let e_sum = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal
-        + c.e_hartree + c.e_xc + c.e_ewald;
+        + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
     let sum_residual = (e_sum - result.total_energy).abs();
     assert!(
         sum_residual < 0.1,

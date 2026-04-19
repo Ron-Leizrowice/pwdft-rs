@@ -6,11 +6,17 @@
 E[ρ] = T_s[ρ] + E_H[ρ] + E_xc[ρ] + E_ext[ρ] + E_ion-ion
 ```
 
-In practice, using the band energy identity:
+In practice, using the band energy identity (post-TSEN, matches QE's
+`! total energy` which is the Mermin free energy `F = E − TS`):
 
 ```
-E_total = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0) × N_el
+E_total = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0) × N_el − TS
 ```
+
+The `−TS` term is the Mermin smearing-entropy contribution (zero for
+insulators and for the `SmearingScheme::Fixed` path). The pre-TSEN
+internal energy `E_internal = E_total + TS` is still recoverable from
+`ScfResult::total_energy + entropy_ts`.
 
 **Code:** `src/scf/energy.rs` (assembly in `total_energy` and per-component `EnergyComponents`), and the final pass in `src/scf/driver.rs` / `src/scf/driver_spin.rs` which adds `V_local(G=0) * N_el`.
 
@@ -24,6 +30,7 @@ E_total = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0) × N_el
 | E_vxc | `∫ V_xc(r) ρ_val(r) dr` | `energy.rs:66-70` |
 | E_ewald | Ewald ion-ion energy | `ewald.rs` |
 | V_local(G=0) × N_el | Constant shift from pseudopotential | `context.rs:81-83` |
+| −TS | Smearing-entropy Mermin correction | `smearing.rs::entropy_ts` |
 
 ### Why this works
 
