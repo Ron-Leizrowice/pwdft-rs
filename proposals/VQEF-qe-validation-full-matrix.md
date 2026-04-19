@@ -55,34 +55,50 @@ Status legend:
 - **YELLOW** — `#[ignore]`d with a documented blocker (tracked upstream).
 - **RED** — no test exists, or no QE reference data exists.
 
-Values below are quoted verbatim from the `#[ignore]` reason strings in
-`tests/qe_validation.rs` at `origin/main` (0520c8c, 2026-04-18).
+Values below were captured 2026-04-19 after GGAP Phase F-light (all 8
+PBE cells wired), and reflect the latest LDA/PBE residuals in
+`tests/qe_validation.rs`.
 
-| System | Z / semicore     | LDA state                                       | LDA blocker                       | PBE state | PBE blocker                       |
-|--------|------------------|-------------------------------------------------|-----------------------------------|-----------|-----------------------------------|
-| Si     | 14 / no          | YELLOW — residual ≈0.26 eV                      | SYKP/MPSH                         | RED       | GGAP Phase B+C+F                  |
-| C      | 6 / no           | YELLOW — SCF stalls at Δρ≈4.1e-6 after 80 iters | SYKP/MPSH                         | RED       | GGAP Phase B+C+F                  |
-| Al     | 13 / no          | YELLOW — residual ≈75 meV at basis-converged ecut=24 Ry | VGCH light-atom (VQEF-AL, 2026-04-19) | RED       | GGAP Phase B+C+F                  |
-| Fe     | 26 / 3s3p (NLCC) | YELLOW — residual ≈9.5 eV, NM collapse          | VGCMP Phase 5 (+ FM, see §3)      | RED       | GGAP Phase D+F + Fe-FM path       |
-| GaAs   | 31+33 / 3d, 3d   | YELLOW — residual ≈33.6 eV                      | VGCMP Phase 5                     | RED       | GGAP Phase B+C+F + VGCMP Phase 5  |
-| Cu     | 29 / 3s3p3d      | YELLOW — residual ≈16.2 eV                      | VGCMP Phase 5                     | RED       | GGAP Phase C+F + VGCMP Phase 5    |
-| NaCl   | 11+17 / no       | YELLOW — residual ≈7.7 eV                       | VGCMP Phase 5                     | RED       | GGAP Phase B+C+F + VGCMP Phase 5  |
-| MgO    | 12+8 / 2s2p (Mg) | YELLOW — residual ≈10.1 eV                      | VGCMP Phase 5                     | RED       | GGAP Phase B+C+F + VGCMP Phase 5  |
+| System | Z / semicore     | LDA state                                       | LDA blocker                       | PBE state                                                   | PBE blocker                                    |
+|--------|------------------|-------------------------------------------------|-----------------------------------|-------------------------------------------------------------|------------------------------------------------|
+| Si     | 14 / no          | YELLOW — residual ≈33 meV                       | SYKP/MPSH (post-MPSH basin)       | **GREEN** — residual 12 meV (20 meV tol)                    | —                                              |
+| C      | 6 / no           | YELLOW — residual 1.45 eV                       | VGCH-2 / VGCH light-atom          | YELLOW — residual 0.32 eV (4.5× PBE improvement)            | VGCH-2 class (partially functional-sensitive)  |
+| Al     | 13 / no          | YELLOW — residual 75 meV                        | VGCH light-atom (VQEF-AL)         | YELLOW — residual 108 meV (slightly WORSE than LDA)         | VGCH light-atom (functional-insensitive)       |
+| Fe     | 26 / 3s3p (NLCC) | YELLOW — residual ≈11.5 eV, NM collapse         | VGCH-2 (heavy-atom)               | YELLOW — residual 1.97 eV, FM M≈2.16μB (6× LDA improvement) | VGCH-2 class (Fe FM cell, partially fn-sens.)  |
+| GaAs   | 31+33 / 3d, 3d   | YELLOW — residual 33.6 eV                       | VGCH-2                            | YELLOW — residual 17.30 eV (2× PBE improvement)             | VGCH-2 class (partially functional-sensitive)  |
+| Cu     | 29 / 3s3p3d      | YELLOW — residual 16.2 eV                       | VGCH-2                            | YELLOW — residual 10.06 eV (1.6× PBE improvement)           | VGCH-2 class (partially functional-sensitive)  |
+| NaCl   | 11+17 / no       | YELLOW — residual 7.7 eV                        | VGCH-2                            | YELLOW — residual 4.86 eV (1.6× PBE improvement)            | VGCH-2 class (partially functional-sensitive)  |
+| MgO    | 12+8 / 2s2p (Mg) | YELLOW — residual 10.1 eV                       | VGCH-2                            | YELLOW — residual 1.56 eV (6.5× PBE improvement, largest)   | VGCH-2 class (strongly functional-sensitive)   |
 
-**Count:** 0 GREEN / 8 YELLOW / 8 RED out of 16 target cells.
+**Count:** 1 GREEN / 15 YELLOW / 0 RED out of 16 target cells.
 
-Reason strings (verbatim, for unambiguous attribution):
+Before GGAP Phase F-light the PBE column was 8×RED + 0×YELLOW + 0×GREEN
+(PBE was entirely unwired apart from Si PBE; Fe PBE was added by Phase
+D as YELLOW). This phase wires the 6 remaining PBE cells and produces
+the first GREEN cell in the matrix (Si PBE, 12 meV). Pre-Phase-F-light
+scoreboard was `1 GREEN (Si LDA energy arm) / 8 YELLOW / 8 RED`; after
+this phase `1 GREEN (Si PBE) / 15 YELLOW / 0 RED`. The Si LDA energy
+arm was only GREEN because of a VQEF-QC split — its Fermi arm remains
+YELLOW under V_loc(G=0) convention (VGCH Phase 1b). Net movement: one
+GREEN rotated from LDA → PBE, 8 RED cells promoted to YELLOW.
 
-```
-Si:    "post-NCFX residual ≈0.26 eV dominated by MP shifted-vs-Γ-centered grid mismatch; see SYKP/MPSH"
-C:     "SYKP: MP shifted-vs-Γ grid mismatch keeps SCF from reaching conv_threshold; pwdft-rs stalls at Δρ ≈ 4.1e-6 after 80 iters (QE converges in 9)"
-Al:    "VGCH light-atom: Al 74.9 meV residual at basis-converged ecut=24 Ry, 8×8×8 (pwdft -64.2426 eV, QE -64.3174 eV). Basis truncation ruled out as sole cause by VQEF-AL QE regen; same 'different converged density' class as C diamond."
-Fe:    "CCMX fixes convergence (E = -3050.80 eV); ~9.5 eV gap vs QE -3060.16 eV blocked on VGCMP (heavy-atom V_loc)"
-GaAs:  "VGCMP: heavy-atom V_loc residual ≈33.6 eV on GaAs (Z=31+33); pwdft-rs E = -4155.954 eV, QE = -4189.586 eV"
-Cu:    "VGCMP: heavy-atom V_loc residual ≈16.2 eV on Cu (Z=29, 3s/3p/3d semicore); pwdft-rs E = -4837.466 eV, QE = -4853.641 eV"
-NaCl:  "VGCMP: heavy-atom V_loc residual ≈7.7 eV on NaCl (Cl Z=17); pwdft-rs E = -1621.944 eV, QE = -1629.686 eV"
-MgO:   "VGCMP: heavy-atom V_loc residual ≈10.1 eV on MgO (Mg semicore PP); pwdft-rs E = -1993.146 eV, QE = -2003.241 eV"
-```
+### Physics findings from GGAP Phase F-light
+
+- **Al is functional-insensitive.** Al PBE (108 meV) is *worse* than
+  Al LDA (75 meV). This rules out the Al VGCH light-atom class being
+  an XC-functional artifact; root cause must be in the density basin,
+  projector, or symmetry machinery.
+- **Every heavy/semicore system shows PBE improvement over LDA** of
+  1.6×–6.5×, except Al. MgO has the largest PBE improvement (6.5×, Mg
+  2s/2p semicore); Cu / NaCl have ~1.6× and the III-V GaAs ~2×. This
+  tells VGCH-2 Part A that the heavy-atom partial-cancellation
+  residual is *partially* functional-sensitive — a significant
+  component of it moves with the XC gradient term. Worth factoring
+  into the VGCH-2 diagnosis workflow.
+- **C diamond is partially functional-sensitive** (4.5× PBE improvement)
+  — different from Al; the same light-atom VGCH-2 class contains both
+  functional-dependent (C) and functional-insensitive (Al) residuals,
+  so VGCH-2 cannot be one mechanism.
 
 Non-gating defensive tests that **do** run green today in the same file:
 

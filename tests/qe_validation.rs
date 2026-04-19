@@ -903,13 +903,17 @@ fn test_fe_bcc_ewald_vs_qe() {
 /// Γ-centered, degauss = 0.01 Ry:
 ///   `E_total = -16.91056535 Ry ≈ -230.0896 eV`
 ///
-/// At the time of Phase A.1 the pwdft-rs PBE path converges to
-/// `E_total ≈ -230.0748 eV` at ecut = 24 Ry, |ΔE| ≈ 15 meV against QE —
-/// already inside the 100 meV tolerance set by the GGAP Phase C brief.
-/// The test stays `#[ignore]` pending `cargo test -- --ignored` promotion
-/// (Tier 2) because it runs a full 4×4×4 SCF at n_pw ≈ 750.
+/// Post-GGAP-Phase-A.1 pwdft-rs converges to `E_total ≈ -230.0772 eV`
+/// at ecut = 24 Ry, |ΔE| ≈ 12.4 meV against QE. GGAP Phase F-light
+/// (2026-04-19) tightens the tolerance from 100 meV to 20 meV
+/// (observed + ~60% margin). This is the first GREEN PBE cell in the
+/// VQEF matrix (all LDA light-atom cells were YELLOW).
+///
+/// Tier-2 ignore retained: runs a full 4×4×4 SCF at n_pw ≈ 750 and
+/// should only fire under `cargo test -- --ignored` when SCF/XC/FFT
+/// paths are touched.
 #[test]
-#[ignore = "TSPL Tier-2: Si diamond PBE 4×4×4 SCF at ecut=24 Ry (GGAP Phase A.1 end-to-end PBE check)"]
+#[ignore = "TSPL Tier-2: Si diamond PBE 4×4×4 SCF at ecut=24 Ry (GGAP Phase A.1 end-to-end PBE check, 20 meV tol)"]
 fn test_si_pbe_non_spin_vs_qe() {
     let crystal = fcc_crystal(
         5.431,
@@ -931,7 +935,8 @@ fn test_si_pbe_non_spin_vs_qe() {
 
     // QE PBE reference, see qe_validation/reference_data.toml.
     let qe_total_ry = -16.910_565_35_f64;
-    assert_energy_matches_qe("Si-PBE", &result, qe_total_ry, 0.100);
+    // Tolerance 20 meV = observed 12.4 meV + ~60% margin (GGAP F-light).
+    assert_energy_matches_qe("Si-PBE", &result, qe_total_ry, 0.020);
 }
 
 /// Fe BCC FM PBE vs QE (Tier-2 spin-polarized GGA validation — GGAP Phase D).
@@ -1009,4 +1014,277 @@ fn test_fe_bcc_fm_pbe_vs_qe() {
          (pwdft={:.4}, QE={qe_magnetization})",
         result.magnetization,
     );
+}
+
+// ---------------------------------------------------------------------------
+// GGAP Phase F-light — remaining 6 PBE cross-checks (Al, C, Cu, GaAs, NaCl, MgO)
+// ---------------------------------------------------------------------------
+//
+// Each test below mirrors its LDA sibling's cell / k-grid / mixer choice and
+// simply swaps in the PseudoDojo NC/PBE PP and `XcFunctional::Pbe`. Ecut is
+// pinned to the PseudoDojo `.standard` recommendation for each species-max
+// (matches `qe_validation/reference_data.toml::*_pbe.ecutwfc_ry` exactly so
+// both codes work at the same basis-converged cutoff).
+//
+// VQEF scoreboard contract: GREEN (<= 20 meV) drops `#[ignore]` and tightens
+// tolerance. YELLOW (> 20 meV) keeps `#[ignore]` with the measured residual
+// captured in the reason string. Tolerances for YELLOW cells are rounded to
+// the next "round number" above the observed residual so the assertion is
+// meaningful (catches 2× regression) while documenting the baseline.
+//
+// All six tests tagged `TSPL Tier-2` because they run a full SCF at
+// production n_pw; they are gated behind `cargo test -- --ignored` when the
+// default tier is running but the `#[ignore]` reason strings vary by cell.
+
+/// Al FCC PBE vs QE (simple metal; GGAP Phase F-light).
+///
+/// QE ref (`qe_validation/al_fcc_scf_pbe.{in,out}`, see
+/// `qe_validation/reference_data.toml::al_fcc_pbe`):
+/// PseudoDojo ONCV NC/PBE v0.4 `.standard` Al.upf, ecut = 24 Ry,
+/// 8×8×8 Γ-centered, degauss = 0.02 Ry, local-TF mixing, 6 iters.
+///   `E_total = -4.636_581_33 Ry = -63.0839 eV`, `E_F = 7.8038 eV`.
+///
+/// Measured residual (2026-04-19, GGAP Phase F-light):
+///   `E_pwdft = -62.9758 eV`, `E_QE = -63.0839 eV`, `|ΔE| = 108.2 meV`.
+///
+/// **Surprise finding:** Al PBE is slightly *worse* than Al LDA (74.9 meV
+/// from `test_al_fcc_vs_qe`). PBE's gradient correction does NOT close
+/// the Al "different converged density" gap — and in fact widens it by
+/// ~33 meV. This tells us Al's VGCH light-atom class residual is
+/// **functional-insensitive**: the root cause is in the density basin
+/// / projector / symmetry machinery, not the XC functional. Same
+/// observation as Al LDA in the physics picture.
+#[test]
+#[ignore = "VGCH light-atom (PBE leg): Al PBE 8×8×8 at ecut=24 Ry converges with |ΔE|=108.2 meV; worse than Al LDA (74.9 meV) — PBE does NOT close the gap (functional-insensitive)"]
+fn test_al_fcc_pbe_vs_qe() {
+    let crystal = fcc_crystal(4.05, vec![Atom::new(13, [0.0, 0.0, 0.0])]);
+    let pp_al = load_pp_pbe("Al");
+
+    let cfg = QeComparisonConfig {
+        ecut_ry: 24.0, // matches qe_validation/al_fcc_scf_pbe.in
+        nk: 8,
+        n_bands: 6,
+        mixing: MixingMode::Kerker { q_tf: None },
+        degauss_ry: 0.02,
+        xc_functional: XcFunctional::Pbe,
+        ..QeComparisonConfig::new(&crystal, vec![&pp_al])
+    };
+    let result = run_qe_comparison(&cfg).expect("Al PBE SCF should converge");
+
+    // QE PBE reference. YELLOW: observed 108 meV; tolerance 150 meV gives
+    // headroom for basin jitter without hiding a 2× regression.
+    assert_energy_matches_qe("Al-PBE", &result, -4.636_581_33, 0.150);
+}
+
+/// C diamond PBE vs QE (wide-gap insulator; GGAP Phase F-light).
+///
+/// QE ref (`qe_validation/c_diamond_scf_pbe.{in,out}`, see
+/// `qe_validation/reference_data.toml::c_diamond_pbe`):
+/// PseudoDojo ONCV NC/PBE v0.4 `.standard` C.upf, ecut = 36 Ry,
+/// 4×4×4 Γ-centered, degauss = 0.01 Ry, 15 iters.
+///   `E_total = -23.934_297_85 Ry = -325.6427 eV`, `E_F = 15.7827 eV`.
+///
+/// Measured residual (2026-04-19, GGAP Phase F-light):
+///   `E_pwdft = -325.3210 eV`, `E_QE = -325.6427 eV`, `|ΔE| = 321.7 meV`.
+///
+/// **Surprise finding:** C PBE closes the C LDA gap by ~4.5× (322 meV
+/// vs LDA 1.45 eV). PBE's gradient correction helps substantially on
+/// C diamond — this argues the C light-atom residual is partly
+/// functional-sensitive, unlike Al (which is functional-insensitive).
+/// Still YELLOW — does not meet the ≤ 20 meV GREEN threshold — but a
+/// real physics improvement and suggests the C LDA investigation
+/// (VGCH-2 Part B) should include a functional-dependence audit.
+///
+/// Same `Broyden { kerker: true }` mixer as the LDA arm to avoid the
+/// Plain-Anderson stall pathology at the wide-gap / coarse-FFT combo.
+#[test]
+#[ignore = "VGCH-2 class (PBE leg): C diamond PBE 4×4×4 at ecut=36 Ry converges with |ΔE|=321.7 meV; 4.5× improvement over C LDA (1.45 eV) — PBE partially closes the gap (functional-sensitive component)"]
+fn test_c_diamond_pbe_vs_qe() {
+    let crystal = fcc_crystal(
+        3.567,
+        vec![
+            Atom::new(6, [0.00, 0.00, 0.00]),
+            Atom::new(6, [0.25, 0.25, 0.25]),
+        ],
+    );
+    let pp_c = load_pp_pbe("C");
+
+    let cfg = QeComparisonConfig {
+        ecut_ry: 36.0, // matches qe_validation/c_diamond_scf_pbe.in
+        nk: 4,
+        n_bands: 8,
+        mixing: MixingMode::Broyden { kerker: true },
+        xc_functional: XcFunctional::Pbe,
+        ..QeComparisonConfig::new(&crystal, vec![&pp_c])
+    };
+    let result = run_qe_comparison(&cfg).expect("C PBE SCF should converge");
+
+    // QE PBE reference. VGCH-2 class YELLOW: 500 meV tolerance (observed 322
+    // meV + ~55% margin; round-number ceiling below the LDA 1.45 eV guard).
+    assert_energy_matches_qe("C-PBE", &result, -23.934_297_85, 0.500);
+}
+
+/// Cu FCC PBE vs QE (transition metal with 3s/3p/3d semicore; GGAP Phase F-light).
+///
+/// QE ref (`qe_validation/cu_fcc_scf_pbe.{in,out}`, see
+/// `qe_validation/reference_data.toml::cu_fcc_pbe`):
+/// PseudoDojo ONCV NC/PBE v0.4 `.standard` Cu.upf, ecut = 60 Ry,
+/// 8×8×8 Γ-centered, degauss = 0.02 Ry, local-TF mixing, 11 iters.
+///   `E_total = -378.986_716_46 Ry = -5156.3770 eV`, `E_F = 17.4696 eV`.
+///
+/// Measured residual (2026-04-19, GGAP Phase F-light):
+///   `E_pwdft = -5146.3132 eV`, `E_QE = -5156.3770 eV`, `|ΔE| = 10.06 eV`.
+///
+/// **Finding:** Cu PBE closes the Cu LDA gap by ~1.6× (10.1 eV vs LDA
+/// 16.2 eV). PBE's gradient correction helps on Cu semicore 3s/3p/3d,
+/// but ~60% of the LDA residual persists — still heavy-atom VGCH-2
+/// class partial-cancellation between one-electron and Hartree terms.
+/// Blocked on VGCH-2 Part A diagnosis (and possibly a semicore-PP
+/// audit extension).
+#[test]
+#[ignore = "VGCH-2 class (PBE leg): Cu PBE 8×8×8 at ecut=60 Ry converges with |ΔE|=10.06 eV; 1.6× improvement over Cu LDA (16.2 eV) — heavy-atom partial-cancellation signature partially functional-sensitive"]
+fn test_cu_fcc_pbe_vs_qe() {
+    let crystal = fcc_crystal(3.61, vec![Atom::new(29, [0.0, 0.0, 0.0])]);
+    let pp_cu = load_pp_pbe("Cu");
+
+    let cfg = QeComparisonConfig {
+        ecut_ry: 60.0, // matches qe_validation/cu_fcc_scf_pbe.in
+        nk: 8,
+        n_bands: 14,
+        mixing: MixingMode::Kerker { q_tf: None },
+        degauss_ry: 0.02,
+        xc_functional: XcFunctional::Pbe,
+        ..QeComparisonConfig::new(&crystal, vec![&pp_cu])
+    };
+    let result = run_qe_comparison(&cfg).expect("Cu PBE SCF should converge");
+
+    // QE PBE reference. VGCH-2 class YELLOW: tolerance 12 eV = ceil(observed).
+    assert_energy_matches_qe("Cu-PBE", &result, -378.986_716_46, 12.0);
+}
+
+/// GaAs zincblende PBE vs QE (III-V semiconductor, two heavy species; GGAP Phase F-light).
+///
+/// QE ref (`qe_validation/gaas_scf_pbe.{in,out}`, see
+/// `qe_validation/reference_data.toml::gaas_zincblende_pbe`):
+/// PseudoDojo ONCV NC/PBE v0.4 `.standard` Ga.upf + As.upf, ecut = 44 Ry,
+/// 4×4×4 Γ-centered, degauss = 0.01 Ry, 11 iters.
+///   `E_total = -361.078_863_91 Ry = -4912.7282 eV`, `E_F = 9.0818 eV`.
+///
+/// Measured residual (2026-04-19, GGAP Phase F-light):
+///   `E_pwdft = -4895.4327 eV`, `E_QE = -4912.7282 eV`, `|ΔE| = 17.30 eV`.
+///
+/// **Finding:** GaAs PBE closes the LDA gap by ~2× (17.3 eV vs LDA
+/// 33.6 eV). Heavy-atom VGCH-2 class carries across both Ga (Z=31)
+/// and As (Z=33) species — PBE helps substantially but does not close
+/// it. Blocked on VGCH-2 Part A diagnosis.
+#[test]
+#[ignore = "VGCH-2 class (PBE leg): GaAs PBE 4×4×4 at ecut=44 Ry converges with |ΔE|=17.30 eV; 2× improvement over GaAs LDA (33.6 eV, Z=31+33) — heavy-atom partial-cancellation partially functional-sensitive"]
+fn test_gaas_zincblende_pbe_vs_qe() {
+    let crystal = fcc_crystal(
+        5.653,
+        vec![
+            Atom::new(31, [0.00, 0.00, 0.00]),
+            Atom::new(33, [0.25, 0.25, 0.25]),
+        ],
+    );
+    let pp_ga = load_pp_pbe("Ga");
+    let pp_as = load_pp_pbe("As");
+
+    let cfg = QeComparisonConfig {
+        ecut_ry: 44.0, // matches qe_validation/gaas_scf_pbe.in
+        nk: 4,
+        n_bands: 18,
+        xc_functional: XcFunctional::Pbe,
+        ..QeComparisonConfig::new(&crystal, vec![&pp_ga, &pp_as])
+    };
+    let result = run_qe_comparison(&cfg).expect("GaAs PBE SCF should converge");
+
+    // QE PBE reference. VGCH-2 class YELLOW: tolerance 20 eV = ceil(observed).
+    assert_energy_matches_qe("GaAs-PBE", &result, -361.078_863_91, 20.0);
+}
+
+/// NaCl rocksalt PBE vs QE (ionic insulator; GGAP Phase F-light).
+///
+/// QE ref (`qe_validation/nacl_scf_pbe.{in,out}`, see
+/// `qe_validation/reference_data.toml::nacl_rocksalt_pbe`):
+/// PseudoDojo ONCV NC/PBE v0.4 `.standard` Na.upf + Cl.upf, ecut = 36 Ry,
+/// 4×4×4 Γ-centered, degauss = 0.01 Ry, 8 iters.
+///   `E_total = -123.159_525_87 Ry = -1675.6707 eV`, `E_F = 3.9131 eV`.
+///
+/// Measured residual (2026-04-19, GGAP Phase F-light):
+///   `E_pwdft = -1670.8129 eV`, `E_QE = -1675.6707 eV`, `|ΔE| = 4.86 eV`.
+///
+/// **Finding:** NaCl PBE closes the LDA gap by ~1.6× (4.86 eV vs LDA
+/// 7.7 eV). Cl (Z=17) heavy-atom VGCH-2 signature persists but
+/// PBE helps. Blocked on VGCH-2 Part A diagnosis.
+#[test]
+#[ignore = "VGCH-2 class (PBE leg): NaCl PBE 4×4×4 at ecut=36 Ry converges with |ΔE|=4.86 eV; 1.6× improvement over NaCl LDA (7.7 eV, Cl Z=17) — heavy-atom partial-cancellation partially functional-sensitive"]
+fn test_nacl_rocksalt_pbe_vs_qe() {
+    let crystal = fcc_crystal(
+        5.614,
+        vec![
+            Atom::new(11, [0.00, 0.00, 0.00]), // Na
+            Atom::new(17, [0.50, 0.50, 0.50]), // Cl
+        ],
+    );
+    let pp_na = load_pp_pbe("Na");
+    let pp_cl = load_pp_pbe("Cl");
+
+    let cfg = QeComparisonConfig {
+        ecut_ry: 36.0, // matches qe_validation/nacl_scf_pbe.in
+        nk: 4,
+        n_bands: 12,
+        xc_functional: XcFunctional::Pbe,
+        ..QeComparisonConfig::new(&crystal, vec![&pp_na, &pp_cl])
+    };
+    let result = run_qe_comparison(&cfg).expect("NaCl PBE SCF should converge");
+
+    // QE PBE reference. VGCH-2 class YELLOW: tolerance 6 eV = ceil(observed).
+    assert_energy_matches_qe("NaCl-PBE", &result, -123.159_525_87, 6.0);
+}
+
+/// MgO rocksalt PBE vs QE (wide-gap ionic insulator, Mg 2s/2p semicore; GGAP Phase F-light).
+///
+/// QE ref (`qe_validation/mgo_scf_pbe.{in,out}`, see
+/// `qe_validation/reference_data.toml::mgo_rocksalt_pbe`):
+/// PseudoDojo ONCV NC/PBE v0.4 `.standard` Mg.upf + O.upf, ecut = 48 Ry,
+/// 4×4×4 Γ-centered, degauss = 0.01 Ry, 8 iters.
+///   `E_total = -151.672_241_44 Ry = -2063.6060 eV`, `E_F = 10.5529 eV`.
+///
+/// Measured residual (2026-04-19, GGAP Phase F-light):
+///   `E_pwdft = -2062.0457 eV`, `E_QE = -2063.6060 eV`, `|ΔE| = 1.56 eV`.
+///
+/// **Surprise finding:** MgO PBE closes the LDA gap by ~6.5× (1.56 eV
+/// vs LDA 10.1 eV) — the single largest improvement across all six
+/// heavy/semicore systems. The Mg 2s/2p semicore VGCH-2 signature
+/// is *strongly functional-sensitive* on this cell. One hypothesis:
+/// PBE's gradient correction near the Mg core region corrects a
+/// density-gradient-sensitive error that LDA amplifies. Worth
+/// factoring into the VGCH-2 Part A audit when it reaches semicore
+/// species.
+#[test]
+#[ignore = "VGCH-2 class (PBE leg): MgO PBE 4×4×4 at ecut=48 Ry converges with |ΔE|=1.56 eV; 6.5× improvement over MgO LDA (10.1 eV, Mg 2s/2p semicore) — largest PBE improvement in matrix, strongly functional-sensitive"]
+fn test_mgo_rocksalt_pbe_vs_qe() {
+    let crystal = fcc_crystal(
+        4.212,
+        vec![
+            Atom::new(12, [0.00, 0.00, 0.00]), // Mg
+            Atom::new(8, [0.50, 0.50, 0.50]),  // O
+        ],
+    );
+    let pp_mg = load_pp_pbe("Mg");
+    let pp_o = load_pp_pbe("O");
+
+    let cfg = QeComparisonConfig {
+        ecut_ry: 48.0, // matches qe_validation/mgo_scf_pbe.in
+        nk: 4,
+        n_bands: 10,
+        xc_functional: XcFunctional::Pbe,
+        ..QeComparisonConfig::new(&crystal, vec![&pp_mg, &pp_o])
+    };
+    let result = run_qe_comparison(&cfg).expect("MgO PBE SCF should converge");
+
+    // QE PBE reference. VGCH-2 class YELLOW: tolerance 2.5 eV (observed 1.56
+    // + ~60% margin; round-number ceiling below LDA 10.1 eV guard).
+    assert_energy_matches_qe("MgO-PBE", &result, -151.672_241_44_f64, 2.5);
 }
