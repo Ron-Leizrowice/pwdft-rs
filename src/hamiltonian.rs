@@ -22,35 +22,6 @@ pub fn build_kinetic(basis: &BasisSet, k: &Vector3<f64>) -> faer::Mat<Complex64>
     h
 }
 
-/// Build the full Kohn-Sham Hamiltonian at k-point k.
-///
-/// H_{G,G'}(k) = T_{G,G'}(k) + V_eff(G - G')
-///
-/// where T is the kinetic energy (diagonal) and V_eff is the effective
-/// potential in reciprocal space (from Hartree + XC + pseudopotential).
-///
-/// `v_eff` maps a pair of basis indices (i, j) to V_eff(G_i - G_j).
-/// Pass `None` for free-electron (kinetic-only) calculations.
-#[must_use]
-pub fn build_hamiltonian(
-    basis: &BasisSet,
-    k: &Vector3<f64>,
-    v_eff: Option<&dyn Fn(usize, usize) -> Complex64>,
-) -> faer::Mat<Complex64> {
-    let mut h = build_kinetic(basis, k);
-
-    if let Some(v) = v_eff {
-        let n = basis.len();
-        for i in 0..n {
-            for j in 0..n {
-                h[(i, j)] += v(i, j);
-            }
-        }
-    }
-
-    h
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

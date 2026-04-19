@@ -16,10 +16,14 @@ pub struct BandStructure {
     pub eigenvalues: Vec<Vec<f64>>,
 }
 
-/// Compute band structure along a k-path.
+/// Compute the free-electron (kinetic-only) band structure along a k-path.
 ///
-/// For each k-point, builds the Hamiltonian and diagonalizes it,
-/// keeping the lowest `n_bands` eigenvalues.
+/// For each k-point, builds the kinetic-energy Hamiltonian
+/// `H_{G,G'}(k) = δ_{GG'} · (ℏ²/2m) |k + G|²` and diagonalizes it,
+/// keeping the lowest `n_bands` eigenvalues. This is a diagnostic / validation
+/// mode — the nearly-free-electron spectrum that a converged pseudopotential
+/// calculation should reproduce at high `|k + G|`. Self-consistent bands come
+/// from the SCF driver, not this routine.
 ///
 /// # Errors
 /// Returns `PwdftError::Eigensolver` if any eigendecomposition fails.
@@ -28,13 +32,12 @@ pub fn compute_band_structure(
     kpoints: &[KPoint],
     distances: &[f64],
     n_bands: usize,
-    v_eff: Option<&dyn Fn(usize, usize) -> num_complex::Complex64>,
 ) -> Result<BandStructure> {
     let mut eigenvalues = Vec::with_capacity(kpoints.len());
     let mut labels = Vec::new();
 
     for (i, kp) in kpoints.iter().enumerate() {
-        let h = hamiltonian::build_hamiltonian(basis, &kp.k, v_eff);
+        let h = hamiltonian::build_kinetic(basis, &kp.k);
         let result = dense::diagonalize_lowest(&h, n_bands)?;
         eigenvalues.push(result.eigenvalues);
 
@@ -121,7 +124,7 @@ mod tests {
             label: Some("Γ".into()),
         };
 
-        let bs = compute_band_structure(&basis, &[gamma], &[0.0], 10, None).unwrap();
+        let bs = compute_band_structure(&basis, &[gamma], &[0.0], 10).unwrap();
 
         // At Γ, lowest eigenvalue should be 0 (G=0, |k+G|=0)
         assert!(
@@ -154,7 +157,7 @@ mod tests {
             label: None,
         };
 
-        let bs = compute_band_structure(&basis, &[kp], &[0.0], 5, None).unwrap();
+        let bs = compute_band_structure(&basis, &[kp], &[0.0], 5).unwrap();
         let expected_lowest = HBAR2_OVER_2M * k.norm_squared();
 
         assert!(

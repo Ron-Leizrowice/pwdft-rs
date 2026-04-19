@@ -55,7 +55,7 @@ fn main() -> pwdft_rs::error::Result<()> {
             info!("Band structure: {} k-points, {n_bands} bands", kpts.len());
 
             let bs =
-                bandstructure::compute_band_structure(&basis, &kpts, &distances, n_bands, None)?;
+                bandstructure::compute_band_structure(&basis, &kpts, &distances, n_bands)?;
 
             match &cli.output {
                 Some(path) => {

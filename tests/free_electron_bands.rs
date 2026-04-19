@@ -118,7 +118,7 @@ fn test_eigenvalues_match_analytic_at_high_sym_points() {
 
     for (label, frac) in &high_sym {
         let k = frac_to_cart(*frac, &lattice);
-        let h = hamiltonian::build_hamiltonian(&basis, &k, None);
+        let h = hamiltonian::build_kinetic(&basis, &k);
         let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
         let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
 
@@ -277,7 +277,7 @@ fn test_band_continuity() {
         },
     ];
     let (kpts, distances) = kpoints::high_symmetry_path(&path, 100, &lattice);
-    let bs = bandstructure::compute_band_structure(&basis, &kpts, &distances, 8, None).unwrap();
+    let bs = bandstructure::compute_band_structure(&basis, &kpts, &distances, 8).unwrap();
 
     // Check that each band varies smoothly between adjacent k-points.
     // For 100 points along Γ-X, the maximum energy change per step should be small.
@@ -314,7 +314,7 @@ fn test_eigenvalues_are_sorted_diagonal() {
     ];
 
     for k in &test_ks {
-        let h = hamiltonian::build_hamiltonian(&basis, k, None);
+        let h = hamiltonian::build_kinetic(&basis, k);
         let n = basis.len();
 
         // Extract diagonal and sort
@@ -349,7 +349,7 @@ fn test_eigenvector_reconstruction() {
     let basis = BasisSet::new(&lattice, ECUT);
     let k = frac_to_cart([0.3, 0.1, 0.2], &lattice);
 
-    let h = hamiltonian::build_hamiltonian(&basis, &k, None);
+    let h = hamiltonian::build_kinetic(&basis, &k);
     let result = dense::diagonalize_hermitian(&h).unwrap();
     let n = basis.len();
 
@@ -383,7 +383,7 @@ fn test_gamma_numerical_values() {
     let k = Vector3::zeros();
 
     let result = dense::diagonalize_lowest(
-        &hamiltonian::build_hamiltonian(&basis, &k, None),
+        &hamiltonian::build_kinetic(&basis, &k),
         N_BANDS,
     ).unwrap();
 
@@ -427,7 +427,7 @@ fn test_diamond_c_eigenvalues_at_gamma() {
     let k = Vector3::zeros();
     let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
 
-    let h = hamiltonian::build_hamiltonian(&basis, &k, None);
+    let h = hamiltonian::build_kinetic(&basis, &k);
     let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
 
     for (i, (&computed, &expected)) in result
@@ -470,7 +470,7 @@ fn test_bcc_fe_eigenvalues_at_gamma() {
     let k = Vector3::zeros();
     let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
 
-    let h = hamiltonian::build_hamiltonian(&basis, &k, None);
+    let h = hamiltonian::build_kinetic(&basis, &k);
     let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
 
     for (i, (&computed, &expected)) in result
@@ -512,7 +512,7 @@ fn test_bcc_fe_band_continuity() {
     for ik in 0..n_kpts {
         let t = f64::from(ik) / f64::from(n_kpts - 1);
         let k = gamma * (1.0 - t) + k_end * t;
-        let h = hamiltonian::build_hamiltonian(&basis, &k, None);
+        let h = hamiltonian::build_kinetic(&basis, &k);
         let result = dense::diagonalize_lowest(&h, n_bands).unwrap();
 
         if let Some(ref prev) = prev_eigenvalues {
@@ -545,7 +545,7 @@ fn test_diamond_c_off_gamma() {
     let k = 0.5 * recip.b;
     let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
 
-    let h = hamiltonian::build_hamiltonian(&basis, &k, None);
+    let h = hamiltonian::build_kinetic(&basis, &k);
     let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
 
     for (i, (&computed, &expected)) in result
