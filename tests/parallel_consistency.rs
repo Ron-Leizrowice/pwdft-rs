@@ -110,6 +110,7 @@ fn test_fft_roundtrip_preserves_data() {
 }
 
 #[test]
+#[ignore = "TSPL Tier-2: runs Si SCF twice (serial + parallel) at n_pw≈100 for up to 40 iters; run with cargo test -- --ignored when touching scf/, fft, or rayon paths"]
 fn test_scf_serial_vs_parallel() {
     // Compare single-threaded vs multi-threaded SCF over a short run.
     // Uses Γ-only (1 k-point) and 5 iterations to keep debug-mode runtime
@@ -260,6 +261,7 @@ fn test_scf_serial_vs_parallel() {
 }
 
 #[test]
+#[ignore = "TSPL Tier-2: runs Si SCF twice (serial + parallel) with Kerker mixing; run with cargo test -- --ignored when touching scf/mixing or fft paths"]
 fn test_scf_kerker_serial_vs_parallel() {
     // Same as above but with Kerker preconditioning enabled.
     // Exercises the FFT→filter→IFFT path inside the mixer under parallelism.

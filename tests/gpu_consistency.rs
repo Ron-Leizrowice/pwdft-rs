@@ -327,6 +327,7 @@ fn test_gpu_buffer_pool_xc_and_v_eff_match_fresh() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "TSPL Tier-2: runs Si SCF on GPU at ecut=100, 40 iters; run with cargo test --features gpu -- --ignored when touching scf/, gpu/, or XC paths"]
 fn test_gpu_vs_cpu_scf_eigenvalues() {
     let Some(_) = GpuAccelerator::try_new() else {
         eprintln!("No GPU, skipping");
@@ -483,6 +484,7 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
 }
 
 #[test]
+#[ignore = "TSPL Tier-2: runs Si SCF on GPU twice (GPU + single-thread CPU) at ecut=100, 40 iters; run with cargo test --features gpu -- --ignored when touching scf/, gpu/, or XC paths"]
 fn test_gpu_vs_cpu_scf_direct_comparison() {
     // This test runs SCF twice: once with GPU kernels active (default when
     // gpu feature is enabled), and once forcing CPU-only by running the
@@ -610,6 +612,7 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
 }
 
 #[test]
+#[ignore = "TSPL Tier-2: runs Si SCF on GPU with Kerker mixing at ecut=100, 40 iters; run with cargo test --features gpu -- --ignored when touching scf/mixing, gpu/, or fft paths"]
 fn test_gpu_scf_kerker_converges() {
     // Verify GPU SCF with Kerker preconditioning converges.
     // Exercises the GPU Hartree/XC/V_eff kernels with Kerker's

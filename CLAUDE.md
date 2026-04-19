@@ -37,12 +37,57 @@ cargo bench --bench scf_benchmarks            # SCF benchmarks
 cargo bench --bench gpu_benchmarks --features gpu  # GPU benchmarks
 ```
 
-Runtime (M3 Max, 2026-04-19, post-TPRF with `[profile.test] opt-level=3`):
-`cargo test` ~95 s wall (down from ~11 min at opt-level=0 — 7× overall, 44× on the vgc5 / qe_validation integration binaries). Clippy + doc each ≲30 s.
+Integration tests in `tests/`: free-electron band validation (Si, C diamond, BCC Fe), KB projector validation, non-local symmetry, parallel consistency, GPU vs CPU consistency, VGC5 per-component energies + MADOC band-sum identity (Si, Fe), QE validation (8-system reference set), spin polarization, WFRX subspace consistency, ITEV iterative eigensolver cross-checks.
 
-Integration tests in `tests/`: free-electron band validation (Si, C diamond, BCC Fe), KB projector validation, non-local symmetry, parallel consistency, GPU vs CPU consistency, VGC5 per-component energies + MADOC band-sum identity (Si, Fe), QE validation (8-system reference set), spin polarization, WFRX subspace consistency.
+### Test suite tiers
 
-Test-suite tiers (TSPL, 2026-04-19): `cargo test` is the Tier-1 fast tier (unit tests + lightweight integration). Heavy SCF suites (QE validation, VGC5, MADOC identity, spin polarization with tight conv, WFRX) are Tier-2 and gated by `#[ignore]` — run `cargo test -- --ignored` when touching SCF / density / mixing / XC / NLCC / symmetry / eigensolver / GPU / basis / fft / ewald / pseudopotential code. Doc- or proposal-only changes skip Tier 2.
+The suite is split into two tiers, gated by Rust's `#[ignore]` attribute
+with a `TSPL Tier-2: ...` reason string on each heavy case. Default
+`cargo test` runs Tier 1 only; opt into Tier 2 via `--ignored`.
+
+- **Tier 1 — `cargo test`** (fast default, target ≤ 2 min wall on M3
+  Max). All `src/**` unit tests plus lightweight integration:
+  free-electron bands, KB projector, non-local symmetry, VGCMP Phase
+  1–4 cross-checks, V_local erf consistency, LAPACK smoke, ALOC F-5
+  Hamiltonian cache, FFT serial-vs-parallel round-trips, Fe Ewald vs
+  QE, ITEV single-shot (defect 1) eigenvalue checks. Every test here
+  is either a pure unit check or a single-shot operation on a small
+  matrix — no test runs an SCF loop for more than a handful of
+  iterations at production `n_pw`.
+- **Tier 2 — `cargo test -- --ignored`** (heavy, budget 5–10 min wall
+  on M3 Max). Every case that runs a production-scale SCF loop (>20
+  iterations at `n_pw ≥ 100`, or two SCFs back-to-back): QE validation
+  (full-system energy/Fermi matches), VGC5 per-component pins,
+  MADOC band-sum identity (Si + Fe), spin-polarization regression
+  guards (Si nspin=2, Fe CCMX, fixed-moment inverted detector),
+  serial-vs-parallel SCF agreement (Plain + Kerker), WFRX subspace
+  consistency, ITEV iterative-vs-dense end-to-end SCF, GPU-vs-CPU
+  SCF (behind the `gpu` feature). Each Tier-2 `#[ignore]` reason
+  names the code paths that should trigger a Tier-2 run.
+- **Both tiers** — `cargo test -- --include-ignored`. Rarely needed;
+  use when regenerating Tier-2 pins or auditing a deep refactor.
+
+**Tier-2 PR policy.** Any PR that touches `src/scf/`,
+`src/potential/`, `src/symmetry/`, `src/pseudopotential/`,
+`src/eigensolver/`, `src/basis.rs`, `src/fft.rs`, `src/ewald.rs`,
+`src/gpu/`, `src/crystal.rs`, `src/kpoints.rs`, or any `Cargo.toml`
+bump of a numerics dep (faer / ndrustfft / nalgebra / ndarray) must
+run `cargo test -- --ignored` locally and report the outcome in the
+PR body. Doc-only, proposal-only, and lint-only PRs skip Tier 2.
+
+Runtime (M3 Max, 2026-04-19, post-TPRF + TSPL, warm cache): Tier 1 ~12
+s wall (`cargo test`), Tier 2 ~58 s wall (`cargo test -- --ignored`,
+excluding the pre-TSPL physics-blocker `#[ignore]`s on
+`qe_validation.rs` heavy-atom cells and MXBA which fail by design).
+Pre-TSPL `cargo test` was ~95 s wall (post-TPRF, before bifurcation) —
+an 8× speedup on the default-fast tier. Clippy + doc each ≲ 30 s.
+
+Note that `cargo test -- --ignored` also runs the pre-TSPL
+physics-blocker ignores (VGCH heavy-atom cells, Al ecut, C mixer,
+MXBA) — those are separate tickets and their failure is known. A
+green `-- --ignored` run requires filtering those out; see the
+`#[ignore]` reason strings in `tests/qe_validation.rs` and
+`tests/mxba_adaptive_beta_fe.rs` for the authoritative skip list.
 
 ## Observability, profiling, benchmarking
 
