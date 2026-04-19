@@ -374,6 +374,104 @@ explicitly that:
 **No VQEF code change is required for QELK.** This is a coordination
 note.
 
+## 5a. Band-sum identity gate (BSUM, 2026-04-19)
+
+VQEF's scalar-level gate (E_total + E_F) is a **global** agreement check:
+E_total sums over kinetic + local + non-local + Hartree + XC + Ewald,
+and its residual can mask opposite-sign component drift (the VGCH
+"different converged density" signature). The band-sum identity gate
+(proposal BSUM, landed 2026-04-19) adds a second scalar-level gate per
+cell that is **orthogonal** to E_total on the cancellation axis.
+
+**Physical quantity.** QE reports in every `pw.x` output a line labeled
+`one-electron contribution = eband + deband Ry`
+(`PW/src/electrons.f90:1719`). `eband = Σ w_k · f_{ik} · ε_{ik}` is the
+raw band sum; `deband = -Σ <ψ|V_H + V_xc|ψ>` is the double-counting
+correction that turns `<ψ|H|ψ>` (which carries V_H + V_xc) into
+`<ψ|T + V_ion|ψ>` (the pure one-electron piece). Their sum
+`<ψ|T + V_ion|ψ>` is independent of the V_loc(G=0) convention (the
+rigid-shift tracked under VGCH Phase 1b cancels once `deband`'s shift
+counterpart is added), and it is a sharper density-drift indicator than
+E_total because it isolates the Hamiltonian-level one-electron piece
+from the Hartree / XC / Ewald terms where cancellation happens.
+
+**What BSUM catches that E_total misses.** If `|ΔE_one-electron|` is
+small while `|ΔE_total|` is small, the two codes agree on both the
+density **and** the Hartree/XC/Ewald bookkeeping. If `|ΔE_one-electron|`
+is large while `|ΔE_total|` is small, E_total's smallness is an
+**accidental cancellation** across Hartree/XC/Ewald masking a real
+density-basin disagreement — exactly the VGCH signature (`Δ one-e =
++1.76 eV, Δ E_H = -0.59 eV, Δ E_xc = +0.29 eV` on C diamond). If
+`|ΔE_one-electron|` is small while `|ΔE_total|` is large, the
+disagreement lives in Hartree/XC/Ewald (functional or NLCC or Ewald
+bug), not in the converged density.
+
+**Implementation.**
+- Helper `assert_band_sum_matches_qe(label, result, qe_one_electron_ry,
+  tolerance_ev)` in `tests/qe_validation.rs` compares
+  `e_kinetic + e_local + e_local_g0_shift + e_nonlocal` (pwdft-rs) vs
+  QE's `one-electron contribution`.
+- `QeComparisonConfig::one_electron_qe_ry: Option<f64>` (default `None`,
+  additive — does not disturb concurrent-agent test bodies). When
+  populated, `run_qe_comparison` prints the diagnostic residual
+  unconditionally (so heavy-atom cells owned by other tracks also emit
+  machine-parsable numbers under `cargo test -- --ignored --nocapture`).
+- `qe_validation/reference_data.toml` gains a `one_electron_ry` key per
+  cell (all 16 entries; values harvested from the existing `*.out`
+  files, no QE re-runs required).
+- BSUM assertion wired into 6 cells (Si LDA E, Si PBE, Al LDA, Al PBE,
+  C LDA, C PBE). VGCH-2B / Si-EF-owned heavy-atom cells keep
+  `one_electron_qe_ry: None` and no BSUM assertion until those tracks
+  opt in — the diagnostic print is still emitted from
+  `run_qe_comparison`.
+
+**Tolerance policy.**
+- GREEN cells (Si LDA/PBE, Al LDA/PBE): tolerance in the 40–120 meV
+  band, chosen as ~2×|observed ΔE_1e| + margin so the gate catches
+  real regressions (2× observed) while not being so tight it fires on
+  routine compiler / numerics drift.
+- VGCH-YELLOW cells (C LDA/PBE): tolerance = round-up of observed
+  `|ΔE_1e|`. C LDA `|ΔE_1e| = 1.72 eV` → tol 2.0 eV. C PBE `|ΔE_1e| =
+  0.37 eV` → tol 0.6 eV. Per the brief, don't tighten beyond what
+  E_total already indicates.
+- Heavy-atom cells (all Z>14 LDA + Z>14 PBE): no BSUM assertion in the
+  BSUM-landing PR; the diagnostic is printed so VGCH-2B / Si-EF can
+  harvest residuals as independent evidence for the density-drift
+  hypothesis without BSUM owning those test bodies.
+
+**Measured residuals (16-cell table at BSUM landing, post-TSEN, 2026-04-19):**
+
+| Cell     | \|ΔE_total\| (eV) | \|ΔE_1e\| (eV) | Ratio | Notes                          |
+|----------|-------------------|----------------|-------|--------------------------------|
+| Si LDA   | 0.0448            | 0.0173         | 0.39  | GREEN; E_1e ≈ E_total          |
+| Si PBE   | 0.0024            | 0.0127         | 5.29  | GREEN; sub-meV floor           |
+| C LDA    | 1.4500            | 1.7217         | 1.19  | VGCH light-atom, pinned        |
+| C PBE    | 0.3217            | 0.3746         | 1.16  | VGCH light-atom, pinned        |
+| Al LDA   | 0.0259            | 0.0030         | 0.12  | GREEN; sub-meV basis noise     |
+| Al PBE   | 0.0081            | 0.0008         | 0.10  | GREEN; sub-meV basis noise     |
+| Fe LDA   | 11.14             | 10.99          | 0.99  | VGCH heavy-atom (no assert)    |
+| Fe PBE   | 1.70              | 5.51           | 3.25  | VGCH heavy-atom (no assert)    |
+| GaAs LDA | 35.17             | 53.10          | 1.51  | VGCH heavy-atom (no assert)    |
+| GaAs PBE | 17.28             | 28.52          | 1.65  | VGCH heavy-atom (no assert)    |
+| Cu LDA   | 16.64             | 36.87          | 2.22  | VGCH heavy-atom (no assert)    |
+| Cu PBE   | 9.97              | 17.68          | 1.77  | VGCH heavy-atom (no assert)    |
+| NaCl LDA | 7.99              | 14.97          | 1.87  | VGCH heavy-atom (no assert)    |
+| NaCl PBE | 4.86              | 9.71           | 2.00  | VGCH heavy-atom (no assert)    |
+| MgO LDA  | 10.71             | 18.10          | 1.69  | VGCH heavy-atom (no assert)    |
+| MgO PBE  | 1.56              | 2.87           | 1.84  | VGCH heavy-atom (no assert)    |
+
+**Independent evidence for VGCH-2B.** The heavy-atom ratios sit in
+**1.5–3.3×**. For ratio > 1, E_total's residual is carried
+disproportionately on the **non-one-electron** side (Hartree + XC +
+Ewald) in a partial-cancellation pattern with E_1e moving the opposite
+way. Fe PBE's 3.25× is the most extreme: E_1e residual is 3× larger
+than E_total's residual, confirming that the converged density differs
+between pwdft-rs and QE more than E_total alone reveals. This is
+independent support for VGCH-2B's transplant hypothesis (density drift,
+not a Hamiltonian assembly bug). Conversely, ratios close to 1 (Fe LDA
+at 0.99, light-atom cells) indicate the two codes converge to similar
+densities and differ mostly on the accounting side.
+
 ## 6. Acceptance criteria
 
 VQEF is complete when **all** of the following hold on `main`:
