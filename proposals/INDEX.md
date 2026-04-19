@@ -4,6 +4,8 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 ## Active
 
+**2026-04-19 (GRM11 end-of-day consolidation — 59 PRs merged today).** The day produced a full run of the GGA/PBE functional (Phases A+A.1+B+C+D+F-light all landed — Si PBE 12 meV GREEN, Al PBE 8 meV GREEN, Fe PBE retains M=2.16 μB at 1.97 eV VGCH-class), closed the VQEF matrix from `0 G / 8 Y / 8 R` → `4 G / 12 Y / 0 R` on E_total + `3 G` on E_F (Si/Al/C), and fractured the "VGCH heavy-atom residual" into three distinct mechanism classes (VGCH-MECH #168). Five root-cause hypotheses ruled out today: β_q projectors (VGCH-1a/b), SAD initial density (VGCH-1c), V_loc(G=0) gauge (SiEF-B1 #166), smearing entropy reporting (TSEN #162), mixer basin (VGCH-2B #167). Next-day entry point: **VGCH-2 Part C** on Cu Fermi-finder + Class B Fe LDA diagnostic + Class C C transplant in parallel. Full PR list at bottom Completed table. Archived today: **MIXA**, **TSPL**, **LOGH**, **MOAD**, **VGCH** (parent) — all landed.
+
 **2026-04-18:** Critical-Physics slate is **empty**. NCFX closed the 13.4 eV Si gap to 0.26 eV; PCFX (this release) closed the 1.2 eV per-component residual to 3.5e-11 eV by moving density symmetrization to G-space. The remaining ~23 meV Si residual vs QE is attributed to Monkhorst-Pack shifted-vs-Γ-centered grid convention (SYKP territory), below proposal-priority threshold.
 
 **2026-04-19 (GRUM grooming pass):** VNLM closed (PR #49, 2.9–4.5× V_NL speedup); MODR closed (all phases A–D landed as PRs #46/#50/#48/#47). ITEV moved to "Deferred — Blocked on upstream" pending a faer 0.24 `iterate_lanczos` reorthogonalization bug fix. WFRX elevated from Low to High under a new "High — Performance" subsection: technique 1 (subspace diag) is independent of ITEV and delivers 20–30% SCF speedup on the current dense eigensolver.
@@ -16,50 +18,36 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 **2026-04-19 (GRM2 grooming pass — 22 PRs #80–#101 merged today):** WFRX Technique 1 landed (PR #99, opt-in `scf.subspace_diag`, 7% at n_pw=725; Technique 2 stays deferred on ITEV). Promoted WFRX to Completed. Added MLFX/QELK/UNTS/DOCX/CLNP to Completed as small/reactive landings (no proposal files). GGAP Phase A landed (PR #85) — title annotated with phase state. ALOC Finding F-5 landed (PR #100, alloc traffic 16.8 GB → 0 per SCF at production sizes); F-7 and F-12 remain. TRV2 F1 (PR #98) and F3 (PR #96) landed; F2 (CCMX extraction) deferred on WFRX/driver refactor; 10 Category 2–5 findings remain. ERR2 P0 landed (PR #86); ERR2-AX (operations.rs annotations) and P1 (InvalidInput split) remain. MAUD-AC still in flight — title left as-is this pass. Machine-lock enforcement is now owner-scoped end-to-end (MLFX). Next strategic item: GGAP Phase B (PBE semilocal + gradient FFT helper) once MPSH drivers land; that unblocks 7 PBE validation cells in VQEF. Path forward — Validation: MPSH drivers (in flight) → 3 LDA cells; VGCH Phase 1 (Fe ecut sweep) after Phase 0 landed via CLNP. Perf: WFRX Technique 1 done, ALOC F-7/F-12 + GOPT PR-B next. "High — Foundation & Code Quality" subsection retained as a header slot but empty (MODR phases A–D all landed).
 
-### High — Foundation & Code Quality
-
-_No active entries (MODR's 4 phases all landed; see Completed)._
-
-### High — Performance
+### High — Validation (VQEF track)
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| TSPL | Bifurcate test suite — fast Tier-1 default + heavy Tier-2 opt-in via `#[ignore]` (follow-up to TPRF; pressure reduced after TPRF 7× speedup but useful for growth) | small | low | — | — |
+| VGCH-2 | Heavy-atom residual hunt. Part A (#160) per-term trace; Part B (#167) shared-density transplant on Cu **refuted H3 mixer-basin** (+16.34 eV gap at ρ_QE — functional disagrees at same density). Part C (next) = Fermi-finder Python reference, `n_bands` margin audit, smearing function alignment, Cu/GaAs/MgO ρ_core pinning, `D_ij·β·β` contraction cross-check | medium | medium | — | VQEF |
+| VGCH-MECH | Mechanism taxonomy — splits remaining 12 YELLOW cells into **Class A** (8 cells, energy-functional-at-shared-density, continued under VGCH-2 Part C), **Class B** (Fe LDA Hamiltonian-side outlier per BSUM ratio 0.99× — PZ-vs-PW92 / spin-path hypothesis, 1 cell, 1 CE-day diagnostic), **Class C** (C diamond 2 cells, transplant-reuse + Kerker q_TF sweep). Classes B+C can run parallel to VGCH-2 Part C | medium | medium | VGCH-2, BSUM | VQEF |
+| VQEF | Full LDA+PBE QE validation matrix (8 systems × 2 functionals). **Scoreboard (EOD 2026-04-19): 4 GREEN / 12 YELLOW / 0 RED on E_total + 3 GREEN on E_F (Si / Al / C).** Closure path sequenced via VGCH-MECH | medium | low | VGCH-2, VGCH-MECH, GGAP-E | — |
 
-### High — Validation
-
-| ID | Title | Complexity | Risk | Depends On | Blocks |
-|----|-------|-----------|------|------------|--------|
-| VGCH | Heavy-atom V_local(G) residual — post-VGCMP continuation. Phases 1a+1b+1c landed (PRs #139, #148, #156); H1 (β_l(q)) and H2 (SAD) both cleared bit-perfect. Residual routed via VGCH-2 + **VGCH-MECH** classification | medium-large | medium | — | VGCH-2, VQEF |
-| VGCH-2 | VGCH follow-up: total-energy assembly. Part A (#160) traced per-term agreement; Part B (#167) ran transplant experiment on Cu — **H3 mixer-basin CLEARED**, +16.34 eV gap at shared density identifies energy-functional-evaluation disagreement as the real bug. Part C = Fermi-finder/smearing/n_bands/NLCC ρ_core diagnosis | medium | medium | VGCH | VQEF |
-| VGCH-MECH | Mechanism taxonomy — splits remaining 12 YELLOW cells into Class A (heavy-atom energy-functional-at-shared-density, 8 cells, continued under VGCH-2 Part C), Class B (Fe LDA Hamiltonian-side outlier, 1 cell, new), Class C (C diamond mixer + density, 2 cells, new). Sequences Class B + C in parallel with VGCH-2 Part C | medium | medium | VGCH-2, BSUM | VQEF |
-| VQEF | Full LDA+PBE QE validation matrix (8 systems × 2 functionals) — roadmap | medium | low | VGCMP, GGAP, QELK | — |
-
-### Medium — Enhancements & Performance
+### Medium — Physics & Performance
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| MADOC | Mathematical documentation push (phased; MADOC-A first) | large | low | — | DLNT |
-| GGAP | GGA/PBE exchange-correlation functional (Phase A dispatcher LANDED PR #85; Phases B–F ~7–10 CE-days; B unblocks 7 VQEF PBE cells) | large | medium | — | HYBR |
-| HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP | — |
-| ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; P0 #86, ERR2-AX #111, TYPB #134 landed; P1 InvalidInput split fully scoped 2026-04-19 — 15 sites → 4 new variants across 4 mergeable PRs, ready to implement) | medium | low | — | — |
-| GOPT | GPU kernel + wgpu host path optimization audit (PR-B #106 + PR-A #138 landed; F5/F6/F8 empirically tested, no measurable gain on M3 Max / naga 29.0 / Metal — audit estimates stale; remaining lever is F1+F2 chain fusion which needs `src/scf/driver.rs` access) | medium | low-medium | — | — |
-| TRV2 | Fresh test-suite review — post-PCFX/CCMX/NCFX/GGAP coverage pass (F1+F3 landed PRs #98/#96; F2 CCMX-extraction deferred on WFRX/driver refactor; 10 Categories 2–5 findings remain) | medium | low | — | — |
-| MAUD | Mathematical accuracy audit of core physics modules (post-MADOC-A cold read; 1 docstring A + 9 C findings; MAUD-AC in flight will address top 2) | small | low | MADOC | — |
-| ALOC | Per-iteration allocation audit for SCF hot loop (F-5 landed PR #100: alloc traffic 16.8 GB → 0 per SCF at production sizes; F-7 in flight; F-12 remains) | medium | low | — | — |
-| ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` — faer Lanczos fix vendored (GRM8 #129); both correctness defects closed (ITEV2 #140 — adaptive `krylov_max_dim` scales with basis; WFRX warm-start wired on Iterative path; Si ecut=100 Dense↔Iterative |ΔE|=4.52e-12 eV). Default-flip still blocked on Phase-5 step-4 end-to-end SCF wall-time bench with WFRX active | medium | medium | — | — |
-| MOAD | Module-orientation `//!` docstrings (MOAD #135 landed 11 files; MOAD-2 in flight for remaining ~20 files previously owner-blocked) | small | low | — | — |
-| ESPL | Split `ElectronSettings` — system physics (`nspin`, magnetization) vs. convergence knobs (`mixing_*`, smearing, adaptive_beta); drop default `scf.max_iter` 100 → 50 | small | low | — | — |
+| GGAP | GGA/PBE functional — **Phases A+A.1+B+C+D+F-light all landed** (#85, #155, #145, #151, #158, #161). Si PBE 12 meV GREEN, Al PBE 8 meV GREEN, Fe PBE retains M=2.16 μB (VGCH-class residual). **Only Phase E remains** (GPU PBE shader, 2–3 CE-days, deferred until CPU path validates fully) | medium | medium | — | HYBR |
+| HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP-E | — |
+| ITEV | Iterative Eigensolver — faer Lanczos fix vendored (#129); both correctness defects closed (ITEV2 #140, Si ecut=100 Dense↔Iterative |ΔE|=4.52e-12 eV). **Only Phase-5 step-4 remains**: end-to-end SCF wall-time bench with WFRX active → decide default flip | small | low | — | — |
+| GOPT | GPU audit — PR-B #106 + PR-A #138 landed (128³ hartree −34%, v_eff −40%); F5/F6/F8 empirically tested, no measurable gain; remaining lever is F1+F2 chain fusion (blocked on `src/scf/driver.rs` quiescence) | medium | low-medium | — | — |
+| ALOC | Per-iteration allocation audit — F-5 landed (16.8 GB → 0 per SCF); F-7 (psi_g in band loop, 200-1000 µs/iter) + F-12 (FFT3D twiddle rebuild, 100-500 µs/iter) remain | medium | low | — | — |
+| ERR2 | Panic-free production — P0 #86, ERR2-AX #111, P1.a #152 (variants), P1.b #159 (CRYSTAL 3), P1.c #163 (PARAM 9) all landed. **Only P1.d remains** (ELEMENT + UPF, 2 sites, mechanical ~30 min) | small | low | — | — |
+| MADOC | Mathematical documentation push — A + B + C phases landed (MADOC-A series, MADOC-B #121, CLSS #122 doc hygiene). **Remaining phases D+E** cover unaddressed modules | medium | low | — | — |
+| MAUD | Mathematical accuracy audit — MAUD-AC addressed top 2 findings; 7 C-level docstring accuracy items remain | small | low | MADOC | — |
+| TRV2 | Fresh test-suite review — F1+F3 landed (#98/#96); F2 CCMX-extraction deferred on WFRX/driver refactor; 10 Categories 2–5 findings remain | medium | low | — | — |
+| CFGN | Numerics knobs — CFGN1 #114 + DFLT #137 + G2ZT #153 landed; 10 knobs remain across Fermi-search / iterative-eigensolver / Ewald / floors; each lands as a separate small PR on demand | medium | low | — | — |
+| ESPL | Split `ElectronSettings` — system physics vs convergence knobs; drop `scf.max_iter` default 100 → 50 | small | low | — | — |
 
 ### Low / Deferred
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| LOGH | Logging hygiene — `eprintln!` cleanup (MELG #132 landed for `src/main.rs`; LOGH-2 in flight for the 13 PCEP sites in `src/pseudopotential/**`) | trivial | low | — | — |
-| CFGN | Expose hardcoded numerics as Settings (umbrella; re-scoped 2026-04-19 post-CFGN1: 10 knobs left across Fermi-search/iterative-eigensolver/Ewald/floors; each should land as its own small proposal when a user asks) | medium | low | — | — |
-| CUCL | CubeCL GPU Kernels | large | high | — | — |
-| FLUP | Follow-up backlog — 7 unpromoted items seeded from today's code reviews | small | low | — | — |
-| MIXA | Document + pin Plain-Anderson-stall-on-wide-gap-insulators as negative regression (C diamond at ecut=30 Ry stalls at Δρ ≈ 1.75e-8 after 150 iters vs conv_threshold=1e-8; Kerker/Broyden/PeriodicPulay converge cleanly in 10–15 iters) | small | low | — | — |
+| CUCL | CubeCL GPU Kernels (deferred — explicit trigger conditions in proposal) | large | high | — | — |
+| FLUP | Follow-up backlog — remaining unpromoted items: MXB2 (Fe CCMX retune), EIGV/EIGW (bench-noise triage), FLP3 (NLCC 60-element regression parametric expansion), TYPE-AX (folded into TYPB) | small | low | — | — |
 
 ## Reference Documents
 
@@ -178,6 +166,38 @@ Proposals moved out of the active/deferred backlog after a stale-scope review. F
 | GOPT-A | BufferPool scratch `Vec<f32>` for CPU→GPU uploads; 128³ hartree −33.9%, v_eff −39.9%; 64³ hartree −28.6%, v_eff −20.4% (PR #138) |
 | VGCH Phase 1a | Heavy-atom per-component diagnostic — rules out V_local(G=0) Z-scaling and Ewald; residual lives in one-electron/Hartree partial cancellation, not form factors. Phase 1b needs β_q / initial density / mixer basin investigation (PR #139; diagnostic-only, no src/ changes) |
 | ITEV2 | Close ITEV defects 1+2 — adaptive `krylov_max_dim` scales with basis (Lehoucq & Sorensen §3.2); WFRX warm-start wired on Iterative path. Si ecut=100 Dense↔Iterative |ΔE|=4.52e-12 eV (pre-fix 0.77 eV); all 4 single-shot tests pass at 1e-10 eV on Si/Fe/Cu. Default-flip blocked on Phase-5 step-4 end-to-end SCF wall bench (PR #140) |
+| GRM6 | Consolidate TYPB + TYPE-AX into one integer-type cleanup; archive merged CLSS + HKIN (PR #125) |
+| GRM7 | Fold ITEVF findings into ITEV; fix CLAUDE.md perf claim + DEAD drive-by (PR #128) |
+| GRM8 | Vendor faer v0.24.0 + MAX_REORTH `iterate_lanczos` fix; wire `[patch.crates-io]` at `./faer/` (PR #129) |
+| GRM9 | Archive merged proposal files + move ITEV out of Deferred (PR #130) |
+| GRM10 | Archive MIXL/TYPB/ECUT/PROF; refresh ITEV/VGCH/GOPT status (PR #141) |
+| LGB2 | Consolidate logbooks — append 8 pending entries from 46-PR wave (PR #157) |
+| LOGH-2 | Delete 13 redundant `eprintln!` in `src/pseudopotential/**` (PCEP; PR #142) |
+| MOAD-2 | Finish `//!` module headers + fix stale `EigensolverKind` claim (PR #143) |
+| VQEF-QC | Si/Al/C quickchecks — Si E_total flips first GREEN; Al reclassified basis-truncation → VGCH-light; C mixer-stall pinned via Broyden+Kerker (PR #144) |
+| GGAP Phase B | PBE exchange (non-spin) — `pbex` with iflag=1 (PR #145) |
+| VQEF-AL | Regenerate QE Al ref at ecut=24 Ry — reclassified to VGCH light-atom "different converged density" class (PR #146) |
+| ERR2 P1 scoping | InvalidInput variant split plan — 15 sites → 4 variants across P1.a–d (PR #147) |
+| VGCH Phase 1b | β_l(q) projector form factors bit-perfect vs QE (H1 CLEARED; PR #148) |
+| MIXA | Pin Plain-Anderson-stall-on-wide-gap-insulators as negative regression (C diamond, PR #149) |
+| TSPL | Bifurcate test suite — Tier-1 fast default (12s) + Tier-2 `#[ignore]` opt-in (58s); 8× speedup on default `cargo test` (PR #150) |
+| GGAP Phase C | PBE correlation + PW92 helper; wire end-to-end (scaffolded, needs A.1 to run; PR #151) |
+| ERR2 P1.a | Add InvalidCrystal / InvalidParam / UnknownElement / InvalidPseudopotential variants (PR #152) |
+| FLUP G2ZT | Hoist `1e-12` |G|=0 threshold to `consts::G_ZERO_THRESHOLD` (distinct from `G2_ZERO_THRESHOLD` |G|² — avoided silent 10⁶ rescaling; PR #153) |
+| GGAP F-pre | QE PBE reference data for all 8 VQEF systems (PR #154) |
+| GGAP Phase A.1 | Driver-side density gradient FFT + semilocal V_xc assembly — **Si PBE end-to-end 12.4 meV** (PR #155) |
+| VGCH Phase 1c | SAD initial density bit-correct vs QE (H2 CLEARED; PR #156) |
+| GGAP Phase D | Spin-polarized PBE (`pbex` spin-scaling + `pbec_spin`); **Fe BCC FM PBE retains ferromagnetism** (M=2.16 μB vs QE 2.34; residual 1.97 eV VGCH-class; PR #158) |
+| ERR2 P1.b | Migrate CRYSTAL cluster (3 sites) from InvalidInput to InvalidCrystal (PR #159) |
+| VGCH-2 Part A | Per-term energy trace on 7 heavy-atom systems — localizes residual to SCF dynamics not assembly; heavy-atom `|ΔE_1e|/|−ΔE_H|` ∈ [1.2, 2.9] linear-response δρ signature (PR #160) |
+| GGAP Phase F-light | Wire Al/C/Cu/GaAs/NaCl/MgO PBE tests; Si PBE tolerance tightened; **full 16-cell VQEF matrix populated**. MgO PBE 6.5× better than LDA (largest functional-sensitive improvement) (PR #161) |
+| TSEN | Add missing `-TS` smearing contribution to `total_energy` — closes 70-260 meV on every metal; **Al LDA + Al PBE flip GREEN**; Harris-Foulkes gets `-TS` symmetrically (PR #162) |
+| ERR2 P1.c | Migrate PARAM cluster (9 sites); `InvalidInput` catch-all: 12 → 3 remaining (PR #163) |
+| Si E_F diag | Diagnostic: 1.35 eV rigid offset, std 0.6 meV across 8 Si bands — proves pure V_loc(G=0) gauge mismatch; fix scoped for VGCH-SiEF B1 (PR #164) |
+| BSUM | Band-sum identity gate `|Σ w_k f_ik ε_ik|` for all 16 VQEF cells; reveals heavy-atom ratio 1.5-3.3× partial-cancellation; Fe LDA exception at 0.99× (Hamiltonian-side outlier) (PR #165) |
+| VGCH-SiEF-B1 | V_loc(G=0) gauge fix — stop zeroing Hamiltonian diagonal; deleted `with_g0_shift`; closes **Si E_F 1.35 eV → 6.4 meV GREEN** + new C E_F GREEN + Al E_F GREEN; E_total algebraic identity preserved (0.023 meV drift) (PR #166) |
+| VGCH-2 Part B | Cu transplant experiment — **H3 mixer-basin REFUTED** (+16.34 eV gap at shared density on Cu); new leading suspect = Fermi-finder/smearing on dense d-manifold DOS (PR #167) |
+| VGCH-MECH | Mechanism taxonomy — three-class split of remaining VQEF YELLOWs (Class A 8 / Class B 1 / Class C 2); Part B+C can run parallel to Class A (PR #168) |
 
 ## Notes
 
