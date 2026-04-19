@@ -479,8 +479,15 @@ fn non_lda_xc_functional_is_rejected_at_scf_entry() {
     // Each non-LDA variant must return NotImplemented with the expected
     // `what` label. Keep max_iter = 1 so that if the dispatch ever regresses,
     // the test fails loudly instead of hanging an SCF run.
+    //
+    // GGAP Phase B landed the PBE exchange half (see `pbe_exchange` in
+    // `src/potential/xc.rs`), so the Pbe-specific error now surfaces
+    // from inside `XcEvaluator::eval` with the scoped
+    // `what = "pbe_correlation"` marker (Phase C will replace that with
+    // the real implementation). Hybrids still reject at
+    // `XcEvaluator::from_settings` with the original labels.
     for (variant, want_label) in [
-        (XcFunctional::Pbe, "xc_functional 'pbe'"),
+        (XcFunctional::Pbe, "pbe_correlation"),
         (XcFunctional::Pbe0, "xc_functional 'pbe0'"),
         (XcFunctional::Hse06, "xc_functional 'hse06'"),
     ] {
