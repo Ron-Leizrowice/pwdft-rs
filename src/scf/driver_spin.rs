@@ -127,10 +127,14 @@ pub(crate) fn run_scf_spin(
         info!("Fixed magnetization: n_up={n_up:.2}, n_down={n_down:.2}");
     }
 
-    // Initial spin density via SAD with magnetic moments
+    // Initial spin density via SAD with magnetic moments.
+    // CFGN Phase 1: Gaussian width threaded from `ScfParams` (defaults to
+    // `initial_density::DEFAULT_GAUSSIAN_SIGMA` = 1.0 Å when YAML omits
+    // the field). Bit-identical to the pre-CFGN path for all defaulted
+    // inputs.
     let init_config = initial_density::InitialDensityConfig {
         magnetic_moments: per_atom_mag.clone(),
-        gaussian_sigma: None,
+        gaussian_sigma: Some(ctx.params.gaussian_sigma),
     };
     // Generate total density then split
     let rho_total = initial_density::generate_initial_density(
