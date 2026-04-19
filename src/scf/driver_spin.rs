@@ -212,12 +212,20 @@ pub(crate) fn run_scf_spin(
     let mut last_delta = f64::INFINITY;
     let pb = scf_progress_bar(ctx.params.max_iter);
 
-    // WFRX Phase-1 warm-start caches per spin channel. Each closure inside
-    // the `rayon::join` below needs its own &faer::Mat per k-point. We own
+    // Warm-start caches per spin channel. Each closure inside the
+    // `rayon::join` below needs its own &faer::Mat per k-point. We own
     // separate `Vec<Mat>` buffers for up/down; the closures borrow them
-    // immutably, so there's no shared-mut aliasing between the channels.
-    let wfrx_enabled = ctx.params.wfrx_subspace
+    // immutably, so there's no shared-mut aliasing between channels.
+    //
+    // Populated for either Dense+WFRX (Rayleigh–Ritz subspace) or
+    // Iterative (per-channel Arnoldi `v0`). Each channel carries its own
+    // history — a spin-↑ eigenvector is a poor seed for a spin-↓ orbital
+    // under LSDA and vice versa.
+    let wfrx_dense_enabled = ctx.params.wfrx_subspace
         && matches!(ctx.params.eigensolver, EigensolverKind::Dense);
+    let iterative_warmstart_enabled =
+        matches!(ctx.params.eigensolver, EigensolverKind::Iterative);
+    let cache_prev_wavefunctions = wfrx_dense_enabled || iterative_warmstart_enabled;
     let mut prev_wfn_up: Option<Vec<faer::Mat<Complex64>>> = None;
     let mut prev_wfn_down: Option<Vec<faer::Mat<Complex64>>> = None;
 
@@ -296,7 +304,7 @@ pub(crate) fn run_scf_spin(
                         fill_hamiltonian_with_v_eff(h, basis, &kp.k, &v_eff_up, grid_dims);
                         vnl.add_to_hamiltonian(h, crystal, basis, &kp.k);
                         let v_prev_k = prev_wfn_up_ref.map(|wfns| &wfns[ik]);
-                        diagonalize_dispatch(h, n_bands, eigensolver_kind, wfrx_enabled, v_prev_k)
+                        diagonalize_dispatch(h, n_bands, eigensolver_kind, wfrx_dense_enabled, v_prev_k)
                     })
                     .collect()
             },
@@ -310,7 +318,7 @@ pub(crate) fn run_scf_spin(
                         fill_hamiltonian_with_v_eff(h, basis, &kp.k, &v_eff_down, grid_dims);
                         vnl.add_to_hamiltonian(h, crystal, basis, &kp.k);
                         let v_prev_k = prev_wfn_down_ref.map(|wfns| &wfns[ik]);
-                        diagonalize_dispatch(h, n_bands, eigensolver_kind, wfrx_enabled, v_prev_k)
+                        diagonalize_dispatch(h, n_bands, eigensolver_kind, wfrx_dense_enabled, v_prev_k)
                     })
                     .collect()
             },
@@ -327,11 +335,12 @@ pub(crate) fn run_scf_spin(
         let wfn_up: Vec<_> = kpoint_results_up.into_iter().map(|r| r.eigenvectors).collect();
         let wfn_down: Vec<_> = kpoint_results_down.into_iter().map(|r| r.eigenvectors).collect();
 
-        // WFRX: cache both channels' eigenvectors for next iteration's
-        // warm-start. Each channel has its own history — a spin-up
-        // eigenvector is a bad guess for a spin-down orbital and vice
-        // versa under LSDA.
-        if wfrx_enabled {
+        // Cache both channels' eigenvectors for next iteration's
+        // warm-start. Each channel has its own history — a spin-↑
+        // eigenvector is a poor guess for a spin-↓ orbital and vice
+        // versa under LSDA. Populated for either Dense+WFRX or the
+        // Iterative path.
+        if cache_prev_wavefunctions {
             prev_wfn_up = Some(wfn_up.clone());
             prev_wfn_down = Some(wfn_down.clone());
         }

@@ -98,18 +98,33 @@ use super::{ScfParams, ScfResult, context, density, initial_density, mixing, sme
 /// Transparent fallback: if the iterative solver fails to converge
 /// `n_bands` eigenpairs within its restart budget, this helper emits a
 /// `log::warn!` and retries on the dense path. The SCF loop never sees a
-/// convergence-style failure from ITEV — only a genuine panic would
-/// escape, which faer's upstream tests exercise heavily.
+/// convergence-style failure from the iterative path — only a genuine
+/// panic would escape, which faer's upstream tests exercise heavily.
 ///
-/// When `wfrx_subspace == true` and `kind == Dense`, the dense path uses
-/// [`dense::diagonalize_subspace`] with the caller-supplied `v_prev`
-/// warm-start subspace (typically the previous SCF iteration's
-/// eigenvectors at the same k-point). On the first iteration (`v_prev ==
-/// None`) and whenever the per-eigenpair residual gate trips, the
-/// subspace path internally falls back to [`dense::diagonalize_lowest`]
-/// so correctness is never sacrificed. The flag is ignored for
-/// `kind == Iterative` (the iterative path owns its own warm-start via
-/// `v0`).
+/// ## Warm-start semantics
+///
+/// Both backends consume the caller-supplied `v_prev` (typically the
+/// previous SCF iteration's eigenvectors at the same k-point), but on
+/// different algorithmic paths:
+///
+/// - **Dense** with `wfrx_subspace == true` uses
+///   [`dense::diagonalize_subspace`] — Rayleigh–Ritz projection onto the
+///   subspace spanned by the columns of `v_prev`, with an accuracy-gate
+///   fallback to [`dense::diagonalize_lowest`] if the subspace is not
+///   close enough to invariant. With `wfrx_subspace == false`, `v_prev`
+///   is ignored.
+/// - **Iterative** passes the first column of `v_prev` as the starting
+///   vector `v0` of faer's Arnoldi iteration. Without this, the cold
+///   deterministic seed produces a *different* Krylov subspace on each
+///   SCF iteration and drives the SCF to a different fixed point than
+///   Dense (measured: 0.77 eV on Si at n_pw = 89). With the warm start,
+///   the Krylov subspace is biased toward the previous iteration's
+///   ground-state orbital and converges on the same fixed point as the
+///   Dense path to SCF tolerance.
+///
+/// On the first iteration (`v_prev == None`) the iterative path uses its
+/// deterministic internal seed; see
+/// [`iterative::diagonalize_lowest_iterative`].
 pub(super) fn diagonalize_dispatch(
     h: &faer::Mat<Complex64>,
     n_bands: usize,
@@ -126,10 +141,37 @@ pub(super) fn diagonalize_dispatch(
             }
         }
         EigensolverKind::Iterative => {
+            // Thread the previous iteration's first-column eigenvector
+            // through as the Arnoldi starting vector. Building the Vec
+            // here (rather than a ColRef) keeps the iterative API's
+            // slice signature clean; this is a small copy (O(n_pw))
+            // next to the O(n_pw² · max_dim) Arnoldi work.
+            let v0_owned: Option<Vec<Complex64>> = v_prev.and_then(|vp| {
+                if vp.nrows() == h.nrows() && vp.ncols() >= 1 {
+                    let n = vp.nrows();
+                    let mut col = Vec::with_capacity(n);
+                    for row in 0..n {
+                        col.push(vp[(row, 0)]);
+                    }
+                    Some(col)
+                } else {
+                    None
+                }
+            });
+            if v0_owned.is_some() {
+                log::debug!(
+                    "iterative eigensolver: using WFRX warm-start v0 (n_bands={n_bands})"
+                );
+            } else {
+                log::debug!(
+                    "iterative eigensolver: cold start (no prev_eigvecs; n_bands={n_bands})"
+                );
+            }
+            let v0_slice = v0_owned.as_deref();
             match iterative::diagonalize_lowest_iterative(
                 h,
                 n_bands,
-                None,
+                v0_slice,
                 iterative::DEFAULT_TOL,
             ) {
                 Ok(r) => Ok(r),
@@ -294,18 +336,30 @@ pub(crate) fn run_scf_unpolarized(
     let mut last_delta = f64::INFINITY;
     let pb = scf_progress_bar(ctx.params.max_iter);
 
-    // WFRX Phase-1 warm-start cache: previous iteration's eigenvectors per
-    // k-point, used as a Rayleigh–Ritz subspace for the next solve. `None`
-    // on the first iteration → full diag. Populated with length
+    // Warm-start cache: previous iteration's eigenvectors per k-point.
+    // `None` on the first iteration → cold start. Populated with length
     // `ctx.kpoints.len()` after each successful eigensolve pass; indexed
     // by `ik` inside the rayon k-point loop so each closure captures its
     // own `&faer::Mat` reference (no shared-mut aliasing).
     //
-    // Enabled only when the user opts in via `ScfParams::wfrx_subspace`
-    // AND the dense backend is selected; otherwise the cache is never
-    // populated and `diagonalize_dispatch` receives `None`.
-    let wfrx_enabled = ctx.params.wfrx_subspace
+    // Two backends consume this cache on distinct algorithmic paths:
+    //
+    // - **Dense + `wfrx_subspace`** (the original WFRX Phase-1 path):
+    //   Rayleigh–Ritz projection onto the previous iteration's subspace,
+    //   with residual-gate fallback to full diag.
+    // - **Iterative**: the first column of `prev_wavefunctions[ik]`
+    //   becomes the Arnoldi starting vector `v0`. Without this, cold
+    //   Arnoldi finds a different SCF fixed point than Dense (measured
+    //   0.77 eV on Si at n_pw = 89 before this was wired).
+    //
+    // The cache is populated whenever *either* consumer is active. The
+    // allocation is per-eigensolve clone; at n_pw = 725, n_bands = 8
+    // that is ≈ 90 KiB per k-point, negligible next to the eigensolve.
+    let wfrx_dense_enabled = ctx.params.wfrx_subspace
         && matches!(ctx.params.eigensolver, EigensolverKind::Dense);
+    let iterative_warmstart_enabled =
+        matches!(ctx.params.eigensolver, EigensolverKind::Iterative);
+    let cache_prev_wavefunctions = wfrx_dense_enabled || iterative_warmstart_enabled;
     let mut prev_wavefunctions: Option<Vec<faer::Mat<Complex64>>> = None;
 
     for iter in 0..ctx.params.max_iter {
@@ -401,7 +455,7 @@ pub(crate) fn run_scf_unpolarized(
                     h,
                     n_bands,
                     eigensolver_kind,
-                    wfrx_enabled,
+                    wfrx_dense_enabled,
                     v_prev_k,
                 )
             })
@@ -411,12 +465,13 @@ pub(crate) fn run_scf_unpolarized(
         eigenvalues_all = kpoint_results.iter().map(|r| r.eigenvalues.clone()).collect();
         let all_kpoint_wavefns: Vec<_> = kpoint_results.into_iter().map(|r| r.eigenvectors).collect();
 
-        // WFRX: cache this iteration's eigenvectors for next iteration's
-        // warm-start. Only populated when WFRX is enabled, so the clone
-        // cost is paid only by users who opt in. `clone()` is a deep copy
-        // of the faer matrix; at `n_pw = 725, n_bands = 8` this is
-        // ~90 KiB per k-point — negligible next to the eigensolve.
-        if wfrx_enabled {
+        // Populate the warm-start cache for the next iteration. Enabled
+        // for either Dense+WFRX (Rayleigh–Ritz subspace) or Iterative
+        // (Arnoldi `v0`); the `.clone()` is a deep copy of each per-k
+        // faer matrix (~90 KiB at n_pw = 725, n_bands = 8 — negligible
+        // next to the eigensolve). The cost is paid only when warm-start
+        // is active.
+        if cache_prev_wavefunctions {
             prev_wavefunctions = Some(all_kpoint_wavefns.clone());
         }
 
