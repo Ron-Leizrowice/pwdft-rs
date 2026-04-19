@@ -16,10 +16,28 @@ supersedes: [DVSN]
 > faer's built-in Krylov-subspace iterative eigensolver, which computes only
 > the lowest `n_bands` eigenpairs. Composable with WFRX warm-start.
 
-## Status (2026-04-19, post-ITEVF vendor + validate)
+## Status (2026-04-19, post-ITEV2)
 
-The original ITEV integration is **code-complete but off-by-default and
-correctness-blocked**:
+The original ITEV integration is **code-complete, correctness-validated,
+and off-by-default pending a single remaining bench step**:
+
+- **Both correctness defects are closed** as of ITEV2 #140. Adaptive
+  `krylov_max_dim = max(128, max(2·n_request, n_pw/2))` scales with
+  basis per Lehoucq & Sorensen §3.2; WFRX warm-start now wires through
+  `diagonalize_dispatch` on the Iterative path. Si ecut=100 (n_pw=89)
+  Dense ↔ Iterative total-energy agreement: **|ΔE| = 4.52e-12 eV**
+  (pre-fix: 0.77 eV). Single-shot at n_pw ∈ {259, 725} on Si / Fe BCC
+  FM / Cu FCC all pass the 1e-10 eV band-agreement gate.
+- **Remaining acceptance gate**: Phase-5 step-4 — end-to-end SCF
+  wall-time bench at n_pw ∈ {89, 259, 725} with WFRX warm-start
+  active. Default flips only if Iterative wins ≥ 10 % wall at n_pw=725
+  *and* loses ≤ 10 % at n_pw=89. Historical note: earlier "historical"
+  section below is preserved for context.
+
+## Historical status (2026-04-19, post-ITEVF vendor + validate, pre-ITEV2)
+
+Left here for context. The original ITEV integration was
+**code-complete but off-by-default and correctness-blocked**:
 
 - `EigensolverKind::Iterative` is wired end-to-end (`src/eigensolver/iterative.rs`,
   `src/scf/driver.rs` dispatch, YAML `scf.eigensolver: iterative`).

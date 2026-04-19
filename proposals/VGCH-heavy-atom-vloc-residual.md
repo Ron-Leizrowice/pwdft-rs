@@ -1,7 +1,7 @@
 ---
 id: VGCH
 title: Heavy-atom V_local(G) residual — post-VGCMP continuation
-status: draft
+status: active
 priority: high
 complexity: medium-large
 risk: medium
@@ -11,6 +11,48 @@ owner: researcher
 ---
 
 # VGCH — Heavy-atom V_local(G) residual (post-VGCMP continuation)
+
+## Status (2026-04-19, post-Phase-1a)
+
+Phase 1a diagnostic landed as **PR #139**. Key empirical findings on
+Cu and Fe heavy-atom per-component audit:
+
+- **One-electron sum: +37 eV too high** (on Cu).
+- **Hartree: −24.6 eV too low** (on Cu).
+- These partially cancel to the net +17 eV Cu residual.
+- Signature: **SCF converges to a different density**, not a
+  form-factor bug.
+
+**Ruled out by Phase 1a:**
+
+- V_local(G=0) Z-scaling — Python reference in
+  `scripts/validate/vgch_vloc_heavy.py` matches Rust `v_local_of_g(0, Ω)`
+  to all printed digits on every heavy-atom PP.
+- Ewald Z² scaling — `test_fe_bcc_ewald_vs_qe` stays green at <0.01 eV;
+  Cu Ewald Δ = 3·10⁻⁵ eV.
+
+**Phase 1b scope (remaining work, ~1 CE-week):**
+
+Investigate three hypotheses in order of prior probability:
+
+1. **Non-local β_q projector form factors** on heavy species. If the
+   pwdft-rs `radial_fourier_beta` handles semicore states or large-l
+   projectors differently than QE's `init_us_1.f90`, the non-local
+   projection would systematically shift the one-electron sum. Cross-
+   check β_l(q) on Fe / Cu at production ecut.
+2. **Initial density (SAD) for heavy atoms with semicore states.**
+   If SAD mis-represents the semicore density, the SCF may converge
+   to a density basin that QE avoids (QE initializes from atomic
+   orbitals via `starting_wfc`). Test: initialize pwdft-rs from a
+   density that matches QE's first-iteration density exactly and see
+   if subsequent iters converge.
+3. **Mixer basin / multi-basin SCF.** If defect (2) isn't the cause,
+   the mixer might be stabilizing a different local minimum of the
+   energy functional. Harder to diagnose cleanly; requires comparing
+   occupation numbers and eigenvectors at each iter against QE's.
+
+Phase 1a's `tests/vgch_per_component_heavy.rs` is the reusable
+harness. Each hypothesis adds one arm to that test.
 
 ## TL;DR
 
