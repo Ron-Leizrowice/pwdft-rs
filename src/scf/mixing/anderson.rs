@@ -42,9 +42,23 @@ pub(crate) struct AndersonMixer {
     /// Precomputed Kerker weights P(G) for each FFT grid point.
     /// None if plain mixing.
     kerker_weights: Option<Vec<f64>>,
+    /// Thomas-Fermi screening wavevector q_TF (Å⁻¹) used to build
+    /// `kerker_weights`. Retained for introspection / logging; `None` for plain.
+    pub(super) kerker_q_tf: Option<KerkerQtf>,
     /// Residual-norm monitor for adaptive β (Eyert 1996 §3.3). When
     /// constructed with `adaptive_beta = false` this is a no-op shim.
     adaptive: AdaptiveBeta,
+}
+
+/// Chosen Thomas-Fermi screening wavevector for a Kerker-preconditioned mixer,
+/// together with how it was picked. Plain-mixing mixers store `None` instead.
+#[derive(Copy, Clone, Debug)]
+pub(super) struct KerkerQtf {
+    /// q_TF in Å⁻¹.
+    pub q_tf: f64,
+    /// `true` if the user supplied `q_tf` explicitly in YAML; `false` if the
+    /// value came from the Thomas-Fermi auto-estimator.
+    pub user_supplied: bool,
 }
 
 impl AndersonMixer {
@@ -58,8 +72,8 @@ impl AndersonMixer {
         kerker_setup: KerkerSetup<'_>,
         adaptive_beta: bool,
     ) -> Self {
-        let kerker_weights = match mode {
-            MixingMode::Plain => None,
+        let (kerker_weights, kerker_q_tf) = match mode {
+            MixingMode::Plain => (None, None),
             MixingMode::Kerker { q_tf } => {
                 // SAFETY: Callers must pass g_squared when using Kerker mode.
                 // AndersonMixer::new is called from ScfContext which always provides
@@ -67,9 +81,31 @@ impl AndersonMixer {
                 let g2 = kerker_setup
                     .g_squared
                     .expect("BUG: Kerker mode requires g_squared to be provided by caller");
-                let q_tf_sq = match q_tf {
-                    Some(q) => q * q,
-                    None => auto_q_tf_squared(kerker_setup.n_electrons, kerker_setup.omega),
+                let (q_tf_sq, q_tf_record) = match q_tf {
+                    Some(q) => (q * q, KerkerQtf {
+                        q_tf: *q,
+                        user_supplied: true,
+                    }),
+                    None => {
+                        let q_tf_sq =
+                            auto_q_tf_squared(kerker_setup.n_electrons, kerker_setup.omega);
+                        let q_tf_est = q_tf_sq.sqrt();
+                        // Auto-estimate surfaces on the SCF log — helpful for
+                        // debugging convergence on cells with unusual
+                        // valence density (vacuum, low-Z, dense unit cells).
+                        log::info!(
+                            "Kerker auto q_TF = {q_tf_est:.3} Å⁻¹ \
+                             (n_e={n_e:.3}, Ω={omega:.3} Å³, \
+                             ρ_avg={rho:.4} e/Å³)",
+                            n_e = kerker_setup.n_electrons,
+                            omega = kerker_setup.omega,
+                            rho = kerker_setup.n_electrons / kerker_setup.omega,
+                        );
+                        (q_tf_sq, KerkerQtf {
+                            q_tf: q_tf_est,
+                            user_supplied: false,
+                        })
+                    }
                 };
                 let weights: Vec<f64> = g2
                     .iter()
@@ -81,7 +117,7 @@ impl AndersonMixer {
                         }
                     })
                     .collect();
-                Some(weights)
+                (Some(weights), Some(q_tf_record))
             }
             MixingMode::Broyden { .. } | MixingMode::PeriodicPulay { .. } => {
                 unreachable!(
@@ -97,6 +133,7 @@ impl AndersonMixer {
             history_in: Vec::new(),
             history_res: Vec::new(),
             kerker_weights,
+            kerker_q_tf,
             adaptive: AdaptiveBeta::new(adaptive_beta, beta),
         }
     }
@@ -153,8 +190,14 @@ impl AndersonMixer {
         self.history_in.push(rho_in_arr.to_owned());
         self.history_res.push(residual);
 
-        // Trim history (oldest first)
+        // Trim history (oldest first). Fires every iteration once the buffer
+        // is full, so debug! (not info!) — surfaces under
+        // `RUST_LOG=pwdft_rs::scf::mixing=debug`.
         if self.history_in.len() > self.max_history {
+            log::debug!(
+                "DIIS history at capacity (max_history={max}); dropping oldest residual",
+                max = self.max_history,
+            );
             self.history_in.remove(0);
             self.history_res.remove(0);
         }
@@ -298,6 +341,12 @@ impl PeriodicPulayMixer {
     #[must_use]
     pub(super) fn current_beta(&self) -> f64 {
         self.anderson.current_beta()
+    }
+
+    /// Forward the inner Anderson mixer's q_TF record (for `Mixer::log_init`).
+    #[must_use]
+    pub(super) fn kerker_q_tf(&self) -> Option<KerkerQtf> {
+        self.anderson.kerker_q_tf
     }
 
     /// Mix input density with output density using Periodic Pulay.

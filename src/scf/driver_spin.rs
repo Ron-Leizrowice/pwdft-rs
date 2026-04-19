@@ -191,6 +191,22 @@ pub(crate) fn run_scf_spin(
         ctx.params.mixing_beta, ctx.params.mixing_ndim, &mag_mixing_mode,
         Some(&ctx.g_squared), ctx.n_electrons, ctx.omega, ctx.params.adaptive_beta,
     );
+    // Two info! lines for the two CCMX channels. Tags distinguish
+    // "charge" (ρ_total) from "mag" (m = ρ↑ − ρ↓). Kerker is disabled on
+    // the magnetization channel per the CCMX note above, which will surface
+    // as `kerker=off` in the mag line even if the user requested Kerker.
+    mixer_total.log_init(
+        &ctx.params.mixing_mode,
+        ctx.params.mixing_ndim,
+        ctx.params.adaptive_beta,
+        "charge",
+    );
+    mixer_mag.log_init(
+        &mag_mixing_mode,
+        ctx.params.mixing_ndim,
+        ctx.params.adaptive_beta,
+        "mag",
+    );
 
     let mut e_prev: Option<f64> = None;
     let mut last_delta = f64::INFINITY;

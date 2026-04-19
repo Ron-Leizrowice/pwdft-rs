@@ -149,13 +149,33 @@ impl AdaptiveBeta {
         if ratio > self.growth_threshold {
             // Residual grew — damp β toward β_min.
             self.restore_streak = 0;
-            (current_beta * self.damp_factor).max(self.beta_min)
+            let new_beta = (current_beta * self.damp_factor).max(self.beta_min);
+            if (new_beta - current_beta).abs() > f64::EPSILON * current_beta.max(1.0) {
+                // debug! (not info!) because under adverse conditions this
+                // fires every iteration; the per-iteration β line already
+                // surfaces the running value.
+                log::debug!(
+                    "AdaptiveBeta: damp β {current_beta:.4} → {new_beta:.4} \
+                     (residual ratio {ratio:.3} > growth {growth:.3})",
+                    growth = self.growth_threshold,
+                );
+            }
+            new_beta
         } else if ratio < self.restore_threshold {
             self.restore_streak += 1;
             if self.restore_streak >= self.restore_window {
                 // Sustained strong decrease — restore β toward β_start.
+                let window = self.restore_streak;
                 self.restore_streak = 0;
-                (current_beta / self.damp_factor).min(self.beta_start)
+                let new_beta = (current_beta / self.damp_factor).min(self.beta_start);
+                if (new_beta - current_beta).abs() > f64::EPSILON * current_beta.max(1.0) {
+                    log::debug!(
+                        "AdaptiveBeta: restore β {current_beta:.4} → {new_beta:.4} \
+                         (after {window} consecutive ratios < restore {restore:.3})",
+                        restore = self.restore_threshold,
+                    );
+                }
+                new_beta
             } else {
                 current_beta
             }
@@ -283,6 +303,88 @@ impl Mixer {
             Mixer::Anderson(m) => m.current_beta(),
             Mixer::Broyden(m) => m.current_beta(),
             Mixer::PeriodicPulay(m) => m.current_beta(),
+        }
+    }
+
+    /// The chosen Thomas-Fermi q_TF and how it was picked, when Kerker
+    /// preconditioning is active. Plain mixers return `None`.
+    fn kerker_q_tf(&self) -> Option<anderson::KerkerQtf> {
+        match self {
+            Mixer::Anderson(m) => m.kerker_q_tf,
+            Mixer::Broyden(m) => m.kerker_q_tf,
+            Mixer::PeriodicPulay(m) => m.kerker_q_tf(),
+        }
+    }
+
+    /// Emit a single `info!` line describing this mixer's active
+    /// configuration: algorithm, β, history depth, adaptive-β flag, and
+    /// Kerker status (with q_TF). Call once, at SCF start, after the mixer
+    /// is constructed. Callers may pass a short `tag` (e.g. `"charge"` /
+    /// `"magnetization"`) to distinguish the two mixers of the spin driver
+    /// in the log; empty string for a single-channel run.
+    pub(crate) fn log_init(
+        &self,
+        mode: &MixingMode,
+        max_history: usize,
+        adaptive: bool,
+        tag: &str,
+    ) {
+        let prefix = if tag.is_empty() {
+            "Mixer".to_string()
+        } else {
+            format!("Mixer[{tag}]")
+        };
+        log::info!(
+            "{prefix}: {algo}  β={beta:.3}  history={hist}  adaptive_β={adaptive_flag}  \
+             kerker={kerker}",
+            algo = mode_label(mode),
+            beta = self.current_beta(),
+            hist = max_history,
+            adaptive_flag = if adaptive { "on" } else { "off" },
+            kerker = kerker_summary(self.kerker_q_tf(), mode_wants_kerker(mode)),
+        );
+    }
+}
+
+/// One-line `info!` label for a mixing mode. Owned String so PeriodicPulay
+/// can carry its `period`; short &'static str round-trip via `Cow` would
+/// complicate the format call site for no real win.
+fn mode_label(mode: &MixingMode) -> String {
+    match mode {
+        MixingMode::Plain => "Anderson".to_string(),
+        MixingMode::Kerker { .. } => "Anderson + Kerker".to_string(),
+        MixingMode::Broyden { kerker: false } => "Broyden".to_string(),
+        MixingMode::Broyden { kerker: true } => "Broyden + Kerker".to_string(),
+        MixingMode::PeriodicPulay { period, kerker: false } => {
+            format!("PeriodicPulay(k={period})")
+        }
+        MixingMode::PeriodicPulay { period, kerker: true } => {
+            format!("PeriodicPulay(k={period}) + Kerker")
+        }
+    }
+}
+
+/// Does this mode request Kerker preconditioning?
+fn mode_wants_kerker(mode: &MixingMode) -> bool {
+    matches!(
+        mode,
+        MixingMode::Kerker { .. }
+            | MixingMode::Broyden { kerker: true }
+            | MixingMode::PeriodicPulay { kerker: true, .. }
+    )
+}
+
+/// Short summary of the Kerker status for [`Mixer::log_init`]. When Kerker
+/// was requested by the mode but the mixer reports no q_TF, we still log
+/// `on (q_TF=?)` instead of silently falling back to "off" — that would
+/// hide a configuration bug.
+fn kerker_summary(q_tf: Option<anderson::KerkerQtf>, wants: bool) -> String {
+    match (q_tf, wants) {
+        (None, false) => "off".to_string(),
+        (None, true) => "on (q_TF=?)".to_string(),
+        (Some(k), _) => {
+            let origin = if k.user_supplied { "user" } else { "auto" };
+            format!("on (q_TF={origin}, {q:.3} Å⁻¹)", q = k.q_tf)
         }
     }
 }

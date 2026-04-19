@@ -4,6 +4,7 @@ use crate::fft::FFT3D;
 
 use super::AdaptiveBeta;
 use super::KerkerSetup;
+use super::anderson::KerkerQtf;
 use super::kerker::{auto_q_tf_squared, precondition_residual};
 use super::linalg::solve_linear_system;
 
@@ -39,6 +40,12 @@ pub(crate) struct BroydenMixer {
     /// Precomputed Kerker weights P(G) for each FFT grid point.
     /// None if no Kerker preconditioning.
     kerker_weights: Option<Vec<f64>>,
+    /// Thomas-Fermi screening wavevector q_TF (Å⁻¹) used to build
+    /// `kerker_weights`. Retained for introspection / logging; `None` when
+    /// Kerker is off. Broyden always auto-estimates (no user-supplied value
+    /// is threaded through `MixingMode::Broyden`), so `user_supplied` is
+    /// always `false` when this is `Some`.
+    pub(super) kerker_q_tf: Option<KerkerQtf>,
     /// Residual-norm monitor for adaptive β (Eyert 1996 §3.3).
     adaptive: AdaptiveBeta,
 }
@@ -60,11 +67,21 @@ impl BroydenMixer {
         kerker_setup: KerkerSetup<'_>,
         adaptive_beta: bool,
     ) -> Self {
-        let kerker_weights = if kerker {
+        let (kerker_weights, kerker_q_tf) = if kerker {
             let g2 = kerker_setup
                 .g_squared
                 .expect("BUG: Broyden+Kerker mode requires g_squared");
             let q_tf_sq = auto_q_tf_squared(kerker_setup.n_electrons, kerker_setup.omega);
+            let q_tf_est = q_tf_sq.sqrt();
+            // Broyden+Kerker always auto-estimates q_TF; surface it.
+            log::info!(
+                "Kerker auto q_TF = {q_tf_est:.3} Å⁻¹ \
+                 (n_e={n_e:.3}, Ω={omega:.3} Å³, \
+                 ρ_avg={rho:.4} e/Å³)",
+                n_e = kerker_setup.n_electrons,
+                omega = kerker_setup.omega,
+                rho = kerker_setup.n_electrons / kerker_setup.omega,
+            );
             let weights: Vec<f64> = g2
                 .iter()
                 .map(|&g2_val| {
@@ -75,9 +92,15 @@ impl BroydenMixer {
                     }
                 })
                 .collect();
-            Some(weights)
+            (
+                Some(weights),
+                Some(KerkerQtf {
+                    q_tf: q_tf_est,
+                    user_supplied: false,
+                }),
+            )
         } else {
-            None
+            (None, None)
         };
 
         Self {
@@ -88,6 +111,7 @@ impl BroydenMixer {
             prev_rho_in: None,
             prev_residual: None,
             kerker_weights,
+            kerker_q_tf,
             adaptive: AdaptiveBeta::new(adaptive_beta, beta),
         }
     }
@@ -142,8 +166,15 @@ impl BroydenMixer {
             self.history_dv.push(dv);
             self.history_df.push(df);
 
-            // Trim history to max_history (remove oldest)
+            // Trim history to max_history (remove oldest). Fires every
+            // iteration once the buffer is full, so debug! — surfaces under
+            // `RUST_LOG=pwdft_rs::scf::mixing=debug`.
             if self.history_dv.len() > self.max_history {
+                log::debug!(
+                    "Broyden history at capacity (max_history={max}); \
+                     dropping oldest (dv, df) pair",
+                    max = self.max_history,
+                );
                 self.history_dv.remove(0);
                 self.history_df.remove(0);
             }
