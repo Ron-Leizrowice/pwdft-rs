@@ -567,27 +567,34 @@ DWGT as mandatory and forbids `#[allow]` on rustdoc warnings. ERR2 P0
 recipe to the env-var form; current cargo rejects `-D warnings` passed
 after `--`.)
 
-### TYPE-AX — Decide on TYPE-A narrowing `expect` sites in ERR2 P1
+### ~~TYPE-AX — Decide on TYPE-A narrowing `expect` sites~~ (folded into TYPB, 2026-04-19)
 
-- **Role:** Core Engineer (ERR2 P1 owner)
-- **Priority:** low, **Complexity:** trivial (decision + either `reason`
-  comments or Result-returning refactor), **Risk:** low
-- **Source:** ERR2 P0 post-landing signal (PR #86); five new
+Consolidated into `proposals/TYPB-narrow-int-audit.md` as Part C (the four
+`i8` rotation-entry sites gain `reason = "..."` citing the crystallographic
+bound) and Part A (the `src/basis.rs:65` Miller `i16` `expect` is auto-closed
+by reverting the narrowing). The single integer-type cleanup PR now takes all
+five sites in one sweep rather than splitting the decision across TYPB +
+ERR2-P1. History of the original entry preserved below.
+
+~~- **Role:** Core Engineer (ERR2 P1 owner)~~
+~~- **Priority:** low, **Complexity:** trivial (decision + either `reason`
+  comments or Result-returning refactor), **Risk:** low~~
+~~- **Source:** ERR2 P0 post-landing signal (PR #86); five new
   `.expect(...)` sites introduced by TYPE-A (PR #80) when narrowing
-  `i32 → i8` rotation entries and `i32 → i16` Miller indices.
+  `i32 → i8` rotation entries and `i32 → i16` Miller indices.~~
 
-The TYPE-A narrowing introduced five `expect` call sites guarded by
-`try_from`:
+~~The TYPE-A narrowing introduced five `expect` call sites guarded by
+`try_from`:~~
 
-- `src/basis.rs:65` — `i16::try_from(n).expect(...)` on Miller indices.
+- ~~`src/basis.rs:65` — `i16::try_from(n).expect(...)` on Miller indices.
   Comment (line 60) asserts "infallible under physically meaningful
-  `ecut`".
-- `src/symmetry/operations.rs:71` — `i8::try_from(v).expect("SymmOp::from_flat: rotation entry out of i8 range")`.
-- `src/symmetry/operations.rs:120` — `i8::try_from(v).expect("SymmOp::inverse: adjugate entry out of i8 range")`.
-- `src/symmetry/operations.rs:151` — `i8::try_from(v).expect("SymmOp::compose: product entry out of i8 range")`.
-- `src/symmetry/detect.rs:185` — `i8::try_from(v).expect("symmetry::detect: rotation entry exceeds i8 range")`.
+  `ecut`".~~
+- ~~`src/symmetry/operations.rs:71` — `i8::try_from(v).expect("SymmOp::from_flat: rotation entry out of i8 range")`.~~
+- ~~`src/symmetry/operations.rs:120` — `i8::try_from(v).expect("SymmOp::inverse: adjugate entry out of i8 range")`.~~
+- ~~`src/symmetry/operations.rs:151` — `i8::try_from(v).expect("SymmOp::compose: product entry out of i8 range")`.~~
+- ~~`src/symmetry/detect.rs:185` — `i8::try_from(v).expect("symmetry::detect: rotation entry exceeds i8 range")`.~~
 
-ERR2 P0 intentionally left all 15+ production `expect` sites as warnings
+~~ERR2 P0 intentionally left all 15+ production `expect` sites as warnings
 rather than fixing them; P1 is where each site gets decided. For TYPE-A's
 five sites the bound is structural (crystallographic rotation entries are
 in {-2..2}, Miller indices are bounded by `sqrt(ecut / HBAR2_OVER_2M)`),
@@ -595,13 +602,13 @@ so these are candidate "legitimate invariant, add `reason = "..."` and
 move on" — **not** candidates for Result propagation. P1 should either
 (a) add a `reason` comment citing the bound, matching the `BUG:` pattern
 established by ERRH + FGRD, or (b) if treating them as user-reachable,
-convert to `PwdftError::InvalidParam`. Option (a) is the sane default.
+convert to `PwdftError::InvalidParam`. Option (a) is the sane default.~~
 
-**Acceptance criterion:** each of the five sites either carries a
+~~**Acceptance criterion:** each of the five sites either carries a
 `reason = "..."` comment referencing the structural bound, or its
 enclosing function returns `Result<_, PwdftError>`. No bare `expect`
 remains in the narrowing path. Does not need its own proposal — fold
-into ERR2 P1 when that starts.
+into ERR2 P1 when that starts.~~
 
 ## What this is NOT
 

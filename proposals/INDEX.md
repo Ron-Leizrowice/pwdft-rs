@@ -64,12 +64,10 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| CLSS | `cast_lossless` + Doc Hygiene | small | low | — | — |
-| HKIN | Drop unused `Option<&dyn Fn>` V_eff param from `build_hamiltonian` + `compute_band_structure` (zero `Some` call sites) | trivial | low | — | — |
 | LOGH | Logging hygiene — `eprintln!` cleanup (MELG main.rs SCF summary → `info!`; TXEP+PCEP delete 16 test debug prints) | trivial | low | — | — |
 | XCTH | Remove `XC_PARALLEL_THRESHOLD`; always use rayon in `lda_xc_grid` / `lda_xc_spin_grid` (consistency with rest of engine; SCF impact <5 ms over 30 iters) | trivial | low | — | — |
 | ELMN | Trim `src/atoms.rs` to `pub use mendeleev::Element;` — delete `from_symbol`/`from_z` wrappers (6-line shims over mendeleev's native API) | trivial | low | — | — |
-| TYPB | Narrow-int audit — revert premature i16 Miller-index narrowing; switch `fft_grid_size` from `i32` + runtime sign-assert to `u32`; sweep remaining cast suppressions | small | low | — | — |
+| TYPB | Integer type cleanup — revert premature i16 Miller-index narrowing (kills 1 of 5 PR #80 `expect` sites); `fft_grid_size` `i32` + runtime sign-assert → `u32`; annotate 4 remaining i8 rotation-entry `expect` sites with structural-bound `reason` (absorbs former TYPE-AX FLUP entry); sweep remaining cast suppressions | small | low | — | — |
 | CFGN | Expose hardcoded numerics as Settings (umbrella; re-scoped 2026-04-19 post-CFGN1: 10 knobs left across Fermi-search/iterative-eigensolver/Ewald/floors; each should land as its own small proposal when a user asks) | medium | low | — | — |
 | CUCL | CubeCL GPU Kernels | large | high | — | — |
 | FLUP | Follow-up backlog — 7 unpromoted items seeded from today's code reviews | small | low | — | — |
