@@ -62,7 +62,7 @@ Values below are quoted verbatim from the `#[ignore]` reason strings in
 |--------|------------------|-------------------------------------------------|-----------------------------------|-----------|-----------------------------------|
 | Si     | 14 / no          | YELLOW — residual ≈0.26 eV                      | SYKP/MPSH                         | RED       | GGAP Phase B+C+F                  |
 | C      | 6 / no           | YELLOW — SCF stalls at Δρ≈4.1e-6 after 80 iters | SYKP/MPSH                         | RED       | GGAP Phase B+C+F                  |
-| Al     | 13 / no          | YELLOW — residual ≈73 meV (tol 50 meV)          | SYKP/MPSH                         | RED       | GGAP Phase B+C+F                  |
+| Al     | 13 / no          | YELLOW — residual ≈75 meV at basis-converged ecut=24 Ry | VGCH light-atom (VQEF-AL, 2026-04-19) | RED       | GGAP Phase B+C+F                  |
 | Fe     | 26 / 3s3p (NLCC) | YELLOW — residual ≈9.5 eV, NM collapse          | VGCMP Phase 5 (+ FM, see §3)      | RED       | GGAP Phase D+F + Fe-FM path       |
 | GaAs   | 31+33 / 3d, 3d   | YELLOW — residual ≈33.6 eV                      | VGCMP Phase 5                     | RED       | GGAP Phase B+C+F + VGCMP Phase 5  |
 | Cu     | 29 / 3s3p3d      | YELLOW — residual ≈16.2 eV                      | VGCMP Phase 5                     | RED       | GGAP Phase C+F + VGCMP Phase 5    |
@@ -76,7 +76,7 @@ Reason strings (verbatim, for unambiguous attribution):
 ```
 Si:    "post-NCFX residual ≈0.26 eV dominated by MP shifted-vs-Γ-centered grid mismatch; see SYKP/MPSH"
 C:     "SYKP: MP shifted-vs-Γ grid mismatch keeps SCF from reaching conv_threshold; pwdft-rs stalls at Δρ ≈ 4.1e-6 after 80 iters (QE converges in 9)"
-Al:    "SYKP: MP shifted-vs-Γ residual ≈73 meV on Al 8×8×8; pwdft-rs E = -64.197 eV, QE = -64.269 eV (tolerance 50 meV)"
+Al:    "VGCH light-atom: Al 74.9 meV residual at basis-converged ecut=24 Ry, 8×8×8 (pwdft -64.2426 eV, QE -64.3174 eV). Basis truncation ruled out as sole cause by VQEF-AL QE regen; same 'different converged density' class as C diamond."
 Fe:    "CCMX fixes convergence (E = -3050.80 eV); ~9.5 eV gap vs QE -3060.16 eV blocked on VGCMP (heavy-atom V_loc)"
 GaAs:  "VGCMP: heavy-atom V_loc residual ≈33.6 eV on GaAs (Z=31+33); pwdft-rs E = -4155.954 eV, QE = -4189.586 eV"
 Cu:    "VGCMP: heavy-atom V_loc residual ≈16.2 eV on Cu (Z=29, 3s/3p/3d semicore); pwdft-rs E = -4837.466 eV, QE = -4853.641 eV"

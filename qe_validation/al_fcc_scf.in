@@ -12,8 +12,8 @@
   celldm(1) = 7.6527
   nat = 1
   ntyp = 1
-  ecutwfc = 15.0
-  ecutrho = 60.0
+  ecutwfc = 24.0
+  ecutrho = 96.0
   occupations = 'smearing'
   smearing = 'fermi-dirac'
   degauss = 0.02
