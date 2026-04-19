@@ -143,7 +143,7 @@ impl ScfParams {
     ///
     /// # Errors
     ///
-    /// Returns [`PwdftError::InvalidInput`] when any of the following is
+    /// Returns [`PwdftError::InvalidParam`] when any of the following is
     /// true:
     /// - `n_bands == 0`
     /// - `conv_threshold <= 0`
@@ -155,48 +155,64 @@ impl ScfParams {
     /// - `gaussian_sigma` is non-finite or non-positive
     pub fn validate(&self) -> Result<()> {
         if self.n_bands == 0 {
-            return Err(PwdftError::InvalidInput("n_bands must be > 0".into()));
+            return Err(PwdftError::InvalidParam {
+                name: "n_bands",
+                reason: "must be > 0".into(),
+            });
         }
         if self.conv_threshold <= 0.0 {
-            return Err(PwdftError::InvalidInput("conv_threshold must be positive".into()));
+            return Err(PwdftError::InvalidParam {
+                name: "conv_threshold",
+                reason: "must be positive".into(),
+            });
         }
         if self.mixing_beta <= 0.0 || self.mixing_beta > 1.0 {
-            return Err(PwdftError::InvalidInput(
-                format!("mixing_beta must be in (0, 1], got {}", self.mixing_beta),
-            ));
+            return Err(PwdftError::InvalidParam {
+                name: "mixing_beta",
+                reason: format!("must be in (0, 1], got {}", self.mixing_beta),
+            });
         }
         if self.smearing_sigma < 0.0 {
-            return Err(PwdftError::InvalidInput("smearing_sigma must be non-negative".into()));
+            return Err(PwdftError::InvalidParam {
+                name: "smearing_sigma",
+                reason: "must be non-negative".into(),
+            });
         }
         if self.ecutrho_ratio < 1 {
-            return Err(PwdftError::InvalidInput(
-                format!("ecutrho_ratio must be >= 1, got {}", self.ecutrho_ratio),
-            ));
+            return Err(PwdftError::InvalidParam {
+                name: "ecutrho_ratio",
+                reason: format!("must be >= 1, got {}", self.ecutrho_ratio),
+            });
         }
         if self.nspin != 1 && self.nspin != 2 {
-            return Err(PwdftError::InvalidInput(
-                format!("nspin must be 1 or 2, got {}", self.nspin),
-            ));
+            return Err(PwdftError::InvalidParam {
+                name: "nspin",
+                reason: format!("must be 1 or 2, got {}", self.nspin),
+            });
         }
         // Periodic Pulay: period k must be >= 1, else PeriodicPulayMixer::new
-        // would panic (`period >= 1` assertion). Surface this as InvalidInput
+        // would panic (`period >= 1` assertion). Surface this as InvalidParam
         // so YAML parsing / programmatic callers get a structured error.
         if let mixing::MixingMode::PeriodicPulay { period, .. } = self.mixing_mode
             && period == 0
         {
-            return Err(PwdftError::InvalidInput(
-                "pulay_period must be >= 1 for PeriodicPulay mixing".into(),
-            ));
+            return Err(PwdftError::InvalidParam {
+                name: "pulay_period",
+                reason: "must be >= 1 for PeriodicPulay mixing".into(),
+            });
         }
         // Gaussian sigma for the SAD initial density (CFGN Phase 1) must be
         // positive and finite. A NaN or non-positive value would propagate
         // into `exp(-|G|^2 * sigma^2 / 2)` and poison the entire starting
         // density.
         if !self.gaussian_sigma.is_finite() || self.gaussian_sigma <= 0.0 {
-            return Err(PwdftError::InvalidInput(format!(
-                "gaussian_sigma must be positive and finite, got {}",
-                self.gaussian_sigma
-            )));
+            return Err(PwdftError::InvalidParam {
+                name: "gaussian_sigma",
+                reason: format!(
+                    "must be positive and finite, got {}",
+                    self.gaussian_sigma
+                ),
+            });
         }
         Ok(())
     }
@@ -307,9 +323,9 @@ pub struct ScfResult {
 ///
 /// # Errors
 ///
-/// - `PwdftError::InvalidParam` / `PwdftError::InvalidInput` if
-///   [`ScfParams::validate`] rejects the params (see that method's own
-///   `# Errors` section for the per-field variant map).
+/// - `PwdftError::InvalidParam` if [`ScfParams::validate`] rejects the
+///   params (see that method's own `# Errors` section for the per-field
+///   variant map).
 /// - `PwdftError::InvalidCrystal` if `crystal.atoms` is empty, if
 ///   `kpoints` is empty, or if the lattice volume is effectively zero
 ///   (< 1e-10 ų).
@@ -379,9 +395,10 @@ mod tests {
     #[test]
     fn validate_rejects_zero_pulay_period() {
         // Nit from PR #39 review: ScfParams::validate() must reject
-        // pulay_period == 0 with a structured InvalidInput error, rather than
-        // letting the PeriodicPulayMixer::new `period >= 1` assertion panic
-        // at SCF setup time.
+        // pulay_period == 0 with a structured error, rather than letting
+        // the PeriodicPulayMixer::new `period >= 1` assertion panic at
+        // SCF setup time. ERR2 P1.c migrated this path from the catch-all
+        // `InvalidInput` to the structured `InvalidParam` variant.
         let params = ScfParams {
             mixing_mode: mixing::MixingMode::PeriodicPulay {
                 period: 0,
@@ -389,15 +406,16 @@ mod tests {
             },
             ..Default::default()
         };
-        let err = params.validate().expect_err("expected InvalidInput error");
+        let err = params.validate().expect_err("expected InvalidParam error");
         match err {
-            PwdftError::InvalidInput(msg) => {
+            PwdftError::InvalidParam { name, reason } => {
+                assert_eq!(name, "pulay_period");
                 assert!(
-                    msg.contains("pulay_period"),
-                    "error message should mention pulay_period, got: {msg}"
+                    reason.contains("PeriodicPulay"),
+                    "reason should mention PeriodicPulay, got: {reason}"
                 );
             }
-            other => panic!("expected InvalidInput, got: {other:?}"),
+            other => panic!("expected InvalidParam, got: {other:?}"),
         }
 
         // And the Kerker variant too.
@@ -410,7 +428,7 @@ mod tests {
         };
         assert!(matches!(
             params_k.validate(),
-            Err(PwdftError::InvalidInput(_))
+            Err(PwdftError::InvalidParam { name, .. }) if name == "pulay_period"
         ));
 
         // Sanity: period = 1 must pass.
@@ -422,6 +440,94 @@ mod tests {
             ..Default::default()
         };
         assert!(ok.validate().is_ok());
+    }
+
+    /// ERR2 P1.c: pin the `Display` output of the new `InvalidParam`
+    /// variant end-to-end through `ScfParams::validate` for the
+    /// `mixing_beta` path (which interpolates the offending value).
+    #[test]
+    fn validate_mixing_beta_display_matches_invalid_param() {
+        let params = ScfParams {
+            mixing_beta: -0.1,
+            ..Default::default()
+        };
+        let err = params
+            .validate()
+            .expect_err("expected InvalidParam error for mixing_beta = -0.1");
+        assert_eq!(
+            format!("{err}"),
+            "invalid parameter mixing_beta: must be in (0, 1], got -0.1"
+        );
+    }
+
+    /// ERR2 P1.c: every PARAM-cluster site in `ScfParams::validate`
+    /// must return `InvalidParam` with its expected `name`. Pins all
+    /// eight scf/mod.rs sites so a regression to `InvalidInput` fails
+    /// here rather than silently downgrading.
+    #[test]
+    fn validate_param_cluster_names() {
+        // n_bands
+        let p = ScfParams {
+            n_bands: 0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            p.validate(),
+            Err(PwdftError::InvalidParam { name, .. }) if name == "n_bands"
+        ));
+
+        // conv_threshold
+        let p = ScfParams {
+            conv_threshold: 0.0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            p.validate(),
+            Err(PwdftError::InvalidParam { name, .. }) if name == "conv_threshold"
+        ));
+
+        // mixing_beta (too large)
+        let p = ScfParams {
+            mixing_beta: 1.5,
+            ..Default::default()
+        };
+        assert!(matches!(
+            p.validate(),
+            Err(PwdftError::InvalidParam { name, .. }) if name == "mixing_beta"
+        ));
+
+        // smearing_sigma
+        let p = ScfParams {
+            smearing_sigma: -0.1,
+            ..Default::default()
+        };
+        assert!(matches!(
+            p.validate(),
+            Err(PwdftError::InvalidParam { name, .. }) if name == "smearing_sigma"
+        ));
+
+        // ecutrho_ratio
+        let p = ScfParams {
+            ecutrho_ratio: 0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            p.validate(),
+            Err(PwdftError::InvalidParam { name, .. }) if name == "ecutrho_ratio"
+        ));
+
+        // nspin
+        let p = ScfParams {
+            nspin: 3,
+            ..Default::default()
+        };
+        assert!(matches!(
+            p.validate(),
+            Err(PwdftError::InvalidParam { name, .. }) if name == "nspin"
+        ));
+
+        // Sanity: a default-constructed params passes validation.
+        assert!(ScfParams::default().validate().is_ok());
     }
 
     /// ERR2 P1.b: the three CRYSTAL-cluster preconditions in `run_scf`
