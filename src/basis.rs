@@ -27,6 +27,14 @@ impl BasisSet {
     ///
     /// where b_i are reciprocal lattice vectors (2π/V × a_j × a_k).
     /// The number of basis functions scales as N_pw ∝ E_cut^{3/2} × Ω.
+    ///
+    /// # Panics
+    ///
+    /// Panics with a `BUG:` message if any computed Miller index exceeds
+    /// the `i16` range `[-32 768, 32 767]`. Reaching that bound requires
+    /// an unphysical `ecut` beyond `10⁷ Ry`; at all realistic cutoffs
+    /// (≤ 200 Ry) the narrowing is infallible by construction. See the
+    /// TYPE-A narrowing note on the private `miller` field.
     #[must_use]
     pub fn new(lattice: &Lattice, ecut: f64) -> Self {
         let recip = lattice.reciprocal();
@@ -74,7 +82,7 @@ impl BasisSet {
         for n1 in -n1_max..=n1_max {
             for n2 in -n2_max..=n2_max {
                 for n3 in -n3_max..=n3_max {
-                    let g = n1 as f64 * b1 + n2 as f64 * b2 + n3 as f64 * b3;
+                    let g = f64::from(n1) * b1 + f64::from(n2) * b2 + f64::from(n3) * b3;
                     if g.norm_squared() <= g_max_sq {
                         pw.push(g);
                         miller.push([to_i16(n1), to_i16(n2), to_i16(n3)]);

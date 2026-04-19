@@ -89,6 +89,20 @@ unwrap_used = "warn"
 expect_used = "warn"
 panic = "warn"
 
+# --- CLSS: lossless-cast + doc hygiene ---
+# `cast_lossless` catches `x as f64` on types that have a `From<T> for f64`
+# impl (i8/i16/i32/u8/u16/u32/f32). Prefer `f64::from(x)` so the cast breaks
+# at compile time if the source widens to an i64/u64. Distinct from
+# `cast_precision_loss` (intentionally unset) which flags `usize → f64`.
+cast_lossless = "warn"
+# Public `fn -> Result<...>` must have a `# Errors` section describing which
+# variant fires when. Public panicking functions must have a `# Panics`
+# section (or an `#[expect(clippy::missing_panics_doc, reason = "...")]`
+# when the panic is unreachable under crate invariants, matching ERR2's
+# documented-invariant pattern).
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+
 [profile.release]
 opt-level = 3
 lto = "thin"

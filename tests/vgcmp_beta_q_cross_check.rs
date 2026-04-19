@@ -114,7 +114,7 @@ fn spherical_bessel_j(l: i32, x: f64) -> f64 {
     let mut jlm1 = x.sin() / x;
     let mut jl = x.sin() / (x * x) - x.cos() / x;
     for n in 1..l {
-        let jlp1 = (2 * n + 1) as f64 / x * jl - jlm1;
+        let jlp1 = f64::from(2 * n + 1) / x * jl - jlm1;
         jlm1 = jl;
         jl = jlp1;
     }

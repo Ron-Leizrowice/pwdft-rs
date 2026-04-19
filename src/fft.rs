@@ -60,6 +60,12 @@ impl FFT3D {
     }
 
     /// Forward FFT: real-space → reciprocal-space (unnormalized).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `data.len() != nx * ny * nz` (the dimensions recorded at
+    /// [`FFT3D::new`]). The caller must size the slice to match the handler
+    /// grid; any other size is a programming error.
     pub fn forward(&mut self, data: &mut [Complex64]) {
         let [nx, ny, nz] = self.dims;
         assert_eq!(data.len(), nx * ny * nz);
@@ -85,6 +91,12 @@ impl FFT3D {
 
     /// Inverse FFT: reciprocal-space → real-space (unnormalized).
     /// Divide by `total_size()` afterwards for proper normalization.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `data.len() != nx * ny * nz` (the dimensions recorded at
+    /// [`FFT3D::new`]). The caller must size the slice to match the handler
+    /// grid; any other size is a programming error.
     pub fn inverse(&mut self, data: &mut [Complex64]) {
         let [nx, ny, nz] = self.dims;
         assert_eq!(data.len(), nx * ny * nz);
@@ -127,6 +139,12 @@ impl FFT3D {
 ///
 /// Grid sizes that are products of small primes (2, 3, 5) give optimal FFT
 /// performance; arbitrary sizes may be much slower.
+///
+/// # Panics
+///
+/// Panics if `n_max < 0`. A negative input would wrap to a huge `usize` in
+/// the `2*n_max + 1` step and cause the loop to effectively hang; the
+/// explicit assertion surfaces that programming error immediately.
 #[must_use]
 pub fn fft_grid_size(n_max: i32) -> usize {
     // n_max is a non-negative Miller-index bound; assert here so a negative

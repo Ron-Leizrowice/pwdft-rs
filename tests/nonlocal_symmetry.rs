@@ -316,7 +316,7 @@ fn test_kinetic_plus_vlocal_via_fft_grid() {
         let n1 = if i1 > nx / 2 { i1 as i32 - nx as i32 } else { i1 as i32 };
         let n2 = if i2 > ny / 2 { i2 as i32 - ny as i32 } else { i2 as i32 };
         let n3 = if i3 > nz / 2 { i3 as i32 - nz as i32 } else { i3 as i32 };
-        let g = n1 as f64 * recip.a + n2 as f64 * recip.b + n3 as f64 * recip.c;
+        let g = f64::from(n1) * recip.a + f64::from(n2) * recip.b + f64::from(n3) * recip.c;
         let g_norm = g.norm();
 
         for atom in &crystal.atoms {

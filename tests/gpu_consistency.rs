@@ -108,7 +108,7 @@ fn test_gpu_hartree_on_realistic_density() {
             } else {
                 i3 as i32
             };
-            let g = n1 as f64 * recip.a + n2 as f64 * recip.b + n3 as f64 * recip.c;
+            let g = f64::from(n1) * recip.a + f64::from(n2) * recip.b + f64::from(n3) * recip.c;
             g.norm_squared()
         })
         .collect();
@@ -159,7 +159,7 @@ fn test_gpu_xc_across_density_regimes() {
     // Log-spaced from 1e-4 to 10.0 e/A³ — covers both PZ regimes
     let rho_r: Vec<f64> = (0..1000)
         .map(|i| {
-            let t = i as f64 / 999.0;
+            let t = f64::from(i) / 999.0;
             10.0_f64.powf(-4.0 + 5.0 * t)
         })
         .collect();

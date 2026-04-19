@@ -62,6 +62,16 @@ pub struct BetaProjector {
 }
 
 /// Load and parse a UPF v2 pseudopotential file.
+///
+/// # Errors
+///
+/// - `PwdftError::Io` (from the `?` on `std::fs::read_to_string`) if the
+///   file cannot be opened or read.
+/// - `PwdftError::Parse` if the file does not look like UPF (no `<UPF` or
+///   `<PP_HEADER` marker) — the loader rejects unknown formats rather than
+///   guessing.
+/// - Any `PwdftError::Parse` forwarded from [`upf::parse`] when the UPF
+///   body is malformed; see that function's `# Errors` for the full list.
 pub fn load(path: &Path) -> Result<PseudopotentialData> {
     let content = std::fs::read_to_string(path)?;
 

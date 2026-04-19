@@ -54,6 +54,12 @@ impl BandStructure {
     /// Write band structure as TSV suitable for plotting.
     ///
     /// Format: distance  band_0  band_1  band_2  ...
+    ///
+    /// # Errors
+    ///
+    /// Returns any `std::io::Error` produced by the underlying writer (e.g.
+    /// disk full, broken pipe). No error is synthesized internally — the
+    /// function only forwards I/O failures from `write!`/`writeln!`.
     pub fn write_tsv<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         if self.eigenvalues.is_empty() {
             return Ok(());

@@ -42,6 +42,13 @@ fn frac_to_grid_idx(frac: f64, n: usize) -> usize {
 /// **Important**: The FFT grid dimensions must be compatible with the symmetry
 /// operations. Use [`check_grid_compatibility`](super::check_grid_compatibility)
 /// before calling this.
+///
+/// # Panics
+///
+/// Panics if `rho.len() != dims[0] * dims[1] * dims[2]`. Caller must size
+/// the density slice to the grid; any other size is a programming error.
+/// Deprecated — prefer [`symmetrize_density_g`](super::symmetrize_density_g),
+/// which has the same precondition.
 #[deprecated(
     note = "use `symmetrize_density_g` in SCF — this real-space form is exact only when N_i·τ_i ∈ ℤ"
 )]

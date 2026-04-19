@@ -438,6 +438,13 @@ impl GpuAccelerator {
     }
 
     /// Compute V_eff = V_local + V_H + V_xc on GPU.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `v_h.len()` or `v_xc.len()` differ from `v_local.len()`.
+    /// All three inputs must share the same FFT grid size; a mismatch is
+    /// a programming error (SCF driver guarantees equal lengths by
+    /// sizing every grid buffer through the same `FftGrid` handle).
     #[allow(
         clippy::cast_possible_truncation,
         reason = "GPU mixed-precision: f64→f32 at CPU→GPU boundary is intentional; n_grid <= 512^3 fits in u32::MAX"
@@ -576,8 +583,8 @@ impl GpuAccelerator {
             let exc_f32 = self.read_staging_buffer(&pool.exc_staging, n_grid);
             let vxc_f32 = self.read_staging_buffer(&pool.vxc_staging, n_grid);
 
-            let exc: Vec<f64> = exc_f32.iter().map(|&v| v as f64).collect();
-            let vxc: Vec<f64> = vxc_f32.iter().map(|&v| v as f64).collect();
+            let exc: Vec<f64> = exc_f32.iter().map(|&v| f64::from(v)).collect();
+            let vxc: Vec<f64> = vxc_f32.iter().map(|&v| f64::from(v)).collect();
             return (exc, vxc);
         }
 
@@ -615,8 +622,8 @@ impl GpuAccelerator {
         let exc_f32 = self.read_staging_buffer(&exc_staging, n_grid);
         let vxc_f32 = self.read_staging_buffer(&vxc_staging, n_grid);
 
-        let exc: Vec<f64> = exc_f32.iter().map(|&v| v as f64).collect();
-        let vxc: Vec<f64> = vxc_f32.iter().map(|&v| v as f64).collect();
+        let exc: Vec<f64> = exc_f32.iter().map(|&v| f64::from(v)).collect();
+        let vxc: Vec<f64> = vxc_f32.iter().map(|&v| f64::from(v)).collect();
         (exc, vxc)
     }
 
@@ -700,7 +707,7 @@ fn complex_to_f32_pairs(data: &[Complex64]) -> Vec<f32> {
 /// Convert interleaved f32 pairs back to Complex64.
 fn f32_pairs_to_complex(data: &[f32]) -> Vec<Complex64> {
     data.chunks_exact(2)
-        .map(|pair| Complex64::new(pair[0] as f64, pair[1] as f64))
+        .map(|pair| Complex64::new(f64::from(pair[0]), f64::from(pair[1])))
         .collect()
 }
 
@@ -725,10 +732,10 @@ mod tests {
 
         // Generate test data
         let rho_g: Vec<Complex64> = (0..n)
-            .map(|i| Complex64::new((i as f64 * 0.1).sin() * 0.01, (i as f64 * 0.2).cos() * 0.01))
+            .map(|i| Complex64::new((f64::from(i) * 0.1).sin() * 0.01, (f64::from(i) * 0.2).cos() * 0.01))
             .collect();
         let g_squared: Vec<f64> = (0..n)
-            .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 * 0.5 })
+            .map(|i| if i == 0 { 0.0 } else { 1.0 + f64::from(i) * 0.5 })
             .collect();
 
         // CPU reference
@@ -809,7 +816,7 @@ mod tests {
 
         // Test densities spanning both PZ regimes (rs < 1 and rs >= 1)
         let rho_r: Vec<f64> = (0..500)
-            .map(|i| 0.001 + i as f64 * 0.01) // 0.001 to 5.0 e/ų
+            .map(|i| 0.001 + f64::from(i) * 0.01) // 0.001 to 5.0 e/ų
             .collect();
 
         // CPU reference

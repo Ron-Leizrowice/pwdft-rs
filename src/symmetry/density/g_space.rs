@@ -151,6 +151,14 @@ fn flat_to_miller(dims: [usize; 3], idx: usize) -> [i32; 3] {
 /// * `fft` — a reusable [`FFT3D`] instance sized for `dims`.
 /// * `symmetry` — space-group operations. If `n_ops <= 1` the call is a
 ///   no-op (identity-only group produces the original density).
+///
+/// # Panics
+///
+/// Panics if `rho_r.len() != dims[0] * dims[1] * dims[2]` or if
+/// `fft.dims() != dims`. Both are invariants of the SCF grid handler — a
+/// mismatch indicates the caller mixed an `FftGrid` instance with a
+/// density sized for a different mesh. No user input can reach these
+/// assertions through the SCF driver.
 pub fn symmetrize_density_g(
     rho_r: &mut [f64],
     dims: [usize; 3],
@@ -247,9 +255,9 @@ pub fn symmetrize_density_g(
                     // `P² = P` by the Seitz composition identity
                     // `m·τ_{S₁·S₂} = m·τ_{S₁} + (R_{S₁}^T m)·τ_{S₂}`.
                     let arg = two_pi
-                        * (n_dst[0] as f64 * op.translation[0]
-                            + n_dst[1] as f64 * op.translation[1]
-                            + n_dst[2] as f64 * op.translation[2]);
+                        * (f64::from(n_dst[0]) * op.translation[0]
+                            + f64::from(n_dst[1]) * op.translation[1]
+                            + f64::from(n_dst[2]) * op.translation[2]);
                     let (s, c) = arg.sin_cos();
                     let phase = Complex64::new(c, -s);
 
@@ -378,7 +386,7 @@ mod tests {
                     for (k, amp) in &modes {
                         s += amp
                             * (std::f64::consts::TAU
-                                * (k[0] as f64 * fx + k[1] as f64 * fy + k[2] as f64 * fz))
+                                * (f64::from(k[0]) * fx + f64::from(k[1]) * fy + f64::from(k[2]) * fz))
                                 .cos();
                     }
                     rho[ix * ny * nz + iy * nz + iz] = s.abs() + 0.5;

@@ -123,6 +123,19 @@ pub struct ScfParams {
 
 impl ScfParams {
     /// Validate parameters before starting an SCF calculation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PwdftError::InvalidInput`] when any of the following is
+    /// true:
+    /// - `n_bands == 0`
+    /// - `conv_threshold <= 0`
+    /// - `mixing_beta` outside the half-open interval `(0, 1]`
+    /// - `smearing_sigma < 0`
+    /// - `ecutrho_ratio < 1`
+    /// - `nspin` is neither 1 nor 2
+    /// - `mixing_mode` is `PeriodicPulay` with `period == 0`
+    /// - `gaussian_sigma` is non-finite or non-positive
     pub fn validate(&self) -> Result<()> {
         if self.n_bands == 0 {
             return Err(PwdftError::InvalidInput("n_bands must be > 0".into()));
@@ -258,6 +271,22 @@ pub struct ScfResult {
 /// spin-polarized (`nspin == 2`) driver. The two drivers live in
 /// `scf::driver` and `scf::driver_spin`; this front door centralizes
 /// argument validation.
+///
+/// # Errors
+///
+/// - `PwdftError::InvalidInput` if [`ScfParams::validate`] rejects the
+///   params, if `crystal.atoms` is empty, if `kpoints` is empty, or if
+///   the lattice volume is effectively zero (< 1e-10 ų).
+/// - `PwdftError::NotImplemented` if `params.xc_functional` is an
+///   unsupported variant (anything other than Perdew-Zunger LDA today);
+///   surfaced by `XcEvaluator::from_settings` so a YAML typo fails fast
+///   before compute work starts.
+/// - `PwdftError::ConvergenceFailure` from the selected driver when the
+///   SCF loop exhausts `max_iter` without satisfying both density and
+///   energy thresholds.
+/// - Any error propagated from the driver (eigensolver failure, NaN
+///   density, etc.) — see `scf::driver::run_scf_unpolarized` and
+///   `scf::driver_spin::run_scf_spin`.
 pub fn run_scf(
     crystal: &Crystal,
     basis: &BasisSet,

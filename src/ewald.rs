@@ -30,6 +30,14 @@ use crate::{
 /// excludes i=j when T=0 (self-interaction).
 ///
 /// Cutoffs: g_max = 10η (reciprocal), r_max = 10/η (real).
+///
+/// # Panics
+///
+/// Panics with a `BUG:` message if any atom in `crystal` has no matching
+/// pseudopotential in `pseudopotentials`. Caller contract: the atom ↔ PP
+/// map is validated up-front by `ScfContext::new`, so this panic indicates
+/// a programming error (context bypassed or misconfigured), not bad user
+/// input.
 #[must_use]
 pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]) -> f64 {
     let omega = crystal.lattice.volume();
@@ -86,7 +94,7 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
                 if n1 == 0 && n2 == 0 && n3 == 0 {
                     continue;
                 }
-                let g = n1 as f64 * recip.a + n2 as f64 * recip.b + n3 as f64 * recip.c;
+                let g = f64::from(n1) * recip.a + f64::from(n2) * recip.b + f64::from(n3) * recip.c;
                 let g2 = g.norm_squared();
                 if g2 < 1e-12 {
                     continue; // guard against near-zero G² from floating-point noise
@@ -125,9 +133,9 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
     for l1 in -l1_max..=l1_max {
         for l2 in -l2_max..=l2_max {
             for l3 in -l3_max..=l3_max {
-                let t = l1 as f64 * crystal.lattice.a
-                    + l2 as f64 * crystal.lattice.b
-                    + l3 as f64 * crystal.lattice.c;
+                let t = f64::from(l1) * crystal.lattice.a
+                    + f64::from(l2) * crystal.lattice.b
+                    + f64::from(l3) * crystal.lattice.c;
 
                 for i in 0..n_atoms {
                     for j in 0..n_atoms {

@@ -65,6 +65,14 @@ pub fn check_grid_compatibility(dims: [usize; 3], symmetry: &SymmetryInfo) -> bo
 ///
 /// Starts from the given minimum dimensions and increases until compatibility
 /// is achieved. Returns adjusted dimensions.
+///
+/// # Panics
+///
+/// Panics with a `BUG:` message if the internal fixed-size `[usize; 3]`
+/// dims array is somehow empty when `iter().max()` is called. That is
+/// structurally unreachable — a `[usize; 3]` always has three elements —
+/// and the expect is present purely as a safety-belt against a future
+/// refactor that changes the array shape.
 #[must_use]
 pub fn compatible_grid_dims(min_dims: [usize; 3], symmetry: &SymmetryInfo) -> [usize; 3] {
     // For cubic symmetry, making all dimensions equal is usually sufficient

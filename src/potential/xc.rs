@@ -650,6 +650,12 @@ impl XcEvaluator {
     ///
     /// Returning an error at this construction site (rather than at first
     /// evaluation) lets `scf::run_scf` fail fast before any compute work.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PwdftError::NotImplemented`] for `Pbe0` and `Hse06`;
+    /// hybrid functionals are not yet implemented. `Pz` and `Pbe`
+    /// always succeed.
     pub fn from_settings(xc: XcFunctional) -> Result<Self> {
         match xc {
             XcFunctional::Pz => Ok(Self::Pz),
@@ -997,7 +1003,7 @@ mod tests {
     fn xc_evaluator_pz_eval_matches_direct_lda_grid() {
         // Densities spanning both PZ regimes (rs >= 1 and rs < 1) with the
         // same shape the SCF driver produces after add_core_density.
-        let rho_r: Vec<f64> = (1..=2000).map(|i| 0.001 + (i as f64) * 0.0005).collect();
+        let rho_r: Vec<f64> = (1..=2000).map(|i| 0.001 + f64::from(i) * 0.0005).collect();
         let (direct_exc, direct_v1) = lda_xc_grid(&rho_r);
 
         let eval = XcEvaluator::Pz;
@@ -1031,7 +1037,7 @@ mod tests {
         // Regression pin: the LDA path must not observe rho_grad_r. If a
         // future refactor accidentally threads ∇ρ into the LDA branch, the
         // result should be indistinguishable from passing None.
-        let rho_r: Vec<f64> = (1..=256).map(|i| 0.01 + (i as f64) * 0.001).collect();
+        let rho_r: Vec<f64> = (1..=256).map(|i| 0.01 + f64::from(i) * 0.001).collect();
         let fake_grad: Vec<[f64; 3]> = rho_r.iter().map(|&r| [r * 0.5, -r, 2.0 * r]).collect();
 
         let no_grad = XcEvaluator::Pz.eval(&rho_r, None).unwrap();
@@ -1054,8 +1060,8 @@ mod tests {
     #[test]
     fn xc_evaluator_pz_eval_spin_matches_direct_lda_spin_grid() {
         let n = 1024;
-        let rho_up: Vec<f64> = (1..=n).map(|i| 0.01 + (i as f64) * 0.001).collect();
-        let rho_down: Vec<f64> = (1..=n).map(|i| 0.005 + (i as f64) * 0.0007).collect();
+        let rho_up: Vec<f64> = (1..=n).map(|i| 0.01 + f64::from(i) * 0.001).collect();
+        let rho_down: Vec<f64> = (1..=n).map(|i| 0.005 + f64::from(i) * 0.0007).collect();
 
         let (direct_exc, direct_up, direct_down) = lda_xc_spin_grid(&rho_up, &rho_down);
         let result = XcEvaluator::Pz

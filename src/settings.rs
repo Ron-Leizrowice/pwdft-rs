@@ -483,11 +483,24 @@ impl KPointSettings {
 
 impl Settings {
     /// Parse settings from a YAML string.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PwdftError::Parse`] wrapping the underlying
+    /// `serde_yaml_ng` error when the YAML is syntactically invalid or
+    /// fails to deserialize into [`Settings`] (unknown field, wrong type,
+    /// missing required key, etc.).
     pub fn from_yaml_str(s: &str) -> Result<Self> {
         serde_yaml_ng::from_str(s).map_err(|e| PwdftError::Parse(format!("YAML parse error: {e}")))
     }
 
     /// Parse settings from a YAML file on disk.
+    ///
+    /// # Errors
+    ///
+    /// - `PwdftError::Io` (from the `?` on `std::fs::read_to_string`) if
+    ///   the file cannot be opened or read.
+    /// - Any `PwdftError::Parse` forwarded from [`Self::from_yaml_str`].
     pub fn from_yaml_file(path: &Path) -> Result<Self> {
         let contents = std::fs::read_to_string(path)?;
         Self::from_yaml_str(&contents)

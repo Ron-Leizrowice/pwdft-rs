@@ -510,7 +510,7 @@ fn test_bcc_fe_band_continuity() {
     let mut prev_eigenvalues: Option<Vec<f64>> = None;
 
     for ik in 0..n_kpts {
-        let t = ik as f64 / (n_kpts - 1) as f64;
+        let t = f64::from(ik) / f64::from(n_kpts - 1);
         let k = gamma * (1.0 - t) + k_end * t;
         let h = hamiltonian::build_hamiltonian(&basis, &k, None);
         let result = dense::diagonalize_lowest(&h, n_bands).unwrap();
@@ -520,7 +520,7 @@ fn test_bcc_fe_band_continuity() {
                 let jump = (ev_cur - ev_prev).abs();
                 // Adjacent k-points should have smooth dispersion
                 // For free electrons, max jump ≈ (2ℏ²/2m) * |Δk| * |G_max|
-                let dk = 1.0 / (n_kpts - 1) as f64 * k_end.norm();
+                let dk = 1.0 / f64::from(n_kpts - 1) * k_end.norm();
                 let max_jump = 2.0 * HBAR2_OVER_2M * dk * basis.g_vectors().iter().map(|g| g.norm()).fold(0.0_f64, f64::max) + 50.0;
                 assert!(
                     jump < max_jump,
