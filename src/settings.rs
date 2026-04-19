@@ -61,10 +61,8 @@ pub struct Settings {
 
     /// Initial-density (SAD) parameters.
     ///
-    /// CFGN Phase 1: exposes the `gaussian_sigma` knob that was previously
-    /// hardcoded in `scf/initial_density.rs`. Omitting this block from
-    /// YAML yields defaults that reproduce the pre-CFGN behavior
-    /// bit-identically.
+    /// Exposes the `gaussian_sigma` knob for the starting guess. Omitting
+    /// this block from YAML uses the default (see `InitialDensitySettings`).
     #[serde(default)]
     pub initial_density: InitialDensitySettings,
 }
@@ -98,7 +96,7 @@ pub struct BasisSettings {
     /// Wavefunction kinetic-energy cutoff in eV.
     pub ecutwfc: f64,
     /// Charge-density cutoff ratio: ecutrho = ecutrho_ratio * ecutwfc.
-    /// QE default for norm-conserving PPs is 4.
+    /// Default `4` is appropriate for norm-conserving pseudopotentials.
     pub ecutrho_ratio: u32,
     /// Explicit FFT grid dimensions [n1, n2, n3]. If set, overrides ecutrho_ratio.
     pub fft_grid: Option<[usize; 3]>,
@@ -125,10 +123,11 @@ pub enum KPointSettings {
         grid: [u32; 3],
         /// Shift convention (Γ-centered vs MP-1976 shifted).
         ///
-        /// Defaults to `gamma_centered` (QE's `K_POINTS automatic / … 0 0 0`).
-        /// Use `mp1976` for the original Monkhorst-Pack 1976 half-shift
-        /// (QE `… 1 1 1`), or the free-form `[k1, k2, k3]` integers (each
-        /// 0 or 1) for a per-axis shift.
+        /// Defaults to `gamma_centered` — the uniform mesh includes the
+        /// Γ point (fractional coords `i/N` for `i ∈ 0..N`). Use `mp1976`
+        /// for the original Monkhorst & Pack 1976 half-shift `(i + ½)/N`,
+        /// or the free-form `[k1, k2, k3]` integers (each 0 or 1) for a
+        /// per-axis half-shift.
         #[serde(default)]
         shift: KGridShift,
     },
@@ -157,7 +156,7 @@ pub struct PathPointSetting {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ScfSettings {
-    /// Maximum number of SCF iterations (QE: electron_maxstep).
+    /// Maximum number of SCF iterations.
     pub max_iter: usize,
     /// Convergence threshold: RMS density change (e/Å³).
     pub conv_threshold: f64,
@@ -167,10 +166,10 @@ pub struct ScfSettings {
     pub n_bands: Option<usize>,
     /// Eigensolver backend for per-k-point diagonalization.
     pub eigensolver: EigensolverType,
-    /// Enable WFRX Phase-1 subspace-diagonalization warm-start for the
-    /// dense eigensolver (opt-in; ignored when `eigensolver ==
-    /// iterative`). Default `false`. See
-    /// `proposals/WFRX-wavefunction-reuse.md`.
+    /// Enable subspace-diagonalization warm-start for the dense
+    /// eigensolver: project H into the previous iteration's eigenvector
+    /// subspace before the full diagonalization (opt-in; ignored when
+    /// `eigensolver == iterative`). Default `false`.
     pub wfrx_subspace: bool,
 }
 
@@ -190,9 +189,9 @@ impl Default for ScfSettings {
 /// Eigensolver backend selection (YAML-friendly adapter for
 /// [`crate::eigensolver::EigensolverKind`]).
 ///
-/// The default is `Dense` for compatibility; flip to `Iterative` to
-/// activate the ITEV partial Arnoldi path (typically 3-10× faster at
-/// n_pw ≥ 200).
+/// The default is `Dense`; flip to `Iterative` to activate the partial
+/// Arnoldi / Krylov-Schur path that solves only for the lowest `n_bands`
+/// eigenpairs (typically 3-10× faster at `n_pw ≥ 200`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum EigensolverType {
@@ -216,13 +215,13 @@ impl From<EigensolverType> for crate::eigensolver::EigensolverKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ElectronSettings {
-    /// Density mixing parameter (0 < beta <= 1). QE: mixing_beta.
+    /// Density mixing parameter (`0 < beta <= 1`).
     pub mixing_beta: f64,
-    /// Number of past densities kept for Anderson/Pulay mixing. QE: mixing_ndim.
+    /// Number of past densities kept for Anderson/Pulay mixing.
     pub mixing_ndim: usize,
     /// Smearing scheme for partial occupations.
     pub smearing: SmearingScheme,
-    /// Smearing width in eV (QE: degauss, but QE uses Ry internally).
+    /// Smearing width in eV.
     pub smearing_width: f64,
     /// Occupation scheme.
     pub occupations: OccupationType,
@@ -237,9 +236,8 @@ pub struct ElectronSettings {
     ///
     /// When `true`, β is damped when the residual norm grows and restored
     /// toward `mixing_beta` when it decreases steadily for three
-    /// consecutive iterations. Default `false` preserves the pre-MXBA
-    /// fixed-β behaviour for existing inputs. See
-    /// `src/scf/mixing/mod.rs` module docs for the rule and thresholds.
+    /// consecutive iterations. Default `false` uses the fixed `mixing_beta`.
+    /// See `src/scf/mixing/mod.rs` module docs for the rule and thresholds.
     pub adaptive_beta: bool,
     /// Number of spin channels: 1 (unpolarized) or 2 (collinear spin-polarized).
     pub nspin: usize,
@@ -350,8 +348,8 @@ pub struct XcSettings {
     /// Functional name. Currently implemented: `"pz"` (Perdew-Zunger LDA).
     /// The YAML parser also accepts `"pbe"`, `"pbe0"`, `"hse06"`, but these
     /// are rejected with [`crate::error::PwdftError::NotImplemented`] at
-    /// SCF entry (XCNI safety trap) until the GGAP proposal lands a real
-    /// GGA path.
+    /// SCF entry — a YAML typo cannot silently produce LDA numbers under
+    /// a GGA or hybrid label.
     pub functional: XcFunctional,
 }
 
@@ -359,27 +357,24 @@ pub struct XcSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum XcFunctional {
-    /// Perdew-Zunger LDA (Ceperley-Alder). QE: input_dft = 'PZ'.
+    /// Perdew-Zunger LDA (Ceperley-Alder).
     #[default]
     Pz,
-    /// Perdew-Burke-Ernzerhof GGA. QE: input_dft = 'PBE'.
+    /// Perdew-Burke-Ernzerhof GGA.
     ///
-    /// **Not yet implemented.** Returns [`crate::error::PwdftError::NotImplemented`]
-    /// at SCF entry (XCNI safety trap) so a YAML typo cannot silently
-    /// produce LDA numbers under a PBE label. Tracked by the GGAP proposal
-    /// (`proposals/GGAP-gga-pbe-functional.md`).
+    /// **Not yet implemented.** Returns
+    /// [`crate::error::PwdftError::NotImplemented`] at SCF entry so a
+    /// YAML typo cannot silently produce LDA numbers under a PBE label.
     Pbe,
     /// PBE0 hybrid functional.
     ///
-    /// **Not yet implemented.** Returns [`crate::error::PwdftError::NotImplemented`]
-    /// at SCF entry (XCNI safety trap). Tracked by the GGAP proposal
-    /// (`proposals/GGAP-gga-pbe-functional.md`).
+    /// **Not yet implemented.** Returns
+    /// [`crate::error::PwdftError::NotImplemented`] at SCF entry.
     Pbe0,
     /// Heyd-Scuseria-Ernzerhof screened hybrid.
     ///
-    /// **Not yet implemented.** Returns [`crate::error::PwdftError::NotImplemented`]
-    /// at SCF entry (XCNI safety trap). Tracked by the GGAP proposal
-    /// (`proposals/GGAP-gga-pbe-functional.md`).
+    /// **Not yet implemented.** Returns
+    /// [`crate::error::PwdftError::NotImplemented`] at SCF entry.
     Hse06,
 }
 
@@ -387,9 +382,9 @@ pub enum XcFunctional {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SymmetrySettings {
-    /// Whether to detect and exploit crystal symmetry. QE: nosym = .false.
+    /// Whether to detect and exploit crystal symmetry.
     pub enabled: bool,
-    /// Whether to apply time-reversal symmetry (k -> -k). QE: noinv = .false.
+    /// Whether to apply time-reversal symmetry (`k → -k`).
     pub time_reversal: bool,
     /// Tolerance for symmetry detection in fractional coordinates.
     pub tolerance: f64,
@@ -450,11 +445,10 @@ impl Default for OutputSettings {
 /// The SAD initial guess uses a pseudopotential's `PP_RHOATOM` when
 /// available; otherwise it falls back to a Gaussian model of width
 /// `gaussian_sigma` (Å) per atom. This block exposes that width as a
-/// configurable YAML knob (CFGN Phase 1).
+/// configurable YAML knob.
 ///
-/// Default reproduces the pre-CFGN hardcoded value (1.0 Å, the canonical
-/// constant `scf::initial_density::DEFAULT_GAUSSIAN_SIGMA`), so existing
-/// YAML inputs run bit-identically.
+/// Default is the canonical constant
+/// `scf::initial_density::DEFAULT_GAUSSIAN_SIGMA` (1.0 Å).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(default)]
 pub struct InitialDensitySettings {

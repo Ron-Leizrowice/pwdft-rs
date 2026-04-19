@@ -42,10 +42,7 @@ use self::grid::FftGrid;
 /// has `core_correction="T"`. The invariants (ρ_core in XC only, not
 /// Hartree; not counted as valence; split evenly between spin channels
 /// in LSDA) are pinned by unit tests in `src/pseudopotential/upf/` and
-/// the integration regression guard `test_fe_bcc_xc_nlcc_regression_guard`
-/// in `tests/qe_validation.rs`. See
-/// `proposals/completed/NCFX-nlcc-core-density-fix.md` and
-/// `proposals/completed/NLCC-nlcc-audit.md`.
+/// by an integration regression guard for BCC Fe.
 #[derive(Clone)]
 pub struct ScfParams {
     pub n_bands: usize,
@@ -69,9 +66,9 @@ pub struct ScfParams {
     ///
     /// When `true`, β is damped when the residual norm grows and restored
     /// toward `mixing_beta` when it decreases steadily. When `false`
-    /// (default), β stays fixed at `mixing_beta` for the entire run —
-    /// reproducing the pre-MXBA behavior bit-for-bit. See
-    /// `src/scf/mixing/mod.rs` module docs for the full rule and defaults.
+    /// (default), β stays fixed at `mixing_beta` for the entire run.
+    /// See `src/scf/mixing/mod.rs` module docs for the full rule and
+    /// defaults.
     pub adaptive_beta: bool,
     /// Number of spin channels: 1 (unpolarized) or 2 (collinear spin-polarized).
     pub nspin: usize,
@@ -84,13 +81,12 @@ pub struct ScfParams {
     /// Eigensolver backend for per-k-point diagonalization.
     ///
     /// `Dense` (default): full `faer::SelfAdjointEigen` O(n³).
-    /// `Iterative` (ITEV): faer's implicitly-restarted Arnoldi partial solver,
+    /// `Iterative`: faer's implicitly-restarted Arnoldi partial solver,
     /// computing only the lowest `n_bands` eigenpairs. Falls back to dense
     /// when the problem is too small for Arnoldi to be profitable or when
     /// iteration fails to converge in the restart budget.
     pub eigensolver: crate::eigensolver::EigensolverKind,
-    /// Enable WFRX Phase-1 subspace-diagonalization warm-start for the
-    /// dense eigensolver.
+    /// Enable subspace-diagonalization warm-start for the dense eigensolver.
     ///
     /// When `true` and `eigensolver == Dense`, the driver caches the
     /// previous iteration's eigenvectors per k-point and uses them as a
@@ -100,18 +96,17 @@ pub struct ScfParams {
     /// whenever the per-eigenpair residual gate
     /// ([`crate::eigensolver::dense::WFRX_RESIDUAL_TOL`]) is tripped, so
     /// correctness is never sacrificed. When `eigensolver == Iterative`,
-    /// this flag has no effect (ITEV has its own warm-start path via `v0`).
+    /// this flag has no effect (the iterative path has its own warm-start
+    /// via `v0`).
     ///
-    /// Default `false` (opt-in). See
-    /// `proposals/WFRX-wavefunction-reuse.md`.
+    /// Default `false` (opt-in).
     pub wfrx_subspace: bool,
     /// Exchange-correlation functional selector.
     ///
     /// Only [`crate::settings::XcFunctional::Pz`] (Perdew-Zunger LDA) is
     /// actually implemented today. Any other variant causes `run_scf` to
-    /// fail fast with [`PwdftError::NotImplemented`] (XCNI safety trap),
-    /// so that a YAML typo cannot silently produce LDA results under a
-    /// PBE/PBE0/HSE06 label. Real GGA support is tracked by GGAP.
+    /// fail fast with [`PwdftError::NotImplemented`] so that a YAML typo
+    /// cannot silently produce LDA results under a GGA or hybrid label.
     pub xc_functional: crate::settings::XcFunctional,
     /// Width (Å) of the Gaussian model atomic charge used by the initial
     /// Superposition-of-Atomic-Densities (SAD) guess when a pseudopotential
@@ -120,10 +115,9 @@ pub struct ScfParams {
     /// Default is 1.0 Å (see `scf::initial_density::DEFAULT_GAUSSIAN_SIGMA`
     /// for the canonical constant). The SCF refines the initial guess
     /// away in the first few iterations, so this value does not affect
-    /// the converged density, but it is a legitimate sensitivity-study
-    /// knob: a wider sigma damps high-G content in the starting density
-    /// and can slightly change iteration count for ill-conditioned
-    /// systems (CFGN Phase 1).
+    /// the converged density; it is a sensitivity-study knob — a wider
+    /// sigma damps high-G content in the starting density and can slightly
+    /// change iteration count for ill-conditioned systems.
     pub gaussian_sigma: f64,
 }
 
@@ -236,16 +230,16 @@ pub struct ScfResult {
     ///
     /// On successful convergence, this is the value that fell below
     /// `ScfParams::conv_threshold`. For nspin=2, it is the per-channel
-    /// max(‖Δρ↑‖, ‖Δρ↓‖) used by the CCMX-era per-spin convergence
-    /// criterion (see `scf::driver_spin`).
+    /// max(‖Δρ↑‖, ‖Δρ↓‖) per-spin convergence criterion (see
+    /// `scf::driver_spin`).
     ///
     /// On `max_iter` exhaustion the driver returns
     /// `PwdftError::ConvergenceFailure { delta, .. }` instead of an
     /// `ScfResult`, so this field only ever carries a converged value.
     /// It is exposed primarily for pathology-specific regression guards
-    /// — e.g. CCMX's Fe limit cycle pinned Δρ at ~0.254, a failure mode
-    /// the `n_iterations < max_iter` guard alone cannot catch if
-    /// `max_iter` is relaxed.
+    /// — e.g. a Fe limit cycle pinned Δρ at ~0.254, a failure mode the
+    /// `n_iterations < max_iter` guard alone cannot catch if `max_iter`
+    /// is relaxed.
     pub final_delta: f64,
     pub rho_g: Vec<Complex64>,
     /// Total magnetization M = ∫(ρ_up - ρ_down)dr in μB (Bohr magnetons).
@@ -253,7 +247,8 @@ pub struct ScfResult {
     pub magnetization: f64,
     /// Number of spin channels (1 or 2).
     pub nspin: usize,
-    /// Per-term energy breakdown (VGC5 diagnostic).
+    /// Per-term energy breakdown (kinetic, local, non-local, Hartree,
+    /// XC, Ewald) plus the Harris-Foulkes stationary estimator.
     pub components: EnergyComponents,
 }
 

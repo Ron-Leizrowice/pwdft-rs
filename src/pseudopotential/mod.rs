@@ -6,7 +6,7 @@ use crate::error::{PwdftError, Result};
 
 /// Unit-converted pseudopotential data in internal units (eV, Å).
 ///
-/// Parsed from UPF v2 format (Quantum ESPRESSO).
+/// Parsed from UPF v2 format.
 #[derive(Debug, Clone)]
 pub struct PseudopotentialData {
     /// Element symbol (e.g. "Si").
@@ -39,8 +39,7 @@ pub struct PseudopotentialData {
     /// 4πr²·ρ, which is the `PP_RHOATOM` convention — see the
     /// `rho_atom` field above). The downstream radial Bessel transform
     /// in `crate::scf::potentials::compute_core_density` multiplies by
-    /// r² and 4π; see also QE `upflib/rhoc_mod.f90:107-115`
-    /// (`init_tab_rhc`).
+    /// r² and 4π.
     ///
     /// Empty if the pseudopotential has no NLCC (`core_correction="F"`).
     ///
@@ -103,10 +102,10 @@ impl PseudopotentialData {
 
     /// Compute V_local(G) via spherical Bessel transform.
     ///
-    /// For G = 0 (matches QE `vloc_mod.f90:158-163`):
+    /// For G = 0:
     ///   V_local(0) = (4π/Ω) ∫₀^∞ r² [V_local(r) + Z e²/r] dr
     ///
-    /// For G ≠ 0 we use the erf-subtracted form (QE `vloc_mod.f90:136-148`):
+    /// For G ≠ 0 we use the erf-subtracted form:
     ///   V_local(G) = (4π/Ω) ∫₀^∞ [r·V_local(r) + Z e²·erf(r)] · sin(Gr)/G dr
     ///                - (4π/Ω) Z e² · exp(-G²/4) / G²
     ///
@@ -125,9 +124,8 @@ impl PseudopotentialData {
     ///
     /// Units: r in Å, g_norm in Å⁻¹, returns eV (potential in reciprocal
     /// space per unit cell). The erf Gaussian width is 1 Å (matching the G
-    /// units), which is a different convention from QE's 1 Bohr, but yields
-    /// identical V_local(G) values because the decomposition is exact for any
-    /// Gaussian width.
+    /// units); V_local(G) is invariant to the choice of Gaussian width
+    /// because the decomposition is exact for any positive width.
     pub fn v_local_of_g(&self, g_norm: f64, omega: f64) -> f64 {
         use crate::consts::E2_COULOMB as E2;
         use crate::numerics::simpson_integrate;

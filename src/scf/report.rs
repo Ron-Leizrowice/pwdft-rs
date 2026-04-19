@@ -17,9 +17,9 @@ pub(super) struct SpinIterationFields {
     pub delta_up: f64,
     pub delta_down: f64,
     pub magnetization: f64,
-    /// Effective β of the magnetization-channel mixer. `None` with MXBA off —
-    /// at fixed β the value is redundant with the user input and logging it
-    /// every iter is noise. `Some(β)` only when the Eyert monitor is active.
+    /// Effective β of the magnetization-channel mixer. `None` at fixed β —
+    /// logging the user-configured constant every iteration is noise.
+    /// `Some(β)` only when the Eyert adaptive-β monitor is active.
     pub mag_beta: Option<f64>,
 }
 
@@ -34,9 +34,10 @@ pub(super) struct IterationReport {
     /// `None` on the first iteration (no previous energy).
     pub de: Option<f64>,
     pub delta: f64,
-    /// Effective β of the (ρ_total) mixer when the Eyert residual-norm monitor
-    /// is active (MXBA). `None` at fixed β — the user-configured value is
-    /// constant across iterations so logging it is noise.
+    /// Effective β of the (ρ_total) mixer when the Eyert adaptive-β
+    /// residual-norm monitor is active. `None` at fixed β — the
+    /// user-configured value is constant across iterations so logging
+    /// it is noise.
     pub beta: Option<f64>,
     /// Spin-specific fields; `None` for nspin=1.
     pub spin: Option<SpinIterationFields>,

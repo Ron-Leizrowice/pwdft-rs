@@ -26,8 +26,8 @@ fn rotate_miller(r: &[[i32; 3]; 3], n: [i32; 3]) -> [i32; 3] {
 
 /// Transpose of an integer 3×3 rotation matrix, widened to `i32`.
 ///
-/// `SpaceGroupOp` stores rotations as `i8` for cache-density (per TYPE-A);
-/// the inner symmetrizer loop keeps multiplication in `i32` to preserve
+/// `SpaceGroupOp` stores rotations as `i8` for cache density; the inner
+/// symmetrizer loop keeps multiplication in `i32` to preserve
 /// overflow-free behavior for `R^T · n` where `|n_i| ≤ N/2`. This function
 /// performs both the transpose and the `i8 → i32` widen in a single pass.
 #[inline]
@@ -113,13 +113,6 @@ fn flat_to_miller(dims: [usize; 3], idx: usize) -> [i32; 3] {
 /// for any fractional translation on any sufficiently-band-limited
 /// density: a glide of `τ=(¼,¼,¼)` on an 18³ grid incurs no rounding
 /// error (the real-space form does, because `18·¼ = 4.5 ∉ ℤ`).
-///
-/// The formula matches QE 7.5 `PW/src/symme.f90::sym_rho_serial`
-/// up to a group-level `S → S⁻¹` relabelling: QE stores its `s(:,:,ns)`
-/// as the *transpose* of the direct-space fractional rotation (atoms
-/// rotate as `rau = s^T · xau`, see `symm_base.f90:533`), so its
-/// `s(:,:,invs(ns))·g0 = R^{-T}·g0` matches our `R^T·n` under the
-/// relabelling, and the phase conventions are equivalent.
 ///
 /// Work per call (leading order): one forward FFT, one inverse FFT,
 /// plus `N_grid · N_ops` complex multiplies/accumulates. At Si 18³ with

@@ -80,8 +80,7 @@ pub(super) struct KerkerSetup<'a> {
 /// iteration per the Eyert (1996, §3.3) rule. The struct is held by both
 /// [`AndersonMixer`] and [`BroydenMixer`]; when `enabled == false` the
 /// monitor is a no-op (`update` returns the current β unchanged and touches
-/// no internal state), which restores the pre-MXBA fixed-β behavior
-/// bit-for-bit.
+/// no internal state).
 ///
 /// References:
 /// - Eyert, *J. Comp. Phys.* **124**, 271 (1996), §3.3.
@@ -182,8 +181,7 @@ pub enum MixingMode {
     ///
     /// Builds an approximate inverse Jacobian from the history of density
     /// residuals. Often converges faster and more robustly than Anderson for
-    /// difficult systems (metals, large cells). This is the default in VASP
-    /// (IMIX=4) and the algorithm used by QE's `mix_rho.f90`.
+    /// difficult systems (metals, large cells).
     ///
     /// Optionally combined with Kerker preconditioning.
     Broyden { kerker: bool },
@@ -218,8 +216,8 @@ impl Mixer {
     /// Create a mixer from the given parameters and mixing mode.
     ///
     /// `adaptive_beta` enables the Eyert residual-norm monitor (see module
-    /// docs). When `false`, β stays fixed at the supplied value for the whole
-    /// run, which reproduces the pre-MXBA behavior bit-for-bit.
+    /// docs). When `false`, β stays fixed at the supplied value for the
+    /// whole run.
     #[must_use]
     pub(crate) fn new(
         beta: f64,

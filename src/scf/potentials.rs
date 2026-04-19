@@ -67,13 +67,7 @@ pub(crate) fn compute_v_local(
 /// where `S(G) = exp(−i G·τ)` is the atomic structure factor.
 /// `pp.core_charge` stores the bare `ρ_core(r)` in `e/Å³`
 /// (see `PseudopotentialData::core_charge`); the `r²` weight and `4π`
-/// prefactor are supplied here. This mirrors QE's `init_tab_rhc` at
-/// `qe-7.5/upflib/rhoc_mod.f90:107-115`:
-///
-/// ```text
-///     aux(ir)     = upf%rho_atc(ir) * rgrid%r2(ir) * sin(qr)/(qr)
-///     tab_rhc(iq) = fpi * simpson(aux, rab) / omega
-/// ```
+/// prefactor are supplied here.
 ///
 /// Units: `r` and `rab` in Å, `G` in 1/Å, `ρ_core` in `e/Å³`; the
 /// Simpson integral has units `e/Å³ · Å² · Å = e`, so `4π·I/Ω` is
@@ -158,14 +152,13 @@ pub(crate) fn compute_core_density(
 /// is used by the free-electron band-structure path and does not share
 /// this tight inner loop).
 ///
-/// **ALOC F-5 allocation contract.** This routine performs no heap
-/// allocations. The backing `faer::Mat` is owned by the caller —
-/// typically one slot per `(ispin, ik)` in `ScfContext::h_scratch` —
-/// so the SCF loop no longer allocates an `n_pw × n_pw`
-/// `Mat::<Complex64>` each iteration (84 MB of transient allocations
-/// per iter at `n_pw = 725`, `n_k = 10`, `nspin = 1`). Callers that
-/// want an owned matrix (free-electron band structure, tests) should
-/// combine this with `faer::Mat::<Complex64>::zeros(n, n)` inline.
+/// **Allocation contract.** This routine performs no heap allocations.
+/// The backing `faer::Mat` is owned by the caller — typically one slot
+/// per `(ispin, ik)` in `ScfContext::h_scratch` — so the SCF loop does
+/// not allocate an `n_pw × n_pw` `Mat::<Complex64>` each iteration.
+/// Callers that want an owned matrix (free-electron band structure,
+/// tests) should combine this with `faer::Mat::<Complex64>::zeros(n, n)`
+/// inline.
 pub(crate) fn fill_hamiltonian_with_v_eff(
     h: &mut faer::Mat<Complex64>,
     basis: &BasisSet,

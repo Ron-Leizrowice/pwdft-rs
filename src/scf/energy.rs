@@ -121,8 +121,7 @@ pub(crate) fn hartree_energy(rho_g: &[Complex64], g_squared: &[f64], omega: f64)
 /// evaluated on the total density but the subtrahend integrates against
 /// `ρ_val` only — the core is frozen out of the valence problem and must
 /// not contribute to the band sum
-/// (Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982); see
-/// QE `qe-7.5/PW/src/v_of_rho.f90:511`).
+/// (Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982)).
 ///
 /// - `rho_xc`, `rho_val`: densities on the FFT grid in e/Å³;
 /// - `exc_r[i]`: energy density per electron `ε_xc(ρ(r_i))` in eV;
@@ -165,7 +164,7 @@ pub(crate) fn xc_energy_corrected(
 /// All arguments in eV. Caller is responsible for also applying the
 /// `V_local(G=0) · N_el` compensating shift via [`with_g0_shift`] (the
 /// G=0 of the local PP is zeroed to keep the Hamiltonian diagonal
-/// finite; see [`crate::scf::context::ScfContext::new`] and NCFX).
+/// finite; see [`crate::scf::context::ScfContext::new`]).
 ///
 /// Using the **output** density for the double-counting terms gives the
 /// variationally exact KS energy once SCF is converged. Away from self-
@@ -226,7 +225,6 @@ pub(crate) fn harris_foulkes_energy(
 /// ion-ion piece so the total electrostatic energy is cutoff-
 /// independent.
 ///
-/// See NCFX / VGCMP proposals for the derivation;
 /// [`crate::scf::context::ScfContext::new`] does the G=0 zeroing.
 /// `energy` and the return value in eV.
 pub(crate) fn with_g0_shift(energy: f64, ctx: &super::context::ScfContext<'_>) -> f64 {
@@ -341,8 +339,7 @@ pub(crate) fn assemble_v_eff(
 /// The clamp protects the LDA XC functional from spurious negative
 /// densities that can arise from FFT-wrap round-off in ρ_core or from
 /// density mixing; without it, `ρ^(1/3)` in the exchange term would
-/// produce NaN. Mirrors QE `PW/src/v_of_rho.f90:511` (adds `rho_core` to
-/// `rho%of_r(ir,1)` before calling `xc_lda`).
+/// produce NaN.
 ///
 /// Reference: Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982).
 pub(crate) fn add_core_density(rho_val: &[f64], rho_core: &[f64]) -> Vec<f64> {
@@ -495,8 +492,8 @@ pub(crate) fn local_pp_energy_grid(
 /// `V_NL = Σ_α Σ_{lm} D_{lm}^{(α)} |β_{lm}^{(α)}⟩⟨β_{lm}^{(α)}|`
 /// (Kleinman & Bylander, *Phys. Rev. Lett.* **48**, 1425 (1982)).
 /// `H_NL(G, G')` is built per k-point by the cached
-/// [`crate::potential::nonlocal::NonlocalPotential::add_to_hamiltonian`];
-/// see the VNLM single-GEMM assembly for the reciprocal-space form.
+/// [`crate::potential::nonlocal::NonlocalPotential::add_to_hamiltonian`]
+/// as a single GEMM in reciprocal space.
 ///
 /// - `wavefunctions[ik]`: n_pw × n_bands column-major coefficient matrix;
 /// - occupations, k-point weights: same conventions as
@@ -561,20 +558,19 @@ pub(crate) fn nonlocal_expectation(
 /// *Phys. Rev. B* **23**, 5048 (1981)).
 ///
 /// No Kohn-Sham double-counting subtraction — this is the raw
-/// functional value used in `EnergyComponents::e_xc` for validation
-/// against QE's "xc contribution" line. See [`xc_energy_corrected`] for
-/// the version that enters the total energy.
+/// functional value used in `EnergyComponents::e_xc` for validation.
+/// See [`xc_energy_corrected`] for the version that enters the total
+/// energy.
 /// All arguments in eV / e·Å⁻³ / Å³; returns E_xc in eV.
 pub(crate) fn xc_energy_bare(rho_xc: &[f64], exc_r: &[f64], omega: f64) -> f64 {
     xc::lda_xc_energy(rho_xc, exc_r, omega)
 }
 
 // ---------------------------------------------------------------------------
-// Per-component decomposition (VGC5 diagnostic)
+// Per-component decomposition
 // ---------------------------------------------------------------------------
 
-/// Per-term decomposition of the Kohn-Sham total energy (VGC5
-/// diagnostic).
+/// Per-term decomposition of the Kohn-Sham total energy.
 ///
 /// Intended as a validation handle: each field is an independent direct
 /// evaluation of one term in the KS functional, so their sum is
@@ -607,29 +603,19 @@ pub(crate) fn xc_energy_bare(rho_xc: &[f64], exc_r: &[f64], omega: f64) -> f64 {
 /// the true functional value `E_xc`; agreement of the two routes
 /// confirms the one-body / two-body accounting.
 ///
-/// ## Correspondence with QE `pw.x` output
-///
-/// ```text
-///     one-electron contribution = e_kinetic + e_local + e_nonlocal + e_local_g0_shift
-///     hartree    contribution = e_hartree
-///     xc         contribution = e_xc
-///     ewald      contribution = e_ewald
-/// ```
-///
 /// ## Density convention
 ///
 /// Every Kohn-Sham term (`e_hartree`, `e_xc`, `e_kinetic`, `e_local`,
-/// `e_nonlocal`) is evaluated on the **post-PCFX symmetrized output
-/// density**, not the raw band-reconstructed density. Both drivers
-/// symmetrize via `symmetry::density::symmetrize_density_g`
-/// immediately after `density::compute_density` (step 6b in
-/// `scf::driver` / `scf::driver_spin`) and before any energy call
-/// consumes ρ. Reordering symmetrize-vs-diagonalize, or inserting an
-/// energy evaluation between raw reconstruction and symmetrization,
-/// would silently break the direct-sum identity above: pre-PCFX the
-/// symmetry residual on the output density was up to ~1.2 eV on Si
-/// (proposal `PCFX`). The `e_ewald` ion-ion term is density-
-/// independent and unaffected. The separate Harris-Foulkes estimator
+/// `e_nonlocal`) is evaluated on the **symmetrized output density**,
+/// not the raw band-reconstructed density. Both drivers symmetrize via
+/// `symmetry::density::symmetrize_density_g` immediately after
+/// `density::compute_density` and before any energy call consumes ρ.
+/// Reordering symmetrize-vs-diagonalize, or inserting an energy
+/// evaluation between raw reconstruction and symmetrization, would
+/// silently break the direct-sum identity above — the unsymmetrized
+/// output density can carry a multi-eV symmetry residual on polar
+/// systems. The `e_ewald` ion-ion term is density-independent and
+/// unaffected. The separate Harris-Foulkes estimator
 /// (`harris_foulkes_energy` in this module) is the one deliberate
 /// exception and uses the *input* density.
 ///
@@ -665,8 +651,7 @@ pub struct EnergyComponents {
     pub e_hartree: f64,
     /// Bare exchange-correlation energy `∫ρ_xc(r)·ε_xc(r)d³r` in eV from
     /// the output density, with `ρ_xc = ρ_val + ρ_core` under NLCC and
-    /// `ρ_xc = ρ_val` otherwise. Sign and normalization match QE's
-    /// "xc contribution" line.
+    /// `ρ_xc = ρ_val` otherwise.
     pub e_xc: f64,
     /// XC double-counting integral `∫ρ_val(r)·V_xc(r)d³r` in eV from the
     /// output density. This is the `E_vxc` quantity that appears in the

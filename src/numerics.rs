@@ -1,15 +1,14 @@
 //! Numerical integration utilities for radial integrals.
 //!
 //! These routines operate on logarithmic radial grids with `rab[i]` weights,
-//! matching the conventions used by Quantum ESPRESSO's pseudopotential library.
+//! matching the logarithmic-mesh convention used by UPF pseudopotentials.
 
 /// Simpson's 1/3 rule integration on a radial grid with `rab` weights.
 ///
 /// Computes: `sum_i c_i * func[i] * rab[i]`
 ///
-/// where c_i alternate 2/3, 4/3, with endpoints at 1/3. Matches QE's
-/// `simpsn.f90` exactly, including the even-mesh boundary correction
-/// from DFTK.
+/// where c_i alternate 2/3, 4/3, with endpoints at 1/3. Handles the
+/// even-mesh boundary with the DFTK-style correction.
 ///
 /// For odd mesh (standard composite Simpson):
 ///   weights = [1, 4, 2, 4, 2, ..., 4, 1] / 3

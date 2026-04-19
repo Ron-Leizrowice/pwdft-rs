@@ -7,10 +7,10 @@ pub struct BasisSet {
     pw: Vec<Vector3<f64>>,
     /// Integer Miller indices (n1, n2, n3) for each G-vector.
     ///
-    /// Stored as `[i16; 3]` per TYPE-A. `i16`'s range `[-32 768, 32 767]`
-    /// covers every physically reasonable `ecut · Ω` combination with
-    /// three orders of magnitude to spare — reaching i16 overflow would
-    /// require `ecut` beyond `10^7 Ry`. All arithmetic on Miller indices
+    /// Stored as `[i16; 3]`. `i16`'s range `[-32 768, 32 767]` covers
+    /// every physically reasonable `ecut · Ω` combination with three
+    /// orders of magnitude to spare — reaching i16 overflow would require
+    /// `ecut` beyond `10^7 Ry`. All arithmetic on Miller indices
     /// (rotation, FFT-index mapping, k+G) widens to `i32` at the read
     /// site to preserve overflow-free behavior.
     miller: Vec<[i16; 3]>,
@@ -109,8 +109,8 @@ impl BasisSet {
 
     /// Access integer Miller indices for each G-vector.
     ///
-    /// Stored as `[i16; 3]` for cache density (TYPE-A). Callers that feed
-    /// the values into `i32`-sized arithmetic (rotation, FFT index wrap,
+    /// Stored as `[i16; 3]` for cache density. Callers that feed the
+    /// values into `i32`-sized arithmetic (rotation, FFT index wrap,
     /// `miller_to_idx`) should widen with `i32::from(m[k])` — the
     /// widening is infallible and typically folds into the load.
     #[must_use]

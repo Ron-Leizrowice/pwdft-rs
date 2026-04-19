@@ -11,15 +11,15 @@ pub struct EigenResult {
     pub eigenvectors: faer::Mat<Complex64>,
 }
 
-/// WFRX subspace-diagonalization residual tolerance (per eigenpair, L2 norm).
+/// Subspace-diagonalization residual tolerance (per eigenpair, L2 norm).
 ///
-/// Set per the WFRX proposal (§ Step 3). When the max residual
-/// `||H v_i − λ_i v_i||₂` across the returned eigenpairs exceeds this
-/// threshold, `diagonalize_subspace` considers the warm-start projection
-/// insufficient and falls back to the full `diagonalize_lowest` path for
-/// that k-point. The tolerance is chosen to be well below the SCF's own
-/// density/energy convergence criteria (1e-6 / 1e-5) so that the subspace
-/// rotation does not degrade SCF outputs.
+/// When the max residual `||H v_i − λ_i v_i||₂` across the returned
+/// eigenpairs exceeds this threshold, `diagonalize_subspace` considers
+/// the warm-start projection insufficient and falls back to the full
+/// `diagonalize_lowest` path for that k-point. The tolerance is chosen
+/// to be well below the SCF's own density/energy convergence criteria
+/// (1e-6 / 1e-5) so that the subspace rotation does not degrade SCF
+/// outputs.
 pub const WFRX_RESIDUAL_TOL: f64 = 1e-6;
 
 /// Full Hermitian eigendecomposition of H via faer.
@@ -162,7 +162,7 @@ pub fn eigenvalue_residuals(
 ///
 /// In all fallback paths the final result is bit-identical to what
 /// `diagonalize_lowest` would have returned on its own, so enabling
-/// WFRX can never degrade numerical accuracy.
+/// the subspace warm-start can never degrade numerical accuracy.
 ///
 /// # Errors
 /// Returns `PwdftError::Eigensolver` if the (small) projected

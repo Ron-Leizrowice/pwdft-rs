@@ -8,8 +8,8 @@ use super::super::SymmetryInfo;
 
 /// Map a fractional coordinate to the nearest grid index in [0, n).
 ///
-/// Uses nearest-integer (round) mapping, matching QE's `nint()` convention.
-/// Handles negative coordinates and periodic wrapping via double-modulo.
+/// Uses nearest-integer (round) mapping. Handles negative coordinates
+/// and periodic wrapping via double-modulo.
 #[allow(
     clippy::cast_possible_wrap,
     clippy::cast_possible_truncation,

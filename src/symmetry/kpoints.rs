@@ -22,16 +22,14 @@ use super::{SymmOp, SymmetryInfo};
 /// produces incorrect weights. The function generator and reducer must
 /// agree.
 ///
-/// - `KGridShift::GammaCentered` (QE default): fractional coords
+/// - [`KGridShift::GammaCentered`]: fractional coords
 ///   `{0, 1/N, 2/N, …, (N−1)/N}`. Si Fd-3m 4×4×4 reduces to **8** IBZ
-///   points (matches QE).
-/// - `KGridShift::MP1976` (QE `k1=k2=k3=1`): fractional coords
+///   points.
+/// - [`KGridShift::MP1976`]: fractional coords
 ///   `{±1/(2N), ±3/(2N), …}`. Si Fd-3m 4×4×4 reduces to **10** IBZ points.
 ///
 /// Both reductions are exact for their respective grids — this is a
-/// convention choice, not a bug. See
-/// `proposals/completed/SYKP-symmetry-ibz-audit.md` and
-/// `proposals/MPSH-mp-shift-alignment.md` for the background.
+/// convention choice, not a bug.
 #[must_use]
 pub fn reduce_kpoints(
     full_kpoints: &[KPoint],

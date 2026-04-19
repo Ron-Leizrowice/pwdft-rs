@@ -81,18 +81,17 @@ use super::potentials::fill_hamiltonian_with_v_eff;
 use super::report::{log_components, log_convergence_summary, log_iteration, IterationReport, SpinIterationFields};
 use super::{ScfParams, ScfResult, context, density, initial_density, mixing, smearing};
 
-/// Run the spin-polarized (nspin=2) LSDA SCF loop; see the module header
-/// for the equations, CCMX coupled-channel mixer, and SPNC per-spin
-/// convergence criterion.
+/// Run the spin-polarized (nspin=2) LSDA SCF loop.
 ///
 /// Two spin channels `σ ∈ {↑, ↓}` with independent densities, LSDA XC
 /// potentials, and k-point Hamiltonians. Hartree and `V_local` are
 /// spin-independent (functions of `ρ_↑ + ρ_↓`); NLCC core charge splits
-/// evenly (`ρ_core / 2` per channel). Total magnetization
-/// `M = ∫(ρ_↑ − ρ_↓) d³r` in μ_B; can be optimized freely or constrained
-/// via `ScfParams::tot_magnetization`. `xc_evaluator` is the data-enum
-/// XC dispatcher built by `run_scf` (currently LSDA Perdew-Zunger only;
-/// GGA spin support lands in GGAP Phase C).
+/// evenly (`ρ_core / 2` per channel). The density mixer operates in the
+/// coupled-channel `(ρ_total, m)` basis so both spin channels share a
+/// single residual history. Total magnetization `M = ∫(ρ_↑ − ρ_↓) d³r`
+/// in μ_B; can be optimized freely or constrained via
+/// `ScfParams::tot_magnetization`. `xc_evaluator` is the data-enum XC
+/// dispatcher built by `run_scf` (currently LSDA Perdew-Zunger only).
 ///
 /// Precondition: `params.nspin == 2` (caller dispatches). Returns a
 /// populated [`ScfResult`] with per-component [`EnergyComponents`] and
