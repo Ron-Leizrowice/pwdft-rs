@@ -2,6 +2,70 @@
 
 Entries: date, what was validated, discrepancies found (with numbers), references used. Physics findings only — not code quality or docs.
 
+## 2026-04-19 — VGCH Phase 1c H2 cleared — SAD initial density bit-perfect vs QE; VGCH-2 spawned for energy assembly
+
+Added `scripts/validate/vgch_sad_heavy.py` (Python reference for
+`qe-7.5/PW/src/atomic_rho.f90` recipe: Simpson over log mesh,
+per-species structure factor, IFFT, G=0 renormalization) and
+`tests/vgch_sad_heavy.rs` (Tier-2) that pins pwdft-rs'
+`generate_initial_density` on all 7 VGCH-class systems (C, Al, Fe,
+Cu, GaAs, NaCl, MgO).
+
+**Verdict: H2 CLEARED.** Raw-sample point-wise max |Δρ(r)|:
+
+| system | max |Δρ| (e/Å³) | neg mass clamped (e) |
+|---|---|---|
+| C diamond | 5.4e-11 | 0 |
+| Al FCC    | 5.5e-12 | 0 |
+| Fe BCC    | 4.0e-10 | 0 |
+| Cu FCC    | 4.0e-10 | 0 |
+| GaAs      | 1.2e-5  | 2.1e-5 |
+| NaCl      | 8.6e-11 | 0 |
+| MgO       | 4.8e-10 | 0 |
+
+C diamond bit-perfect pre-clamp AND post-clamp — the 1.45 eV C
+residual does NOT live in SAD. GaAs's 1.2e-5 outlier is the
+clamp step (`initial_density.rs:144-148`) zeroing O(1e-5 e) of
+Gibbs ringing near the As core that QE keeps
+(`atomic_rho.f90:186-188`: "useless to set negative terms to zero,
+they re-appear on FFT round-trip"). Total-energy impact O(1e-5 eV).
+
+**Debug journey.** Initial shell-average run showed C/GaAs with
+0.2 / 0.07 e/Å³ asymmetry between the two atoms. Raw-sample
+point-wise diff was bit-perfect — the asymmetry lived entirely in
+the shell-average function, not the ρ(r) arrays. Root cause:
+Rust's `.round()` is half-away-from-zero; numpy's `np.round` is
+half-to-even. At `d = ±0.5` fractional displacement (grid points
+exactly 1/2 cell from the atom), the min-image wrap produced
+opposite-sign cartesian displacements in Rust vs Python, giving
+different distances and therefore different bins. Fix: both codes
+now use `d - (d + 0.5).floor()` wrap, which is platform-independent.
+No production-code impact — shell-average is a diagnostic only.
+
+**H3 target (VGCH-2).** With H1 (β_l(q), landed PR #148) and H2
+(SAD, this PR #156) both cleared, the 7-34 eV residuals must be
+in:
+- (H3a) Total-energy assembly — `src/scf/energy.rs` `with_g0_shift`
+  + ρ_in/ρ_out pairing in Harris-Foulkes double counting. Phase 1a
+  fingerprint: opposite-sign one-electron vs Hartree partial
+  cancellation is consistent with an assembly-pairing bug. C
+  diamond specifically shows every Γ eigenvalue offset by exactly
+  `−2·V_loc(G=0) = −3.09 eV`; expected compensation via
+  `e_local_g0_shift = v_local_g0·N_el` works for Si but not C/Cu/Fe.
+- (H3b) SCF mixer basin — escalated only if H3a clears.
+
+Spawned `proposals/VGCH-2-total-energy-assembly.md`. Part A:
+`scripts/validate/vgch_energy_assembly_heavy.py` + `tests/vgch_energy_assembly_heavy.rs`
+to trace per-term agreement vs QE. Part B (transplant experiment)
+only if Part A clears.
+
+**Gates.** 342 passed / 0 failed / 31 ignored (all Tier-1 baseline
+preserved). Clippy 18/24 at baseline. Rustdoc clean. New
+`build_sad_density_for_diagnostic` + `..._verbose` public helpers
+in `src/scf/initial_density.rs` expose SAD output + pre-clamp /
+post-clamp snapshots + clamp/renorm statistics for integration
+tests. No production-path change.
+
 ## 2026-04-19 — VGCH Phase 1b H1 cleared — β_l(q) is bit-perfect vs QE
 
 Added `scripts/validate/vgch_beta_l_heavy.py` (QE-convention Simpson
