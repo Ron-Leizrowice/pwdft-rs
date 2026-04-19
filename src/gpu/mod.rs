@@ -21,6 +21,8 @@
 //!
 //! Enable with `cargo build --features gpu`.
 
+use std::sync::Mutex;
+
 use bytemuck::{Pod, Zeroable};
 use log::info;
 use num_complex::Complex64;
@@ -108,6 +110,14 @@ struct BufferPool {
     v_eff_bg: wgpu::BindGroup,
     /// Cached bind group for the LDA XC kernel.
     lda_xc_bg: wgpu::BindGroup,
+    /// Reusable scratch buffer for host-side f64 -> f32 conversion.
+    ///
+    /// Sized to `2 * n_grid` so it holds interleaved complex inputs; the
+    /// real-scalar kernels (LDA XC) use the first `n_grid` elements only.
+    /// `write_buffer` reads a sub-slice; the tail of the scratch is ignored.
+    /// Behind a `Mutex` because the pooled GPU methods take `&self`; contention
+    /// is never an issue because SCF dispatches kernels sequentially.
+    scratch_f32: Mutex<Vec<f32>>,
 }
 
 // Uniform parameter structs matching WGSL layout.
@@ -322,6 +332,8 @@ impl GpuAccelerator {
             hartree_bg,
             v_eff_bg,
             lda_xc_bg,
+            // Sized for the largest use (complex inputs = 2 * n_grid f32 lanes).
+            scratch_f32: Mutex::new(vec![0.0_f32; 2 * n_grid]),
         });
 
         info!("GPU buffer pool allocated for {n_grid} grid points (all kernels)");
@@ -351,6 +363,13 @@ impl GpuAccelerator {
     /// V_H(G) = 4πe² × ρ(G) / |G|² for |G|² > 0, else 0.
     ///
     /// Uses pooled buffers if `prepare_buffers` was called; otherwise allocates fresh.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pool's scratch `Mutex` is poisoned — only possible if a
+    /// previous GPU kernel call panicked while holding the lock, which itself
+    /// indicates an internal bug. In all non-bug scenarios this is infallible
+    /// because SCF dispatches GPU kernels strictly sequentially.
     #[allow(
         clippy::cast_possible_truncation,
         reason = "GPU mixed-precision: f64→f32 at CPU→GPU boundary is intentional; n_grid <= 512^3 (~1.3e8) fits in u32::MAX (~4.3e9) for all physical inputs"
@@ -362,7 +381,6 @@ impl GpuAccelerator {
         fourpi_e2: f64,
     ) -> Vec<Complex64> {
         let n_grid = rho_g.len();
-        let rho_f32 = complex_to_f32_pairs(rho_g);
 
         let params = HartreeParams {
             fourpi_e2: fourpi_e2 as f32,
@@ -371,6 +389,8 @@ impl GpuAccelerator {
 
         // Pooled path: cached bind group + pre-allocated buffers. Only the
         // input `rho_g` and the uniform params travel host→device per call.
+        // The scratch `Vec<f32>` held by the pool removes the per-call
+        // allocation of a 2·n_grid f32 staging buffer.
         if let Some(ref pool) = self.pool
             && pool.n_grid == n_grid
         {
@@ -379,8 +399,25 @@ impl GpuAccelerator {
                 0,
                 bytemuck::bytes_of(&params),
             );
-            self.queue
-                .write_buffer(&pool.complex_bufs[0], 0, bytemuck::cast_slice(&rho_f32));
+
+            let complex_f32_len = 2 * n_grid;
+            let byte_size = (complex_f32_len * std::mem::size_of::<f32>()) as u64;
+            {
+                // SAFETY: lock is dropped at end of scope before the next
+                // (serial) kernel call; contention is impossible because SCF
+                // dispatches one GPU kernel at a time.
+                #[allow(
+                    clippy::expect_used,
+                    reason = "BUG: Mutex only gets poisoned if a prior holder panicked; SCF dispatches GPU kernels sequentially on a single thread, so contention is impossible"
+                )]
+                let mut scratch = pool.scratch_f32.lock().expect("scratch_f32 poisoned");
+                fill_complex_to_f32_pairs(rho_g, &mut scratch[..complex_f32_len]);
+                self.queue.write_buffer(
+                    &pool.complex_bufs[0],
+                    0,
+                    bytemuck::cast_slice(&scratch[..complex_f32_len]),
+                );
+            }
 
             let mut encoder = self.device.create_command_encoder(&Default::default());
             {
@@ -389,7 +426,6 @@ impl GpuAccelerator {
                 pass.set_bind_group(0, &pool.hartree_bg, &[]);
                 pass.dispatch_workgroups(dispatch_size(n_grid as u32), 1, 1);
             }
-            let byte_size = (rho_f32.len() * std::mem::size_of::<f32>()) as u64;
             encoder.copy_buffer_to_buffer(
                 &pool.complex_bufs[1],
                 0,
@@ -399,11 +435,12 @@ impl GpuAccelerator {
             );
             self.queue.submit(std::iter::once(encoder.finish()));
 
-            let result_f32 = self.read_staging_buffer(&pool.complex_staging, rho_f32.len());
+            let result_f32 = self.read_staging_buffer(&pool.complex_staging, complex_f32_len);
             return f32_pairs_to_complex(&result_f32);
         }
 
         // Fallback: allocate fresh buffers (no prepare_buffers call).
+        let rho_f32 = complex_to_f32_pairs(rho_g);
         let params_buf = self.create_uniform_buffer(&params);
         let g2_f32: Vec<f32> = g_squared.iter().map(|&v| v as f32).collect();
         let rho_buf = self.create_storage_buffer(&rho_f32);
@@ -459,10 +496,6 @@ impl GpuAccelerator {
         assert_eq!(v_h.len(), n_grid);
         assert_eq!(v_xc.len(), n_grid);
 
-        let vl_f32 = complex_to_f32_pairs(v_local);
-        let vh_f32 = complex_to_f32_pairs(v_h);
-        let vxc_f32 = complex_to_f32_pairs(v_xc);
-
         let params = GridParams {
             n_grid: n_grid as u32,
             _pad: 0,
@@ -470,18 +503,37 @@ impl GpuAccelerator {
 
         // Pooled path: cached bind group + pre-allocated buffers. Inputs are
         // written into `complex_bufs[2] = v_local`, `[1] = v_h`, `[3] = v_xc`;
-        // output lands in `[4] = v_eff`.
+        // output lands in `[4] = v_eff`. Each of the three inputs is staged
+        // through the pool's `scratch_f32` buffer in turn — acquiring the
+        // lock, converting, uploading, and releasing before the next input.
         if let Some(ref pool) = self.pool
             && pool.n_grid == n_grid
         {
             self.queue
                 .write_buffer(&pool.grid_params_buf, 0, bytemuck::bytes_of(&params));
-            self.queue
-                .write_buffer(&pool.complex_bufs[2], 0, bytemuck::cast_slice(&vl_f32));
-            self.queue
-                .write_buffer(&pool.complex_bufs[1], 0, bytemuck::cast_slice(&vh_f32));
-            self.queue
-                .write_buffer(&pool.complex_bufs[3], 0, bytemuck::cast_slice(&vxc_f32));
+
+            let complex_f32_len = 2 * n_grid;
+            write_complex_via_scratch(
+                &self.queue,
+                pool,
+                &pool.complex_bufs[2],
+                v_local,
+                complex_f32_len,
+            );
+            write_complex_via_scratch(
+                &self.queue,
+                pool,
+                &pool.complex_bufs[1],
+                v_h,
+                complex_f32_len,
+            );
+            write_complex_via_scratch(
+                &self.queue,
+                pool,
+                &pool.complex_bufs[3],
+                v_xc,
+                complex_f32_len,
+            );
 
             let mut encoder = self.device.create_command_encoder(&Default::default());
             {
@@ -495,15 +547,18 @@ impl GpuAccelerator {
                 0,
                 &pool.complex_staging,
                 0,
-                (vl_f32.len() * std::mem::size_of::<f32>()) as u64,
+                (complex_f32_len * std::mem::size_of::<f32>()) as u64,
             );
             self.queue.submit(std::iter::once(encoder.finish()));
 
-            let result_f32 = self.read_staging_buffer(&pool.complex_staging, vl_f32.len());
+            let result_f32 = self.read_staging_buffer(&pool.complex_staging, complex_f32_len);
             return f32_pairs_to_complex(&result_f32);
         }
 
         // Fallback: allocate fresh buffers (no prepare_buffers call).
+        let vl_f32 = complex_to_f32_pairs(v_local);
+        let vh_f32 = complex_to_f32_pairs(v_h);
+        let vxc_f32 = complex_to_f32_pairs(v_xc);
         let params_buf = self.create_uniform_buffer(&params);
         let vl_buf = self.create_storage_buffer(&vl_f32);
         let vh_buf = self.create_storage_buffer(&vh_f32);
@@ -545,13 +600,19 @@ impl GpuAccelerator {
     ///
     /// Input: real-space density ρ(r) in e/Å³.
     /// Output: (ε_xc(r), V_xc(r)) in eV.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pool's scratch `Mutex` is poisoned — only possible if a
+    /// previous GPU kernel call panicked while holding the lock, which itself
+    /// indicates an internal bug. In all non-bug scenarios this is infallible
+    /// because SCF dispatches GPU kernels strictly sequentially.
     #[allow(
         clippy::cast_possible_truncation,
         reason = "GPU mixed-precision: f64→f32 at CPU→GPU boundary is intentional; n_grid <= 512^3 fits in u32::MAX"
     )]
     pub fn lda_xc(&self, rho_r: &[f64]) -> (Vec<f64>, Vec<f64>) {
         let n_grid = rho_r.len();
-        let rho_f32: Vec<f32> = rho_r.iter().map(|&v| v as f32).collect();
 
         let params = GridParams {
             n_grid: n_grid as u32,
@@ -560,13 +621,26 @@ impl GpuAccelerator {
 
         // Pooled path: cached bind group + pre-allocated buffers. Only the
         // input `rho_r` and the uniform params travel host→device per call.
+        // The real-scalar input uses the first `n_grid` lanes of `scratch_f32`.
         if let Some(ref pool) = self.pool
             && pool.n_grid == n_grid
         {
             self.queue
                 .write_buffer(&pool.grid_params_buf, 0, bytemuck::bytes_of(&params));
-            self.queue
-                .write_buffer(&pool.rho_r_buf, 0, bytemuck::cast_slice(&rho_f32));
+
+            {
+                #[allow(
+                    clippy::expect_used,
+                    reason = "BUG: Mutex only gets poisoned if a prior holder panicked; SCF dispatches GPU kernels sequentially on a single thread, so contention is impossible"
+                )]
+                let mut scratch = pool.scratch_f32.lock().expect("scratch_f32 poisoned");
+                fill_f64_to_f32(rho_r, &mut scratch[..n_grid]);
+                self.queue.write_buffer(
+                    &pool.rho_r_buf,
+                    0,
+                    bytemuck::cast_slice(&scratch[..n_grid]),
+                );
+            }
 
             let mut encoder = self.device.create_command_encoder(&Default::default());
             {
@@ -589,6 +663,7 @@ impl GpuAccelerator {
         }
 
         // Fallback: allocate fresh buffers (no prepare_buffers call).
+        let rho_f32: Vec<f32> = rho_r.iter().map(|&v| v as f32).collect();
         let params_buf = self.create_uniform_buffer(&params);
         let rho_buf = self.create_storage_buffer(&rho_f32);
         let exc_buf = self.create_output_buffer(n_grid);
@@ -696,12 +771,67 @@ impl GpuAccelerator {
     reason = "GPU mixed-precision boundary: f64→f32 conversion at CPU→GPU boundary is intentional; see module-level docs"
 )]
 fn complex_to_f32_pairs(data: &[Complex64]) -> Vec<f32> {
-    let mut out = Vec::with_capacity(data.len() * 2);
-    for c in data {
-        out.push(c.re as f32);
-        out.push(c.im as f32);
-    }
+    let mut out = vec![0.0_f32; data.len() * 2];
+    fill_complex_to_f32_pairs(data, &mut out);
     out
+}
+
+/// Write `data` into `out` as interleaved f32 pairs [re0, im0, re1, im1, ...].
+///
+/// `out.len()` must equal `2 * data.len()` — the caller (pooled kernel branch)
+/// slices a pre-sized scratch buffer down to the exact required length, so any
+/// length mismatch is a programming error. Writing into a pre-sized slice
+/// rather than `push`-ing into a fresh `Vec` removes one allocation per call
+/// and also lets LLVM auto-vectorize the f64→f32 conversion on Apple silicon
+/// NEON (the `push` form interleaves allocator capacity checks with each
+/// conversion, which previously suppressed vectorization).
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "GPU mixed-precision boundary: f64→f32 conversion at CPU→GPU boundary is intentional; see module-level docs"
+)]
+fn fill_complex_to_f32_pairs(data: &[Complex64], out: &mut [f32]) {
+    assert_eq!(out.len(), data.len() * 2);
+    for (i, c) in data.iter().enumerate() {
+        out[2 * i] = c.re as f32;
+        out[2 * i + 1] = c.im as f32;
+    }
+}
+
+/// Write `data` into `out` as f32, narrowing each f64 value.
+///
+/// `out.len()` must equal `data.len()`. Same rationale as
+/// `fill_complex_to_f32_pairs`: pre-sized slice, no push, better vectorization.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "GPU mixed-precision boundary: f64→f32 conversion at CPU→GPU boundary is intentional; see module-level docs"
+)]
+fn fill_f64_to_f32(data: &[f64], out: &mut [f32]) {
+    assert_eq!(out.len(), data.len());
+    for (dst, &src) in out.iter_mut().zip(data.iter()) {
+        *dst = src as f32;
+    }
+}
+
+/// Stage `data` into `pool.scratch_f32`, convert to f32 pairs, upload to `dst`.
+///
+/// Encapsulates the lock-acquire + fill + `write_buffer` sequence used by
+/// `v_eff_assembly`'s three inputs so the pooled branch stays readable. The
+/// lock is released before the function returns, so subsequent calls (for the
+/// next input) can re-acquire it without deadlock.
+fn write_complex_via_scratch(
+    queue: &wgpu::Queue,
+    pool: &BufferPool,
+    dst: &wgpu::Buffer,
+    data: &[Complex64],
+    complex_f32_len: usize,
+) {
+    #[allow(
+        clippy::expect_used,
+        reason = "BUG: Mutex only gets poisoned if a prior holder panicked; SCF dispatches GPU kernels sequentially on a single thread, so contention is impossible"
+    )]
+    let mut scratch = pool.scratch_f32.lock().expect("scratch_f32 poisoned");
+    fill_complex_to_f32_pairs(data, &mut scratch[..complex_f32_len]);
+    queue.write_buffer(dst, 0, bytemuck::cast_slice(&scratch[..complex_f32_len]));
 }
 
 /// Convert interleaved f32 pairs back to Complex64.
