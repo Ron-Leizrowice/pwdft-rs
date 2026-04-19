@@ -57,6 +57,7 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 | CFGN | Expose hardcoded numerics as Settings (umbrella; re-scoped 2026-04-19 post-CFGN1: 10 knobs left across Fermi-search/iterative-eigensolver/Ewald/floors; each should land as its own small proposal when a user asks) | medium | low | — | — |
 | CUCL | CubeCL GPU Kernels | large | high | — | — |
 | FLUP | Follow-up backlog — 7 unpromoted items seeded from today's code reviews | small | low | — | — |
+| MIXA | Document + pin Plain-Anderson-stall-on-wide-gap-insulators as negative regression (C diamond at ecut=30 Ry stalls at Δρ ≈ 1.75e-8 after 150 iters vs conv_threshold=1e-8; Kerker/Broyden/PeriodicPulay converge cleanly in 10–15 iters) | small | low | — | — |
 
 ## Reference Documents
 
