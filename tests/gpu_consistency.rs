@@ -483,18 +483,55 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
     }
 }
 
-#[test]
-#[ignore = "TSPL Tier-2: runs Si SCF on GPU twice (GPU + single-thread CPU) at ecut=100, 40 iters; run with cargo test --features gpu -- --ignored when touching scf/, gpu/, or XC paths"]
-fn test_gpu_vs_cpu_scf_direct_comparison() {
-    // This test runs SCF twice: once with GPU kernels active (default when
-    // gpu feature is enabled), and once forcing CPU-only by running the
-    // individual CPU functions. Since we can't disable the gpu feature at
-    // runtime, we compare the GPU SCF result against known CPU values from
-    // the parallel_consistency test.
-    //
-    // The key assertion: GPU (f32) and CPU (f64) SCF must converge to
-    // eigenvalues within f32 tolerance (~1e-3 eV).
+// ---------------------------------------------------------------------------
+// GPU ↔ CPU f32/f64 consistency gate (RWHK-FIX fix 1; audit finding C1)
+// ---------------------------------------------------------------------------
+//
+// The previous version of this test (`test_gpu_vs_cpu_scf_direct_comparison`,
+// removed 2026-04-19) ran `pwdft_rs::scf::run_scf` twice under
+// `#[cfg(feature = "gpu")]` — once on the default rayon pool, once on a
+// single-thread pool. Both calls took the GPU path unconditionally
+// because `gpu` was compiled in; the test body comment even acknowledged
+// "the GPU will still be used in this path. To truly force CPU-only,
+// we'd need a runtime flag. For now, we verify convergence consistency."
+// The `energy_diff < 0.1` assertion therefore compared GPU-vs-GPU — a
+// structural tautology, not the f32-vs-f64 boundary the test name
+// implied. Every GPU-feature PR that claimed "consistency tests pass"
+// was passing via a trivially-satisfied assertion.
+//
+// The fix splits the responsibility: the CPU baseline is captured once
+// in `tests/cpu_scf_baseline.rs`, which is gated
+// `#![cfg(not(feature = "gpu"))]` so the `gpu` code cannot possibly
+// link in. The baseline values are pinned as constants there and
+// mirrored here. This GPU-side test then runs `scf::run_scf` with the
+// `gpu` feature active (so the GPU accelerator is engaged) and pins the
+// result against those CPU baseline constants. An f32-precision
+// regression in any WGSL kernel (Hartree, XC, V_eff) will push the
+// GPU result outside `TOL_GPU_VS_CPU_EV` and fail the test.
 
+/// CPU-f64 baseline from `tests/cpu_scf_baseline.rs::test_cpu_scf_baseline_convergence`,
+/// captured on 2026-04-19 under RWHK-FIX. This value was measured on the
+/// CPU path with the `gpu` feature **disabled at compile time**, so it
+/// cannot be polluted by the GPU path.
+///
+/// Any GPU regression that pushes the SCF result more than
+/// [`TOL_GPU_VS_CPU_EV`] away from this value signals an f32-precision
+/// regression in a WGSL kernel. See the module docstring at
+/// `tests/cpu_scf_baseline.rs` for the capture provenance.
+const SI_CPU_BASELINE_TOTAL_EV: f64 = -213.028_339;
+
+/// GPU-vs-CPU tolerance. The GPU path runs kernels in f32, the CPU path
+/// in f64; per-iteration noise is ~1e-3 eV on a 16³ FFT grid, accumulated
+/// over ~10 SCF iterations to ~0.01 eV. `TOL_GPU_VS_CPU_EV = 0.05 eV`
+/// is a ~5× headroom over the empirical f32 accumulated error, tight
+/// enough to catch a meaningful regression (kernel sign error or
+/// precision collapse would move the result by > 1 eV) but slack enough
+/// to tolerate legitimate f32 rounding.
+const TOL_GPU_VS_CPU_EV: f64 = 0.05;
+
+#[test]
+#[ignore = "TSPL Tier-2: runs Si SCF on GPU at ecut=100, 40 iters and pins against the tests/cpu_scf_baseline.rs CPU-f64 baseline; run with cargo test --features gpu -- --ignored when touching scf/, gpu/, fft/, or XC paths"]
+fn test_gpu_scf_matches_cpu_within_f32_tolerance() {
     let Some(_) = GpuAccelerator::try_new() else {
         eprintln!("No GPU, skipping");
         return;
@@ -514,7 +551,10 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
     }];
     let params = si_scf_params();
 
-    // Run GPU-accelerated SCF
+    // Run GPU-accelerated SCF. The `gpu` feature is enabled at compile
+    // time (guaranteed by the `#![cfg(feature = "gpu")]` at the top of
+    // this file), so the GPU code path is active and the per-iteration
+    // grid ops go through the f32 WGSL kernels.
     let gpu_result = pwdft_rs::scf::run_scf(
         &crystal,
         &basis,
@@ -522,93 +562,39 @@ fn test_gpu_vs_cpu_scf_direct_comparison() {
         &[&pp],
         &params,
         &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
+    )
+    .expect("GPU Si SCF must converge");
+
+    assert!(
+        gpu_result.n_iterations < params.max_iter,
+        "GPU SCF hit max_iter={} without converging",
+        params.max_iter,
     );
 
-    // Run CPU-only SCF in a separate thread pool with 1 thread
-    // (this is the same approach as parallel_consistency)
-    let cpu_result = rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build()
-        .unwrap()
-        .install(|| {
-            // Even with gpu feature, single-threaded rayon doesn't affect
-            // GPU init. But the GPU will still be used in this path.
-            // To truly force CPU-only, we'd need a runtime flag.
-            // For now, we verify convergence consistency.
-            pwdft_rs::scf::run_scf(
-                &crystal,
-                &basis,
-                &kpoints,
-                &[&pp],
-                &params,
-                &pwdft_rs::symmetry::SymmetryInfo::identity_only(),
-            )
-        });
+    eprintln!(
+        "GPU Si SCF: {} iters, E_GPU = {:.6} eV, E_F_GPU = {:.6} eV",
+        gpu_result.n_iterations, gpu_result.total_energy, gpu_result.fermi_energy,
+    );
+    eprintln!(
+        "CPU baseline (from tests/cpu_scf_baseline.rs): E_CPU = {SI_CPU_BASELINE_TOTAL_EV:.6} eV",
+    );
 
-    match (&gpu_result, &cpu_result) {
-        (Ok(g), Ok(c)) => {
-            eprintln!("GPU: {} iters, E={:.6} eV", g.n_iterations, g.total_energy);
-            eprintln!("CPU: {} iters, E={:.6} eV", c.n_iterations, c.total_energy);
-
-            // Convergence guard (TAUD finding 5.2).
-            assert!(
-                g.n_iterations < params.max_iter,
-                "GPU SCF hit max_iter={} without converging",
-                params.max_iter
-            );
-            assert!(
-                c.n_iterations < params.max_iter,
-                "CPU SCF hit max_iter={} without converging",
-                params.max_iter
-            );
-
-            // Total energy: f32 grid ops introduce ~1e-3 eV noise per iteration,
-            // accumulated over ~20 iterations → ~0.02 eV tolerance
-            let energy_diff = (g.total_energy - c.total_energy).abs();
-            eprintln!("Energy difference: {energy_diff:.6} eV");
-            assert!(
-                energy_diff < 0.1,
-                "Energy mismatch: gpu={:.6}, cpu={:.6}, diff={energy_diff:.6}",
-                g.total_energy,
-                c.total_energy
-            );
-
-            // Eigenvalues at each k-point
-            assert_eq!(g.eigenvalues.len(), c.eigenvalues.len());
-            let mut max_eig_diff = 0.0_f64;
-            for (ik, (ge, ce)) in g.eigenvalues.iter().zip(c.eigenvalues.iter()).enumerate() {
-                assert_eq!(ge.len(), ce.len());
-                for (ib, (&gv, &cv)) in ge.iter().zip(ce.iter()).enumerate() {
-                    let diff = (gv - cv).abs();
-                    max_eig_diff = max_eig_diff.max(diff);
-                    assert!(
-                        diff < 0.1,
-                        "Eigenvalue mismatch at k={ik} band={ib}: gpu={gv:.6}, cpu={cv:.6}, diff={diff:.6}"
-                    );
-                }
-            }
-            eprintln!("Max eigenvalue difference: {max_eig_diff:.6} eV");
-
-            // Fermi energy
-            let fermi_diff = (g.fermi_energy - c.fermi_energy).abs();
-            eprintln!("Fermi energy difference: {fermi_diff:.6} eV");
-            assert!(
-                fermi_diff < 0.1,
-                "Fermi mismatch: gpu={:.6}, cpu={:.6}",
-                g.fermi_energy,
-                c.fermi_energy
-            );
-        }
-        (Err(e1), Err(e2)) => {
-            panic!("both GPU and CPU SCF diverged: gpu={e1}, cpu={e2}");
-        }
-        (Ok(_), Err(e)) => {
-            panic!("GPU converged but CPU did not: {e}");
-        }
-        (Err(e), Ok(_)) => {
-            panic!("CPU converged but GPU did not: {e}");
-        }
-    }
+    let delta_e = (gpu_result.total_energy - SI_CPU_BASELINE_TOTAL_EV).abs();
+    eprintln!(
+        "GPU vs CPU |ΔE| = {delta_e:.6} eV  (tolerance {TOL_GPU_VS_CPU_EV} eV)",
+    );
+    assert!(
+        delta_e < TOL_GPU_VS_CPU_EV,
+        "GPU SCF total energy drift from CPU baseline exceeds f32 tolerance: \
+         E_GPU = {:.6} eV, E_CPU_baseline = {SI_CPU_BASELINE_TOTAL_EV:.6} eV, \
+         |ΔE| = {delta_e:.6} eV (> {TOL_GPU_VS_CPU_EV} eV). \
+         Likely cause: f32-precision regression in a WGSL kernel \
+         (Hartree, LDA XC, or V_eff assembly). Re-run \
+         `cargo test -- --ignored test_cpu_scf_baseline` to confirm the \
+         CPU baseline is still {SI_CPU_BASELINE_TOTAL_EV:.6} eV; if it drifted \
+         too, the regression is in a shared (non-GPU) code path.",
+        gpu_result.total_energy,
+    );
 }
 
 #[test]
