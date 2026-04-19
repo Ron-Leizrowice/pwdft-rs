@@ -1,3 +1,4 @@
+pub mod recommended_ecut;
 pub mod upf;
 
 use std::path::Path;
