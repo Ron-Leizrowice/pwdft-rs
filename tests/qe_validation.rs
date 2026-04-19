@@ -23,10 +23,16 @@
 //!
 //! Heavy-atom (Z > 14) systems carry an additional 7–34 eV residual whose
 //! root cause is TBD — VGCMP Phases 1–4 proved the V_local(G) assembly
-//! pipeline bit-correct on Si, so the heavy-atom residual is *not*
-//! V_local(G) and the continuing investigation is tracked under VGCH
-//! (candidate root causes: semicore/ecut convergence, V_local(G=0) Z-scaling,
-//! Ewald for large Z, etc.). Each `#[ignore]` reason cites the specific
+//! pipeline bit-correct on Si; VGCH Phase 1a's per-component diagnostic
+//! (`tests/vgch_per_component_heavy.rs`) showed the residual splits
+//! across one-electron sum and Hartree with opposite signs — signature
+//! of a different converged density, not a form-factor bug.
+//! V_local(G=0) Z-scaling and Ewald for large Z are both ruled out (see
+//! `scripts/validate/vgch_vloc_heavy.py` pinning V_local(G=0) on every
+//! heavy-atom PP to the last printed digit, and `test_fe_bcc_ewald_vs_qe`
+//! which stays green at <0.01 eV). The continuing investigation is
+//! tracked under VGCH Phase 1b (mixer / initial-density / non-local
+//! d-projector scaling). Each `#[ignore]` reason cites the specific
 //! blocker (MPSH residual category or VGCH heavy-atom residual) plus
 //! the measured pwdft-rs and QE values. Drop an `#[ignore]` once the
 //! attributed residual category closes.

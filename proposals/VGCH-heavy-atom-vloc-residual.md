@@ -363,6 +363,83 @@ sweep in QE (re-run `qe_validation/fe_scf.in` at matching ecuts).
 **Deliverable:** `scripts/validate/heavy_atom_ecut_sweep.py` with
 measured values; short writeup in researcher logbook.
 
+### Phase 1a — Per-component diagnostic (landed in this PR)
+
+Ran VGC5-style per-component accounting on Fe BCC (8×8×8 nspin=1,
+ecut=15 Ry) and Cu FCC (4×4×4 nspin=1, ecut=25 Ry) — see new
+`tests/vgch_per_component_heavy.rs` (Tier-2 `#[ignore]`'d; run via
+`-- --ignored` to print the diagnostic). Observed (all in eV):
+
+**Fe BCC (8×8×8 nspin=1):**
+
+| term | pwdft | QE (nspin=2, collapsed) | Δ (ours−QE) |
+|---|---|---|---|
+| one-electron (sum) | -680.95 | -691.94 | **+10.99** |
+| E_hartree | +361.77 | +362.47 | -0.70 |
+| E_xc | -392.33 | -393.26 | +0.93 |
+| E_ewald | -2337.17 | -2337.17 | +0.006 (clean) |
+| **E_total** | **-3048.66** | **-3060.16** | **+11.50** |
+
+**Cu FCC (4×4×4 nspin=1):**
+
+| term | pwdft | QE (nspin=1, 8×8×8) | Δ (ours−QE) |
+|---|---|---|---|
+| one-electron (sum) | -1996.85 | -2033.88 | **+37.03** |
+| E_hartree | +1015.94 | +1040.51 | **-24.57** |
+| E_xc | -554.40 | -559.13 | +4.73 |
+| E_ewald | -3301.02 | -3301.02 | +3e-5 (clean) |
+| **E_total** | **-4836.33** | **-4853.64** | **+17.31** |
+
+**Key observation:** the Cu residual is **not concentrated in a single
+term**. The one-electron sum is +37 eV too high while Hartree is -24.6
+eV too low; they partially cancel to +17.3 eV net. This is the
+signature of a **self-consistent state on a different density** — if
+the SCF converged on a more-spread-out density, E_H drops and E_kinetic
+rises together. A single-term form-factor bug would concentrate the
+residual; this distribution points at an SCF-convergence / mixer / or
+density-initialization issue on heavy-atom cells.
+
+Independent Python cross-check of V_local(G=0) via the bare-Coulomb
+integrand `(4π/Ω) ∫ r²[V_loc(r)+Z·e²/r] dr` on all 11 heavy-atom PPs
+(`scripts/validate/vgch_vloc_heavy.py`, CSV
+`scripts/validate/vgch_vloc_heavy.csv`) **matches pwdft-rs's
+`v_local_of_g(0, Ω)` to all printed digits** on every element. On Fe
+with Z=16: Python = +5.1736 eV, pwdft-rs v_local_g0 (from the info
+log) = +5.1736 eV. Candidate (a) — V_local(G=0) scaling with Z — is
+ruled out.
+
+Γ eigenvalue comparison (Fe 8×8×8, from `test_fe_bcc_fm_vs_qe` failure
+dump) shows every eigenvalue shifted by ~5.1–5.3 eV vs QE, consistent
+with the V_local(G=0) convention difference (pwdft zeros the G=0
+component of H at Hamiltonian-assembly time; QE keeps it in `vltot`).
+`E_local_g0_shift = V_loc(G=0)·N_el` in `EnergyComponents` compensates
+exactly for this in the total energy sum, so the convention does not
+produce a total-energy residual by itself. The +11.5 eV residual is
+elsewhere.
+
+### Phase 1b — Where inside the one-electron sum (next session)
+
+The VGC5 infrastructure aggregates `one_electron = E_kin + E_loc +
+E_loc(G=0)·N + E_NL`; it does not split QE's single "one-electron
+contribution = -691.94 eV" further. Next phase needs to:
+
+1. **Split QE's eband + deband into E_kin + E_ion.** QE stores
+   `eband + deband = <ψ|T + V_ext|ψ>` as a single scalar; we can
+   recover individual pieces by reading `PW/src/h_psi.f90` debug
+   prints or by adding a Python post-processor that reconstructs
+   E_kinetic and E_local + E_NL separately from QE's output.
+2. **Compare Fe `E_nonlocal` between pwdft-rs and QE.** Cu's
+   E_NL = −508.80 eV vs Fe's E_NL = +37.86 eV shows huge variance;
+   a projector-scaling bug for d-channels would surface here.
+   Write `scripts/validate/beta_q_reference.py` extended to Cu,
+   plus an assembled-H[G,G'] cross-check at Γ for Cu.
+3. **Compare SCF-converged densities.** If the density is different,
+   it's a mixer / initial-density / smearing issue, not a PP bug.
+   Dump ρ(G) for the first 10 shells after convergence on Fe (pwdft)
+   and on Fe (QE via `save.qe` parser); compare |ρ(G)|² shell-by-
+   shell. If pwdft's ρ is systematically more-spread out, the fix is
+   in `scf/initial_density.rs` or the mixer.
+
 ### Phase 2 — Per-component energy diagnostic on heavy atoms (1 CE-day)
 
 Extend the VGC5 infrastructure (`scripts/validate/vgc5_per_component.py`
