@@ -205,6 +205,103 @@ fn normalize(v: &mut [Complex64]) -> f64 {
     norm
 }
 
+/// Basis-size threshold above which `n_request` widens by a cluster-
+/// margin buffer. Below this, the pre-ITEV2 `n_bands + n_bands/2`
+/// padding is sufficient; above it, realistic Kohn-Sham Hamiltonians
+/// routinely carry clusters whose resolution benefits from the wider
+/// request.
+const LARGE_BASIS_THRESHOLD: usize = 500;
+
+/// Minimum absolute padding above `n_bands` in the "large-basis"
+/// regime.
+const MIN_PADDING: usize = 8;
+
+/// Minimum Krylov subspace dimension. Faer's own default is `2 · MIN_DIM
+/// = 64`, but empirical defect-1 sweeps show that the cluster-resolution
+/// threshold sits at `max_dim = 128` for realistic Kohn-Sham
+/// Hamiltonians in the `n_pw ≈ 180–260` regime (Cu FCC ecut=400,
+/// Si ecut=200). Lifting the floor from 64 → 128 closes that regime
+/// without affecting small-basis performance: if `n_pw < 128 +
+/// margin`, the `n ≤ max_dim` check further down falls back to dense,
+/// which is faster than Arnoldi at those sizes anyway.
+const MIN_KRYLOV_MAX_DIM: usize = 128;
+
+/// Fraction of `n_pw` to use as the baseline Krylov subspace
+/// dimension.
+///
+/// Empirical diagnostic sweep on Si diamond Kohn-Sham Hamiltonians
+/// (`itev2_tune_n_request_across_ecuts`, `#[ignore]`'d) at three
+/// representative basis sizes:
+///
+/// | `n_pw` | pass threshold on `max_dim` | `max_dim / n_pw` |
+/// |--------|-----------------------------|------------------|
+/// | 89     | 64                          | 0.72             |
+/// | 259    | 128                         | 0.49             |
+/// | 725    | 176                         | 0.24             |
+///
+/// The ratio falls monotonically with basis size. Setting
+/// `max_dim = max(MIN_KRYLOV_MAX_DIM, n_pw / 2)` clears the 0.24–0.49
+/// boundary by a comfortable margin at every tabulated `n_pw` and
+/// keeps the Arnoldi work bounded by half the dense-eigen budget.
+/// The n_pw / 2 factor is encoded as the divisor
+/// `KRYLOV_MAX_DIM_DIVISOR = 2`.
+const KRYLOV_MAX_DIM_DIVISOR: usize = 2;
+
+/// Choose the number of eigenpairs to request from faer's partial
+/// solver (`n_request ≥ n_bands`). `n_request` sets how many Ritz
+/// values are *returned*; the Krylov subspace *dimension* (faer's
+/// `max_dim`, ARPACK's `NCV`) is chosen separately in
+/// [`krylov_max_dim`]. Widening `n_request` without widening `max_dim`
+/// can shrink the Arnoldi shift budget per restart and harm
+/// convergence on clustered spectra (Lehoucq & Sorensen, *SIAM J.
+/// Matrix Anal. Appl.* **17**, 789 (1996), §3.2 on the Implicit QR
+/// Shift step).
+///
+/// Two regimes:
+///
+/// - **Small basis** (`n_pw < LARGE_BASIS_THRESHOLD`): the base
+///   padding `n_bands + n_bands/2` (with a `+4` floor) resolves the
+///   cluster. This matches the pre-ITEV2 heuristic exactly; the Si
+///   ecut=100 regression test at `n_pw = 89` pins this constant.
+/// - **Large basis** (`n_pw ≥ LARGE_BASIS_THRESHOLD`): the finer basis
+///   packs more near-degenerate states into the same energy window,
+///   so we add `max(n_bands, MIN_PADDING)` more slots to include the
+///   full cluster.
+///
+/// The result is capped by `max_request` so the caller's `max_dim < n`
+/// guarantee cannot be invalidated.
+fn krylov_n_request(n_bands: usize, n_pw: usize, max_request: usize) -> usize {
+    let base = (n_bands + n_bands / 2).max(n_bands + 4);
+    let large_margin = if n_pw >= LARGE_BASIS_THRESHOLD {
+        core::cmp::max(n_bands, MIN_PADDING)
+    } else {
+        0
+    };
+    let requested = base + large_margin;
+    core::cmp::min(requested, max_request)
+}
+
+/// Choose the Krylov subspace dimension `max_dim` (ARPACK `NCV`,
+/// faer's `PartialEigenParams::max_dim`).
+///
+/// Scales with the basis size: `max_dim = max(MIN_KRYLOV_MAX_DIM,
+/// n_pw / KRYLOV_MAX_DIM_DIVISOR)`. The divisor is set from the
+/// empirical pass/fail table (see [`KRYLOV_MAX_DIM_DIVISOR`]). The
+/// `max_allowed` cap (caller's `n - 2`) guarantees faer's internal
+/// assertion `max_dim < n` is never violated.
+///
+/// Also enforced: `max_dim ≥ 2 · n_request`, which is the ARPACK
+/// lower bound and faer's own internal floor (see
+/// `partial_self_adjoint_eigen` in `faer/faer/src/operator/eigen/mod.rs`
+/// — `max_dim = max(params.max_dim, max(64, 2·n_eigval))`).
+fn krylov_max_dim(n_request: usize, n_pw: usize, max_allowed: usize) -> usize {
+    let by_basis = n_pw / KRYLOV_MAX_DIM_DIVISOR;
+    let by_request = 2 * n_request;
+    let wanted = core::cmp::max(by_basis, by_request);
+    let floored = core::cmp::max(wanted, MIN_KRYLOV_MAX_DIM);
+    core::cmp::min(floored, max_allowed)
+}
+
 /// Compute the lowest `n_bands` eigenpairs of `h` using faer's
 /// implicitly-restarted Arnoldi iterative eigensolver.
 ///
@@ -256,26 +353,57 @@ pub fn diagonalize_lowest_iterative(
             eigenvectors: Mat::zeros(0, 0),
         });
     }
-    // Request extra eigenvalues beyond `n_bands` to protect against
-    // Krylov-Schur degeneracy collapse. Without this, Lanczos can miss one
-    // of a set of (near-)degenerate eigenvalues at high-symmetry
-    // Brillouin-zone points (e.g. the 3-fold valence-band degeneracy at
-    // Γ in Si diamond), producing a one-eigenvalue gap in the returned
-    // spectrum. 50% padding is standard (ARPACK's "ncv" parameter).
-    let n_request = (n_bands + n_bands / 2).max(n_bands + 4);
-
     // Faer's `partial_self_adjoint_eigen_imp` panics when `max_dim >= n`
-    // (it has no "full-dense" fallback on the self-adjoint path — line 290
-    // in operator/self_adjoint_eigen/mod.rs). The default `max_dim` is
-    // `max(2 * MIN_DIM, 2 * n_eigval) = max(64, 2·n_request)`, so we must
-    // guarantee `n > max_dim`. In practice we also want a margin before
-    // Arnoldi-style iteration is actually cheaper than a direct dense
-    // Hessenberg reduction, so we fall back to dense for small `n`.
-    let max_dim = core::cmp::max(64, 2 * n_request);
+    // (no "full-dense" fallback on the self-adjoint path — see
+    // `partial_self_adjoint_eigen_imp` in
+    // `faer/faer/src/operator/self_adjoint_eigen/mod.rs`). We must size
+    // both `n_request` (ARPACK `NEV`) and `max_dim` (ARPACK `NCV`)
+    // below the matrix size.
+    //
+    // Ceiling chain:
+    //   max_dim   ≤ n − 2     (faer's assertion + one slot of air)
+    //   max_dim   ≥ 2 · n_request  (ARPACK lower bound)
+    //   n_request ≥ n_bands
+    //
+    // When `n` is small enough that those constraints can't hold,
+    // fall straight through to the dense solver. The Arnoldi crossover
+    // is empirically at n ≈ 64–128 anyway.
+    let max_dim_ceiling = n.saturating_sub(2);
+    let max_request_ceiling = max_dim_ceiling / 2;
+    if max_request_ceiling < n_bands {
+        return super::dense::diagonalize_lowest(h, n_bands);
+    }
+    // Request extra eigenvalues beyond `n_bands` to protect against
+    // Krylov-Schur degeneracy collapse.
+    let n_request = krylov_n_request(n_bands, n, max_request_ceiling);
+    let max_dim = krylov_max_dim(n_request, n, max_dim_ceiling);
+
+    // Dense fallback when the matrix is too small for Arnoldi to pay
+    // off: if `max_dim >= n`, faer panics on the self-adjoint path, and
+    // even a hair smaller is in the regime where the O(n³) dense solver
+    // wins outright.
     if n <= max_dim {
         return super::dense::diagonalize_lowest(h, n_bands);
     }
 
+    run_partial_self_adjoint(h, n_bands, n_request, max_dim, v0, tol)
+}
+
+/// Core partial-eigensolver call with explicit Krylov subspace controls.
+///
+/// Callers of [`diagonalize_lowest_iterative`] get the heuristic-driven
+/// (`n_request`, `max_dim`); this routine is exposed for diagnostics and
+/// tuning (`#[cfg(test)]`-only callers in the module's unit tests).
+#[allow(clippy::too_many_lines, reason = "single monolithic Arnoldi driver; the sort/retruncate tail is part of the same operation")]
+fn run_partial_self_adjoint(
+    h: &Mat<Complex64>,
+    n_bands: usize,
+    n_request: usize,
+    max_dim: usize,
+    v0: Option<&[Complex64]>,
+    tol: f64,
+) -> Result<EigenResult> {
+    let n = h.nrows();
     let sigma = estimate_shift(h.as_ref());
     let op = ShiftedHermitianOp::new(h.as_ref(), sigma);
     let par = Par::Seq; // k-point loop parallelism lives outside this call.
@@ -301,6 +429,14 @@ pub fn diagonalize_lowest_iterative(
 
     let params = PartialEigenParams {
         max_restarts: DEFAULT_MAX_RESTARTS,
+        // Pass our chosen Krylov subspace dimension explicitly. Faer
+        // defaults `max_dim = max(64, 2 · n_request)`, which silently
+        // under-resolves clustered spectra even when we've widened
+        // `n_request` to include the whole cluster; setting `max_dim`
+        // to `KRYLOV_NCV_RATIO · n_request` gives the IRAM restart
+        // enough shifts to purge spurious Ritz pairs without disturbing
+        // the cluster.
+        max_dim,
         ..Default::default()
     };
 
@@ -381,6 +517,68 @@ mod tests {
 
     fn mat_from_rows(n: usize, data: &[Complex64]) -> Mat<Complex64> {
         Mat::from_fn(n, n, |r, c| data[r * n + c])
+    }
+
+    #[test]
+    fn krylov_n_request_small_basis_regime() {
+        // Below the large-basis threshold: base = max(n_bands + n_bands/2,
+        // n_bands + 4) (pre-ITEV2 floor preserved exactly).
+        // n_bands=8 → base = max(12, 12) = 12; no large margin.
+        assert_eq!(krylov_n_request(8, 89, 10_000), 12);
+        assert_eq!(krylov_n_request(8, 259, 10_000), 12);
+        // n_bands=4 → base = max(6, 8) = 8.
+        assert_eq!(krylov_n_request(4, 100, 10_000), 8);
+        // n_bands=20 → base = max(30, 24) = 30.
+        assert_eq!(krylov_n_request(20, 300, 10_000), 30);
+    }
+
+    #[test]
+    fn krylov_n_request_large_basis_regime() {
+        // At or above LARGE_BASIS_THRESHOLD (500): add max(n_bands, 8).
+        // n_bands=8, n_pw=500 → base 12 + margin max(8, 8) = 8 → 20.
+        assert_eq!(krylov_n_request(8, 500, 10_000), 20);
+        // Canonical Si n_pw=725 case (defect 1 regression):
+        // n_bands=8 → 12 + 8 = 20 (was 12 before the fix).
+        assert_eq!(krylov_n_request(8, 725, 10_000), 20);
+        // Larger n_bands scales the margin:
+        // n_bands=12 → base = max(18, 16) = 18, margin = max(12, 8) = 12 → 30.
+        assert_eq!(krylov_n_request(12, 1000, 10_000), 30);
+    }
+
+    #[test]
+    fn krylov_n_request_respects_max_cap() {
+        // The `max_request` cap must be honored so callers can guarantee
+        // `KRYLOV_NCV_RATIO * n_request < n`. E.g. at a tiny cap of 10,
+        // the requested value must not exceed 10.
+        assert_eq!(krylov_n_request(8, 50, 10), 10);
+        assert_eq!(krylov_n_request(8, 600, 20), 20);
+    }
+
+    #[test]
+    fn krylov_max_dim_scales_with_basis() {
+        // max_dim = max(128, max(2*n_request, n_pw/2)), capped.
+        // Si ecut=100 n_pw=89: 89/2=44, floor 128 -> 128 (dense fallback downstream).
+        assert_eq!(krylov_max_dim(12, 89, 10_000), 128);
+        // Si ecut=200 n_pw=259: 259/2=129, floor 128 -> 129.
+        assert_eq!(krylov_max_dim(12, 259, 10_000), 129);
+        // Si ecut=400 n_pw=725: 725/2=362.
+        assert_eq!(krylov_max_dim(12, 725, 10_000), 362);
+    }
+
+    #[test]
+    fn krylov_max_dim_respects_arpack_floor() {
+        // When 2*n_request > n_pw/2 and also > MIN_KRYLOV_MAX_DIM, the
+        // ARPACK floor wins. n_request=80, n_pw=50: 50/2=25,
+        // 2·80=160 > MIN_KRYLOV_MAX_DIM=128 -> 160.
+        assert_eq!(krylov_max_dim(80, 50, 10_000), 160);
+    }
+
+    #[test]
+    fn krylov_max_dim_caps_at_allowed() {
+        // The `max_allowed` cap (caller's `n - 2`) must override the
+        // scaling rule — faer panics otherwise.
+        assert_eq!(krylov_max_dim(12, 259, 100), 100);
+        assert_eq!(krylov_max_dim(8, 89, 30), 30);
     }
 
     #[test]
@@ -531,6 +729,73 @@ mod tests {
                     "degenerate eigenvectors {i} and {j} not orthogonal: |<v_i,v_j>|={}",
                     ip.norm()
                 );
+            }
+        }
+    }
+
+    /// Diagnostic sweep: real Si Kohn-Sham Hamiltonian at several
+    /// ecut values, finding `n_request` / `max_dim` combos that resolve
+    /// the 3-fold-degenerate Γ valence cluster to `|Δ| ≤ 1e-10 eV` vs
+    /// dense. Ignored by default — investigation tool, not a gate.
+    #[test]
+    #[ignore = "diagnostic sweep, not a gate"]
+    fn itev2_tune_n_request_across_ecuts() {
+        use crate::basis::BasisSet;
+        use crate::crystal::{Atom, Crystal, Lattice};
+        use crate::hamiltonian;
+        use crate::potential::nonlocal::NonlocalPotential;
+        use nalgebra::Vector3;
+
+        let a = 5.431;
+        let crystal = Crystal {
+            lattice: Lattice::new(
+                a / 2.0 * Vector3::new(0.0, 1.0, 1.0),
+                a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
+                a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
+            ),
+            atoms: vec![
+                Atom::new(14, [0.0, 0.0, 0.0]),
+                Atom::new(14, [0.25, 0.25, 0.25]),
+            ],
+        };
+        let pp_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pseudopotentials/nc/lda/Si.upf");
+        let pp = crate::pseudopotential::load(&pp_path).unwrap();
+        let n_bands = 8;
+
+        for ecut in [100.0_f64, 200.0, 400.0] {
+            let basis = BasisSet::new(&crystal.lattice, ecut);
+            let k_gamma = Vector3::zeros();
+            let mut h = hamiltonian::build_kinetic(&basis, &k_gamma);
+            let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &[&pp]).unwrap();
+            vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k_gamma);
+            let n = h.nrows();
+            eprintln!("\n=== Si ecut={ecut} Γ: n_pw = {n} ===");
+
+            let dense = super::super::dense::diagonalize_lowest(&h, n_bands).unwrap();
+            for &n_req in &[12usize, 16, 20, 24] {
+                for &md in &[64usize, 96, 128, 144, 160, 176, 192, 256] {
+                    if md >= n || md < 2 * n_req {
+                        continue;
+                    }
+                    let r = run_partial_self_adjoint(&h, n_bands, n_req, md, None, DEFAULT_TOL);
+                    let max_err = match r {
+                        Ok(res) => dense
+                            .eigenvalues
+                            .iter()
+                            .zip(res.eigenvalues.iter())
+                            .map(|(d, i)| (d - i).abs())
+                            .fold(0.0_f64, f64::max),
+                        Err(e) => {
+                            eprintln!("  n_req={n_req:3} max_dim={md:4}: ERR {e}");
+                            continue;
+                        }
+                    };
+                    eprintln!(
+                        "  n_req={n_req:3} max_dim={md:4}: max |Δ| = {max_err:.3e} eV{}",
+                        if max_err <= 1e-10 { "  <-- PASS" } else { "" }
+                    );
+                }
             }
         }
     }
