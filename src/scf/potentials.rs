@@ -148,9 +148,9 @@ pub(crate) fn compute_core_density(
 ///
 /// `h` must already be sized `basis.len() × basis.len()`; the shape is
 /// checked with `debug_assert!`. Kept separate from the public
-/// `crate::hamiltonian::build_hamiltonian` (whose closure-typed `v_eff`
-/// is used by the free-electron band-structure path and does not share
-/// this tight inner loop).
+/// `crate::hamiltonian::build_kinetic` (which constructs the kinetic-only
+/// Hamiltonian used by the free-electron band-structure path and does not
+/// share this tight inner loop).
 ///
 /// **Allocation contract.** This routine performs no heap allocations.
 /// The backing `faer::Mat` is owned by the caller — typically one slot
