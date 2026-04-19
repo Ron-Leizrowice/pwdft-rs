@@ -2,6 +2,16 @@
 
 Entries: date, proposal ID, what was done, what remains, anything surprising. Keep it brief.
 
+## 2026-04-19 — XCTH: remove XC_PARALLEL_THRESHOLD (PR #124)
+
+Deleted the file-local `XC_PARALLEL_THRESHOLD = 16_384` constant + calibration-table docstring in `src/potential/xc.rs` (was the only size-gated rayon dispatch in `src/`). Collapsed both `lda_xc_grid` and `lda_xc_spin_grid` to the unconditional `par_iter().unzip()` path. Trimmed small-n cases from `bench_xc_grid` — kept {16_384, 32_768, 262_144}. Removed the row from CFGN § 6.3.
+
+**Net LOC:** -45 (17+/62−). Preserved MADOC-B math-complete docstrings; only the parallelization paragraph was rewritten.
+
+**Push gotcha:** github email-privacy block — had to override both `--author` AND `GIT_COMMITTER_EMAIL` via env (not git config) to get the `174235040+Ron-Leizrowice@users.noreply.github.com` form. `--amend --author=...` alone only fixes the Author header, not the Committer.
+
+**Gate (worktree):** 262 unit + all integration tests pass incl. MADOC band-sum identity (Si + Fe); clippy 17/23 baseline unchanged; rustdoc clean.
+
 ## 2026-04-18 — HKIN: drop unused Option V_eff param (PR #123)
 
 Deleted `build_hamiltonian` from `src/hamiltonian.rs` (29-line fn with dead `Option<&dyn Fn(usize, usize) -> Complex64>` branch). Kept `build_kinetic` as the only constructor. Dropped the matching `Option` from `compute_band_structure`. Touched 5 files, -26 net LOC.
