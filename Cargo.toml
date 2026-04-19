@@ -93,30 +93,24 @@ panic = "warn"
 opt-level = 3
 lto = "thin"
 
-# Optimize faer in test/debug builds — its SIMD codegen is 230× slower
-# without optimizations, making eigensolve-heavy tests impractical.
-[profile.dev.package.faer]
-opt-level = 3
-[profile.dev.package.faer-traits]
-opt-level = 3
-[profile.dev.package.gemm]
-opt-level = 3
-[profile.dev.package.gemm-common]
-opt-level = 3
-[profile.dev.package.pulp]
+# All dependencies compile at O3 in dev builds. The local pwdft-rs crate
+# stays at the dev default opt-level=0 for fast incremental rebuilds.
+# Tests inherit these dep artifacts (see [profile.test] below), so we
+# compile each dep exactly once at O3 and reuse it for cargo build,
+# cargo check, and cargo test.
+[profile.dev.package."*"]
 opt-level = 3
 
-# TPRF: compile tests at full optimization. The test profile inherits from
-# dev (opt-level=0) by default, which makes SCF-heavy integration tests
-# (e.g. `tests/vgc5_per_component_si.rs`) run in minutes wall-time. At
-# opt-level=3 the same tests complete in seconds. `debug-assertions` stays
-# on (inherited from dev) — safety checks still fire in tests.
+# TPRF: the local crate is compiled at O3 under the test profile. Dev
+# profile keeps the crate at O0 for fast incremental rebuilds. The
+# package.*.opt-level=3 entry below is explicit (not inherited) because
+# cargo's profile inheritance does NOT carry package-specific overrides —
+# but the values match `[profile.dev.package."*"]` above, so cargo
+# fingerprints the dep artifacts as identical and reuses them between
+# dev and test profiles. `debug-assertions` stays on (inherited from
+# dev) — safety checks still fire in tests.
 [profile.test]
 opt-level = 3
 
-# All dependencies also at O3 in test builds. Without the wildcard, deps
-# other than faer/gemm/pulp (ndarray, nalgebra, rayon, ndrustfft, etc.)
-# would fall back to opt-level=0 under test profile and dominate the
-# inner loop.
 [profile.test.package."*"]
 opt-level = 3
