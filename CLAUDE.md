@@ -44,6 +44,81 @@ Integration tests in `tests/`: free-electron band validation (Si, C diamond, BCC
 
 Test-suite tiers (TSPL, 2026-04-19): `cargo test` is the Tier-1 fast tier (unit tests + lightweight integration). Heavy SCF suites (QE validation, VGC5, MADOC identity, spin polarization with tight conv, WFRX) are Tier-2 and gated by `#[ignore]` — run `cargo test -- --ignored` when touching SCF / density / mixing / XC / NLCC / symmetry / eigensolver / GPU / basis / fft / ewald / pseudopotential code. Doc- or proposal-only changes skip Tier 2.
 
+## Observability, profiling, benchmarking
+
+Three layers, three tools, no overlap. Reach for the one that matches your
+question:
+
+- **Observability** — "what is the SCF doing right now?" → `log` crate
+  (`info!` / `warn!` / `error!`), routed through `env_logger`, plus
+  `indicatif` progress bars. Always-on, human-readable, low overhead.
+  Answers *did it converge?*, *what was the final β?*, *which mixer ran?*
+- **Profiling** — "where does wall-time go?" → `samply` (see recipe
+  below). Run on demand, sees everything including `faer` / `ndrustfft`
+  / BLAS internals, zero code overhead. Answers *is V_NL apply or
+  eigensolve dominating?*, *did that PR regress the XC kernel?*
+- **Benchmarks** — "did this change regress function X?" → `criterion`
+  via `cargo bench`. Statistical regression gating on targeted kernels.
+  Already in `benches/scf_benchmarks.rs` and `benches/gpu_benchmarks.rs`.
+
+Do not mix layers. `log` is not a profiler; `samply` is not a benchmark
+harness; `cargo bench` is not a runtime status display.
+
+### Profiling recipe (samply)
+
+`samply` is the canonical profiler. It is a sampling profiler that runs
+unprivileged on macOS (Apple silicon and Intel) and Linux, needs no
+kernel extension, and emits a self-contained HTML profile served in the
+Firefox Profiler UI — the profile URL or exported `.json.gz` is
+shareable, so an agent can paste one into a logbook entry and the
+reviewer can open it in any browser.
+
+Install once:
+
+```bash
+cargo install samply
+```
+
+Profile a run (wrap in the machine lock — samply-hosted runs saturate
+the CPU the same way `cargo bench` does):
+
+```bash
+.claude/bin/machine-lock run "Performance Engineer" "samply Si SCF" -- \
+  samply record cargo run --release -- --input examples/si_scf.yaml
+```
+
+Profile a benchmark:
+
+```bash
+.claude/bin/machine-lock run "Performance Engineer" "samply scf_bench" -- \
+  samply record cargo bench --bench scf_benchmarks -- --profile-time 10
+```
+
+Do **not** reach for `cargo flamegraph`, `tracing-flame`, or
+hand-rolled `Instant::now()` timers for new profiling work. Samply sees
+inside library code those approaches cannot, adds zero overhead, and
+produces a portable profile artifact. Instruments.app remains useful as
+a fallback for deep Metal GPU investigations where Xcode's Metal
+debugger is required.
+
+### When to reconsider `tracing`
+
+The `tracing` ecosystem is deliberately not in the stack. Reopen the
+question only if one of the following becomes true:
+
+1. **Async code enters the codebase.** `log` has no concept of span
+   context across `.await` boundaries; `tracing` does.
+2. **Structured per-span post-mortem analysis is needed** — e.g., a
+   regression watcher or validation dashboard wants to parse
+   per-iteration SCF events as records rather than regex over log lines.
+3. **Distributed tracing across a multi-process calculation** becomes a
+   requirement (MPI-style parallelism, out-of-process validation
+   harnesses).
+
+Until one of those triggers fires, `log` covers runtime observability,
+`samply` covers profiling, and `criterion` covers regression benching —
+each the simplest tool for one job.
+
 ## Code Quality
 
 After finishing a batch of work, always run:

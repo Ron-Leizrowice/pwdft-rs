@@ -2,6 +2,10 @@
 
 Entries: date, measurements (actual numbers), bottleneck findings, proposals assessed. Always include hardware context.
 
+## 2026-04-19 — PROF landed: samply is the canonical profiler
+
+`samply` is now named as the single canonical profiler in CLAUDE.md § Observability, profiling, benchmarking. Install via `cargo install samply`; always hold the machine lock while recording. `cargo flamegraph`, `tracing-flame`, and hand-rolled `Instant::now()` timers are off-menu for new work. Instruments.app stays as a fallback only for Metal GPU timeline questions. See CLAUDE.md § Profiling recipe (samply) for the invocation; § When to reconsider `tracing` captures the triggers that would reopen the decision.
+
 ## 2026-04-19 — GOPT PR-B landed (BufferPool extended to XC + V_eff); PR #106
 
 F-4 + F-11 (§4 PR-B). Pool now covers all 3 kernels: 5 complex + 3 real-scalar + 2 staging + 2 uniform + 3 cached bind groups. Steady-state SCF iter now issues zero `create_buffer` and zero `create_bind_group` — only `queue.write_buffer` uploads. Fresh-alloc fallback preserved.
