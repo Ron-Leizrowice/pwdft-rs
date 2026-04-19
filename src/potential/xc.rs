@@ -38,6 +38,35 @@ use crate::{
     settings::XcFunctional,
 };
 
+// ---------------------------------------------------------------------------
+// PBE-evaluator invocation counters (RWHK-FIX fix 2; audit finding H1)
+// ---------------------------------------------------------------------------
+//
+// Defense-in-depth against a silent LDA fallback inside the PBE evaluator.
+// `test_si_pbe_non_spin_vs_qe` and `test_fe_bcc_fm_pbe_vs_qe` close at
+// ≈12 meV and ≈1.70 eV vs QE respectively; a PBE→LDA regression would
+// move Si by >100 meV (tripping the Si test correctly), but the Fe test's
+// looser tolerance could tolerate a silent-fallback bug. These counters
+// let the PBE tests positively assert that `Pbe::eval` / `Pbe::eval_spin`
+// were actually invoked during the SCF rather than inferring it from
+// energy agreement.
+//
+// Exposed as `pub` (not `#[cfg(test)]`-gated) because Rust's `#[cfg(test)]`
+// only activates for the crate being tested — integration tests in
+// `tests/` see the `pwdft_rs` lib compiled without `cfg(test)`, so gated
+// statics would be invisible. The overhead is one `AtomicUsize::fetch_add`
+// (relaxed) per `eval()` or `eval_spin()` call, which happens **once per
+// SCF iteration**, not per grid point — negligible compared to the FFTs
+// and diagonalizations in that iteration. `Ordering::Relaxed` suffices:
+// we count invocations across rayon parallelism and do not need any
+// memory-ordering guarantee relative to other locations.
+pub static PBE_EVAL_INVOCATIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// See [`PBE_EVAL_INVOCATIONS`] for the motivation.
+pub static PBE_EVAL_SPIN_INVOCATIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 /// Result of evaluating the (non-spin) LDA exchange-correlation
 /// functional at a single real-space density point.
 ///
@@ -1486,6 +1515,8 @@ impl XcEvaluator {
                 // `eval`; that driver-side wiring is the remaining
                 // piece of the PBE path (Phase A's gradient
                 // infrastructure).
+                PBE_EVAL_INVOCATIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let Some(grad) = rho_grad_r else {
                     return Err(PwdftError::NotImplemented {
                         what: "pbe.eval requires rho_grad_r: None was passed".into(),
@@ -1606,6 +1637,8 @@ impl XcEvaluator {
                 // scalar shared between channels, applied to ∇ρ_total
                 // (not per-channel ∇ρ_σ), so both h_up and h_dn
                 // inherit `v2_c · ∇ρ_total` as a common term.
+                PBE_EVAL_SPIN_INVOCATIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let (Some(grad_up), Some(grad_dn)) = (rho_grad_up_r, rho_grad_down_r) else {
                     return Err(PwdftError::NotImplemented {
                         what: "pbe.eval_spin requires both per-channel gradients".into(),

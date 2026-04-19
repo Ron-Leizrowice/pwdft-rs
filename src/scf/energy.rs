@@ -883,4 +883,76 @@ mod tests {
              Δ = {delta:.6} eV, expected = {e_smearing:.6} eV"
         );
     }
+
+    /// RWHK-FIX fix 3 (audit finding F3): shape-check on the NLCC XC
+    /// double-counting subtraction with hand-computed reference values.
+    ///
+    /// This is a **directional** regression test — a wrong sign on the
+    /// `e_vxc` term, or swapping `ρ_val` and `ρ_xc` in the two integrals,
+    /// produces a visibly different scalar at a 1e-12 eV pin.
+    ///
+    /// The Fe NLCC regression guard (`test_fe_bcc_xc_nlcc_regression_guard`)
+    /// has a 1.0 eV tolerance — a sign-flip bug would still pass there
+    /// because the residual baseline was captured under the same (correct)
+    /// convention. This test catches the sign-flip at the function body
+    /// directly.
+    ///
+    /// The QE reference for the convention:
+    /// `qe-7.5/PW/src/v_of_rho.f90:474-511` (`v_xc` in the NLCC branch)
+    /// — `etxc` integrates `ε_xc(ρ_val + ρ_core) · (ρ_val + ρ_core)`; the
+    /// Kohn-Sham double-counting subtraction is `Σ v_xc · ρ_val` (valence
+    /// only), matching Louie-Froyen-Cohen, PRB 26, 1738 (1982).
+    ///
+    /// If this test fails, `src/scf/energy.rs::xc_energy_corrected`'s
+    /// double-counting sign or density-routing is wrong. Cross-check
+    /// against the line-by-line QE mapping in the docstring above.
+    #[test]
+    fn test_nlcc_sign_convention_via_synthetic_probe() {
+        // Two-grid-point synthetic probe so the integrals are closed-form.
+        //
+        //   ρ_val  = [0.5, 1.5] e/Å³
+        //   ρ_core = [0.1, 0.3] e/Å³
+        //   ρ_xc   = ρ_val + ρ_core = [0.6, 1.8] e/Å³
+        //   exc_r  = [−1.0, −2.0] eV/e   (synthetic LDA-shape ε_xc)
+        //   vxc_r  = [−0.5, −1.5] eV
+        //   ω      = 2.0 Å³ → dV = 1.0 Å³ per point.
+        let rho_val = vec![0.5_f64, 1.5];
+        let rho_core = [0.1_f64, 0.3];
+        let rho_xc: Vec<f64> = rho_val.iter().zip(rho_core.iter()).map(|(v, c)| v + c).collect();
+        let exc_r = vec![-1.0_f64, -2.0];
+        let vxc_r = vec![-0.5_f64, -1.5];
+        let omega = 2.0_f64;
+
+        // Hand-computed reference:
+        //   E_xc   = Σ ρ_xc  · exc_r · dV
+        //          = 0.6·(−1.0)·1.0 + 1.8·(−2.0)·1.0
+        //          = −0.6 + (−3.6) = −4.2 eV
+        //   E_vxc  = Σ ρ_val · vxc_r · dV
+        //          = 0.5·(−0.5)·1.0 + 1.5·(−1.5)·1.0
+        //          = −0.25 + (−2.25) = −2.5 eV
+        //   result = E_xc − E_vxc = −4.2 − (−2.5) = −1.7 eV
+        let expected = -1.7_f64;
+
+        let got = xc_energy_corrected(&rho_xc, &rho_val, &exc_r, &vxc_r, omega);
+
+        assert!(
+            (got - expected).abs() < 1e-12,
+            "NLCC double-counting shape-check failed: expected {expected:.6} eV, \
+             got {got:.6} eV (Δ = {:.3e} eV). If this fires, check \
+             src/scf/energy.rs::xc_energy_corrected's subtraction sign and \
+             density routing (ρ_xc → e_xc integral, ρ_val → e_vxc integral) \
+             against qe-7.5/PW/src/v_of_rho.f90:474-511.",
+            got - expected,
+        );
+
+        // Sanity discriminators: record what wrong-sign / swapped-density
+        // bugs would produce. These are dead code for the test body but
+        // locked into the docstring for future diagnosis.
+        //
+        //   Wrong sign (+ e_vxc):     −4.2 + (−2.5) = −6.7 eV  (|Δ|=5.0 eV)
+        //   Swap ρ_val↔ρ_xc in e_xc: −3.5 − (−2.5) = −1.0 eV  (|Δ|=0.7 eV)
+        //   Swap ρ_val↔ρ_xc in e_vxc:−4.2 − (−3.0) = −1.2 eV  (|Δ|=0.5 eV)
+        //
+        // All three bugs are caught at 1e-12 pin.
+    }
 }
