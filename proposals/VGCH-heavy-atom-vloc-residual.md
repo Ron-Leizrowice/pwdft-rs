@@ -554,6 +554,163 @@ Phase 1a's fingerprint (opposite-sign one-electron vs. Hartree
 partial cancellation). **VGCH-2** is spawned to take this up;
 VGCH-1c recommends starting there before climbing the mixer tree.
 
+### Light-atom E_F shift — localization (diagnosis, 2026-04-19, read-only)
+
+**Scope.** This sub-section addresses a separate-but-related issue to
+VGCH's heavy-atom total-energy residual: the light-atom
+**absolute-reference eigenvalue shift** that keeps
+`test_si_diamond_fermi_vs_qe` and (weakly) the C/Al/NaCl/MgO Fermi
+arms ignored. VGCH-1a already noted it in passing for Fe (`~5.1-5.3
+eV` shift per eigenvalue); VGCH-1c noted it on C (`−3.09 eV` per
+eigenvalue). This section pins the mechanism on the simplest
+system (Si) and carves out a Part B1 fix.
+
+**Observation (Si diamond, 4×4×4 Γ-centered, ecut=15 Ry, LDA).**
+Per-band shift `δ_n = ε_n^pwdft − ε_n^QE` at Γ:
+
+| band | ε_pwdft (eV) | ε_QE (eV) | δ (eV) |
+|---|---|---|---|
+| 1 | -7.2409 | -5.8903 | -1.3506 |
+| 2 | +4.7303 | +6.0816 | -1.3513 |
+| 3 | +4.7303 | +6.0816 | -1.3513 |
+| 4 | +4.7303 | +6.0816 | -1.3513 |
+| 5 | +7.2583 | +8.6106 | -1.3523 |
+| 6 | +7.2583 | +8.6106 | -1.3523 |
+| 7 | +7.2583 | +8.6106 | -1.3523 |
+| 8 | +7.9735 | +9.3253 | -1.3518 |
+
+**Mean δ = −1.3515 eV; std δ = 0.6 meV.** Pure rigid offset. E_F
+inherits the same shift to within printout precision: ΔE_F = −1.3495
+eV (pwdft 4.9954 eV vs QE 6.3449 eV), and E_total remains green at
+|ΔE| = 45 meV (the VGC5-instrumented `with_g0_shift` closure
+compensates correctly on the total-energy side). The shift is pure
+absolute-reference-of-energy, not a per-band assembly bug.
+
+**Predicted shift.** From
+`scripts/validate/vgch_vloc_heavy.csv`, the per-atom V_loc(G=0)
+contribution is 0.6715 eV for Si; summed over 2 atoms = **1.343 eV**.
+The observed rigid offset (1.3515 eV) matches this to 9 meV — a
+discrepancy at or below the MPSH grid-convention floor.
+
+**Mechanism (confirmed).** pwdft-rs and QE use **different
+V_loc(G=0) gauges** for the eigenvalues:
+
+- **pwdft-rs:** `src/scf/context.rs:122-126` zeroes
+  `v_local_fft[0]` before the Hamiltonian sees it (line 125 stores
+  the original value in `ctx.v_local_g0` for later use by
+  [`scf::energy::with_g0_shift`]). Every KS eigenvalue excludes
+  the uniform-background V_loc(G=0) contribution. Total energy
+  compensates on line 683 of `src/scf/driver.rs` (and the spin
+  twin in `driver_spin.rs:671`): `e_local_g0_shift = v_local_g0
+  · n_electrons`, paired with Ewald's matching divergence — the
+  total electrostatic energy is cutoff-independent.
+- **QE:** `qe-7.5/PW/src/setlocal.f90:91-96` explicitly records
+  `v_of_0 = DBLE(aux(1))` **but leaves `aux(1)` in the IFFT input**.
+  `vltot(r)` therefore carries `V_loc(G=0)` as a DC offset in real
+  space. `set_vrs` (`qe-7.5/PW/src/set_vrs.f90:51`) adds this
+  DC-biased `vltot` into `vrs`, which `h_psi` applies pointwise, so
+  every KS eigenvalue **includes** the `V_loc(G=0)` DC offset. QE's
+  total-energy accounting matches because its `eband` subtraction
+  and `deband` pairing are written against this gauge.
+
+**Prediction from the gauge difference:**
+`ε_n^pwdft − ε_n^QE = −V_loc(G=0)_sum` identically per band and per
+k-point; equivalently `E_F^pwdft − E_F^QE = −V_loc(G=0)_sum`. Si
+confirms this prediction to 9 meV. The same mechanism predicts (from
+`vgch_vloc_heavy.csv`):
+
+| system | N_atoms · V_loc(G=0) (eV) | matches observed? |
+|---|---|---|
+| Si diamond | 2 × 0.672 = **1.343** | yes (1.3515 eV observed) |
+| C diamond  | 2 × 1.546 = **3.092** | yes (VGCH-1c: −3.09 eV on Γ) |
+| Al FCC     | 1 × 0.140 = **0.140** | small — dwarfed by 48 meV total-E residual |
+| Fe BCC     | 1 × 5.174 = **5.174** | yes (VGCH-1a: "~5.1–5.3 eV" per eig) |
+| Cu FCC     | 1 × 7.746 = **7.746** | not yet pinned (blocked on VGCH-2) |
+| Ga+As      | 2.195 + 2.504 = **4.699** | not yet pinned |
+| Na+Cl      | 0.855 + 0.810 = **1.665** | not yet pinned |
+| Mg+O       | 1.994 + 1.354 = **3.348** | not yet pinned |
+
+**Fix candidate (A).** Match QE's convention on the Hamiltonian side:
+move the `v_local_fft[0] = 0` zeroing out, let the G=0 component flow
+into `fill_hamiltonian_with_v_eff`'s diagonal, and DROP the
+compensating `with_g0_shift` call in the total-energy assembly. After
+the change:
+
+- `src/scf/context.rs:122-126` — keep `v_local_g0` stashed (still
+  used by diagnostics / `EnergyComponents`) but do NOT zero
+  `v_local_fft[0]` before handing it to the Hamiltonian-assembly path.
+- `src/scf/driver.rs:683` and `src/scf/driver_spin.rs:671` — the
+  `e_local_g0_shift = v_local_g0 · n_electrons` term becomes
+  double-counting and must be **removed from the total-energy
+  sum** (or the `with_g0_shift` closure in `src/scf/energy.rs:248-250`
+  becomes a no-op). One of the two changes is required, not both.
+- `src/scf/energy.rs:230-250` `with_g0_shift` — either delete or
+  repurpose (it would still be useful as a diagnostic handle that
+  reports the gauge constant even when not applied).
+- `tests/qe_validation.rs` — drop `#[ignore]` on
+  `test_si_diamond_fermi_vs_qe` after the fix.
+- Expect the Fe/Cu/NaCl/MgO Fermi residuals to close to MPSH-noise
+  (<~50 meV) automatically. Heavy-atom total-energy residuals are
+  **independent** of this fix (they live in VGCH-2 territory);
+  Part B1 addresses only the E_F arm.
+
+**Why not Candidate B or C?**
+
+- **Candidate B (Ewald G=0 self-interaction term):** `src/ewald.rs`
+  has no `V_eff`-additive term. The Ewald energy enters only
+  `ScfContext::e_ewald`, which flows exclusively into the
+  total-energy sum (`energy.rs::total_energy` line 189). It never
+  touches the Hamiltonian diagonal or the eigenvalues. Candidate B
+  is ruled out by inspection.
+- **Candidate C (Fermi-solver convention):** `src/scf/smearing.rs`
+  `find_fermi_energy` (line 57-98) is a straightforward bisection of
+  `N_el = Σ_{n,k} w_k · f(ε, E_F, σ)` — the same formula QE uses in
+  `qe-7.5/PW/src/ef.f90`. Both codes use the Mermin convention; both
+  return an E_F that satisfies charge conservation with the same
+  smearing kernel. A convention difference here would produce an E_F
+  shift that is **not** a rigid per-band shift (it would depend on
+  σ and on the band structure near E_F). The observed σ = 0.136 eV
+  (degauss = 0.01 Ry) × 8 Si bands exhibits per-band std of 0.6 meV
+  — overwhelmingly rigid — so the Fermi solver itself is correct.
+  Candidate C is ruled out.
+
+**Sequencing relative to VGCH-2.** The gauge-convention fix
+(Candidate A) is logically **independent** of VGCH-2 (heavy-atom
+total-energy residual). Running VGCH-2's per-term trace with the new
+gauge simplifies accounting — one less subtraction to track — but
+does not change VGCH-2's fundamental hypothesis. Both can proceed in
+parallel. Recommendation: land Part B1 (E_F gauge) first because it
+is small (~20 LOC across 4 files), closes a user-visible
+`#[ignore]`, and makes VGCH-2's energy bookkeeping cleaner.
+
+**Trace deliverable (VGCH-SiEF PR).** New files, all read-only
+against `src/`:
+
+- `scripts/validate/si_ef_shift_trace.py` — re-runs the Si energy
+  arm with `--nocapture`, scrapes pwdft-rs's Γ eigenvalues, diffs
+  against `qe_validation/si_scf.out`, and emits the per-band CSV.
+- `scripts/validate/si_ef_shift.csv` — per-band shift table (pinned
+  to 6-decimal precision for regression tracking).
+
+No production-code change. Part B1 owns the fix.
+
+**Affected scoreboard cells (VQEF).**
+
+- **Si E_F** — currently YELLOW with `|ΔE_F|=1.35 eV`. Expected
+  GREEN after Part B1 (|ΔE_F| ≲ 10 meV).
+- **C Γ eigenvalues** — VGCH-1c's `−3.09 eV` absolute offset
+  explained by same mechanism. No separate Fermi pin yet; if added,
+  would follow the same path.
+- **Fe/Cu/NaCl/MgO Fermi** — not currently pinned as separate arms,
+  but the corresponding residuals (5.17, 7.75, 1.67, 3.35 eV) all
+  match the prediction and would close automatically with Part B1.
+- **Total-energy cells** — **unaffected** by Part B1. The
+  compensating `with_g0_shift` is removed and the V_loc(G=0)
+  contribution enters via the diagonal, so the total energy should
+  be bit-identical up to the re-summation order on Si (where energy
+  is currently green at 45 meV). Part B1 MUST include a bit-identity
+  check on Si E_total before/after.
+
 ### Phase 2 — Per-component energy diagnostic on heavy atoms (1 CE-day)
 
 Extend the VGC5 infrastructure (`scripts/validate/vgc5_per_component.py`
