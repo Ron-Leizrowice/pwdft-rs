@@ -7,7 +7,19 @@
 # Units: Rydberg atomic units (QE native). Convert to eV via
 #   1 Ry = 13.605_693_122_994 eV.
 #
+# `one_electron_ry` is QE's `one-electron contribution` line
+# (`eband + deband = <ψ|T + V_ion|ψ>`, PW/src/electrons.f90:1719).
+# Consumed by the BSUM band-sum identity gate in
+# `tests/qe_validation.rs::assert_band_sum_matches_qe`, which compares
+# it against pwdft-rs's `e_kinetic + e_local + e_local_g0_shift +
+# e_nonlocal`. The deband piece cancels the V_H + V_xc double-counting
+# carried in raw eigenvalues, so the BSUM residual is invariant to the
+# V_loc(G=0) convention (unlike the literal Σ w_k f_{ik} ε_{ik} band
+# sum) and is a sharper density-drift indicator than E_total alone.
+#
 # Generated: 2026-04-17 on M3 Max, qe-7.5/build/bin/pw.x, 8 MPI ranks.
+# `one_electron_ry` values added 2026-04-19 under BSUM (harvested from
+# the existing *.out files; no QE re-runs required).
 
 [si_diamond]
 input_file        = "si_scf.in"
@@ -17,6 +29,7 @@ k_grid            = [4, 4, 4]
 degauss_ry        = 0.01
 nspin             = 1
 total_energy_ry   = -17.02299344
+one_electron_ry   = 4.86744632
 fermi_energy_ev   = 6.3449
 n_iterations      = 7
 # Γ-point eigenvalues (eV). 8 lowest bands; Γ has only 8 available at ecut=15.
@@ -30,6 +43,7 @@ k_grid            = [4, 4, 4]
 degauss_ry        = 0.01
 nspin             = 1
 total_energy_ry   = -23.84343910
+one_electron_ry   = 8.50287341
 fermi_energy_ev   = 15.8873
 n_iterations      = 9
 gamma_eigenvalues_ev = [-8.1456, 14.0232, 14.0232, 14.0232, 19.3568, 19.3568, 19.3568, 27.2505]
@@ -46,6 +60,7 @@ k_grid            = [8, 8, 8]
 degauss_ry        = 0.02
 nspin             = 1
 total_energy_ry   = -4.72724484
+one_electron_ry   = 2.88539588
 fermi_energy_ev   = 7.5876
 n_iterations      = 6
 # Al FCC: 3 valence electrons → 6 bands at Γ. 229 PWs at Γ (ecut=24).
@@ -60,6 +75,7 @@ degauss_ry        = 0.02
 nspin             = 2
 starting_magnetization = 0.5
 total_energy_ry   = -224.91744934
+one_electron_ry   = -50.85651213
 fermi_energy_ev   = 26.2006
 n_iterations      = 10
 # NOTE: With PseudoDojo NC/LDA, Fe BCC (a=2.87 Å, ecut=15 Ry) collapses to
@@ -80,6 +96,7 @@ k_grid            = [4, 4, 4]
 degauss_ry        = 0.01
 nspin             = 1
 total_energy_ry   = -307.92889502
+one_electron_ry   = -107.67541991
 fermi_energy_ev   = 6.5212
 n_iterations      = 11
 # GaAs has 18 valence electrons (Ga 3d10 4s2 4p1 + As 4s2 4p3); 18 bands.
@@ -93,6 +110,7 @@ k_grid            = [8, 8, 8]
 degauss_ry        = 0.02
 nspin             = 1
 total_energy_ry   = -356.73602869
+one_electron_ry   = -149.48760888
 fermi_energy_ev   = 19.2056
 n_iterations      = 9
 # Cu has 19 valence electrons (3s2 3p6 3d10 4s1 — semicore): 14 bands shown.
@@ -106,6 +124,7 @@ k_grid            = [4, 4, 4]
 degauss_ry        = 0.01
 nspin             = 1
 total_energy_ry   = -119.77970303
+one_electron_ry   = -64.29439342
 fermi_energy_ev   = 3.4704
 n_iterations      = 9
 # NaCl: Na (2s2 2p6 3s1) + Cl (3s2 3p5) = 16 valence electrons.
@@ -119,6 +138,7 @@ k_grid            = [4, 4, 4]
 degauss_ry        = 0.01
 nspin             = 1
 total_energy_ry   = -147.23547768
+one_electron_ry   = -65.02063059
 fermi_energy_ev   = 10.2064
 n_iterations      = 8
 # MgO: Mg (2s2 2p6 3s2) + O (2s2 2p4) = 16 valence electrons.
@@ -139,6 +159,7 @@ k_grid            = [4, 4, 4]
 degauss_ry        = 0.01
 nspin             = 1
 total_energy_ry   = -16.91056535
+one_electron_ry   = 4.96385708
 fermi_energy_ev   = 6.5649
 n_iterations      = 7
 gamma_eigenvalues_ev = [-5.7047, 6.2697, 6.2697, 6.2697, 8.8126, 8.8126, 8.8126, 9.6119]
@@ -152,6 +173,7 @@ k_grid            = [4, 4, 4]
 degauss_ry        = 0.01
 nspin             = 1
 total_energy_ry   = -23.93429785
+one_electron_ry   = 8.38764634
 fermi_energy_ev   = 15.7827
 n_iterations      = 15
 gamma_eigenvalues_ev = [-8.1293, 13.6836, 13.6836, 13.6836, 19.2295, 19.2295, 19.2295, 26.7977]
@@ -165,6 +187,7 @@ k_grid            = [8, 8, 8]
 degauss_ry        = 0.02
 nspin             = 1
 total_energy_ry   = -4.63658133
+one_electron_ry   = 2.91821334
 fermi_energy_ev   = 7.8038
 n_iterations      = 6
 gamma_eigenvalues_ev = [-3.2291, 20.4953, 20.4953, 22.0000, 22.0000, 22.0000]
@@ -179,6 +202,7 @@ degauss_ry        = 0.02
 nspin             = 2
 starting_magnetization = 0.5
 total_energy_ry   = -250.53835824
+one_electron_ry   = -105.39935279
 fermi_energy_ev   = 17.8191
 n_iterations      = 13
 total_magnetization_mub = 2.34
@@ -195,6 +219,7 @@ k_grid            = [4, 4, 4]
 degauss_ry        = 0.01
 nspin             = 1
 total_energy_ry   = -361.07886391
+one_electron_ry   = -184.39971337
 fermi_energy_ev   = 9.0818
 n_iterations      = 11
 gamma_eigenvalues_ev = [-27.2741, -27.2741, -27.1442, -27.1442, -27.1442, -6.6792, -6.6792, -6.6735]
@@ -209,6 +234,7 @@ k_grid            = [8, 8, 8]
 degauss_ry        = 0.02
 nspin             = 1
 total_energy_ry   = -378.98671646
+one_electron_ry   = -201.88946970
 fermi_energy_ev   = 17.4696
 n_iterations      = 11
 gamma_eigenvalues_ev = [-96.0295, -52.9790, -52.9790, -52.9790, 8.0073, 14.4410, 14.4410, 14.4410]
@@ -222,6 +248,7 @@ k_grid            = [4, 4, 4]
 degauss_ry        = 0.01
 nspin             = 1
 total_energy_ry   = -123.15952587
+one_electron_ry   = -70.60854360
 fermi_energy_ev   = 3.9131
 n_iterations      = 8
 gamma_eigenvalues_ev = [-52.0124, -19.7210, -19.7210, -19.7210, -11.4565, 1.2499, 1.2499, 1.2499]
@@ -236,6 +263,7 @@ k_grid            = [4, 4, 4]
 degauss_ry        = 0.01
 nspin             = 1
 total_energy_ry   = -151.67224144
+one_electron_ry   = -73.22432308
 fermi_energy_ev   = 10.5529
 n_iterations      = 8
 gamma_eigenvalues_ev = [-65.8502, -31.4806, -31.4806, -31.4806, -9.2153, 8.1381, 8.1381, 8.1381]
