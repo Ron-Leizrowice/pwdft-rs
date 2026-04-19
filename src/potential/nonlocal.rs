@@ -54,12 +54,60 @@ use crate::{
     pseudopotential::PseudopotentialData,
 };
 
-/// Precomputed non-local KB projector data at a single k-point.
+/// Precomputed Kleinman-Bylander non-local pseudopotential data at a
+/// single k-point.
 ///
-/// On construction we build the expanded complex projector matrix
-/// `B ∈ ℂ^(n_pw × n_channels)` and its right-acting counterpart
-/// `D_over_omega · B^H ∈ ℂ^(n_channels × n_pw)` so that
-/// `add_to_hamiltonian` reduces to a single GEMM.
+/// The KB separable form writes the non-local operator as
+///
+/// ```text
+///     V_NL = Σ_α Σ_{i,j} |β_{α,i}⟩ · D^{(α)}_{ij} · ⟨β_{α,j}|
+/// ```
+///
+/// (sum over atoms α and over radial projector pairs (i,j) of the same
+/// angular momentum l on α). In the plane-wave basis at wavevector
+/// `q ≡ k + G` the matrix element is
+///
+/// ```text
+///     H_NL(k)_{G,G'} = (1/Ω) · Σ_α exp(−i(G−G')·τ_α) ·
+///                              Σ_{l, m, (i,j : l_i = l_j = l)}
+///                              F^{(α)}_i(|k+G|) · Y_{l m}(q̂_{k+G})
+///                              · D^{(α)}_{ij}
+///                              · F^{(α)}_j(|k+G'|) · Y_{l m}(q̂_{k+G'})
+/// ```
+///
+/// (real spherical harmonics; the `i^{l_i}·(i^{l_j})*` phases cancel
+/// because the `(i,j)` sum is restricted to `l_i = l_j` by the block-
+/// diagonal structure of `D`). On construction we lift this into an
+/// expanded projector matrix
+///
+/// ```text
+///     B[G, (α,i,m)] = (1/√Ω) · exp(−iG·τ_α)
+///                            · F^{(α)}_i(|k+G|)
+///                            · Y_{l_i m}(q̂_{k+G})
+/// ```
+///
+/// and its contracted partner
+///
+/// ```text
+///     (D·B^H)[(α,i,m), G] = Σ_{j : l_j = l_i} D^{(α)}_{ij} · conj(B[G, (α,j,m)])
+/// ```
+///
+/// so that [`Self::add_to_hamiltonian`] reduces to the single BLAS-3
+/// update `H += B · (D·B^H)`. The `1/Ω` normalization is split evenly
+/// between the two legs (hence `1/√Ω` in `B`).
+///
+/// Units: `G`, `k` in 1/Å; `τ_α` in Å; `Ω` in Å³; the radial form
+/// factor `F^{(α)}_i(|q|)` comes out of the private
+/// `bessel_transform_projector` helper in Å^{3/2}·eV^{1/2} (matching
+/// the UPF convention `r·β(r)` in Å^{−1/2}); `D^{(α)}_{ij}` is in eV;
+/// `B` is therefore in eV^{1/2} and `H_NL` in eV.
+///
+/// Reference: Kleinman & Bylander, *Phys. Rev. Lett.* **48**, 1425
+/// (1982) for the separable form; Blöchl, *Phys. Rev. B* **41**, 5414
+/// (1990) Eq. (12) for the explicit plane-wave matrix element; the
+/// GEMM-friendly `B·D·B^H` layout is the standard pseudopotential-
+/// code idiom (see Gonze *et al.*, *Comput. Mater. Sci.* **25**, 478
+/// (2002) §II.C).
 pub struct NonlocalPotential {
     /// Number of plane waves at this k-point (rows of B).
     n_pw: usize,
@@ -92,17 +140,51 @@ struct TypeCache {
 }
 
 impl NonlocalPotential {
-    /// Precompute projector form factors for a given k-point and assemble
-    /// the cached `(B, D·B^H)` pair used by [`Self::add_to_hamiltonian`].
+    /// Assemble the `(B, D·B^H)` pair used by
+    /// [`Self::add_to_hamiltonian`] for a single k-point.
     ///
-    /// For each projector i with angular momentum l:
-    /// F_i(|k+G|) = 4π ∫ [r·β_i(r)] j_l(|k+G|·r) r dr
+    /// For each radial projector `β^{(α)}_i(r)` with angular momentum `l`
+    /// we compute the Bessel-transformed form factor
     ///
-    /// The full projector in G-space is:
-    /// β_i(k+G) = F_i(|k+G|) × i^l × Y_lm(k̂+G)
+    /// ```text
+    ///     F^{(α)}_i(|q|) = 4π · ∫₀^∞ [r · β^{(α)}_i(r)] · j_l(|q| r) · r dr
+    /// ```
+    ///
+    /// (UPF stores `r · β(r)` in Å^{−1/2}; see the private
+    /// `bessel_transform_projector` helper). The full G-space projector is
+    ///
+    /// ```text
+    ///     β^{(α)}_i(k+G) = F^{(α)}_i(|k+G|) · i^l · Y_{l m}(q̂_{k+G}) · exp(−iG·τ_α),
+    /// ```
+    ///
+    /// and the struct stores the `(1/√Ω)`-normalized, `i^l`-stripped
+    /// expanded matrix `B[G, (α,i,m)]` together with its contraction
+    /// `D·B^H` (see [`NonlocalPotential`] for the full identity).
+    ///
+    /// Arguments (units):
+    /// - `crystal`: atomic geometry; `τ_α` read via
+    ///   `Atom::cart_position` (Å);
+    /// - `basis`: plane-wave basis at this k-point; `G` ranges over
+    ///   `basis.g_vectors()` (1/Å);
+    /// - `k`: crystal momentum (1/Å);
+    /// - `pseudopotentials`: borrowed slice of
+    ///   [`PseudopotentialData`]; each atom's `z` is looked up via
+    ///   [`crate::pseudopotential::find_for_atom`]; `D^{(α)}_{ij}` in
+    ///   eV, radial grid and projectors in Å / Å^{−1/2}.
+    ///
+    /// Invariants:
+    /// - Every projector's angular-momentum quantum number `l` must
+    ///   satisfy `l >= 0`; a runtime `assert!` turns a negative `l`
+    ///   (malformed UPF) into a clean panic before it becomes an
+    ///   unsigned-wrap allocation bug.
+    ///
+    /// Reference: Kleinman & Bylander, *Phys. Rev. Lett.* **48**, 1425
+    /// (1982); Blöchl, *Phys. Rev. B* **41**, 5414 (1990).
     ///
     /// # Errors
-    /// Returns `PwdftError::MissingPseudopotential` if any atom type lacks a loaded PP.
+    /// Returns [`PwdftError::MissingPseudopotential`] if any atom's
+    /// `z` has no corresponding [`PseudopotentialData`] in
+    /// `pseudopotentials`.
     pub fn new(
         crystal: &Crystal,
         basis: &BasisSet,
@@ -311,16 +393,58 @@ impl NonlocalPotential {
         Ok(Self { n_pw, b, d_bh })
     }
 
-    /// Add V_NL to the Hamiltonian matrix at the k-point this potential was
-    /// constructed for.
+    /// Accumulate the non-local Kohn-Sham matrix element
     ///
-    /// `H += B · D · B^H`, via a single BLAS-3 GEMM. Memory access is
-    /// cache-friendly; on Apple M2 this is ~10× faster than the previous
-    /// scalar-loop path at n_pw = 725. (The 1/Ω normalization is already
-    /// folded into B at construction time.)
+    /// ```text
+    ///     H_NL_{G G'} = Σ_α Σ_{l, m, (i,j : l_i = l_j = l)}
+    ///                       B[G, (α,i,m)] · D^{(α)}_{ij} · conj(B[G', (α,j,m)])
+    ///               = (B · (D · B^H))[G, G']
+    /// ```
     ///
-    /// The `crystal`, `basis`, and `k` arguments are kept for API
-    /// compatibility; the heavy lifting was done at construction.
+    /// onto the dense Kohn-Sham Hamiltonian `h` at the k-point this
+    /// [`NonlocalPotential`] was constructed for, in eV. The second
+    /// equality is the BLAS-3 GEMM identity used by the implementation:
+    /// both factors were assembled in [`Self::new`], so this call
+    /// reduces to a single `faer::matmul`.
+    ///
+    /// Equivalently, unpacked per atom:
+    ///
+    /// ```text
+    ///     H_NL_{G G'} = (1/Ω) · Σ_α exp(−i(G−G')·τ_α)
+    ///                         · Σ_{l, (i,j : l_i = l_j = l)}
+    ///                           F^{(α)}_i(|k+G|) · F^{(α)}_j(|k+G'|)
+    ///                           · D^{(α)}_{ij}
+    ///                           · Σ_m Y_{l m}(q̂_{k+G}) · Y_{l m}(q̂_{k+G'}).
+    /// ```
+    ///
+    /// The Σ_m is identically `(2l+1)/(4π) · P_l(q̂·q̂')` by the
+    /// spherical-harmonic addition theorem (see
+    /// `test_ylm_addition_theorem`); the GEMM path handles it per-channel
+    /// so that the block-diagonal structure of `D` falls out of the
+    /// normal matrix-matrix product without any explicit angular sum.
+    ///
+    /// Arguments:
+    /// - `h`: target Kohn-Sham Hamiltonian matrix. Size
+    ///   `n_pw × n_pw` (checked by `debug_assert!`); all matrix
+    ///   entries are in eV.
+    /// - `_crystal`, `_basis`, `_k`: kept for API compatibility with
+    ///   callers written against the pre-VNLM signature. The heavy
+    ///   lifting — structure factors, form factors, `(B, D·B^H)`
+    ///   assembly — was done at construction time, so these arguments
+    ///   are unused.
+    ///
+    /// Preconditions:
+    /// - `h.nrows() == h.ncols() == self.n_pw` (debug-asserted).
+    /// - Caller is responsible for ensuring `h` was constructed at the
+    ///   same k-point as `self`; the k-point is baked into `B` via the
+    ///   `q = k + G` form factors and spherical harmonics.
+    ///
+    /// Cost: O(n_pw² · n_channels) through a single `faer::matmul` in
+    /// sequential mode. Cache-friendly; on Apple M2 ~10× faster than
+    /// the pre-VNLM scalar `(ig, jg, i, j)` loop at n_pw = 725.
+    ///
+    /// Reference: Kleinman & Bylander, *Phys. Rev. Lett.* **48**, 1425
+    /// (1982); Blöchl, *Phys. Rev. B* **41**, 5414 (1990) Eq. (12).
     pub fn add_to_hamiltonian(
         &self,
         h: &mut faer::Mat<Complex64>,
