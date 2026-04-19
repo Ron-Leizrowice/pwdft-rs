@@ -585,12 +585,12 @@ impl Settings {
     ///   [`log::warn!`] is emitted naming the driving species so users
     ///   cannot silently run with a sub-convergence cutoff.
     /// - If the crystal contains only elements outside the table, the
-    ///   caller receives an [`PwdftError::InvalidInput`] asking them to
+    ///   caller receives an [`PwdftError::InvalidParam`] asking them to
     ///   set `basis.ecutwfc` explicitly.
     ///
     /// # Errors
     ///
-    /// Returns [`PwdftError::InvalidInput`] when no species in
+    /// Returns [`PwdftError::InvalidParam`] when no species in
     /// `crystal` has a tabulated recommended cutoff and `basis.ecutwfc`
     /// is unset — the calculation cannot proceed with an unknown cutoff.
     pub fn resolve_ecutwfc(&self, crystal: &Crystal) -> Result<f64> {
@@ -614,9 +614,10 @@ impl Settings {
                 );
                 Ok(rec.ev)
             }
-            None => Err(PwdftError::InvalidInput(
-                "basis.ecutwfc not set and no species in the crystal has a tabulated recommended cutoff; set `basis.ecutwfc` explicitly in YAML".to_string(),
-            )),
+            None => Err(PwdftError::InvalidParam {
+                name: "basis.ecutwfc",
+                reason: "not set and no species in the crystal has a tabulated recommended cutoff; set `basis.ecutwfc` explicitly in YAML".to_string(),
+            }),
         }
     }
 
@@ -1269,22 +1270,25 @@ initial_density:
     #[test]
     fn scf_params_validate_rejects_non_positive_gaussian_sigma() {
         // `ScfParams::validate()` must reject sigma <= 0 or non-finite
-        // sigma with a structured InvalidInput error — these values
-        // would poison the SAD Gaussian exp(-|G|^2 sigma^2 / 2) term.
+        // sigma with a structured error — these values would poison
+        // the SAD Gaussian exp(-|G|^2 sigma^2 / 2) term. ERR2 P1.c
+        // migrated this path from the catch-all `InvalidInput` to the
+        // structured `InvalidParam` variant.
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             let params = ScfParams {
                 gaussian_sigma: bad,
                 ..Default::default()
             };
             match params.validate() {
-                Err(PwdftError::InvalidInput(msg)) => {
+                Err(PwdftError::InvalidParam { name, reason }) => {
+                    assert_eq!(name, "gaussian_sigma");
                     assert!(
-                        msg.contains("gaussian_sigma"),
-                        "error should mention gaussian_sigma, got: {msg}"
+                        reason.contains("positive"),
+                        "reason should mention positivity, got: {reason}"
                     );
                 }
                 other => panic!(
-                    "expected InvalidInput for gaussian_sigma = {bad}, got: {other:?}"
+                    "expected InvalidParam for gaussian_sigma = {bad}, got: {other:?}"
                 ),
             }
         }
@@ -1539,6 +1543,59 @@ kpoints:
             "Fe/O default ecutwfc {resolved} must match Fe {fe_ev}, not O {}",
             24.0 * HA_TO_EV,
         );
+    }
+
+    #[test]
+    fn resolve_ecutwfc_returns_invalid_param_when_table_has_no_match() {
+        // ERR2 P1.c: when `basis.ecutwfc` is unset and every species in
+        // the crystal is outside the recommended-ecut table, the caller
+        // must receive `PwdftError::InvalidParam { name: "basis.ecutwfc",
+        // .. }` rather than the catch-all `InvalidInput`. The table
+        // lookup returns `None` for synthetic Z=200, so we build a
+        // Crystal directly rather than round-tripping through YAML
+        // (the YAML element parser rejects unknown symbols upstream).
+        use crate::crystal::{Atom, Crystal, Lattice};
+        use nalgebra::Vector3;
+        let lat = Lattice::new(
+            Vector3::new(5.0, 0.0, 0.0),
+            Vector3::new(0.0, 5.0, 0.0),
+            Vector3::new(0.0, 0.0, 5.0),
+        );
+        let crystal = Crystal {
+            atoms: vec![Atom::new(200, [0.0, 0.0, 0.0])],
+            lattice: lat,
+        };
+        // A minimal Settings with no `basis.ecutwfc` set. We construct
+        // via a YAML hop that omits `basis`.
+        let yaml = r#"
+system:
+  lattice:
+    - [5.0, 0.0, 0.0]
+    - [0.0, 5.0, 0.0]
+    - [0.0, 0.0, 5.0]
+  atoms:
+    - symbol: Si
+      position: [0.0, 0.0, 0.0]
+kpoints:
+  type: monkhorst_pack
+  grid: [1, 1, 1]
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        // Hand-replace the crystal with the synthetic Z=200 one so the
+        // table lookup falls through.
+        let err = s.resolve_ecutwfc(&crystal).expect_err(
+            "resolve_ecutwfc must fail when no species has a recommended cutoff",
+        );
+        match err {
+            PwdftError::InvalidParam { name, reason } => {
+                assert_eq!(name, "basis.ecutwfc");
+                assert!(
+                    reason.contains("tabulated"),
+                    "reason should mention the tabulated lookup, got: {reason}"
+                );
+            }
+            other => panic!("expected InvalidParam, got: {other:?}"),
+        }
     }
 
     #[test]
