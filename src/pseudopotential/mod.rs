@@ -254,7 +254,7 @@ mod tests {
         // rho_atom stores 4πr²ρ(r) in converted units; rab stores dr
         let pp = load(&si_pp_path()).unwrap();
         if !pp.has_rho_atom() {
-            eprintln!("Si PP has no rho_atom data (HGH) — skipping integral test");
+            log::debug!("Si PP has no rho_atom data (HGH) — skipping integral test");
             return;
         }
         let integral: f64 = pp
@@ -263,10 +263,6 @@ mod tests {
             .zip(pp.rab.iter())
             .map(|(&rho, &dr)| rho * dr)
             .sum();
-        eprintln!(
-            "Si rho_atom integral = {integral:.6}, z_valence = {}",
-            pp.z_valence
-        );
         assert!(
             (integral - pp.z_valence).abs() < 0.1,
             "rho_atom integral {integral} != z_valence {}",
@@ -279,7 +275,7 @@ mod tests {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pseudopotentials/nc/lda/Fe.upf");
         let pp = load(&path).unwrap();
         if !pp.has_rho_atom() {
-            eprintln!("Fe PP has no rho_atom data — skipping");
+            log::debug!("Fe PP has no rho_atom data — skipping");
             return;
         }
         let integral: f64 = pp
@@ -288,10 +284,6 @@ mod tests {
             .zip(pp.rab.iter())
             .map(|(&rho, &dr)| rho * dr)
             .sum();
-        eprintln!(
-            "Fe rho_atom integral = {integral:.6}, z_valence = {}",
-            pp.z_valence
-        );
         // This test will FAIL if the unit conversion is wrong
         assert!(
             (integral - pp.z_valence).abs() < 0.5,

@@ -235,7 +235,6 @@ mod tests {
             .zip(pp.rab.iter())
             .map(|((&rho, &r), &dr)| four_pi * r * r * rho * dr)
             .sum();
-        eprintln!("Si partial core charge = {q_core:.6} e");
         // Expected ~0.74 e for Si ONCVPSP LDA. Allow 0.01 e tolerance for
         // trapezoidal-rule round-off on the log mesh.
         assert!(
@@ -309,7 +308,6 @@ mod tests {
         let omega = a * a * a / 4.0; // FCC primitive cell volume
         let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
 
-        eprintln!("Si ρ_core(G=0) = {rho_g0:.6e} e/Å³  (ref 1.8476e-2)");
         let expected = 1.847_642_866_5e-2;
         // Tolerance 1e-5 covers trapezoidal-vs-Simpson difference on the
         // ONCVPSP mesh (dr ≈ 5e-3 Å in the relevant region).
@@ -337,10 +335,6 @@ mod tests {
         let g_norm = 2.0 * std::f64::consts::PI / a * (3.0_f64).sqrt();
         let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
 
-        eprintln!(
-            "Si ρ_core(|G|²=3·(2π/a)²) = ρ_core(G={g_norm:.6} Å⁻¹) \
-             = {rho_g:.6e} e/Å³  (ref 1.5428e-2)"
-        );
         let expected = 1.542_768_452_9e-2;
         assert!(
             (rho_g - expected).abs() < 1.0e-5,
@@ -373,7 +367,6 @@ mod tests {
         let omega = a * a * a / 2.0; // BCC primitive cell volume
         let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
 
-        eprintln!("Fe ρ_core(G=0) = {rho_g0:.6e} e/Å³  (ref 2.4680e-1)");
         let expected = 2.467_972_895_8e-1;
         // Fe NLCC is ~13× larger than Si's at G=0; tolerance 1e-4 e/Å³
         // ≈ 4·10⁻⁴ relative, consistent with the trapezoidal-vs-Simpson
@@ -400,10 +393,6 @@ mod tests {
         let g_norm = 2.0 * std::f64::consts::PI / a * (2.0_f64).sqrt();
         let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
 
-        eprintln!(
-            "Fe ρ_core(|G|²=2·(2π/a)²) = ρ_core(G={g_norm:.6} Å⁻¹) \
-             = {rho_g:.6e} e/Å³  (ref 2.2503e-1)"
-        );
         let expected = 2.250_266_261_6e-1;
         assert!(
             (rho_g - expected).abs() < 1.0e-4,
@@ -446,7 +435,6 @@ mod tests {
         let omega = a * a * a / 4.0; // FCC primitive cell volume
         let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
 
-        eprintln!("Cu ρ_core(G=0) = {rho_g0:.6e} e/Å³  (ref 2.5568e-1)");
         let expected = 2.556_847_426_2e-1;
         // Cu NLCC magnitude ≈ Fe's, so use the same 1e-4 e/Å³ tolerance
         // (≈ 4·10⁻⁴ relative).
@@ -472,10 +460,6 @@ mod tests {
         let g_norm = 2.0 * std::f64::consts::PI / a * (3.0_f64).sqrt();
         let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
 
-        eprintln!(
-            "Cu ρ_core(|G|²=3·(2π/a)²) = ρ_core(G={g_norm:.6} Å⁻¹) \
-             = {rho_g:.6e} e/Å³  (ref 2.3967e-1)"
-        );
         let expected = 2.396_713_254_0e-1;
         assert!(
             (rho_g - expected).abs() < 1.0e-4,
@@ -510,7 +494,6 @@ mod tests {
         let omega = a * a * a / 2.0; // BCC primitive cell volume
         let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
 
-        eprintln!("Mn ρ_core(G=0) = {rho_g0:.6e} e/Å³  (ref 3.4733e-1)");
         let expected = 3.473_326_480_4e-1;
         // Mn's NLCC is ≈ 1.4× Fe's at G=0; keep the same 1e-4 tolerance
         // — still ≈ 3·10⁻⁴ relative on the ONCVPSP log mesh.
@@ -536,10 +519,6 @@ mod tests {
         let g_norm = 2.0 * std::f64::consts::PI / a * (2.0_f64).sqrt();
         let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
 
-        eprintln!(
-            "Mn ρ_core(|G|²=2·(2π/a)²) = ρ_core(G={g_norm:.6} Å⁻¹) \
-             = {rho_g:.6e} e/Å³  (ref 3.1210e-1)"
-        );
         let expected = 3.121_008_348_2e-1;
         assert!(
             (rho_g - expected).abs() < 1.0e-4,
