@@ -85,7 +85,7 @@ fn main() -> pwdft_rs::error::Result<()> {
             // where `n_ops == 1` yet `has_time_reversal == true` — skipping
             // the k ↔ −k folding that physics demands. The uniform call
             // below avoids that regression and matches the treatment in
-            // `symmetrize_density`, which already always-calls.
+            // `symmetrize_density_g`, which already always-calls.
             let symmetry_info = settings.to_symmetry_info(&crystal);
             info!("Symmetry: {} space group operations", symmetry_info.n_ops);
             let kpts = pwdft_rs::symmetry::kpoints::reduce_kpoints(
