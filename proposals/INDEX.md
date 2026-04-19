@@ -30,8 +30,9 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| VGCH | Heavy-atom V_local(G) residual — post-VGCMP continuation. Phases 1a+1b+1c landed (PRs #139, #148, VGCH-1c); H1 (β_l(q)) and H2 (SAD) both cleared bit-perfect. Residual tracked under **VGCH-2**; this proposal stays open until VGCH-2 closes the 5 heavy-atom `#[ignore]`s | medium-large | medium | — | VGCH-2, VQEF |
-| VGCH-2 | VGCH follow-up: total-energy assembly. Part A traces per-term agreement vs QE; Part B runs a transplant experiment (seed from QE's converged ρ); target fix in `src/scf/energy.rs` `with_g0_shift` + Harris-Foulkes pairings | medium | medium | VGCH | VQEF |
+| VGCH | Heavy-atom V_local(G) residual — post-VGCMP continuation. Phases 1a+1b+1c landed (PRs #139, #148, #156); H1 (β_l(q)) and H2 (SAD) both cleared bit-perfect. Residual routed via VGCH-2 + **VGCH-MECH** classification | medium-large | medium | — | VGCH-2, VQEF |
+| VGCH-2 | VGCH follow-up: total-energy assembly. Part A (#160) traced per-term agreement; Part B (#167) ran transplant experiment on Cu — **H3 mixer-basin CLEARED**, +16.34 eV gap at shared density identifies energy-functional-evaluation disagreement as the real bug. Part C = Fermi-finder/smearing/n_bands/NLCC ρ_core diagnosis | medium | medium | VGCH | VQEF |
+| VGCH-MECH | Mechanism taxonomy — splits remaining 12 YELLOW cells into Class A (heavy-atom energy-functional-at-shared-density, 8 cells, continued under VGCH-2 Part C), Class B (Fe LDA Hamiltonian-side outlier, 1 cell, new), Class C (C diamond mixer + density, 2 cells, new). Sequences Class B + C in parallel with VGCH-2 Part C | medium | medium | VGCH-2, BSUM | VQEF |
 | VQEF | Full LDA+PBE QE validation matrix (8 systems × 2 functionals) — roadmap | medium | low | VGCMP, GGAP, QELK | — |
 
 ### Medium — Enhancements & Performance
