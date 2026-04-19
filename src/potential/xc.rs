@@ -30,6 +30,7 @@
 
 use std::f64::consts::PI;
 
+use num_complex::Complex64;
 use rayon::prelude::*;
 
 use crate::{
@@ -1171,19 +1172,32 @@ impl XcEvaluator {
                 // Rayon's `unzip` handles 2-tuples; for (exc, v1, h)
                 // we nest as `(exc, (v1, h))` the same way
                 // `lda_xc_spin_grid` handles its three outputs.
+                //
+                // Unit note (per-electron exc): `pbe_xc_point` returns
+                // the energy *density* `ρ · ε_xc^PBE` in eV/Å³. The
+                // engine-wide convention for `XcGridResult::exc_r` is
+                // eV per electron (see [`lda_xc_grid`] and
+                // [`lda_xc_energy`]) so downstream integrators can
+                // multiply by ρ and dV without knowing the functional
+                // family. Divide out the `ρ` here. At `ρ = 0` the
+                // low-density short-circuit in `pbe_exchange` /
+                // `pbe_correlation` returns exact `(0, 0, 0)`, so the
+                // `ρ == 0.0` branch keeps `exc` at `0.0` without a
+                // division.
                 let (exc_r, (v1_r, h_vec)): PbeGridUnzip = rho_r
                     .par_iter()
                     .zip(grad.par_iter())
                     .map(|(&rho, &g)| {
                         let gmag = (g[0] * g[0] + g[1] * g[1] + g[2] * g[2]).sqrt();
-                        let (eps_xc, v1_xc, v2_xc) = pbe_xc_point(rho, gmag);
+                        let (eps_xc_density, v1_xc, v2_xc) = pbe_xc_point(rho, gmag);
+                        let eps_xc_per_el = if rho > 0.0 { eps_xc_density / rho } else { 0.0 };
                         // h(r) = v2 · ∇ρ(r) — QE convention (the factor
                         // of 2 from d/d|∇ρ|² = (1/2|∇ρ|) · d/d|∇ρ| is
                         // already folded into v2 by `pbe_exchange` and
                         // `pbe_correlation`). The driver consumes h via
                         // ∇·h in G-space to complete V_xc.
                         let h = [v2_xc * g[0], v2_xc * g[1], v2_xc * g[2]];
-                        (eps_xc, (v1_xc, h))
+                        (eps_xc_per_el, (v1_xc, h))
                     })
                     .unzip();
                 Ok(XcGridResult { exc_r, v1_r, v2_r: Some(h_vec) })
@@ -1301,6 +1315,120 @@ pub struct XcSpinGridResult {
     pub v2_up_r: Option<Vec<[f64; 3]>>,
     /// GGA-only per-channel `h_↓(r)`. `None` for LDA.
     pub v2_down_r: Option<Vec<[f64; 3]>>,
+}
+
+/// Assemble the real-space semilocal V_xc contribution from a GGA
+/// functional's `(v1_r, h_r)` per-grid-point output.
+///
+/// The semilocal Kohn-Sham potential of a GGA functional
+/// `ε_xc(ρ, |∇ρ|)` is
+///
+/// ```text
+///     V_xc(r) = ∂(ρ · ε_xc) / ∂ρ  −  ∇ · h(r)
+/// ```
+///
+/// where `h(r) = v2(r) · ∇ρ(r)` is the QE-convention h-vector returned
+/// by [`XcEvaluator::eval`] in its `v2_r` field (the factor of 2 from
+/// `∂/∂(|∇ρ|²) = 1/(2|∇ρ|) · ∂/∂|∇ρ|` is already folded into `v2` by
+/// `pbe_exchange` / `pbe_correlation`; see their docstrings). The
+/// divergence is evaluated via the G-space identity
+/// `(∇·h)(G) = i G · h(G)`: one forward FFT per Cartesian axis,
+/// a complex multiply, a sum, and a single inverse FFT.
+///
+/// # Units
+///
+/// All inputs in the engine's native units (eV, Å, e/Å³, e/Å⁴). `v1_r`
+/// in eV, `h_r` in `eV · Å / (e/Å³) = eV · Å⁴ / e`. The returned
+/// `V_xc(r)` is in eV.
+///
+/// # Arguments
+///
+/// - `v1_r`: per-grid-point `∂(ρ · ε_xc) / ∂ρ` (eV). Length
+///   `fft.total_size()`.
+/// - `h_r`: per-grid-point h-vector `h(r) = v2 · ∇ρ` (length-3 arrays
+///   in eV · Å⁴ / e). Length `fft.total_size()`.
+/// - `fft`: shared FFT handler; used for three forward passes plus one
+///   inverse.
+/// - `g_vectors`: per-grid-point reciprocal-space vectors in the
+///   FFT-aligned ordering (`scf::grid::g_vector_at_dims`), in Å⁻¹.
+///
+/// # Panics
+///
+/// Panics if `v1_r.len() != fft.total_size()`, if `h_r.len() != v1_r.len()`,
+/// or if `g_vectors.len() != v1_r.len()`.
+///
+/// Reference: QE 7.5 `qe-7.5/XClib/qe_drivers_gga.f90::gcxc` for the
+/// sign (`V_xc = v1 − ∇·h`) and `v_of_rho.f90:306` for the equivalence
+/// between the two conventions QE internally maintains.
+#[must_use]
+pub fn assemble_semilocal_vxc(
+    v1_r: &[f64],
+    h_r: &[[f64; 3]],
+    fft: &mut crate::fft::FFT3D,
+    g_vectors: &[[f64; 3]],
+) -> Vec<f64> {
+    let n = fft.total_size();
+    assert_eq!(v1_r.len(), n, "v1_r length must equal fft.total_size()");
+    assert_eq!(h_r.len(), n, "h_r length must equal v1_r length");
+    assert_eq!(
+        g_vectors.len(),
+        n,
+        "g_vectors length must equal v1_r length",
+    );
+
+    // ∑_α (iG_α) · h_α(G), accumulated into a single G-space buffer.
+    // Forward FFTs live in `buf`; we apply the same `1/N` normalisation
+    // used by `scf::energy::density_r_to_g` so that
+    // `∑_G a(G) exp(+iG·r)` reconstructs `a(r)` without extra scaling.
+    //
+    // Nyquist zero-out: same spectral-methods convention as
+    // `fft::compute_density_gradient` — the derivative at Nyquist is
+    // ambiguous (aliased conjugate partners share one DFT slot), so we
+    // drop it before taking the divergence. See that function's inline
+    // comment for the full rationale.
+    let [nx, ny, nz] = fft.dims();
+    let at_nyquist = |idx: usize| -> bool {
+        let ix = idx / (ny * nz);
+        let iy = (idx / nz) % ny;
+        let iz = idx % nz;
+        (nx.is_multiple_of(2) && ix == nx / 2)
+            || (ny.is_multiple_of(2) && iy == ny / 2)
+            || (nz.is_multiple_of(2) && iz == nz / 2)
+    };
+    let inv_n = 1.0 / n as f64;
+    let mut div_h_g: Vec<Complex64> = vec![Complex64::new(0.0, 0.0); n];
+    for axis in 0..3 {
+        let mut buf: Vec<Complex64> = h_r
+            .iter()
+            .map(|h| Complex64::new(h[axis], 0.0))
+            .collect();
+        fft.forward(&mut buf);
+        // Accumulate iG_α · h_α(G) · (1/N) into `div_h_g`, skipping
+        // the Nyquist modes of any even axis.
+        for (idx, (dst, (&rhs, g))) in div_h_g
+            .iter_mut()
+            .zip(buf.iter().zip(g_vectors.iter()))
+            .enumerate()
+        {
+            if at_nyquist(idx) {
+                continue;
+            }
+            *dst += Complex64::new(0.0, g[axis]) * rhs * inv_n;
+        }
+    }
+
+    // Inverse FFT back to real space: `(∇·h)(r) = ∑_G iG·h(G) e^{+iG·r}`.
+    fft.inverse(&mut div_h_g);
+    debug_assert!({
+        let max_im = div_h_g.iter().map(|c| c.im.abs()).fold(0.0_f64, f64::max);
+        let max_re = div_h_g.iter().map(|c| c.re.abs()).fold(0.0_f64, f64::max);
+        max_im < 1e-8 * max_re.max(1e-300) + 1e-10
+    }, "∇·h should be real; Nyquist zero-out path bypassed");
+
+    v1_r.par_iter()
+        .zip(div_h_g.par_iter())
+        .map(|(&v1, dh)| v1 - dh.re)
+        .collect()
 }
 
 #[cfg(test)]
@@ -1616,14 +1744,17 @@ mod tests {
         }
 
         // exc_r at zero gradient must match Slater + PW92 pointwise.
+        // Convention: `XcGridResult::exc_r` is eV **per electron** (same
+        // shape as LDA), so PBE's internal energy-density output is
+        // divided by ρ at the evaluator boundary (GGAP Phase A.1). The
+        // reference below is built from Slater's per-electron ε_x plus
+        // PW92's per-electron ε_c (`pw92_correlation` returns energy
+        // density, so divide by ρ here to match).
         for (i, &rho) in rho_r.iter().enumerate() {
-            let (ex_lda, _v1_lda_x) = {
-                let (e, v) = slater_exchange(rho);
-                // ρ · ε_x = eps_x (energy density, eV/Å³) -> multiply ε_x by ρ.
-                (rho * e, v)
-            };
-            let (eps_c_pw92, _v_c_pw92) = pw92_correlation(rho);
-            let eps_xc_ref = ex_lda + eps_c_pw92;
+            let (ex_per_el, _v1_lda_x) = slater_exchange(rho);
+            let (eps_c_pw92_density, _v_c_pw92) = pw92_correlation(rho);
+            let eps_c_pw92_per_el = eps_c_pw92_density / rho;
+            let eps_xc_ref = ex_per_el + eps_c_pw92_per_el;
             let err = (result.exc_r[i] - eps_xc_ref).abs();
             assert!(
                 err < 1e-12 * eps_xc_ref.abs().max(1.0),
@@ -2045,5 +2176,186 @@ mod tests {
         assert!((eps_xc - (ex + ec)).abs() < 1e-14);
         assert!((v1_xc - (v1x + v1c)).abs() < 1e-14);
         assert!((v2_xc - (v2x + v2c)).abs() < 1e-14);
+    }
+
+    // -----------------------------------------------------------------
+    // GGAP Phase A.1 — `assemble_semilocal_vxc` unit tests
+    // -----------------------------------------------------------------
+    //
+    // Same cubic-box fixture as `fft.rs::tests::cubic_*`. Kept
+    // duplicated rather than exposing a helper from `fft.rs` because
+    // these tests are small and the Phase-A.1 review scope is two
+    // files.
+
+    fn cubic_real_grid(n: usize, l: f64) -> Vec<[f64; 3]> {
+        let h = l / n as f64;
+        let mut out = Vec::with_capacity(n * n * n);
+        for i in 0..n {
+            for j in 0..n {
+                for k in 0..n {
+                    out.push([i as f64 * h, j as f64 * h, k as f64 * h]);
+                }
+            }
+        }
+        out
+    }
+
+    #[allow(
+        clippy::cast_possible_wrap,
+        clippy::cast_possible_truncation,
+        reason = "test helper only; n is a tiny FFT size (≤ 64) well inside i32 range",
+    )]
+    fn cubic_g_vectors(n: usize, l: f64) -> Vec<[f64; 3]> {
+        let two_pi_l = 2.0 * PI / l;
+        let mut out = Vec::with_capacity(n * n * n);
+        let signed = |i: usize| -> i32 {
+            if i > n / 2 { i as i32 - n as i32 } else { i as i32 }
+        };
+        for i in 0..n {
+            for j in 0..n {
+                for k in 0..n {
+                    out.push([
+                        f64::from(signed(i)) * two_pi_l,
+                        f64::from(signed(j)) * two_pi_l,
+                        f64::from(signed(k)) * two_pi_l,
+                    ]);
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn assemble_semilocal_vxc_zero_h_passthrough() {
+        // h_r ≡ 0 → ∇·h = 0 → V_xc = v1_r, bit-for-bit.
+        let n = 8;
+        let l = 5.0;
+        let n_grid = n * n * n;
+        let v1_r: Vec<f64> = (0..n_grid).map(|i| (i as f64 * 0.137).sin()).collect();
+        let h_r: Vec<[f64; 3]> = vec![[0.0; 3]; n_grid];
+        let g_vectors = cubic_g_vectors(n, l);
+        let mut fft = crate::fft::FFT3D::new(n, n, n);
+
+        let out = assemble_semilocal_vxc(&v1_r, &h_r, &mut fft, &g_vectors);
+        for (i, (&o, &v)) in out.iter().zip(v1_r.iter()).enumerate() {
+            assert!(
+                (o - v).abs() < 1e-14,
+                "zero-h passthrough failed at i={i}: out={o}, v1={v}",
+            );
+        }
+    }
+
+    #[test]
+    fn assemble_semilocal_vxc_laplacian_of_gaussian() {
+        // With v2 ≡ 1 and h = v2 · ∇ρ = ∇ρ, the divergence ∇·h is the
+        // Laplacian ∇²ρ. For a 3D Gaussian
+        // ρ(r) = exp(−α|r − r₀|²), the analytic Laplacian is
+        // ∇²ρ = (4α² |r − r₀|² − 6α) · ρ(r).
+        //
+        // The routine computes V_xc = v1 − ∇·h; with v1 ≡ 0 this
+        // returns −∇²ρ, which we compare to the analytic form.
+        //
+        // Same fixture as `test_density_gradient_gaussian_analytic`:
+        // α = 1.0 Å⁻² on a 32³ grid (h = 0.3125 Å, FWHM ≈ 1.66 Å).
+        // The Laplacian is a second derivative so it is noisier than
+        // the gradient — we pin at 1e-3 relative.
+        let n = 32;
+        let l = 10.0;
+        let r0 = [l / 2.0; 3];
+        let alpha = 1.0_f64;
+        let n_grid = n * n * n;
+
+        let r = cubic_real_grid(n, l);
+        let g_vectors = cubic_g_vectors(n, l);
+        let mut fft = crate::fft::FFT3D::new(n, n, n);
+
+        let rho_r: Vec<f64> = r
+            .iter()
+            .map(|p| {
+                let dx = p[0] - r0[0];
+                let dy = p[1] - r0[1];
+                let dz = p[2] - r0[2];
+                (-alpha * (dx * dx + dy * dy + dz * dz)).exp()
+            })
+            .collect();
+
+        // Build h = ∇ρ numerically via `compute_density_gradient` — same
+        // FFT handler, same convention, so any mismatch would surface
+        // here first.
+        let grad_rho = crate::fft::compute_density_gradient(&rho_r, &mut fft, &g_vectors);
+
+        // v1 ≡ 0, so output = −∇·h = −∇²ρ.
+        let v1_r = vec![0.0_f64; n_grid];
+        let minus_laplacian = assemble_semilocal_vxc(&v1_r, &grad_rho, &mut fft, &g_vectors);
+
+        // Skip the outer two shells (periodic-wrap boundary, same as the
+        // gradient test).
+        let mut max_abs_err = 0.0_f64;
+        let mut max_abs_ref = 0.0_f64;
+        for (idx, p) in r.iter().enumerate() {
+            let ix = idx / (n * n);
+            let iy = (idx / n) % n;
+            let iz = idx % n;
+            if ix < 2 || ix > n - 3 || iy < 2 || iy > n - 3 || iz < 2 || iz > n - 3 {
+                continue;
+            }
+            let dx = p[0] - r0[0];
+            let dy = p[1] - r0[1];
+            let dz = p[2] - r0[2];
+            let r2 = dx * dx + dy * dy + dz * dz;
+            let rho = (-alpha * r2).exp();
+            let laplacian = (4.0 * alpha * alpha * r2 - 6.0 * alpha) * rho;
+            let expected = -laplacian;
+            max_abs_err = max_abs_err.max((minus_laplacian[idx] - expected).abs());
+            max_abs_ref = max_abs_ref.max(expected.abs());
+        }
+        let rel_err = max_abs_err / max_abs_ref.max(1e-300);
+        assert!(
+            rel_err < 1e-3,
+            "Laplacian-of-Gaussian relative error {rel_err:.3e} exceeds 1e-3 \
+             (max|Δ|={max_abs_err:.3e}, max|−∇²ρ|={max_abs_ref:.3e})",
+        );
+    }
+
+    #[test]
+    fn assemble_semilocal_vxc_linearity_in_v1() {
+        // V_xc is linear in v1 (the divergence is independent of v1).
+        // Pin at FFT-round-off.
+        let n = 16;
+        let l = 8.0;
+        let n_grid = n * n * n;
+        let r = cubic_real_grid(n, l);
+        let g_vectors = cubic_g_vectors(n, l);
+        let mut fft = crate::fft::FFT3D::new(n, n, n);
+
+        let rho_r: Vec<f64> = r
+            .iter()
+            .map(|p| {
+                let x = p[0] - l / 2.0;
+                let y = p[1] - l / 2.0;
+                let z = p[2] - l / 2.0;
+                (-0.5 * (x * x + y * y + z * z)).exp()
+            })
+            .collect();
+        let h_r = crate::fft::compute_density_gradient(&rho_r, &mut fft, &g_vectors);
+
+        let v1_a: Vec<f64> = (0..n_grid).map(|i| (i as f64 * 0.11).sin()).collect();
+        let v1_b: Vec<f64> = (0..n_grid).map(|i| (i as f64 * 0.23).cos()).collect();
+
+        let out_a = assemble_semilocal_vxc(&v1_a, &h_r, &mut fft, &g_vectors);
+        let out_b = assemble_semilocal_vxc(&v1_b, &h_r, &mut fft, &g_vectors);
+        // Output should be (v1_a + v1_b) − 2·∇·h; adding the two outputs
+        // doubles the ∇·h contribution, so subtract one full application
+        // of ∇·h (= `v1_a − out_a` or `v1_b − out_b`).
+        let div_h_a: Vec<f64> = v1_a.iter().zip(out_a.iter()).map(|(&v, &o)| v - o).collect();
+        let div_h_b: Vec<f64> = v1_b.iter().zip(out_b.iter()).map(|(&v, &o)| v - o).collect();
+        let mut max_abs_err = 0.0_f64;
+        for (a, b) in div_h_a.iter().zip(div_h_b.iter()) {
+            max_abs_err = max_abs_err.max((a - b).abs());
+        }
+        assert!(
+            max_abs_err < 1e-12,
+            "∇·h should not depend on v1; residual {max_abs_err:.3e}",
+        );
     }
 }

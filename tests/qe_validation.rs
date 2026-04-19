@@ -884,33 +884,23 @@ fn test_fe_bcc_ewald_vs_qe() {
 
 /// Si diamond PBE total energy vs QE PBE reference.
 ///
-/// First end-to-end PBE SCF test. Gated behind `#[ignore]` because two
-/// pieces of scaffolding are still pending:
+/// First end-to-end PBE SCF test. GGAP Phase A.1 wired the driver-side
+/// ∇ρ FFT + semilocal V_xc assembly, so the SCF path now runs PBE
+/// without panicking. Still gated behind `#[ignore]` pending:
 ///
-/// 1. **Driver-side gradient FFT.** `XcEvaluator::Pbe::eval` accepts
-///    `rho_grad_r: &[[f64; 3]]` and, given a real gradient grid,
-///    populates the full `(exc_r, v1_r, v2_r)` triple. The current SCF
-///    drivers (`src/scf/driver.rs`, `driver_spin.rs`) pass `None` for
-///    the gradient because the ∇ρ FFT (ρ → ρ_G, multiply by iG, IFFT)
-///    and the matching ∇·h divergence step have not yet been wired in.
-///    This was expected to land in GGAP Phase A (PR #85) per the
-///    proposal's Phase A scope, but the merged Phase A was dispatcher-
-///    only. Driver-side gradient infrastructure therefore tops the
-///    Phase D backlog (or a dedicated Phase A.1 splitter).
-/// 2. **QE PBE reference.** `qe_validation/si_scf_pbe.in` has not been
-///    generated. The QE input schema needs `input_dft = 'PBE'` plus a
-///    PBE UPF at `qe_validation/pseudo/Si.upf` pointing at
-///    `pseudopotentials/nc/pbe/Si.upf` (or equivalent).
+/// - **QE PBE reference.** `qe_validation/si_scf_pbe.in` has not been
+///   generated. The QE input needs `input_dft = 'PBE'` plus a PBE UPF
+///   at `qe_validation/pseudo/Si.upf` pointing at
+///   `pseudopotentials/nc/pbe/Si.upf` (or equivalent). The concurrent
+///   GGAP-F-pre work stream owns this task.
 ///
-/// When both land, drop the `#[ignore]` and tighten the tolerance to
-/// "observed + 20%" (start at 100 meV per GGAP Phase C brief).
-///
-/// The test body is kept live-buildable so a future session can flip
-/// the gate without rewriting it. The currently-returned
-/// `NotImplemented` from the driver-side gradient path surfaces as a
-/// call-site panic; once the driver wires ∇ρ in, SCF should run.
+/// Once the QE reference lands, drop the `#[ignore]` and tighten the
+/// tolerance to "observed + 20%" (start at 100 meV per GGAP Phase C brief).
+/// The test body is live-buildable today: the driver runs PBE end-to-end
+/// and the placeholder literature number below produces a useful error
+/// message pointing at the missing QE reference.
 #[test]
-#[ignore = "GGAP Phase C: driver-side ∇ρ FFT not yet wired + QE PBE reference not yet generated (scaffolding)"]
+#[ignore = "GGAP Phase F: QE PBE reference not yet generated; pwdft-rs PBE path runs end-to-end post-Phase-A.1"]
 fn test_si_pbe_non_spin_vs_qe() {
     let crystal = fcc_crystal(
         5.431,

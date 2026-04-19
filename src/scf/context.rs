@@ -45,10 +45,20 @@ pub(crate) struct ScfContext<'a> {
     pub grid: FftGrid,
     pub g_to_fft: Vec<usize>,
     pub g_squared: Vec<f64>,
+    /// Per-FFT-grid-point reciprocal-space vectors `G` in Å⁻¹, in the
+    /// FFT-aligned ordering of `scf::grid::g_vector_at_dims`. Cached so
+    /// GGA density-gradient evaluators (GGAP Phase A.1) don't rebuild
+    /// the Vec<[f64;3]> every SCF iteration.
+    pub g_vectors: Vec<[f64; 3]>,
     pub v_local_fft: Vec<Complex64>,
     pub v_local_g0: f64,
     pub vnl_cache: Vec<NonlocalPotential>,
     pub rho_core_r: Vec<f64>,
+    /// Pre-FFT'd ∇ρ_core on the FFT grid (length-3 arrays). `Some`
+    /// whenever `rho_core_r` is non-empty *and* the active XC
+    /// functional needs a gradient (GGA); `None` otherwise. Cached at
+    /// construction time because the core density is fixed per geometry.
+    pub rho_core_grad_r: Option<Vec<[f64; 3]>>,
     pub e_ewald: f64,
     pub omega: f64,
     pub n_electrons: f64,
@@ -115,12 +125,21 @@ impl<'a> ScfContext<'a> {
         v_local_fft[0] = Complex64::new(0.0, 0.0);
         info!("V_local(G=0) = {v_local_g0:.6} eV (excluded from Hamiltonian)");
 
-        // Precompute |G|²
+        // Precompute |G|² and the full G-vector cache. `g_vectors` is
+        // reused by GGA gradient / divergence FFTs (GGAP Phase A.1);
+        // building it once avoids rebuilding every SCF iteration.
         let dims = grid.dims;
         let recip = grid.recip.clone();
-        let g_squared: Vec<f64> = (0..n_grid)
+        let g_vectors: Vec<[f64; 3]> = (0..n_grid)
             .into_par_iter()
-            .map(|idx| super::grid::g_vector_at_dims(idx, dims, &recip).norm_squared())
+            .map(|idx| {
+                let g = super::grid::g_vector_at_dims(idx, dims, &recip);
+                [g.x, g.y, g.z]
+            })
+            .collect();
+        let g_squared: Vec<f64> = g_vectors
+            .par_iter()
+            .map(|g| g[0] * g[0] + g[1] * g[1] + g[2] * g[2])
             .collect();
 
         // NLCC core density
@@ -130,6 +149,20 @@ impl<'a> ScfContext<'a> {
             let core_max = rho_core_r.iter().copied().fold(f64::NEG_INFINITY, f64::max);
             info!("NLCC core density: min={core_min:.4e} max={core_max:.4e}");
         }
+
+        // Precompute ∇ρ_core once per calculation (it is time-independent
+        // across the SCF loop). Only populate when the active functional
+        // needs gradients (GGA) and NLCC is active. For LDA this stays
+        // `None` and the LDA path pays zero FFT cost.
+        let xc_needs_gradient = crate::potential::xc::XcEvaluator::from_settings(params.xc_functional)
+            .map(|xc| xc.needs_gradient())
+            .unwrap_or(false);
+        let rho_core_grad_r: Option<Vec<[f64; 3]>> =
+            if xc_needs_gradient && !rho_core_r.is_empty() {
+                Some(crate::fft::compute_density_gradient(&rho_core_r, &mut grid.fft, &g_vectors))
+            } else {
+                None
+            };
 
         // Cache V_NL per k-point
         let vnl_cache: Result<Vec<NonlocalPotential>> = kpoints
@@ -169,10 +202,12 @@ impl<'a> ScfContext<'a> {
             grid,
             g_to_fft,
             g_squared,
+            g_vectors,
             v_local_fft,
             v_local_g0,
             vnl_cache,
             rho_core_r,
+            rho_core_grad_r,
             e_ewald,
             omega,
             n_electrons,
