@@ -67,6 +67,10 @@ impl SymmOp {
     /// are a programming error and will panic (checked via `i8::try_from`).
     #[must_use]
     pub fn from_flat(m: [i32; 9]) -> Self {
+        #[expect(
+            clippy::expect_used,
+            reason = "BUG: TYPE-A narrowing; crystallographic rotation entries are in {-2..=2}, well within i8 range. The try_from here is structurally infallible — a panic indicates a caller passing non-crystallographic input."
+        )]
         let to_i8 = |v: i32| {
             i8::try_from(v).expect("SymmOp::from_flat: rotation entry out of i8 range")
         };
@@ -116,6 +120,10 @@ impl SymmOp {
         let d = self.det();
         assert!(d == 1 || d == -1, "invalid rotation: det = {d}");
 
+        #[expect(
+            clippy::expect_used,
+            reason = "BUG: TYPE-A narrowing; adjugate entries of a crystallographic rotation (|R_ij| <= 2) are bounded by 2*2 - (-2)*(-2) = 0..=8 times det=±1, well within i8 range. Infallible by construction."
+        )]
         let to_i8 = |v: i32| {
             i8::try_from(v).expect("SymmOp::inverse: adjugate entry out of i8 range")
         };
@@ -147,6 +155,10 @@ impl SymmOp {
     pub fn compose(&self, other: &Self) -> Self {
         let a = self.rotation_i32();
         let b = other.rotation_i32();
+        #[expect(
+            clippy::expect_used,
+            reason = "BUG: TYPE-A narrowing; product of two crystallographic rotations has entries bounded by 3*|R_ij|_max^2 <= 3*2*2 = 12 (cubic case; hexagonal worst case <= 27), well within i8 range. Infallible by construction."
+        )]
         let to_i8 = |v: i32| {
             i8::try_from(v).expect("SymmOp::compose: product entry out of i8 range")
         };
