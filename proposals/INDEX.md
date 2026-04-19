@@ -30,7 +30,8 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| VGCH | Heavy-atom V_local(G) residual — post-VGCMP continuation (closes 5 Z>14 `#[ignore]`s; Phase 0 landed as CLNP PR #94; Phase 1 Fe ecut sweep next) | medium-large | medium | — | VQEF |
+| VGCH | Heavy-atom V_local(G) residual — post-VGCMP continuation. Phases 1a+1b+1c landed (PRs #139, #148, VGCH-1c); H1 (β_l(q)) and H2 (SAD) both cleared bit-perfect. Residual tracked under **VGCH-2**; this proposal stays open until VGCH-2 closes the 5 heavy-atom `#[ignore]`s | medium-large | medium | — | VGCH-2, VQEF |
+| VGCH-2 | VGCH follow-up: total-energy assembly. Part A traces per-term agreement vs QE; Part B runs a transplant experiment (seed from QE's converged ρ); target fix in `src/scf/energy.rs` `with_g0_shift` + Harris-Foulkes pairings | medium | medium | VGCH | VQEF |
 | VQEF | Full LDA+PBE QE validation matrix (8 systems × 2 functionals) — roadmap | medium | low | VGCMP, GGAP, QELK | — |
 
 ### Medium — Enhancements & Performance
