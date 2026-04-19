@@ -30,7 +30,6 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| MPSH | Monkhorst-Pack shift alignment with QE convention (closes 4 light-atom `#[ignore]`s) | small-medium | low | — | VQEF |
 | VGCH | Heavy-atom V_local(G) residual — post-VGCMP continuation (closes 5 Z>14 `#[ignore]`s; Phase 0 landed as CLNP PR #94; Phase 1 Fe ecut sweep next) | medium-large | medium | — | VQEF |
 | VQEF | Full LDA+PBE QE validation matrix (8 systems × 2 functionals) — roadmap | medium | low | VGCMP, GGAP, QELK | — |
 
@@ -46,27 +45,18 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 | TRV2 | Fresh test-suite review — post-PCFX/CCMX/NCFX/GGAP coverage pass (F1+F3 landed PRs #98/#96; F2 CCMX-extraction deferred on WFRX/driver refactor; 10 Categories 2–5 findings remain) | medium | low | — | — |
 | MAUD | Mathematical accuracy audit of core physics modules (post-MADOC-A cold read; 1 docstring A + 9 C findings; MAUD-AC in flight will address top 2) | small | low | MADOC | — |
 | ALOC | Per-iteration allocation audit for SCF hot loop (F-5 landed PR #100: alloc traffic 16.8 GB → 0 per SCF at production sizes; F-7 in flight; F-12 remains) | medium | low | — | — |
-| DEAD | Dead-code + visibility cleanup (DRSD drop ~250-LOC real-space symmetrize_density module + SMRT delete misleading test + DHPC narrow `diagonalize_hermitian` to `pub(crate)`) | small | low | — | — |
+| ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` — faer Lanczos fix vendored in-tree (GRM8 #129); two correctness defects remain before default flip (adaptive `n_request` padding + WFRX warm-start on Iterative path); bench shows 0.48× (slower) at n_pw=725 on real KS Hamiltonians | medium | high | — | — |
 | MIXL | Mixer init & event logging (mixer-init `info!`, auto-q_TF, DIIS truncation `debug!`, adaptive-β trigger `debug!`) | small | low | — | — |
 | MOAD | Module-orientation `//!` docstrings on 14 source files including `src/lib.rs` (cargo doc landing page is empty) | small | low | — | — |
 | PROF | Adopt `samply` as canonical profiler; codify observability vs. profiling vs. benchmarking split (CLAUDE.md + perf-engineer agent + logbook baseline) | trivial | low | — | — |
 | ESPL | Split `ElectronSettings` — system physics (`nspin`, magnetization) vs. convergence knobs (`mixing_*`, smearing, adaptive_beta); drop default `scf.max_iter` 100 → 50 | small | low | — | — |
 | ECUT | Per-PP recommended ecutwfc from PseudoDojo `.standard` table; drop hardcoded 204.09 eV default; `log::warn!` when defaulted | small | low | — | — |
-| DCLN | Strip proposal-ID tokens (57 hits) + QE references (51 hits) from public rustdoc; physics-first docstring prose | small | low | — | MOAD |
-
-### Deferred — Blocked on upstream
-
-| ID | Title | Complexity | Risk | Depends On | Blocks | Blocked On |
-|----|-------|-----------|------|------------|--------|------------|
-| ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` (supersedes DVSN) | medium | medium | — | — | faer 0.24 `iterate_lanczos` reorthogonalization bug — revisit when upstream releases 0.25+ |
 
 ### Low / Deferred
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
 | LOGH | Logging hygiene — `eprintln!` cleanup (MELG main.rs SCF summary → `info!`; TXEP+PCEP delete 16 test debug prints) | trivial | low | — | — |
-| XCTH | Remove `XC_PARALLEL_THRESHOLD`; always use rayon in `lda_xc_grid` / `lda_xc_spin_grid` (consistency with rest of engine; SCF impact <5 ms over 30 iters) | trivial | low | — | — |
-| ELMN | Trim `src/atoms.rs` to `pub use mendeleev::Element;` — delete `from_symbol`/`from_z` wrappers (6-line shims over mendeleev's native API) | trivial | low | — | — |
 | TYPB | Integer type cleanup — revert premature i16 Miller-index narrowing (kills 1 of 5 PR #80 `expect` sites); `fft_grid_size` `i32` + runtime sign-assert → `u32`; annotate 4 remaining i8 rotation-entry `expect` sites with structural-bound `reason` (absorbs former TYPE-AX FLUP entry); sweep remaining cast suppressions | small | low | — | — |
 | CFGN | Expose hardcoded numerics as Settings (umbrella; re-scoped 2026-04-19 post-CFGN1: 10 knobs left across Fermi-search/iterative-eigensolver/Ewald/floors; each should land as its own small proposal when a user asks) | medium | low | — | — |
 | CUCL | CubeCL GPU Kernels | large | high | — | — |
@@ -161,6 +151,23 @@ Proposals moved out of the active/deferred backlog after a stale-scope review. F
 | UNTS | CLAUDE.md units correction — internal units are eV/Å (not Ry/Bohr); Ry/Bohr only at UPF boundary (PR #88) |
 | DOCX | Fix `cargo doc --no-deps -- -D warnings` recipe — rejected by current cargo; use `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` (PR #95) |
 | CLNP | Cleanup bundle — VGCH Phase 0 (ignore-string relabel on 5 heavy-atom tests) + ERR2 `BUG:` prefix on broyden expect (PR #94) |
+| MPSH | Monkhorst-Pack Γ-centered default matches QE convention (PR #110; closes Si E_total convention gap; C/Al/Fe residuals empirically refuted as shift-related) |
+| MADOC-B | Mathematical completeness for physics-kernel docstrings (9 P/A → E upgrades in `potential/xc.rs`; PR #121) |
+| DCLN | Strip proposal-ID tokens + QE references from public rustdoc (physics-first prose; PR #118) |
+| TPRF | `[profile.test] opt-level=3` + `TSPL` proposal seeded (cargo test 11 min → 95 s, 7×; PR #115) |
+| TPRFB | Share dep artifacts between dev and test profiles (eliminate 30–60 s first-compile hit; PR #117) |
+| CFGN1 | Expose initial-density `gaussian_sigma` as YAML-configurable input (first CFGN knob; PR #114) |
+| CLAU | Consolidate 33 per-module ERR2 test allows → crate-level `cfg_attr(test)` (PR #113) |
+| ERR2-AX | Annotate TYPE-A narrowing expect sites with `#[expect(reason=...)]` (PR #111) |
+| HDWR | Fix Apple M2 → M3 Max in docs + auto-detect MPI rank counts (no hardcode; PR #108) |
+| CLSS | `cast_lossless` + `missing_errors_doc` + `missing_panics_doc` enabled; 85-site migration (PR #122) |
+| HKIN | Drop unused `Option<&dyn Fn>` V_eff param from `build_hamiltonian`/`compute_band_structure` (−26 LOC; PR #123) |
+| XCTH | Remove `XC_PARALLEL_THRESHOLD`; always rayon in `lda_xc_grid` / `lda_xc_spin_grid` (consistency with rest of engine; PR #124) |
+| ELMN | Trim `src/atoms.rs` to `pub use mendeleev::Element;` (−58 LOC; 4 call sites use `Element::iter().find(...)`; PR #126) |
+| DEAD | DRSD drop `symmetry/density/real_space.rs` (deprecated real-space symmetrizer) + SMRT delete misleading test + DHPC narrow `diagonalize_hermitian` to `pub(crate)` (−239 LOC; PR #127) |
+| MADOC-C | MADOC phase C — `CLSS`: `cast_lossless` lint + `# Errors` / `# Panics` doc hygiene gate (PR #122) |
+| CUCL | Explicit trigger conditions for un-deferring CubeCL (GPU non-local / GGAP Phase E / wgpu regression / CubeCL 1.0) (PR #120) |
+| GRM8 | Vendor faer v0.24.0 + MAX_REORTH `iterate_lanczos` fix; wire `[patch.crates-io]` at `./faer/` (PR #129) |
 
 ## Notes
 
