@@ -191,7 +191,15 @@ impl AdaptiveBeta {
 /// Periodic Pulay.
 #[derive(Clone, Debug, Default)]
 pub enum MixingMode {
-    /// Standard Anderson mixing (no preconditioning).
+    /// Standard Anderson / Pulay DIIS mixing (no preconditioning).
+    ///
+    /// **Known limitation:** plain Anderson stalls on wide-gap insulators
+    /// (C diamond, polar oxides) with residual plateaus at
+    /// Δρ ≈ 10⁻⁵ – 10⁻⁶ that do not decay within a normal `max_iter`
+    /// budget. Combine with [`MixingMode::Kerker`] preconditioning or
+    /// switch to [`MixingMode::Broyden`] / [`MixingMode::PeriodicPulay`]
+    /// for those systems. Pinned by a mixer-robustness regression test
+    /// on C diamond (see `tests/mixer_robustness.rs`).
     #[default]
     Plain,
     /// Kerker preconditioning with Thomas-Fermi screening wavevector q_TF (Å⁻¹).
