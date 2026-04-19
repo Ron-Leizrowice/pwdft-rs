@@ -318,7 +318,6 @@ DIIS/LU pivot).
 | file:line | literal | why keep as-is |
 |-----------|---------|----------------|
 | `src/scf/grid.rs:26` | `MAX_FFT_DIM = 1024` | FGRD landed this as a `pub(crate) const` that gates CAST-documented integer-range assumptions on ~20 sites. Exposing via YAML would invalidate every `#[allow(...)] reason = "..."` that depends on it. **Not a CFGN candidate** — it's a compile-time safety invariant, not a tuning knob |
-| `src/potential/xc.rs:33` | `XC_PARALLEL_THRESHOLD = 16_384` | Rayon dispatch-crossover point from calibrated M2 measurement. Performance tuning — Performance Engineer's domain |
 | `src/gpu/mod.rs:72` | `WORKGROUP_SIZE: u32 = 256` | Baked into WGSL shader constants; changing it requires shader preprocessing. Not a Settings-accessible knob without a GPU-settings rewrite |
 | `src/gpu/mod.rs:140` | `(0..5)` — complex buffer pool size | Implementation detail (number of concurrent dispatched pipelines, not a physical knob). **Original proposal's "real buffer pool = 3" no longer exists — that was removed when the pool was simplified** |
 | `src/potential/nonlocal.rs:290` | `1e-20` (D_ij skip threshold) | Guard against pure-zero D_ij entries polluting GEMM output with NaN. Not user-facing |

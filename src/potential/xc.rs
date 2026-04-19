@@ -33,26 +33,6 @@ use crate::{
     settings::XcFunctional,
 };
 
-/// Minimum grid size at which rayon parallelism beats sequential execution
-/// for `lda_xc_grid` / `lda_xc_spin_grid` on Apple M2.
-///
-/// Empirical calibration (`cargo bench --bench scf_benchmarks -- xc_grid`,
-/// Apple M2 8-core):
-///
-/// | n       | sequential | parallel | net           |
-/// |---------|------------|----------|---------------|
-/// | 4 096   | 43 µs      | 113 µs   | +161% (worse) |
-/// | 32 768  | 407 µs     | 195 µs   | −52%          |
-/// | 262 144 | 3 035 µs   | 459 µs   | −85%          |
-///
-/// Rayon's fork/join/unzip costs ~70 µs per region on this hardware, which
-/// dominates for n=4096 (43 µs sequential work) but is easily amortized by
-/// n=32768.  We set the threshold at 16 384 — the safe side of the
-/// crossover.  Grid sizes between 16³=4 096 and 32³=32 768 are the most
-/// sensitive region; typical production FFT grids are 24³–48³ (≥13 824
-/// points), so most real SCF calls take the parallel path.
-const XC_PARALLEL_THRESHOLD: usize = 16_384;
-
 /// Result of evaluating the (non-spin) LDA exchange-correlation
 /// functional at a single real-space density point.
 ///
@@ -159,24 +139,12 @@ pub fn lda_xc(rho: f64) -> XcPoint {
 /// `rho_r.len()`, in eV. The grid indexing matches `rho_r` 1:1.
 ///
 /// Parallelization: pointwise-independent, so the loop is parallelized
-/// via rayon when `rho_r.len() >= XC_PARALLEL_THRESHOLD`; below the
-/// threshold the sequential path wins because of rayon's fork/join
-/// overhead (see the threshold's own docstring for the benchmark).
+/// unconditionally via rayon — consistent with every other grid kernel
+/// in the engine.
 ///
 /// Reference: as for [`lda_xc`] — Perdew & Zunger, *Phys. Rev. B*
 /// **23**, 5048 (1981).
 pub fn lda_xc_grid(rho_r: &[f64]) -> (Vec<f64>, Vec<f64>) {
-    if rho_r.len() < XC_PARALLEL_THRESHOLD {
-        let mut exc = Vec::with_capacity(rho_r.len());
-        let mut vxc = Vec::with_capacity(rho_r.len());
-        for &rho in rho_r {
-            let xc = lda_xc(rho);
-            exc.push(xc.exc);
-            vxc.push(xc.vxc);
-        }
-        return (exc, vxc);
-    }
-
     rho_r
         .par_iter()
         .map(|&rho| {
@@ -424,11 +392,11 @@ pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> XcSpinPoint {
 /// Returns `(exc_r, vxc_up_r, vxc_down_r)`, three fresh `Vec<f64>`s of
 /// length `rho_up_r.len()`, in eV.
 ///
-/// Parallelization: pointwise-independent, so rayon parallelizes when
-/// `rho_up_r.len() >= XC_PARALLEL_THRESHOLD`. Rayon's `unzip` only
-/// handles 2-tuples, so the implementation unzips to
-/// `((exc, vxc_up), vxc_down)` and re-binds the pieces; the output
-/// shape is identical to the sequential path.
+/// Parallelization: pointwise-independent, so the loop is parallelized
+/// unconditionally via rayon — consistent with every other grid kernel
+/// in the engine. Rayon's `unzip` only handles 2-tuples, so the
+/// implementation unzips to `((exc, vxc_up), vxc_down)` and re-binds
+/// the pieces.
 ///
 /// Reference: von Barth & Hedin, *J. Phys. C* **5**, 1629 (1972);
 /// Perdew & Zunger, *Phys. Rev. B* **23**, 5048 (1981) §III.
@@ -436,21 +404,11 @@ pub fn lda_xc_spin_grid(
     rho_up_r: &[f64],
     rho_down_r: &[f64],
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
-    let n = rho_up_r.len();
-    debug_assert_eq!(n, rho_down_r.len(), "spin channels must share grid size");
-
-    if n < XC_PARALLEL_THRESHOLD {
-        let mut exc = Vec::with_capacity(n);
-        let mut vxc_up = Vec::with_capacity(n);
-        let mut vxc_down = Vec::with_capacity(n);
-        for (&ru, &rd) in rho_up_r.iter().zip(rho_down_r.iter()) {
-            let xc = lda_xc_spin(ru, rd);
-            exc.push(xc.exc);
-            vxc_up.push(xc.vxc_up);
-            vxc_down.push(xc.vxc_down);
-        }
-        return (exc, vxc_up, vxc_down);
-    }
+    debug_assert_eq!(
+        rho_up_r.len(),
+        rho_down_r.len(),
+        "spin channels must share grid size",
+    );
 
     let ((exc, vxc_up), vxc_down): ((Vec<f64>, Vec<f64>), Vec<f64>) = rho_up_r
         .par_iter()
