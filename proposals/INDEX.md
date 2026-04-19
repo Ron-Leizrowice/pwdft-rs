@@ -41,23 +41,19 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 | GGAP | GGA/PBE exchange-correlation functional (Phase A dispatcher LANDED PR #85; Phases B–F ~7–10 CE-days; B unblocks 7 VQEF PBE cells) | large | medium | — | HYBR |
 | HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP | — |
 | ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; P0 landed PR #86; ERR2-AX operations.rs annotations in flight; P1 InvalidInput split remains) | medium | low | — | — |
-| GOPT | GPU kernel + wgpu host path optimization audit (scoping; 3 major + 5 modest + 4 micro findings; PR-B in flight; PRs A/C/D/E to follow) | medium | low-medium | — | — |
+| GOPT | GPU kernel + wgpu host path optimization audit (PR-B #106 + PR-A #138 landed; F5/F6/F8 empirically tested, no measurable gain on M3 Max / naga 29.0 / Metal — audit estimates stale; remaining lever is F1+F2 chain fusion which needs `src/scf/driver.rs` access) | medium | low-medium | — | — |
 | TRV2 | Fresh test-suite review — post-PCFX/CCMX/NCFX/GGAP coverage pass (F1+F3 landed PRs #98/#96; F2 CCMX-extraction deferred on WFRX/driver refactor; 10 Categories 2–5 findings remain) | medium | low | — | — |
 | MAUD | Mathematical accuracy audit of core physics modules (post-MADOC-A cold read; 1 docstring A + 9 C findings; MAUD-AC in flight will address top 2) | small | low | MADOC | — |
 | ALOC | Per-iteration allocation audit for SCF hot loop (F-5 landed PR #100: alloc traffic 16.8 GB → 0 per SCF at production sizes; F-7 in flight; F-12 remains) | medium | low | — | — |
-| ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` — faer Lanczos fix vendored in-tree (GRM8 #129); two correctness defects remain before default flip (adaptive `n_request` padding + WFRX warm-start on Iterative path); bench shows 0.48× (slower) at n_pw=725 on real KS Hamiltonians | medium | high | — | — |
-| MIXL | Mixer init & event logging (mixer-init `info!`, auto-q_TF, DIIS truncation `debug!`, adaptive-β trigger `debug!`) | small | low | — | — |
-| MOAD | Module-orientation `//!` docstrings on 14 source files including `src/lib.rs` (cargo doc landing page is empty) | small | low | — | — |
-| PROF | Adopt `samply` as canonical profiler; codify observability vs. profiling vs. benchmarking split (CLAUDE.md + perf-engineer agent + logbook baseline) | trivial | low | — | — |
+| ITEV | Iterative Eigensolver via `faer::partial_self_adjoint_eigen` — faer Lanczos fix vendored (GRM8 #129); both correctness defects closed (ITEV2 #140 — adaptive `krylov_max_dim` scales with basis; WFRX warm-start wired on Iterative path; Si ecut=100 Dense↔Iterative |ΔE|=4.52e-12 eV). Default-flip still blocked on Phase-5 step-4 end-to-end SCF wall-time bench with WFRX active | medium | medium | — | — |
+| MOAD | Module-orientation `//!` docstrings (MOAD #135 landed 11 files; MOAD-2 in flight for remaining ~20 files previously owner-blocked) | small | low | — | — |
 | ESPL | Split `ElectronSettings` — system physics (`nspin`, magnetization) vs. convergence knobs (`mixing_*`, smearing, adaptive_beta); drop default `scf.max_iter` 100 → 50 | small | low | — | — |
-| ECUT | Per-PP recommended ecutwfc from PseudoDojo `.standard` table; drop hardcoded 204.09 eV default; `log::warn!` when defaulted | small | low | — | — |
 
 ### Low / Deferred
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| LOGH | Logging hygiene — `eprintln!` cleanup (MELG main.rs SCF summary → `info!`; TXEP+PCEP delete 16 test debug prints) | trivial | low | — | — |
-| TYPB | Integer type cleanup — revert premature i16 Miller-index narrowing (kills 1 of 5 PR #80 `expect` sites); `fft_grid_size` `i32` + runtime sign-assert → `u32`; annotate 4 remaining i8 rotation-entry `expect` sites with structural-bound `reason` (absorbs former TYPE-AX FLUP entry); sweep remaining cast suppressions | small | low | — | — |
+| LOGH | Logging hygiene — `eprintln!` cleanup (MELG #132 landed for `src/main.rs`; LOGH-2 in flight for the 13 PCEP sites in `src/pseudopotential/**`) | trivial | low | — | — |
 | CFGN | Expose hardcoded numerics as Settings (umbrella; re-scoped 2026-04-19 post-CFGN1: 10 knobs left across Fermi-search/iterative-eigensolver/Ewald/floors; each should land as its own small proposal when a user asks) | medium | low | — | — |
 | CUCL | CubeCL GPU Kernels | large | high | — | — |
 | FLUP | Follow-up backlog — 7 unpromoted items seeded from today's code reviews | small | low | — | — |
@@ -168,6 +164,17 @@ Proposals moved out of the active/deferred backlog after a stale-scope review. F
 | MADOC-C | MADOC phase C — `CLSS`: `cast_lossless` lint + `# Errors` / `# Panics` doc hygiene gate (PR #122) |
 | CUCL | Explicit trigger conditions for un-deferring CubeCL (GPU non-local / GGAP Phase E / wgpu regression / CubeCL 1.0) (PR #120) |
 | GRM8 | Vendor faer v0.24.0 + MAX_REORTH `iterate_lanczos` fix; wire `[patch.crates-io]` at `./faer/` (PR #129) |
+| GRM9 | Archive merged proposal files (HKIN/XCTH/ELMN/DEAD/MPSH/DCLN); drop ITEV "not vendored yet" caveat; move ITEV out of Deferred (PR #130) |
+| PROF | Adopt `samply` as canonical profiler; codify observability vs. profiling vs. benchmarking split in CLAUDE.md + perf-engineer agent + logbook (PR #131) |
+| LOGH (MELG) | `eprintln!` → `log::info!` migration for `src/main.rs` SCF summary (PR #132; PCEP phase for `src/pseudopotential/**` tracked as LOGH-2) |
+| MIXL | Mixer init `info!` + auto-q_TF + DIIS truncation `debug!` + adaptive-β trigger `debug!` (PR #133; +217 LOC) |
+| TYPB | Integer type cleanup — i16 Miller → i32, `fft_grid_size` → u32, 4 i8-rotation `expect` sites annotated, 3 cast suppressions removed (PR #134; −78 LOC, bench −0.1% noise) |
+| MOAD | Module-orientation `//!` docstrings on 11 src files — crate-root cargo doc landing page populated (PR #135; +158 LOC) |
+| ECUT | Per-PP recommended `ecutwfc` from PseudoDojo `.standard` table; `BasisSettings::ecutwfc` → `Option<f64>`; 85-element lookup table with 100 eV safety floor (PR #136) |
+| DFLT | Hoist two `1e-15` density threshold literals into named `const`s with physics docstrings (FLUP entry; PR #137) |
+| GOPT-A | BufferPool scratch `Vec<f32>` for CPU→GPU uploads; 128³ hartree −33.9%, v_eff −39.9%; 64³ hartree −28.6%, v_eff −20.4% (PR #138) |
+| VGCH Phase 1a | Heavy-atom per-component diagnostic — rules out V_local(G=0) Z-scaling and Ewald; residual lives in one-electron/Hartree partial cancellation, not form factors. Phase 1b needs β_q / initial density / mixer basin investigation (PR #139; diagnostic-only, no src/ changes) |
+| ITEV2 | Close ITEV defects 1+2 — adaptive `krylov_max_dim` scales with basis (Lehoucq & Sorensen §3.2); WFRX warm-start wired on Iterative path. Si ecut=100 Dense↔Iterative |ΔE|=4.52e-12 eV (pre-fix 0.77 eV); all 4 single-shot tests pass at 1e-10 eV on Si/Fe/Cu. Default-flip blocked on Phase-5 step-4 end-to-end SCF wall bench (PR #140) |
 
 ## Notes
 
