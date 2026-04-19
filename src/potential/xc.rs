@@ -53,19 +53,70 @@ use crate::{
 /// points), so most real SCF calls take the parallel path.
 const XC_PARALLEL_THRESHOLD: usize = 16_384;
 
-/// Result of evaluating the XC functional at a single density point.
+/// Result of evaluating the (non-spin) LDA exchange-correlation
+/// functional at a single real-space density point.
+///
+/// The two scalars implement the pointwise decomposition
+///
+/// ```text
+///     E_xc[ρ] = ∫ ρ(r) · ε_xc(ρ(r)) d³r
+///     V_xc(r) = δE_xc / δρ(r) = d[ρ · ε_xc(ρ)] / dρ|_{ρ(r)}
+///             = ε_xc(ρ) + ρ · dε_xc/dρ
+/// ```
+///
+/// with `ε_xc = ε_x + ε_c` built from Slater exchange
+/// `ε_x(ρ) = −(3/4)(3ρ/π)^{1/3}` and the Perdew-Zunger parametrization
+/// of the Ceperley-Alder correlation energy (see the module header for
+/// the full piecewise formulas and citations).
+///
+/// Units: `exc` in eV per electron; `vxc` in eV. Both are scalar
+/// real-space quantities (LDA is local, so the functional derivative is
+/// itself a pointwise function of ρ).
+///
+/// Reference: Slater, *Phys. Rev.* **81**, 385 (1951) for exchange;
+/// Perdew & Zunger, *Phys. Rev. B* **23**, 5048 (1981) Eq. (C1) for
+/// the correlation parametrization.
 pub struct XcPoint {
-    /// Exchange-correlation energy density ε_xc (eV per electron).
+    /// Exchange-correlation energy per electron `ε_xc(ρ)` in eV.
     pub exc: f64,
-    /// Exchange-correlation potential V_xc = d(ρ·ε_xc)/dρ (eV).
+    /// Exchange-correlation potential
+    /// `V_xc = d[ρ·ε_xc(ρ)]/dρ = ε_xc + ρ·dε_xc/dρ` in eV.
     pub vxc: f64,
 }
 
-/// Evaluate the LDA exchange-correlation functional at a single density value.
+/// Evaluate the non-spin LDA exchange-correlation functional at a single
+/// real-space density `rho`.
 ///
-/// `rho` is the electron density in e/ų. Must be non-negative.
+/// Returns
 ///
-/// Returns ε_xc (energy per electron, eV) and V_xc (potential, eV).
+/// ```text
+///     ε_xc(ρ) = ε_x(ρ) + ε_c(ρ)
+///     V_xc(ρ) = (4/3) · ε_x(ρ) + [ε_c(ρ) − (r_s/3) · dε_c/dr_s]
+/// ```
+///
+/// where
+/// - `ε_x(ρ) = −(3/4)(3ρ/π)^{1/3}` is the Slater exchange energy per
+///   electron (Hartree atomic units, converted to eV internally);
+/// - `ε_c(ρ)` is the Perdew-Zunger parametrization of the Ceperley-Alder
+///   correlation energy, with the two `r_s` regimes written out in
+///   [`XcPoint`]'s module header (see references);
+/// - `r_s = (3/(4π ρ))^{1/3}` is the Wigner-Seitz radius in Bohr and
+///   `ρ` is converted from e/Å³ to e/Bohr³ before entering the formulas
+///   to keep the dimensionless `(3/π)^{1/3}` constant correct.
+///
+/// Inputs:
+/// - `rho`: electron density in e/Å³. Must satisfy `rho >= 0`; values
+///   below [`crate::consts::RHO_FLOOR`] short-circuit to zero to avoid a
+///   cube-root singularity and a spurious −∞ log in the `r_s < 1`
+///   branch.
+///
+/// Returns [`XcPoint`] with `exc` in eV per electron and `vxc` in eV.
+///
+/// Reference: Slater, *Phys. Rev.* **81**, 385 (1951);
+/// Perdew & Zunger, *Phys. Rev. B* **23**, 5048 (1981) Eq. (C1)
+/// and surrounding discussion;
+/// Ceperley & Alder, *Phys. Rev. Lett.* **45**, 566 (1980) for the
+/// quantum-Monte-Carlo correlation data fit by PZ.
 pub fn lda_xc(rho: f64) -> XcPoint {
     if rho < crate::consts::RHO_FLOOR {
         return XcPoint {
@@ -83,16 +134,37 @@ pub fn lda_xc(rho: f64) -> XcPoint {
     }
 }
 
-/// Compute ε_xc(r) and V_xc(r) on a real-space grid.
+/// Evaluate the non-spin LDA functional at every point of a real-space
+/// density grid.
 ///
-/// `rho_r`: electron density on real-space grid (e/ų).
+/// This is the pointwise lift of [`lda_xc`] to an array:
 ///
-/// Returns (exc_r, vxc_r): energy density and potential on the grid (eV).
+/// ```text
+///     exc_r[i] = ε_xc(ρ(r_i))          (eV per electron)
+///     vxc_r[i] = d[ρ · ε_xc] / dρ      (eV)
+/// ```
 ///
-/// Each point is an independent evaluation, so this is embarrassingly
-/// parallel. We fall back to the sequential path below
-/// `XC_PARALLEL_THRESHOLD` because rayon's per-region dispatch overhead
-/// dominates on very small grids.
+/// so that the total LDA energy assembled by [`lda_xc_energy`] is
+///
+/// ```text
+///     E_xc = (Ω / N_grid) · Σ_i ρ(r_i) · ε_xc(ρ(r_i)).
+/// ```
+///
+/// Inputs:
+/// - `rho_r`: electron density on the real-space grid (e/Å³); each
+///   entry must be non-negative (values below
+///   [`crate::consts::RHO_FLOOR`] are short-circuited).
+///
+/// Returns `(exc_r, vxc_r)`, each a fresh `Vec<f64>` of length
+/// `rho_r.len()`, in eV. The grid indexing matches `rho_r` 1:1.
+///
+/// Parallelization: pointwise-independent, so the loop is parallelized
+/// via rayon when `rho_r.len() >= XC_PARALLEL_THRESHOLD`; below the
+/// threshold the sequential path wins because of rayon's fork/join
+/// overhead (see the threshold's own docstring for the benchmark).
+///
+/// Reference: as for [`lda_xc`] — Perdew & Zunger, *Phys. Rev. B*
+/// **23**, 5048 (1981).
 pub fn lda_xc_grid(rho_r: &[f64]) -> (Vec<f64>, Vec<f64>) {
     if rho_r.len() < XC_PARALLEL_THRESHOLD {
         let mut exc = Vec::with_capacity(rho_r.len());
@@ -114,9 +186,32 @@ pub fn lda_xc_grid(rho_r: &[f64]) -> (Vec<f64>, Vec<f64>) {
         .unzip()
 }
 
-/// Compute the total XC energy: E_xc = Ω/N_grid · Σ_r ρ(r) ε_xc(r)
+/// Real-space quadrature of the LDA exchange-correlation energy.
 ///
-/// Returns energy in eV.
+/// Returns
+///
+/// ```text
+///     E_xc = ∫ ρ(r) · ε_xc(ρ(r)) d³r
+///          ≈ (Ω / N_grid) · Σ_{i=0}^{N_grid−1} ρ(r_i) · ε_xc(ρ(r_i))
+/// ```
+///
+/// where `Ω / N_grid` is the real-space volume element (uniform FFT grid,
+/// simple rectangle rule — exact for a band-limited integrand up to the
+/// grid's Nyquist, which is the standard PW-DFT convention).
+///
+/// Inputs:
+/// - `rho_r`: electron density on the FFT grid in e/Å³;
+/// - `exc_r`: `ε_xc(ρ(r_i))` in eV per electron, typically the first
+///   return value of [`lda_xc_grid`]; must have the same length as
+///   `rho_r`;
+/// - `omega`: cell volume Ω in Å³.
+///
+/// Returns `E_xc` in eV.
+///
+/// Reference: any LDA reference implementation, e.g. Martin,
+/// *Electronic Structure*, §8.3; the rectangle-rule FFT-grid quadrature
+/// is the canonical PW-DFT choice since Ihm, Zunger & Cohen,
+/// *J. Phys. C* **12**, 4409 (1979).
 pub fn lda_xc_energy(rho_r: &[f64], exc_r: &[f64], omega: f64) -> f64 {
     let n_grid = rho_r.len() as f64;
     let dvol = omega / n_grid; // volume per grid point
@@ -206,28 +301,87 @@ fn perdew_zunger_correlation(rho: f64) -> (f64, f64) {
 // Spin-polarized LSDA (collinear)
 // ---------------------------------------------------------------------------
 
-/// Result of spin-polarized XC evaluation at a single point.
+/// Result of evaluating the collinear spin-polarized LSDA
+/// exchange-correlation functional at a single real-space point.
+///
+/// The pointwise decomposition is
+///
+/// ```text
+///     E_xc[ρ↑, ρ↓] = ∫ (ρ↑ + ρ↓) · ε_xc(ρ↑, ρ↓) d³r
+///     V_xc^σ(r)    = δE_xc / δρ_σ(r)
+///                  = ε_xc + (ρ↑ + ρ↓) · ∂ε_xc/∂ρ_σ
+/// ```
+///
+/// with `σ ∈ {↑, ↓}`. The functional `ε_xc(ρ↑, ρ↓)` is built from the
+/// fully-polarized Slater exchange per channel and a von Barth-Hedin
+/// interpolation of PZ correlation between the `ζ = 0` (unpolarized)
+/// and `ζ = 1` (fully polarized) gases; see [`lda_xc_spin`] for the
+/// formulas.
+///
+/// Units: `exc` in eV per electron; `vxc_up`, `vxc_down` in eV.
+///
+/// Reference: von Barth & Hedin, *J. Phys. C* **5**, 1629 (1972) for
+/// the collinear LSDA framework and the spin-interpolation function;
+/// Perdew & Zunger, *Phys. Rev. B* **23**, 5048 (1981) for the
+/// `ζ = 0` and `ζ = 1` endpoint parametrizations.
 pub struct XcSpinPoint {
-    /// Exchange-correlation energy density ε_xc (eV per electron).
+    /// Exchange-correlation energy per electron `ε_xc(ρ↑, ρ↓)` in eV.
     pub exc: f64,
-    /// XC potential for spin up (eV).
+    /// Spin-up channel potential
+    /// `V_xc↑ = δE_xc/δρ↑ = ε_xc + (ρ↑ + ρ↓)·∂ε_xc/∂ρ↑` in eV.
     pub vxc_up: f64,
-    /// XC potential for spin down (eV).
+    /// Spin-down channel potential (same formula, with `↑↔↓`), in eV.
     pub vxc_down: f64,
 }
 
-/// Spin-polarized LDA XC at a single point.
+/// Evaluate the collinear LSDA exchange-correlation functional at a
+/// single real-space point.
 ///
-/// `rho_up`, `rho_down` in e/ų. Returns energy density and potentials in eV.
-/// Evaluate spin-polarized LDA XC at a single point.
+/// Exchange. By the spin-scaling relation
+/// `E_x[ρ↑, ρ↓] = ½(E_x[2ρ↑] + E_x[2ρ↓])` (Oliver & Perdew, *Phys. Rev.
+/// A* **20**, 397 (1979)), evaluating the unpolarized Slater exchange
+/// per-channel at `2ρ_σ` gives the fully-polarized exchange per
+/// electron of that channel:
 ///
-/// Exchange: ε_x^σ = -(3/4)(6ρ_σ/π)^{1/3} (fully polarized gas per channel).
-/// Correlation: interpolated between unpolarized (ζ=0) and fully polarized (ζ=1)
-/// using the von Barth-Hedin interpolation function:
-///   f(ζ) = [(1+ζ)^{4/3} + (1-ζ)^{4/3} - 2] / [2^{4/3} - 2]
-///   ε_c(r_s, ζ) = ε_c^unpol + f(ζ) [ε_c^pol - ε_c^unpol]
+/// ```text
+///     ε_x(2ρ_σ) = −(3/4) · (6 ρ_σ / π)^{1/3}            (eV per electron)
+///     ε_x(ρ↑, ρ↓) = [ρ↑ · ε_x(2ρ↑) + ρ↓ · ε_x(2ρ↓)] / (ρ↑ + ρ↓)
+///     V_x^σ      = δE_x/δρ_σ = (4/3) · ε_x(2ρ_σ)        (eV)
+/// ```
 ///
-/// `rho_up`, `rho_down` in e/ų. Returns (ε_xc, V_xc↑, V_xc↓) in eV.
+/// Correlation. Interpolate Perdew-Zunger between the paramagnetic
+/// (`ζ = 0`) and ferromagnetic (`ζ = 1`) parametrizations using the
+/// von Barth-Hedin form:
+///
+/// ```text
+///     ζ        = (ρ↑ − ρ↓) / (ρ↑ + ρ↓)                  ∈ [−1, 1]
+///     f(ζ)     = [(1+ζ)^{4/3} + (1−ζ)^{4/3} − 2] / [2^{4/3} − 2]
+///     ε_c(r_s, ζ) = ε_c^unpol(r_s) + f(ζ) · [ε_c^pol(r_s) − ε_c^unpol(r_s)]
+/// ```
+///
+/// Correlation potential (chain rule through `r_s` and `ζ`):
+///
+/// ```text
+///     V_c^σ = ε_c(r_s, ζ) − (r_s/3) · dε_c/dr_s
+///                         + ( δ_{σ↑} · (1−ζ) − δ_{σ↓} · (1+ζ) ) · dε_c/dζ
+/// ```
+///
+/// with `dε_c/dζ = f'(ζ) · [ε_c^pol − ε_c^unpol]` and
+/// `f'(ζ) = (4/3)[(1+ζ)^{1/3} − (1−ζ)^{1/3}] / (2^{4/3} − 2)`.
+///
+/// Inputs:
+/// - `rho_up`, `rho_down`: spin-channel densities in e/Å³; both must be
+///   non-negative. When `ρ↑ + ρ↓ < ` [`crate::consts::RHO_FLOOR`] the
+///   routine short-circuits to zero in every component.
+///
+/// Returns [`XcSpinPoint`] with `exc` in eV per electron and
+/// `vxc_up` / `vxc_down` in eV.
+///
+/// Reference: von Barth & Hedin, *J. Phys. C* **5**, 1629 (1972)
+/// Eq. (5.9) for the spin-interpolation function; Oliver & Perdew,
+/// *Phys. Rev. A* **20**, 397 (1979) for the spin-scaling relation;
+/// Perdew & Zunger, *Phys. Rev. B* **23**, 5048 (1981) §III for the
+/// `ζ = 0, 1` endpoint parametrizations.
 pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> XcSpinPoint {
     let rho = rho_up + rho_down;
     if rho < crate::consts::RHO_FLOOR {
@@ -244,13 +398,40 @@ pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> XcSpinPoint {
     }
 }
 
-/// Spin-polarized XC on a real-space grid.
+/// Evaluate the collinear LSDA functional at every point of a spin-
+/// polarized density grid.
 ///
-/// Returns (exc_r, vxc_up_r, vxc_down_r) in eV.
+/// This is the pointwise lift of [`lda_xc_spin`] to arrays:
 ///
-/// Parallelized for grids at or above `XC_PARALLEL_THRESHOLD` points.
-/// Rayon's `unzip` handles only 2-tuples, so we unzip into an
-/// ((exc, vxc_up), vxc_down) shape and then flatten.
+/// ```text
+///     exc_r[i]      = ε_xc(ρ↑(r_i), ρ↓(r_i))          (eV per electron)
+///     vxc_up_r[i]   = δE_xc/δρ↑ at r_i                 (eV)
+///     vxc_down_r[i] = δE_xc/δρ↓ at r_i                 (eV)
+/// ```
+///
+/// so that the total LSDA energy is
+///
+/// ```text
+///     E_xc = (Ω / N_grid) · Σ_i (ρ↑(r_i) + ρ↓(r_i)) · ε_xc(ρ↑, ρ↓)(r_i).
+/// ```
+///
+/// Inputs:
+/// - `rho_up_r`, `rho_down_r`: per-channel densities on the FFT grid in
+///   e/Å³; both slices must have the same length (debug-asserted).
+///   Each entry must be non-negative (values summing below
+///   [`crate::consts::RHO_FLOOR`] short-circuit to zero).
+///
+/// Returns `(exc_r, vxc_up_r, vxc_down_r)`, three fresh `Vec<f64>`s of
+/// length `rho_up_r.len()`, in eV.
+///
+/// Parallelization: pointwise-independent, so rayon parallelizes when
+/// `rho_up_r.len() >= XC_PARALLEL_THRESHOLD`. Rayon's `unzip` only
+/// handles 2-tuples, so the implementation unzips to
+/// `((exc, vxc_up), vxc_down)` and re-binds the pieces; the output
+/// shape is identical to the sequential path.
+///
+/// Reference: von Barth & Hedin, *J. Phys. C* **5**, 1629 (1972);
+/// Perdew & Zunger, *Phys. Rev. B* **23**, 5048 (1981) §III.
 pub fn lda_xc_spin_grid(
     rho_up_r: &[f64],
     rho_down_r: &[f64],
@@ -491,17 +672,43 @@ impl XcEvaluator {
         }
     }
 
-    /// Evaluate ε_xc and V_xc on a real-space density grid (non-spin).
+    /// Evaluate the (non-spin) exchange-correlation energy density and
+    /// potential on a real-space density grid.
     ///
-    /// - `rho_r`: electron density on the FFT grid (e/Å³). For NLCC the
-    ///   caller passes ρ_val + ρ_core (see `scf::energy::add_core_density`).
-    /// - `rho_grad_r`: the three Cartesian components of ∇ρ on the same
-    ///   grid. Ignored for LDA (`Pz`). Required for PBE (currently
-    ///   unimplemented; Phase B).
+    /// For the LDA variant ([`XcEvaluator::Pz`]) this returns
     ///
-    /// Returns [`XcGridResult`] with `v2_r = None` for LDA — the caller's
-    /// V_xc assembly short-circuits to `v1_r` when `v2_r` is absent, so the
-    /// LDA code path does no semilocal-∇ρ work.
+    /// ```text
+    ///     exc_r[i] = ε_xc(ρ_xc(r_i))           (eV per electron)
+    ///     v1_r[i]  = d[ρ · ε_xc(ρ)]/dρ|_{ρ_xc(r_i)}  (eV)
+    ///     v2_r     = None                      (no GGA channel)
+    /// ```
+    ///
+    /// For GGAs the return shape additionally populates `v2_r` with the
+    /// contracted semilocal-∇ρ partial derivative; the PBE variant is
+    /// declared here so drivers compile without `match` arms changing,
+    /// but `eval` returns [`PwdftError::NotImplemented`] until the PBE
+    /// integrator lands.
+    ///
+    /// Inputs:
+    /// - `rho_r`: electron density on the FFT grid in e/Å³. Under NLCC
+    ///   the caller passes `ρ_val + ρ_core` here (see
+    ///   `scf::potentials::compute_core_density`); without NLCC it is
+    ///   `ρ_val` alone.
+    /// - `rho_grad_r`: the three Cartesian components of ∇ρ at each
+    ///   grid point (Å⁻¹ · e/Å³ = e/Å⁴). Ignored for [`Self::Pz`];
+    ///   required (not yet used) for [`Self::Pbe`].
+    ///
+    /// Returns [`XcGridResult`] (see that struct for the full shape
+    /// contract). `v2_r.is_none()` on the LDA path short-circuits the
+    /// caller's semilocal V_xc assembly, so the LDA pipeline does zero
+    /// gradient-FFT work.
+    ///
+    /// Reference: Slater, *Phys. Rev.* **81**, 385 (1951);
+    /// Perdew & Zunger, *Phys. Rev. B* **23**, 5048 (1981).
+    ///
+    /// # Errors
+    /// Returns [`PwdftError::NotImplemented`] for any variant whose
+    /// functional has not yet been ported (currently `Pbe`).
     pub fn eval(
         &self,
         rho_r: &[f64],
@@ -519,16 +726,42 @@ impl XcEvaluator {
         }
     }
 
-    /// Evaluate ε_xc and V_xc^σ on a spin-polarized density grid.
+    /// Evaluate the collinear spin-polarized exchange-correlation
+    /// energy density and per-channel potential on a real-space density
+    /// grid.
     ///
-    /// - `rho_up_r`, `rho_down_r`: per-channel densities (e/Å³), with
-    ///   `ρ_core/2` already added by the caller for NLCC.
-    /// - `rho_grad_*_r`: per-channel gradients (three components each).
-    ///   Required for PBE; ignored for LDA.
+    /// For the LDA variant ([`XcEvaluator::Pz`]) this returns
     ///
-    /// The spin-polarized result carries three grids: `exc_r` (shared
-    /// energy density) and `v1_up_r` / `v1_down_r` (per-channel V_xc).
-    /// `v2_*_r` holds the GGA gradient channels and is `None` for LDA.
+    /// ```text
+    ///     exc_r[i]      = ε_xc(ρ↑(r_i), ρ↓(r_i))    (eV per electron)
+    ///     v1_up_r[i]    = δE_xc / δρ↑ at r_i         (eV)
+    ///     v1_down_r[i]  = δE_xc / δρ↓ at r_i         (eV)
+    ///     v2_up_r       = v2_down_r = None           (no GGA channels)
+    /// ```
+    ///
+    /// using the von Barth-Hedin spin-interpolated PZ parametrization
+    /// of [`lda_xc_spin_grid`]. The PBE branch is declared here but
+    /// returns [`PwdftError::NotImplemented`] until the semilocal
+    /// integrator lands.
+    ///
+    /// Inputs:
+    /// - `rho_up_r`, `rho_down_r`: per-channel densities on the FFT
+    ///   grid in e/Å³. Under NLCC the caller adds `ρ_core/2` to each
+    ///   channel (the core is assumed spin-unpolarized).
+    /// - `rho_grad_up_r`, `rho_grad_down_r`: per-channel ∇ρ on the
+    ///   same grid (e/Å⁴). Ignored for [`Self::Pz`]; required for
+    ///   [`Self::Pbe`] once that variant is implemented.
+    ///
+    /// Returns [`XcSpinGridResult`]; `v2_*_r` is `None` on the LDA
+    /// path, so the caller's semilocal V_xc assembly degenerates to
+    /// `V_xc^σ = v1_σ` with no gradient-FFT work.
+    ///
+    /// Reference: von Barth & Hedin, *J. Phys. C* **5**, 1629 (1972);
+    /// Perdew & Zunger, *Phys. Rev. B* **23**, 5048 (1981) §III.
+    ///
+    /// # Errors
+    /// Returns [`PwdftError::NotImplemented`] for any variant whose
+    /// functional has not yet been ported (currently `Pbe`).
     pub fn eval_spin(
         &self,
         rho_up_r: &[f64],
