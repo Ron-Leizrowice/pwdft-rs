@@ -628,7 +628,7 @@ fn spherical_bessel_j(l: i32, x: f64) -> f64 {
     let mut jlm1 = x.sin() / x;
     let mut jl = x.sin() / (x * x) - x.cos() / x;
     for n in 1..l {
-        let jlp1 = ((2 * n + 1) as f64 / x).mul_add(jl, -jlm1);
+        let jlp1 = (f64::from(2 * n + 1) / x).mul_add(jl, -jlm1);
         jlm1 = jl;
         jl = jlp1;
     }
@@ -656,7 +656,7 @@ fn legendre_p(l: i32, x: f64) -> f64 {
     let mut plm1 = 1.0;
     let mut pl = x;
     for n in 1..l {
-        let plp1 = ((2 * n + 1) as f64 * x).mul_add(pl, -(n as f64 * plm1)) / (n + 1) as f64;
+        let plp1 = (f64::from(2 * n + 1) * x).mul_add(pl, -(f64::from(n) * plm1)) / f64::from(n + 1);
         plm1 = pl;
         pl = plp1;
     }
@@ -779,13 +779,13 @@ mod tests {
             for m in 0..=6 {
                 let mut integral = 0.0;
                 for i in 0..=n {
-                    let x = -1.0 + 2.0 * i as f64 / n as f64;
+                    let x = -1.0 + 2.0 * f64::from(i) / f64::from(n);
                     let w = if i == 0 || i == n { 1.0 } else if i % 2 == 1 { 4.0 } else { 2.0 };
                     integral += w * legendre_p(l, x) * legendre_p(m, x);
                 }
-                integral *= 2.0 / (3.0 * n as f64);
+                integral *= 2.0 / (3.0 * f64::from(n));
                 let expected = if l == m {
-                    2.0 / (2 * l + 1) as f64
+                    2.0 / f64::from(2 * l + 1)
                 } else {
                     0.0
                 };
@@ -1049,7 +1049,7 @@ mod tests {
                             lhs += y1[base + m] * y2[base + m];
                         }
                         let cos_theta = q1.dot(q2) / (q1.norm() * q2.norm());
-                        let rhs = (2 * l + 1) as f64 / (4.0 * PI) * legendre_p(l, cos_theta);
+                        let rhs = f64::from(2 * l + 1) / (4.0 * PI) * legendre_p(l, cos_theta);
                         assert!(
                             (lhs - rhs).abs() < 1e-12,
                             "addition theorem l={l}: lhs={lhs} rhs={rhs}"

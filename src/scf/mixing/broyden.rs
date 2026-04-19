@@ -256,8 +256,8 @@ mod tests {
         let n = 64;
         let mut mixer = BroydenMixer::new(0.3, 4, false, plain_ctx(), false);
 
-        let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
-        let rho_target: Vec<f64> = (0..n).map(|i| 1.0 + 0.02 * (i as f64).cos()).collect();
+        let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
+        let rho_target: Vec<f64> = (0..n).map(|i| 1.0 + 0.02 * f64::from(i).cos()).collect();
 
         for _ in 0..5 {
             let result = mixer.mix(&rho_in, &rho_target, &mut fft);
@@ -272,12 +272,12 @@ mod tests {
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
         let g_squared: Vec<f64> = (0..n)
-            .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
+            .map(|i| if i == 0 { 0.0 } else { 1.0 + f64::from(i) })
             .collect();
         let mut mixer = BroydenMixer::new(0.3, 4, true, kerker_ctx(&g_squared), false);
 
-        let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
-        let rho_target: Vec<f64> = (0..n).map(|i| 1.0 + 0.02 * (i as f64).cos()).collect();
+        let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
+        let rho_target: Vec<f64> = (0..n).map(|i| 1.0 + 0.02 * f64::from(i).cos()).collect();
 
         for _ in 0..5 {
             let result = mixer.mix(&rho_in, &rho_target, &mut fft);
@@ -324,7 +324,7 @@ mod tests {
         let mut rho_in = vec![1.0; n];
 
         for iter in 0..10 {
-            let rho_out: Vec<f64> = rho_in.iter().map(|&r| r + 0.1 * (iter as f64)).collect();
+            let rho_out: Vec<f64> = rho_in.iter().map(|&r| r + 0.1 * f64::from(iter)).collect();
             rho_in = mixer.mix(&rho_in, &rho_out, &mut fft);
             assert!(
                 mixer.history_df.len() <= 2,
@@ -494,19 +494,19 @@ mod tests {
         let mut ref_mixer = BroydenMixer::new(0.3, 4, false, plain_ctx(), false);
         let mut twin_mixer = BroydenMixer::new(0.3, 4, false, plain_ctx(), false);
         let mut rho_ref: Vec<f64> =
-            (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
+            (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
         let mut rho_twin = rho_ref.clone();
         for iter in 1..=6 {
             let decay = 0.5_f64.powi(iter);
             let rho_out_ref: Vec<f64> = rho_ref
                 .iter()
                 .enumerate()
-                .map(|(k, &r)| r + decay * 0.1 * (k as f64 * 0.37 + iter as f64).sin())
+                .map(|(k, &r)| r + decay * 0.1 * (k as f64 * 0.37 + f64::from(iter)).sin())
                 .collect();
             let rho_out_twin: Vec<f64> = rho_twin
                 .iter()
                 .enumerate()
-                .map(|(k, &r)| r + decay * 0.1 * (k as f64 * 0.37 + iter as f64).sin())
+                .map(|(k, &r)| r + decay * 0.1 * (k as f64 * 0.37 + f64::from(iter)).sin())
                 .collect();
             let a = ref_mixer.mix(&rho_ref, &rho_out_ref, &mut fft_ref);
             let b = twin_mixer.mix(&rho_twin, &rho_out_twin, &mut fft_twin);

@@ -65,6 +65,13 @@ impl SymmOp {
     /// Accepts `i32` for backward-compatible call sites; entries are
     /// narrowed to the internal `i8` storage. Values outside `i8::MIN..=i8::MAX`
     /// are a programming error and will panic (checked via `i8::try_from`).
+    ///
+    /// # Panics
+    ///
+    /// Panics with a `BUG:` message if any entry of `m` is outside
+    /// `[i8::MIN, i8::MAX]`. Crystallographic rotation entries are in
+    /// `{-2, -1, 0, 1, 2}` (cubic and hexagonal), well within `i8` range,
+    /// so a panic indicates a non-crystallographic input.
     #[must_use]
     pub fn from_flat(m: [i32; 9]) -> Self {
         #[expect(
@@ -114,6 +121,15 @@ impl SymmOp {
     /// Inverse rotation matrix.
     /// Since det = ±1 and all entries are integers, the inverse is the adjugate
     /// divided by the determinant (which is also integer).
+    ///
+    /// # Panics
+    ///
+    /// - Panics if `det(self)` is not ±1 — only such matrices represent
+    ///   valid crystallographic rotations.
+    /// - Panics with a `BUG:` message via `i8::try_from` if an adjugate
+    ///   entry falls outside `[i8::MIN, i8::MAX]`. For any crystallographic
+    ///   rotation (|R_ij| ≤ 2), adjugate entries are bounded by `2·2 + 2·2 = 8`
+    ///   times det=±1, well within range; unreachable by construction.
     #[must_use]
     pub fn inverse(&self) -> Self {
         let r = self.rotation_i32();
@@ -151,6 +167,14 @@ impl SymmOp {
     }
 
     /// Compose two operations: self ∘ other = R_self · R_other.
+    ///
+    /// # Panics
+    ///
+    /// Panics with a `BUG:` message via `i8::try_from` if an entry of the
+    /// composed rotation falls outside `[i8::MIN, i8::MAX]`. The worst-case
+    /// product for crystallographic inputs (cubic `|R_ij| ≤ 2`,
+    /// hexagonal `|R_ij| ≤ 3`) is bounded by `3·3² = 27`, well within
+    /// `i8` range; unreachable for any valid crystallographic input.
     #[must_use]
     pub fn compose(&self, other: &Self) -> Self {
         let a = self.rotation_i32();

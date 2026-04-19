@@ -93,7 +93,7 @@ mod tests {
         let _fft = FFT3D::new(4, 4, 4);
         let n = 64;
         // All G-vectors have large |G|² (>> q_TF²)
-        let g_squared: Vec<f64> = (0..n).map(|i| 100.0 + i as f64).collect();
+        let g_squared: Vec<f64> = (0..n).map(|i| 100.0 + f64::from(i)).collect();
         let q_tf = 1.0; // q_TF² = 1, much smaller than all |G|²
 
         let weights: Vec<f64> = g_squared.iter()

@@ -563,7 +563,7 @@ mod adaptive_beta_tests {
         let mut ref_mixer = Mixer::new(0.3, 4, &MixingMode::Plain, None, 8.0, 40.0, false);
         let mut twin_mixer = Mixer::new(0.3, 4, &MixingMode::Plain, None, 8.0, 40.0, false);
         let mut rho_ref: Vec<f64> =
-            (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
+            (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
         let mut rho_twin = rho_ref.clone();
 
         for iter in 1..=6 {
@@ -571,12 +571,12 @@ mod adaptive_beta_tests {
             let rho_out_ref: Vec<f64> = rho_ref
                 .iter()
                 .enumerate()
-                .map(|(k, &r)| r + decay * 0.1 * (k as f64 * 0.37 + iter as f64).sin())
+                .map(|(k, &r)| r + decay * 0.1 * (k as f64 * 0.37 + f64::from(iter)).sin())
                 .collect();
             let rho_out_twin: Vec<f64> = rho_twin
                 .iter()
                 .enumerate()
-                .map(|(k, &r)| r + decay * 0.1 * (k as f64 * 0.37 + iter as f64).sin())
+                .map(|(k, &r)| r + decay * 0.1 * (k as f64 * 0.37 + f64::from(iter)).sin())
                 .collect();
             let new_ref = ref_mixer.mix(&rho_ref, &rho_out_ref, &mut fft_off);
             let new_twin = twin_mixer.mix(&rho_twin, &rho_out_twin, &mut fft_on_then_off);

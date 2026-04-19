@@ -94,7 +94,7 @@ pub fn reduce_kpoints(
 
         ibz_kpoints.push(KPoint {
             k: k_cart,
-            weight: orbit_count as f64 / n_total as f64,
+            weight: f64::from(orbit_count) / n_total as f64,
             label: None,
         });
     }

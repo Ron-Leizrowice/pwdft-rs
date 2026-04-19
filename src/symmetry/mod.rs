@@ -102,6 +102,17 @@ impl SymmetryInfo {
     /// and every operation has an inverse in the set.
     ///
     /// Panics with a descriptive message if the group is not closed.
+    ///
+    /// # Panics
+    ///
+    /// - Panics if any `self.operations[i]` has no inverse in
+    ///   `self.operations` within `self.tolerance`.
+    /// - Panics if any composition `self.operations[i] ∘ self.operations[j]`
+    ///   is not in `self.operations` within `self.tolerance`.
+    ///
+    /// Both conditions indicate a corrupt symmetry set (produced by a
+    /// buggy detector or constructed ad-hoc). They are never reachable
+    /// from a properly-detected `SymmetryInfo`.
     pub fn verify_group_closure(&self) {
         for (i, a) in self.operations.iter().enumerate() {
             // Check inverse exists

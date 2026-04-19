@@ -108,7 +108,7 @@ fn first_g_shells_si(n_shells: usize) -> Vec<f64> {
     for n1 in -n_max..=n_max {
         for n2 in -n_max..=n_max {
             for n3 in -n_max..=n_max {
-                let g = n1 as f64 * b1 + n2 as f64 * b2 + n3 as f64 * b3;
+                let g = f64::from(n1) * b1 + f64::from(n2) * b2 + f64::from(n3) * b3;
                 let gn = g.norm();
                 if gn > 1e-8 {
                     mags.push(gn);

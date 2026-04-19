@@ -417,7 +417,7 @@ mod tests {
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
         let g_squared: Vec<f64> = (0..n)
-            .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 * 0.5 })
+            .map(|i| if i == 0 { 0.0 } else { 1.0 + f64::from(i) * 0.5 })
             .collect();
         let mut mixer = AndersonMixer::new(
             0.3,
@@ -427,8 +427,8 @@ mod tests {
             false,
         );
 
-        let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
-        let rho_target: Vec<f64> = (0..n).map(|i| 1.0 + 0.02 * (i as f64).cos()).collect();
+        let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
+        let rho_target: Vec<f64> = (0..n).map(|i| 1.0 + 0.02 * f64::from(i).cos()).collect();
 
         // 3 iterations — should not panic and should produce finite values
         for _ in 0..3 {
@@ -444,11 +444,11 @@ mod tests {
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
         let g_squared: Vec<f64> = (0..n)
-            .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
+            .map(|i| if i == 0 { 0.0 } else { 1.0 + f64::from(i) })
             .collect();
 
-        let rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.1 * (i as f64 * 0.3).sin()).collect();
-        let rho_out: Vec<f64> = (0..n).map(|i| 1.0 + 0.2 * (i as f64 * 0.3).sin()).collect();
+        let rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.1 * (f64::from(i) * 0.3).sin()).collect();
+        let rho_out: Vec<f64> = (0..n).map(|i| 1.0 + 0.2 * (f64::from(i) * 0.3).sin()).collect();
 
         let mut mixer_plain =
             AndersonMixer::new(0.3, 4, &MixingMode::Plain, plain_ctx(), false);
@@ -637,7 +637,7 @@ mod tests {
         let mut anderson = AndersonMixer::new(0.3, 4, &MixingMode::Plain, plain_ctx(), false);
         let mut pp = PeriodicPulayMixer::new(0.3, 4, 1, false, plain_ctx(), false);
 
-        let mut rho_a: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
+        let mut rho_a: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
         let mut rho_b = rho_a.clone();
 
         for iter in 1..=10 {
@@ -670,7 +670,7 @@ mod tests {
 
         let mut pp = PeriodicPulayMixer::new(beta, 4, usize::MAX, false, plain_ctx(), false);
 
-        let mut rho_pp: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
+        let mut rho_pp: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
         let mut rho_ref = rho_pp.clone();
 
         for iter in 1..=10 {
@@ -707,7 +707,7 @@ mod tests {
         let n = 64;
         let mut pp = PeriodicPulayMixer::new(0.3, 8, 3, false, plain_ctx(), false);
 
-        let mut rho: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
+        let mut rho: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
 
         for iter in 1..=6 {
             let rho_out = synthetic_rho_out(&rho, iter);
@@ -744,7 +744,7 @@ mod tests {
 
         // Use the SAME density for both — synthetic output depends on rho_in
         // so we feed the reference density to both to keep inputs identical.
-        let mut rho_shared: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
+        let mut rho_shared: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
 
         let mut divergence_iters = Vec::new();
         for iter in 1..=9 {
@@ -823,12 +823,12 @@ mod tests {
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
         let g_squared: Vec<f64> = (0..n)
-            .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
+            .map(|i| if i == 0 { 0.0 } else { 1.0 + f64::from(i) })
             .collect();
         let mut pp =
             PeriodicPulayMixer::new(0.3, 4, 3, true, kerker_ctx(&g_squared), false);
 
-        let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * (i as f64).sin()).collect();
+        let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
 
         for iter in 1..=7 {
             let rho_out = synthetic_rho_out(&rho_in, iter);

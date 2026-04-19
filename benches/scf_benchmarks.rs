@@ -366,7 +366,7 @@ fn make_band_limited_rho(dims: [usize; 3]) -> Vec<f64> {
                 for (k, amp) in &modes {
                     s += amp
                         * (std::f64::consts::TAU
-                            * (k[0] as f64 * fx + k[1] as f64 * fy + k[2] as f64 * fz))
+                            * (f64::from(k[0]) * fx + f64::from(k[1]) * fy + f64::from(k[2]) * fz))
                             .cos();
                 }
                 rho[ix * ny * nz + iy * nz + iz] = s.abs() + 0.5;

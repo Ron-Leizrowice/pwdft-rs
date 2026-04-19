@@ -13,6 +13,16 @@ use super::operations::{frac_distance, wrap_to_unit_cell, SpaceGroupOp, SymmOp};
 /// 2. Enumerate all 3×3 integer matrices R with det(R) = ±1 and Rᵀ M R = M
 /// 3. For each R, find fractional translation τ such that {R|τ} maps all atoms
 ///    to equivalent atoms (same species at equivalent positions mod 1)
+///
+/// # Panics
+///
+/// - Panics if the returned operation set does not contain the identity.
+///   The identity is always metric-preserving for any crystal; a missing
+///   identity is a bug in the enumerator, not bad input.
+/// - Panics via `i8::try_from` in `narrow_rotation` if an enumerated
+///   rotation entry falls outside `[-128, 127]`. Crystallographic
+///   rotations have `|R_ij| ≤ 3`, so this is structurally unreachable —
+///   a panic indicates a bug in `find_metric_preserving_rotations`.
 #[must_use]
 pub fn find_symmetry_operations(crystal: &Crystal, tolerance: f64) -> Vec<SpaceGroupOp> {
     let lattice_matrix = crystal.lattice.matrix();
@@ -132,7 +142,7 @@ fn dot_metric(c: &[i32; 3], d: &[i32; 3], metric: &nalgebra::Matrix3<f64>) -> f6
     let mut sum = 0.0;
     for i in 0..3 {
         for j in 0..3 {
-            sum += c[i] as f64 * metric[(i, j)] * d[j] as f64;
+            sum += f64::from(c[i]) * metric[(i, j)] * f64::from(d[j]);
         }
     }
     sum

@@ -494,7 +494,7 @@ fn test_05_vnl_diagonal_at_gamma() {
                 let d = pp.dij[i * n_proj + j];
 
                 // Angular: at diagonal, cos(theta) = 1 (or undefined if |G|=0)
-                let angular = (2 * l + 1) as f64 / (4.0 * PI);
+                let angular = f64::from(2 * l + 1) / (4.0 * PI);
 
                 vnl_manual += fi * d * fj * angular;
             }
@@ -599,7 +599,7 @@ fn test_07_form_factor_behavior() {
     eprintln!("\n=== TEST 7: Form factor F(q) behavior ===");
 
     // Sample F(q) at many q values
-    let q_vals: Vec<f64> = (0..50).map(|i| i as f64 * 0.5).collect();
+    let q_vals: Vec<f64> = (0..50).map(|i| f64::from(i) * 0.5).collect();
 
     for (ip, proj) in pp.beta_projectors.iter().enumerate() {
         let l = proj.l;
@@ -732,7 +732,7 @@ fn test_08_vnl_offdiagonal() {
                     } else {
                         1.0
                     };
-                    let angular = (2 * l + 1) as f64 / (4.0 * PI) * legendre_p(l, cos_theta);
+                    let angular = f64::from(2 * l + 1) / (4.0 * PI) * legendre_p(l, cos_theta);
 
                     vnl_atom += fi * d * fj * angular;
                 }
