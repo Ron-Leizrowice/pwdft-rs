@@ -1,3 +1,16 @@
+//! Crystal geometry: lattice vectors, atomic positions, reciprocal basis.
+//!
+//! [`Crystal`] aggregates a [`Lattice`] (the three primitive vectors a, b, c
+//! in Å) with a list of [`Atom`]s (atomic number + fractional coordinates).
+//! The lattice knows how to compute its reciprocal-space partners, unit
+//! cell volume, and nearest-image distances, all in the engine's native
+//! Å / Å⁻¹ units.
+//!
+//! This module is the geometric input to essentially everything else:
+//! [`crate::basis`] enumerates G-vectors against the reciprocal lattice,
+//! [`crate::kpoints`] builds Monkhorst-Pack grids in its Brillouin zone,
+//! and [`crate::ewald`] sums ion-ion Coulomb interactions over its atoms.
+
 use nalgebra::{Matrix3, Vector3};
 use serde::{Deserialize, Serialize};
 

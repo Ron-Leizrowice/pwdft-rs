@@ -1,3 +1,16 @@
+//! Brillouin-zone sampling: Monkhorst-Pack grids and high-symmetry paths.
+//!
+//! A [`KPoint`] is a Cartesian reciprocal-space vector (1/Å) paired with
+//! an integration weight. The two standard constructors are
+//! [`monkhorst_pack`] (uniform `N₁×N₂×N₃` grids with a selectable
+//! [`KGridShift`] — gamma-centered or the 1976 MP offset) and
+//! [`high_symmetry_path`] (piecewise-linear k-paths through named BZ
+//! corners, used for band-structure plots).
+//!
+//! Symmetry reduction of the full grid to the irreducible BZ lives in
+//! [`crate::symmetry::kpoints`]; this module generates the unreduced
+//! sampling.
+
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
 

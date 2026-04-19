@@ -1,3 +1,17 @@
+//! Non-self-consistent band structure along a k-path.
+//!
+//! Diagonalizes a fixed Hamiltonian at each k-point on a supplied path
+//! (typically a Γ-X-W-L-Γ high-symmetry circuit produced by
+//! [`crate::kpoints::high_symmetry_path`]) and collects the lowest
+//! `n_bands` eigenvalues per point, together with the cumulative
+//! path-distance coordinate used as the x-axis in band plots.
+//!
+//! The current entry point [`compute_band_structure`] runs the
+//! free-electron (kinetic-only) spectrum — a diagnostic mode useful for
+//! validating the basis and k-path. Self-consistent bands come from the
+//! [`crate::scf`] driver; a post-SCF hook that reuses the converged
+//! potential is tracked separately.
+
 use crate::{
     basis::BasisSet,
     eigensolver::dense,

@@ -1,3 +1,15 @@
+//! Physical constants and unit conversions.
+//!
+//! The engine works internally in eV for energies, Å for lengths, and
+//! e/Å³ for densities; this module holds the conversion factors from
+//! CODATA atomic units (Hartree, Rydberg, Bohr) used to normalize
+//! pseudopotential tables at the UPF boundary, plus SI constants for
+//! deriving quantities like `ℏ²/2m` in the engine's native units.
+//!
+//! Also defines the small numerical floors
+//! ([`G2_ZERO_THRESHOLD`], [`RHO_FLOOR`]) that gate Coulomb and XC
+//! evaluations against divide-by-zero.
+
 // Atomic unit conversions
 /// Hartree to electronvolt.
 pub const HA_TO_EV: f64 = 27.211_386_245_988;

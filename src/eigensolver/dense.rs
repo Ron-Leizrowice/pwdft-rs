@@ -1,3 +1,16 @@
+//! Dense Hermitian eigensolver and subspace rotation.
+//!
+//! [`diagonalize_lowest`] wraps faer's `self_adjoint_eigen` for the full
+//! O(n³) decomposition of Hψ = εψ and returns the lowest `n_bands`
+//! eigenpairs. [`diagonalize_subspace`] is the WFRX warm-start path: at
+//! SCF iterations after the first, it projects the new Hamiltonian onto
+//! the previous iteration's occupied+buffer subspace, solves the small
+//! `n_sub × n_sub` eigenproblem there, and falls back to the full
+//! solver if the residual `‖Hv − εv‖₂` exceeds [`WFRX_RESIDUAL_TOL`].
+//!
+//! Returns an [`EigenResult`] with eigenvalues sorted ascending and
+//! corresponding eigenvectors as matrix columns.
+
 use faer::linalg::matmul::matmul;
 use num_complex::Complex64;
 
