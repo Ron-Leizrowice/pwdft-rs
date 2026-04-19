@@ -650,6 +650,12 @@ impl XcEvaluator {
     ///
     /// Returning an error at this construction site (rather than at first
     /// evaluation) lets `scf::run_scf` fail fast before any compute work.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PwdftError::NotImplemented`] for `Pbe0` and `Hse06`;
+    /// hybrid functionals are not yet implemented. `Pz` and `Pbe`
+    /// always succeed.
     pub fn from_settings(xc: XcFunctional) -> Result<Self> {
         match xc {
             XcFunctional::Pz => Ok(Self::Pz),

@@ -185,6 +185,13 @@ impl NonlocalPotential {
     /// Returns [`PwdftError::MissingPseudopotential`] if any atom's
     /// `z` has no corresponding [`PseudopotentialData`] in
     /// `pseudopotentials`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any beta projector has negative `l`. A malformed UPF
+    /// parser would be the only way to reach this; the assertion
+    /// converts a downstream unsigned-wrap allocation bug into a clean
+    /// panic at construction time.
     pub fn new(
         crystal: &Crystal,
         basis: &BasisSet,
