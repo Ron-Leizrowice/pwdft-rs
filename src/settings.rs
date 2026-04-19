@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     crystal::{Atom, Crystal, Lattice},
     error::{PwdftError, Result},
-    kpoints::HighSymPoint,
+    kpoints::{HighSymPoint, KGridShift},
     scf::{smearing::SmearingScheme, ScfParams},
 };
 
@@ -114,6 +114,14 @@ pub enum KPointSettings {
     MonkhorstPack {
         /// Grid dimensions [n1, n2, n3].
         grid: [u32; 3],
+        /// Shift convention (Γ-centered vs MP-1976 shifted).
+        ///
+        /// Defaults to `gamma_centered` (QE's `K_POINTS automatic / … 0 0 0`).
+        /// Use `mp1976` for the original Monkhorst-Pack 1976 half-shift
+        /// (QE `… 1 1 1`), or the free-form `[k1, k2, k3]` integers (each
+        /// 0 or 1) for a per-axis shift.
+        #[serde(default)]
+        shift: KGridShift,
     },
 
     /// High-symmetry band path for band-structure calculations.
@@ -524,7 +532,16 @@ impl Settings {
     #[must_use]
     pub fn mp_grid(&self) -> Option<[u32; 3]> {
         match &self.kpoints {
-            KPointSettings::MonkhorstPack { grid } => Some(*grid),
+            KPointSettings::MonkhorstPack { grid, .. } => Some(*grid),
+            _ => None,
+        }
+    }
+
+    /// Extract the Monkhorst-Pack shift convention, if configured.
+    #[must_use]
+    pub fn mp_shift(&self) -> Option<KGridShift> {
+        match &self.kpoints {
+            KPointSettings::MonkhorstPack { shift, .. } => Some(*shift),
             _ => None,
         }
     }
@@ -701,6 +718,66 @@ kpoints:
         assert!((s.basis.ecutwfc - 204.09).abs() < f64::EPSILON);
         assert!(s.mp_grid().is_some());
         assert_eq!(s.mp_grid().unwrap(), [4, 4, 4]);
+        // MPSH default: Γ-centered (matches QE's `automatic / … 0 0 0`).
+        assert_eq!(s.mp_shift(), Some(KGridShift::GammaCentered));
+    }
+
+    #[test]
+    fn parse_monkhorst_pack_shift_gamma_centered_explicit() {
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [4, 4, 4]
+  shift: gamma_centered
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        assert_eq!(s.mp_shift(), Some(KGridShift::GammaCentered));
+    }
+
+    #[test]
+    fn parse_monkhorst_pack_shift_mp1976() {
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [4, 4, 4]
+  shift: mp1976
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        assert_eq!(s.mp_shift(), Some(KGridShift::MP1976));
+    }
+
+    #[test]
+    fn parse_monkhorst_pack_shift_custom() {
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [4, 4, 4]
+  shift:
+    custom: [1, 0, 1]
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        assert_eq!(s.mp_shift(), Some(KGridShift::Custom([1, 0, 1])));
+    }
+
+    #[test]
+    fn parse_monkhorst_pack_shift_missing_defaults_to_gamma() {
+        // MPSH: missing `shift:` in YAML must default to Γ-centered
+        // (QE convention). This is the default-behavior-drift guard.
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [4, 4, 4]
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        assert_eq!(s.mp_shift(), Some(KGridShift::GammaCentered));
     }
 
     #[test]

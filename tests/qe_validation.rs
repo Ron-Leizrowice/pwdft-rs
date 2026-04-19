@@ -11,22 +11,27 @@
 //!     `assert_energy_matches_qe`, `assert_fermi_matches_qe`.
 //!   * One `#[test]` per system (8 total).
 //!
-//! ## Why some tests are `#[ignore]`d
+//! Post-MPSH (2026-04-18) `monkhorst_pack` accepts a [`KGridShift`] and
+//! defaults to Γ-centered — matching QE's `K_POINTS automatic / Nx Ny Nz
+//! 0 0 0`. With this both codes now sample the same k-mesh. Empirically
+//! MPSH closed the **Si 4×4×4 total-energy** residual from 0.26 eV to
+//! 33 meV, but the eigenvalue / E_F assertions on Si still fail due to
+//! a V_loc(G=0) absolute-reference shift (≈ 1.35 eV constant offset;
+//! VGCH territory), and Al (83 meV) and C (still-stalling SCF) were
+//! **not** resolved by MPSH alone — investigation of the residual
+//! root cause is logged in each test's `#[ignore]` reason string.
 //!
-//! Post-NCFX (2026-04-18) the Si residual dropped from ~13.4 eV to ~23 meV;
-//! the remaining residual is attributed to the Monkhorst-Pack shifted-vs-
-//! Γ-centered grid convention (tracked in SYKP — `src/kpoints.rs::monkhorst_pack`
-//! hard-codes MP-1976 shift while QE uses Γ-centered grids). Light-atom
-//! (Z ≤ 14) and wide-gap systems inherit the same SYKP grid residual.
 //! Heavy-atom (Z > 14) systems carry an additional 7–34 eV residual whose
 //! root cause is TBD — VGCMP Phases 1–4 proved the V_local(G) assembly
 //! pipeline bit-correct on Si, so the heavy-atom residual is *not*
 //! V_local(G) and the continuing investigation is tracked under VGCH
 //! (candidate root causes: semicore/ecut convergence, V_local(G=0) Z-scaling,
 //! Ewald for large Z, etc.). Each `#[ignore]` reason cites the specific
-//! blocker (SYKP or VGCH) plus the measured pwdft-rs and QE values. Drop
-//! an `#[ignore]` once both codes sample the same grid (SYKP/MPSH) or the
-//! heavy-atom residual closes (VGCH).
+//! blocker (MPSH residual category or VGCH heavy-atom residual) plus
+//! the measured pwdft-rs and QE values. Drop an `#[ignore]` once the
+//! attributed residual category closes.
+//!
+//! [`KGridShift`]: pwdft_rs::kpoints::KGridShift
 
 #![allow(
     clippy::unwrap_used,
@@ -137,7 +142,16 @@ impl<'a> QeComparisonConfig<'a> {
 fn run_qe_comparison(cfg: &QeComparisonConfig<'_>) -> PwdftResult<ScfResult> {
     let ecut_ev = cfg.ecut_ry * RY_TO_EV;
     let basis = BasisSet::new(&cfg.crystal.lattice, ecut_ev);
-    let kpts = kpoints::monkhorst_pack(cfg.nk, cfg.nk, cfg.nk, &cfg.crystal.lattice);
+    // MPSH: match QE's `K_POINTS automatic / Nx Ny Nz 0 0 0` by sampling on
+    // a Γ-centered grid. Every reference input under `qe_validation/*.in`
+    // uses `0 0 0`.
+    let kpts = kpoints::monkhorst_pack(
+        cfg.nk,
+        cfg.nk,
+        cfg.nk,
+        kpoints::KGridShift::GammaCentered,
+        &cfg.crystal.lattice,
+    );
 
     eprintln!(
         "  ecut={:.1} Ry  basis={} PWs  {}x{}x{} grid -> {} k-points  nspin={}",
@@ -234,17 +248,20 @@ fn report_gamma_eigenvalues(label: &str, result: &ScfResult, qe_eigs_ev: &[f64])
 /// QE ref (qe_validation/si_scf.in): E = -17.022_993_44 Ry,
 /// E_F = 6.3449 eV, converges in 7 iters.
 ///
-/// Ignored: post-NCFX the total-energy gap dropped from ~13.4 eV to
-/// ~0.26 eV (E = −231.865 eV vs QE −231.610 eV at 4×4×4 ecut = 15 Ry).
-/// The residual is dominated by the Monkhorst-Pack grid convention
-/// mismatch tracked in SYKP — QE uses Γ-centered `4 4 4 0 0 0` while
-/// pwdft-rs hard-codes the shifted MP-1976 convention
-/// (`src/kpoints.rs::monkhorst_pack`). Γ eigenvalues still differ by
-/// ≈ 1 eV which is consistent with different k-meshes. Drop `#[ignore]`
-/// once MPSH (or equivalent shift-aware fix) lands and the two codes
-/// sample the same grid.
+/// Ignored: post-MPSH (2026-04-18, Γ-centered grid matching QE), the
+/// total-energy residual dropped from ≈0.26 eV to **33 meV** at 4×4×4
+/// ecut = 15 Ry (E_pwdft = −231.6428 eV vs QE −231.6096 eV). The
+/// remaining residual is now driven by the **absolute energy reference**
+/// — pwdft-rs sets V_eff(G=0) = 0 while QE uses a different convention,
+/// so every Kohn-Sham eigenvalue (and consequently the Fermi energy) is
+/// offset by a constant ≈ 1.35 eV. This shows up as
+/// `|ΔE_F| ≈ 1.35 eV` exceeding the 50 meV tolerance even though the
+/// physical band structure (i.e. band-to-band energy differences) agrees
+/// with QE to < 10 meV. The absolute-reference issue is tracked under
+/// VGCH (heavy-atom V_loc audit also covers this shift for lighter
+/// elements).
 #[test]
-#[ignore = "post-NCFX residual ≈0.26 eV dominated by MP shifted-vs-Γ-centered grid mismatch; see SYKP/MPSH"]
+#[ignore = "MPSH: E_total now 33 meV (within 50 meV tol), but eigenvalue absolute reference ≈ 1.35 eV shift (VGCH V_loc(G=0))"]
 fn test_si_diamond_vs_qe() {
     let crystal = fcc_crystal(
         5.431,
@@ -276,17 +293,20 @@ fn test_si_diamond_vs_qe() {
 ///
 /// QE ref: E = -23.843_439_10 Ry, E_F = 15.8873 eV, 9 iters, ecut = 30 Ry.
 ///
-/// Ignored: SCF does not converge at this parameter set — pwdft-rs stalls
-/// at Δρ ≈ 4.1e-6 after 80 iterations (VERF did not close the gap; VERF
-/// landed cosmetic-only and is archived). Attribution: the Monkhorst-Pack
-/// shifted-vs-Γ-centered grid convention that dominates the Si residual
-/// (tracked in SYKP: `src/kpoints.rs::monkhorst_pack` hard-codes MP-1976
-/// shift while QE uses Γ-centered `4 4 4 0 0 0`). Unlike Si the wider C
-/// gap leaves the mixer short of conv_threshold inside max_iter. C is
-/// Z=6 (light) so no VGCH heavy-atom dependency. Drop `#[ignore]` once
-/// SYKP/MPSH lands and both codes sample the same grid.
+/// Ignored: post-MPSH (2026-04-18, Γ-centered grid matching QE), C still
+/// stalls at Δρ ≈ 4.4e-6 after 80 iterations — **MPSH did NOT close
+/// this**. Empirically: switching from MP-1976 shifted to Γ-centered
+/// produces a similar Δρ plateau at the same scale (4.1e-6 → 4.4e-6),
+/// so the shift convention was NOT the root cause. Tentative suspects
+/// for the remaining blockage: (i) the mixer tuning (ecut=30 Ry on
+/// 4×4×4 with `MixingMode::Plain` may need Kerker or Broyden for the
+/// wider C gap), (ii) the underlying V_loc(G=0) absolute-reference
+/// issue that ≈ 1 eV-shifts every band and may be upsetting the mixer's
+/// residual bookkeeping. C is Z=6 (light) so no heavy-atom V_loc
+/// dependency in the usual VGCH sense; the blocker is probably a
+/// mixer/ecut combination and is now out of MPSH scope.
 #[test]
-#[ignore = "SYKP: MP shifted-vs-Γ grid mismatch keeps SCF from reaching conv_threshold; pwdft-rs stalls at Δρ ≈ 4.1e-6 after 80 iters (QE converges in 9)"]
+#[ignore = "post-MPSH: C still stalls at Δρ ≈ 4.4e-6 under Γ-centered grid — root cause is NOT the shift convention; tentative mixer/ecut follow-up"]
 fn test_c_diamond_vs_qe() {
     let crystal = fcc_crystal(
         3.567,
@@ -319,21 +339,25 @@ fn test_c_diamond_vs_qe() {
 /// QE ref: E = -4.723_717_90 Ry, E_F = 7.6130 eV, 6 iters, ecut = 15 Ry,
 /// 8x8x8 k-grid, degauss = 0.02 Ry, Kerker (QE `local-TF`).
 ///
-/// Ignored: post-NCFX residual is ≈73 meV — just above the 50 meV tolerance.
-/// Attribution is the Monkhorst-Pack shifted-vs-Γ-centered grid convention
-/// tracked in SYKP (QE uses Γ-centered `8 8 8 0 0 0`; pwdft-rs hard-codes
-/// the shifted MP-1976 convention in `src/kpoints.rs::monkhorst_pack`).
-/// Al is Z=13 (light) — no VGCH heavy-atom dependency; behavior mirrors
-/// Si (Z=14, ~23 meV residual). Drop `#[ignore]` once SYKP/MPSH lands.
-/// VERF did not close the Si gap and is archived — replacing the old
-/// VERF attribution with SYKP.
+/// Ignored: post-MPSH (2026-04-18, Γ-centered grid matching QE), the
+/// residual went from 73 meV to **83 meV** — still above the 50 meV
+/// tolerance. MPSH slightly worsened Al; empirically the old MP-1976
+/// shifted grid happened to cancel some of Al's residual against QE's
+/// Γ-centered reference, and fixing the shift to match QE exposes the
+/// underlying ≈ 80 meV discrepancy. Attribution: NOT the grid
+/// convention. Candidate blockers: (i) ecut = 15 Ry on Al is barely
+/// converged (113 PW basis), (ii) the Kerker q_TF auto-estimate may
+/// differ from QE's `local-TF`, (iii) small FFT-grid differences (note
+/// the default `ecutrho_ratio = 4` may be below QE's auto-determined
+/// wfc_grid). Follow-up: bump ecut to 30 Ry and re-measure before
+/// opening a dedicated proposal.
 ///
 /// Reference values (for year-later readers):
-///   pwdft-rs: E = −64.1968 eV
-///   QE:       E = −64.2695 eV  (−4.723_717_90 Ry)
-///   residual: ~73 meV
+///   pwdft-rs post-MPSH (Γ-centered): E = −64.1864 eV
+///   QE:                              E = −64.2695 eV  (−4.723_717_90 Ry)
+///   residual:                        ~83 meV
 #[test]
-#[ignore = "SYKP: MP shifted-vs-Γ residual ≈73 meV on Al 8×8×8; pwdft-rs E = -64.197 eV, QE = -64.269 eV (tolerance 50 meV)"]
+#[ignore = "post-MPSH: Al 8×8×8 residual 83 meV (Γ-centered grid now matches QE; remaining gap NOT shift-related — ecut/Kerker/FFT candidates)"]
 fn test_al_fcc_vs_qe() {
     let crystal = fcc_crystal(4.05, vec![Atom::new(13, [0.0, 0.0, 0.0])]);
     let pp_al = load_pp("Al");
@@ -363,19 +387,24 @@ fn test_al_fcc_vs_qe() {
 /// PseudoDojo NC/LDA at ecut=15 Ry, |M| collapses to 0.00 μB in both codes,
 /// so the test validates the nspin=2 machinery rather than the magnetism.
 ///
-/// Post-CCMX (2026-04-18) the SCF converges cleanly (no more spin-flip
-/// limit cycle), but the total energy still differs from QE by ~9.5 eV —
-/// the residual Z>14 heavy-atom gap (root cause TBD) tracked under VGCH.
-/// VGCMP Phases 1–4 proved the V_local(G) assembly pipeline bit-correct
-/// on Si, so the heavy-atom residual is *not* V_local(G). See
-/// proposals/VGCH-heavy-atom-vloc-residual.md.
+/// limit cycle); post-MPSH (2026-04-18) the k-grid now matches QE's
+/// Γ-centered convention but the total energy still differs from QE by
+/// ≈ 11.5 eV — the residual Z>14 heavy-atom gap tracked under VGCH
+/// (root cause TBD; VGCMP Phases 1–4 proved the V_local(G) assembly
+/// pipeline bit-correct on Si, so the heavy-atom residual is *not*
+/// V_local(G) assembly — continuing cross-check vs QE). MPSH switching
+/// the grid from MP-1976 to Γ-centered moved the residual from 9.5 eV
+/// to 11.5 eV, consistent with MPSH sampling a different k-mesh than
+/// the pre-MPSH baseline used; the underlying heavy-atom discrepancy
+/// itself is unchanged. See
+/// `proposals/VGCH-heavy-atom-vloc-residual.md`.
 ///
 /// Reference values (for year-later readers):
-///   pwdft-rs post-CCMX:  E = -3050.80 eV  (8×8×8, 15 Ry, Kerker)
-///   QE ref:              E = -3060.158 eV (-224.917_449_34 Ry)
-///   residual:            ~9.5 eV  →  tracked under VGCH (root cause TBD)
+///   pwdft-rs post-MPSH (Γ-centered): E = -3048.655 eV (8×8×8, 15 Ry, Kerker)
+///   QE ref:                          E = -3060.158 eV (-224.917_449_34 Ry)
+///   residual:                        ~11.5 eV  →  tracked under VGCH
 #[test]
-#[ignore = "~9.5 eV gap vs QE (E_pwdft = -3050.80, E_qe = -3060.16 eV); root cause TBD, tracked in VGCH"]
+#[ignore = "post-MPSH Fe residual ≈11.5 eV on 8×8×8 Γ-centered grid; blocked on VGCH (root cause TBD)"]
 fn test_fe_bcc_fm_vs_qe() {
     let crystal = bcc_crystal(2.87, Atom::new(26, [0.0, 0.0, 0.0]));
     let pp_fe = load_pp("Fe");
@@ -634,7 +663,18 @@ fn test_mgo_rocksalt_vs_qe() {
 ///
 /// This test is *defensive*, not an accuracy milestone. Tolerances are
 /// loose by design. The Fe total-energy comparison remains gated by
-/// SYKP/PCFX and stays in `test_fe_bcc_fm_vs_qe` (still `#[ignore]`d).
+/// VGCH/PCFX and stays in `test_fe_bcc_fm_vs_qe` (still `#[ignore]`d).
+///
+/// MPSH note (2026-04-18): the `|Δ_xc| ≤ 1.0 eV` ceiling and the
+/// `E_xc_pwdft = -392.5675 eV` reference in this test's docstring were
+/// both captured on the **MP-1976 shifted** 4×4×4 grid. We preserve
+/// that grid here (even though the rest of `qe_validation` now runs
+/// Γ-centered) because the pin is a regression guard tied to the
+/// exact 0.69 eV residual baseline; switching to Γ-centered pushes
+/// |Δ_xc| to ≈ 1.41 eV. That is still 35× below the pre-NCFX
+/// pathology (~49 eV) so the guard's purpose is unaffected, but the
+/// simplest way to keep this trip-wire armed at its designed
+/// threshold is to keep its k-sample fixed.
 #[test]
 fn test_fe_bcc_xc_nlcc_regression_guard() {
     let crystal = bcc_crystal(2.87, Atom::new(26, [0.0, 0.0, 0.0]));
@@ -655,7 +695,8 @@ fn test_fe_bcc_xc_nlcc_regression_guard() {
     // tolerance below.
     let ecut_ev = 15.0 * RY_TO_EV;
     let basis = BasisSet::new(&crystal.lattice, ecut_ev);
-    let kpts = kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+    // Preserve MP-1976 shift — see MPSH note in the docstring above.
+    let kpts = kpoints::monkhorst_pack(4, 4, 4, kpoints::KGridShift::MP1976, &crystal.lattice);
 
     let params = ScfParams {
         n_bands: 12,

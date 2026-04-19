@@ -69,8 +69,9 @@ fn main() -> pwdft_rs::error::Result<()> {
                 }
             }
         }
-        KPointSettings::MonkhorstPack { grid } => {
-            let full_kpts = kpoints::monkhorst_pack(grid[0], grid[1], grid[2], &crystal.lattice);
+        KPointSettings::MonkhorstPack { grid, shift } => {
+            let full_kpts =
+                kpoints::monkhorst_pack(grid[0], grid[1], grid[2], *shift, &crystal.lattice);
 
             // Always reduce k-points via `reduce_kpoints`. When the user
             // disables symmetry, `settings.to_symmetry_info` returns the
@@ -90,14 +91,16 @@ fn main() -> pwdft_rs::error::Result<()> {
             let kpts = pwdft_rs::symmetry::kpoints::reduce_kpoints(
                 &full_kpts,
                 *grid,
+                *shift,
                 &symmetry_info,
                 &crystal.lattice,
             );
             info!(
-                "Monkhorst-Pack grid: {}×{}×{} = {} → {} IBZ k-points",
+                "Monkhorst-Pack grid: {}×{}×{} shift={:?} = {} → {} IBZ k-points",
                 grid[0],
                 grid[1],
                 grid[2],
+                shift,
                 full_kpts.len(),
                 kpts.len()
             );

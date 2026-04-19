@@ -235,7 +235,11 @@ fn vgc5_si_per_component() {
     let pp_si = load_pp("Si");
 
     let basis = BasisSet::new(&crystal.lattice, 15.0 * RY_TO_EV);
-    let kpts = kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+    // VGC5 pins were captured on the MP-1976 shifted grid; preserve that
+    // convention to keep the per-component regression pins valid. Moving
+    // to Γ-centered (the MPSH default elsewhere) would shift every pin by
+    // k-sampling noise, which is out of scope for this regression guard.
+    let kpts = kpoints::monkhorst_pack(4, 4, 4, kpoints::KGridShift::MP1976, &crystal.lattice);
 
     let params = ScfParams {
         n_bands: 8,
@@ -330,7 +334,11 @@ fn vgc5_fe_per_component() {
     // in 80 iters with current mixer defaults. The 4x4x4 case captures
     // enough information to localize the per-component discrepancy
     // relative to QE without inheriting k-sampling noise >~10 meV.
-    let kpts = kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+    //
+    // Pinned on the MP-1976 shifted grid; preserve it to keep the Fe
+    // per-component regression pins valid (MPSH note: swapping to
+    // Γ-centered would shift every pin by k-sampling noise).
+    let kpts = kpoints::monkhorst_pack(4, 4, 4, kpoints::KGridShift::MP1976, &crystal.lattice);
 
     // NB: nspin=1 used here (not nspin=2 as in QE ref). The PseudoDojo Fe PP
     // at ecut=15 Ry collapses to non-magnetic anyway (see reference_data.toml
@@ -450,7 +458,10 @@ fn test_madoc_band_sum_identity_si() {
     let pp_si = load_pp("Si");
 
     let basis = BasisSet::new(&crystal.lattice, 15.0 * RY_TO_EV);
-    let kpts = kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+    // Γ-centered (MPSH default) — band-sum identity is exact regardless
+    // of shift, so use the new default for consistency with the rest of
+    // qe_validation.
+    let kpts = kpoints::monkhorst_pack(4, 4, 4, kpoints::KGridShift::GammaCentered, &crystal.lattice);
 
     let params = ScfParams {
         n_bands: 8,
@@ -548,7 +559,9 @@ fn test_madoc_band_sum_identity_fe_bcc() {
 
     let ecut = 15.0 * RY_TO_EV;
     let basis = BasisSet::new(&crystal.lattice, ecut);
-    let kpts = kpoints::monkhorst_pack(4, 4, 4, &crystal.lattice);
+    // Γ-centered (MPSH default) — band-sum identity is exact regardless
+    // of shift.
+    let kpts = kpoints::monkhorst_pack(4, 4, 4, kpoints::KGridShift::GammaCentered, &crystal.lattice);
 
     let mut starting_mag = HashMap::new();
     starting_mag.insert("Fe".to_string(), 0.5);

@@ -77,7 +77,11 @@ fn run_si_scf() -> ScfResult {
     // the convergence trajectory deterministic and free of Kerker /
     // Broyden / PRPL bookkeeping that could hide a drift.
     let basis = BasisSet::new(&crystal.lattice, 100.0);
-    let kpts = kpoints::monkhorst_pack(2, 2, 2, &crystal.lattice);
+    // `SI_SCF_TOTAL_EV_PIN` below was captured on the MP-1976 shifted grid
+    // (pre-MPSH). Preserve that grid so the pin stays valid; this test is
+    // a numerical-regression guard on the ALOC-F5 cache, not a
+    // physics-convention assertion.
+    let kpts = kpoints::monkhorst_pack(2, 2, 2, kpoints::KGridShift::MP1976, &crystal.lattice);
     let params = ScfParams {
         n_bands: 8,
         max_iter: 30,

@@ -71,7 +71,7 @@ fn run_si_scf(kind: EigensolverKind) -> ScfResult {
     // pipeline, and — critically — the point above faer's Arnoldi
     // breakover (n > 64) so ITEV's real code path is actually exercised.
     let basis = BasisSet::new(&crystal.lattice, 100.0);
-    let kpts = kpoints::monkhorst_pack(2, 2, 2, &crystal.lattice);
+    let kpts = kpoints::monkhorst_pack(2, 2, 2, kpoints::KGridShift::GammaCentered, &crystal.lattice);
 
     let params = ScfParams {
         n_bands: 8,

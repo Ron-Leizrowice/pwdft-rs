@@ -59,7 +59,7 @@ fn run_si_scf(wfrx: bool) -> ScfResult {
     // Same knobs as `itev_iterative_eigensolver.rs`: ecutwfc = 100 eV,
     // 2×2×2 MP, tight enough to converge in ~20 iters.
     let basis = BasisSet::new(&crystal.lattice, 100.0);
-    let kpts = kpoints::monkhorst_pack(2, 2, 2, &crystal.lattice);
+    let kpts = kpoints::monkhorst_pack(2, 2, 2, kpoints::KGridShift::GammaCentered, &crystal.lattice);
 
     let params = ScfParams {
         n_bands: 8,
