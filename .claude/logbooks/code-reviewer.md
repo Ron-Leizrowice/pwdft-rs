@@ -2,6 +2,20 @@
 
 Entries: date, metrics (actual counts), findings, proposals affected. Track quality trends over time.
 
+## 2026-04-19 — FLUP G2ZT: |G|=0 threshold hoist (PR #153)
+
+Replaced bare `1e-12` at `src/pseudopotential/mod.rs:159` (the `|G|=0` branch in `PseudopotentialData::v_local_of_g`) with a new `G_ZERO_THRESHOLD` constant in `src/consts.rs`.
+
+**Gotcha caught at review time:** the existing `G2_ZERO_THRESHOLD` is documented as a `|G|²` floor, but the call site compares `g_norm` (i.e. `|G|`) directly. Reusing `G2_ZERO_THRESHOLD` would have silently rescaled the cutoff by 10⁶. The safe fix was a sibling `G_ZERO_THRESHOLD = 1e-12` with a docstring flagging the distinction. **Future pattern:** when hoisting a threshold literal, always check the squared-vs-unsquared convention at the call site before reusing an existing constant — visually similar, numerically 6 orders apart.
+
+Bit-identical: all 330 Tier-1 tests pass; clippy 18/24 baseline unchanged.
+
+## 2026-04-19 — ERR2 P1.a: error variant split (PR #152) + P1 scoping (PR #147)
+
+Added `InvalidCrystal` / `InvalidParam` / `UnknownElement` / `InvalidPseudopotential` variants to `PwDftError`. **No call-site migration this PR** — variants added but every existing site still uses `InvalidInput(String)`. Follow-up P1.b will do the mechanical rewrite as a pure grep-and-replace.
+
+P1 scoping (#147, scoping-only, no code): enumerates 38 `InvalidInput(String)` call sites by file:line with proposed target variant. Migration order biased to finish `src/crystal.rs` first (ERR2-P1b, concurrent) so Core Engineer's crystal-cluster refactor lands on a typed-error foundation.
+
 ## 2026-04-19 — TSPL landed (PR #150)
 
 18 new `#[ignore = "TSPL Tier-2: ..."]` tags. Tier-1 wall: 95 s → **12 s warm** (8× on top of TPRF's 7×; net 55× vs. opt-level=0 baseline). Tier-2 wall: 58 s warm (passing tests only). Gate: 271 unit + 49 integration pass; clippy 18/24 baseline unchanged; rustdoc clean.
