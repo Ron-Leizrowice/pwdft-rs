@@ -1,9 +1,9 @@
 ---
 id: ITEV
 status: active
-priority: high
+priority: medium
 complexity: medium
-risk: medium
+risk: high
 depends_on: []
 blocks: []
 supersedes: [DVSN]
@@ -15,6 +15,102 @@ supersedes: [DVSN]
 > (`faer::self_adjoint_eigen`, called per k-point per SCF iteration) with
 > faer's built-in Krylov-subspace iterative eigensolver, which computes only
 > the lowest `n_bands` eigenpairs. Composable with WFRX warm-start.
+
+## Status (2026-04-19, post-ITEVF vendor + validate)
+
+The original ITEV integration is **code-complete but off-by-default and
+correctness-blocked**:
+
+- `EigensolverKind::Iterative` is wired end-to-end (`src/eigensolver/iterative.rs`,
+  `src/scf/driver.rs` dispatch, YAML `scf.eigensolver: iterative`).
+- `faer::partial_self_adjoint_eigen` ships with an `iterate_lanczos`
+  reorthogonalization bug that spins on near-null Krylov vectors. **Fix
+  applied locally** on branch `ITEVF/vendor-faer-lanczos-fix` (faer clone
+  at `/Users/ronleizrowice/Documents/github/faer`, local commit `6a5edcd`
+  adds a `MAX_REORTH = 3` cap per Parlett & Kahan "Twice Is Enough";
+  not pushed, not PR'd upstream yet). **Not** vendored in this repo yet
+  — the branch sits local while we decide whether to land the
+  `[patch.crates-io]` override or wait for upstream 0.25+.
+- ITEVF (Researcher, 2026-04-19) ran the iterative path against the
+  vendored fix and surfaced two pre-existing correctness defects that
+  were **hidden by the upstream hang**. Both must be fixed before the
+  default can flip. Details: `docs/FAER_ITERATE_LANCZOS_FIX.md` on
+  the ITEVF branch.
+
+### Correctness defect 1 — size-independent Krylov padding
+
+`src/eigensolver/iterative.rs:265` sets `n_request = n_bands + n_bands/2`
+(e.g. 8 + 4 = 12 at `n_bands = 8`). At n_pw = 725 on Si this padding is
+insufficient for the 3-fold-degenerate valence cluster near 15.90 eV —
+the solver drops bands 3–7 with per-band error of 1.1–3.2 eV. At
+n_pw = 89 the same test converges cleanly.
+
+Root cause: Krylov convergence at a degeneracy of multiplicity `m` needs
+`n_request ≥ n_bands + m + slack`, and the safe `slack` grows with
+`n_pw` (basis quality limits the Krylov invariant-subspace resolution).
+A fixed `n_bands/2` padding is physically wrong — it needs to scale
+with `max_dim / min_dim` of the enclosing invariant subspace, not with
+`n_bands` alone.
+
+### Correctness defect 2 — iterative path bypasses WFRX warm-start
+
+`src/scf/driver.rs:128-133` (`diagonalize_dispatch`) always passes
+`v0 = None` to `diagonalize_lowest_iterative`, regardless of whether
+the SCF driver has a `prev_eigvecs` to hand. WFRX's subspace warm-start
+only wires into the Dense backend today. Empirically, Si SCF at
+n_pw = 89 converges cleanly on both paths but to a *different* fixed
+point: Dense and Iterative differ by 0.77 eV on total energy and show
+structural per-component disagreement across iterations. Warm-starting
+from the previous iteration's eigenvectors would likely close most of
+this gap; cold Arnoldi at each SCF step sees a different-enough
+starting subspace to find a different basin.
+
+### Performance: claim was wrong
+
+Previously cited as "3–10× faster at `n_pw ≥ 200`". ITEVF's n_pw = 725
+single-shot diagonalization bench (Si, ecut = 400 eV, kinetic + V_NL,
+3 runs, machine-locked):
+
+| Backend | Median | Correctness at n_bands = 8 |
+|---------|--------|-----------------------------|
+| Dense (faer `SelfAdjointEigen`) | **87.5 ms** | OK |
+| Iterative (faer `partial_self_adjoint_eigen` + shift-and-flip) | 180.7 ms | max Δ = 3.15 eV (drops degenerate cluster) |
+
+**Iterative is 0.48× — i.e. roughly half as fast — on a realistic
+Kohn-Sham Hamiltonian.** The original "3–10×" projection was built
+from synthetic dense random matrices whose eigenvalues are
+non-degenerate and well-separated; real KS Hamiltonians carry
+degeneracies at high-symmetry k-points. Expect the performance story
+to improve after defects 1 + 2 are fixed (fewer restarts, warm-start
+shortcuts), but revise the baseline expectation downward:
+**medium-system parity, large-system modest win**, not an order of
+magnitude.
+
+### Updated acceptance gate for the default flip (supersedes Phase 5
+below)
+
+The default flip now requires, in order:
+
+1. **Vendor** the faer `iterate_lanczos` fix — either upstream 0.25
+   lands it or we add `[patch.crates-io] faer = { path = "..." }` in
+   this repo and document the SHA in `docs/FAER_ITERATE_LANCZOS_FIX.md`.
+2. **Fix defect 1** — adaptive `n_request` padding that scales with
+   basis size and estimates degeneracy margin. Per-system tests must
+   show `|Δ eigvals| ≤ 1e-10 eV` at n_pw ∈ {89, 259, 725} for Si,
+   Fe BCC FM, Cu FCC.
+3. **Fix defect 2** — thread `prev_eigvecs` through
+   `diagonalize_dispatch` so the Iterative path gets WFRX warm-start.
+   Si SCF must converge to the same fixed point (≤ 1e-8 eV on total
+   energy) on Dense and Iterative.
+4. **Bench end-to-end SCF wall-time** (not single-shot diag) at
+   n_pw ∈ {89, 259, 725} with WFRX active. Default flips only if
+   Iterative wins by ≥ 10 % wall-time at n_pw = 725 *and* loses by
+   ≤ 10 % at n_pw = 89.
+
+Local-only work on the vendor branch is acceptable interim state. Do
+**not** land `[patch.crates-io]` on main until defects 1 and 2 are
+also fixed — the only value of vendoring is to run the correctness
+fixes against the unblocked solver.
 
 ## Problem
 
