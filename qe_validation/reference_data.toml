@@ -123,3 +123,123 @@ fermi_energy_ev   = 10.2064
 n_iterations      = 8
 # MgO: Mg (2s2 2p6 3s2) + O (2s2 2p4) = 16 valence electrons.
 gamma_eigenvalues_ev = [-74.3080, -29.9713, -29.9713, -29.9713, -10.1472, 8.4930, 8.4930, 8.4930]
+# --- PBE reference data (GGAP Phase F-pre) ---
+#
+# Generated 2026-04-19 with QE 7.5 (qe-7.5/build/bin/pw.x), 16 MPI ranks,
+# PseudoDojo ONCV NC/PBE v0.4 .standard pseudopotentials.
+# Each *_pbe section mirrors its LDA sibling's cell/k-grid/smearing;
+# ecut is lifted to the PseudoDojo PBE .standard recommendation per
+# species-max (Ha → Ry = ×2) so the reference is basis-converged.
+
+[si_diamond_pbe]
+input_file        = "si_scf_pbe.in"
+lattice_param_ang = 5.431
+ecutwfc_ry        = 24.0
+k_grid            = [4, 4, 4]
+degauss_ry        = 0.01
+nspin             = 1
+total_energy_ry   = -16.91056535
+fermi_energy_ev   = 6.5649
+n_iterations      = 7
+gamma_eigenvalues_ev = [-5.7047, 6.2697, 6.2697, 6.2697, 8.8126, 8.8126, 8.8126, 9.6119]
+# pp_sha256_Si_upf = "39822757f53f36e3..."
+
+[c_diamond_pbe]
+input_file        = "c_diamond_scf_pbe.in"
+lattice_param_ang = 3.567
+ecutwfc_ry        = 36.0
+k_grid            = [4, 4, 4]
+degauss_ry        = 0.01
+nspin             = 1
+total_energy_ry   = -23.93429785
+fermi_energy_ev   = 15.7827
+n_iterations      = 15
+gamma_eigenvalues_ev = [-8.1293, 13.6836, 13.6836, 13.6836, 19.2295, 19.2295, 19.2295, 26.7977]
+# pp_sha256_C_upf = "f828e50a154e3cad..."
+
+[al_fcc_pbe]
+input_file        = "al_fcc_scf_pbe.in"
+lattice_param_ang = 4.05
+ecutwfc_ry        = 24.0
+k_grid            = [8, 8, 8]
+degauss_ry        = 0.02
+nspin             = 1
+total_energy_ry   = -4.63658133
+fermi_energy_ev   = 7.8038
+n_iterations      = 6
+gamma_eigenvalues_ev = [-3.2291, 20.4953, 20.4953, 22.0000, 22.0000, 22.0000]
+# pp_sha256_Al_upf = "b02eaa07c5d98f5e..."
+
+[fe_bcc_fm_pbe]
+input_file        = "fe_bcc_fm_scf_pbe.in"
+lattice_param_ang = 2.87
+ecutwfc_ry        = 60.0
+k_grid            = [8, 8, 8]
+degauss_ry        = 0.02
+nspin             = 2
+starting_magnetization = 0.5
+total_energy_ry   = -250.53835824
+fermi_energy_ev   = 17.8191
+n_iterations      = 13
+total_magnetization_mub = 2.34
+absolute_magnetization_mub = 2.47
+gamma_eigenvalues_up_ev = [-70.8485, -36.6493, -36.6493, -36.6493, 9.4123, 15.3000, 15.3000, 15.3000]
+gamma_eigenvalues_dn_ev = [-68.2484, -33.8992, -33.8992, -33.8992, 9.5188, 17.5714, 17.5714, 17.5714]
+# pp_sha256_Fe_upf = "79848bdb660ac0fe..."
+
+[gaas_zincblende_pbe]
+input_file        = "gaas_scf_pbe.in"
+lattice_param_ang = 5.653
+ecutwfc_ry        = 44.0
+k_grid            = [4, 4, 4]
+degauss_ry        = 0.01
+nspin             = 1
+total_energy_ry   = -361.07886391
+fermi_energy_ev   = 9.0818
+n_iterations      = 11
+gamma_eigenvalues_ev = [-27.2741, -27.2741, -27.1442, -27.1442, -27.1442, -6.6792, -6.6792, -6.6735]
+# pp_sha256_Ga_upf = "e890f0d10ab5554c..."
+# pp_sha256_As_upf = "39d557b0496b28f7..."
+
+[cu_fcc_pbe]
+input_file        = "cu_fcc_scf_pbe.in"
+lattice_param_ang = 3.61
+ecutwfc_ry        = 60.0
+k_grid            = [8, 8, 8]
+degauss_ry        = 0.02
+nspin             = 1
+total_energy_ry   = -378.98671646
+fermi_energy_ev   = 17.4696
+n_iterations      = 11
+gamma_eigenvalues_ev = [-96.0295, -52.9790, -52.9790, -52.9790, 8.0073, 14.4410, 14.4410, 14.4410]
+# pp_sha256_Cu_upf = "0b53f2257151069b..."
+
+[nacl_rocksalt_pbe]
+input_file        = "nacl_scf_pbe.in"
+lattice_param_ang = 5.614
+ecutwfc_ry        = 36.0
+k_grid            = [4, 4, 4]
+degauss_ry        = 0.01
+nspin             = 1
+total_energy_ry   = -123.15952587
+fermi_energy_ev   = 3.9131
+n_iterations      = 8
+gamma_eigenvalues_ev = [-52.0124, -19.7210, -19.7210, -19.7210, -11.4565, 1.2499, 1.2499, 1.2499]
+# pp_sha256_Na_upf = "9451b6a1be0db804..."
+# pp_sha256_Cl_upf = "c009006302553d70..."
+
+[mgo_rocksalt_pbe]
+input_file        = "mgo_scf_pbe.in"
+lattice_param_ang = 4.212
+ecutwfc_ry        = 48.0
+k_grid            = [4, 4, 4]
+degauss_ry        = 0.01
+nspin             = 1
+total_energy_ry   = -151.67224144
+fermi_energy_ev   = 10.5529
+n_iterations      = 8
+gamma_eigenvalues_ev = [-65.8502, -31.4806, -31.4806, -31.4806, -9.2153, 8.1381, 8.1381, 8.1381]
+# pp_sha256_Mg_upf = "15cdd9380687a47a..."
+# pp_sha256_O_upf = "2a543889f6522e2a..."
+
+
