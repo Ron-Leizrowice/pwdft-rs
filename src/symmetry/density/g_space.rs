@@ -280,7 +280,6 @@ pub fn symmetrize_density_g(
 // deprecated real-space `symmetrize_density` on compatible grids where
 // they must agree; `#[allow(deprecated)]` silences the intentional call.
 #[allow(deprecated)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, reason = "ERR2 § Phase 0: in-src test modules are allowed to panic")]
 mod tests {
     use super::super::symmetrize_density;
     use super::*;

@@ -70,7 +70,6 @@ impl Lattice {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, reason = "ERR2 § Phase 0: in-src test modules are allowed to panic")]
 mod tests {
     use super::*;
     use approx::relative_eq;

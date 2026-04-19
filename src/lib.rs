@@ -1,3 +1,13 @@
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        reason = "ERR2 § Phase 0: in-src test modules are allowed to panic; CLAU consolidated 32 per-module allows to this single crate-level cfg_attr"
+    )
+)]
+
 pub mod atoms;
 pub mod bandstructure;
 pub mod basis;
