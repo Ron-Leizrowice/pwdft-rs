@@ -40,7 +40,7 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 | MADOC | Mathematical documentation push (phased; MADOC-A first) | large | low | — | DLNT |
 | GGAP | GGA/PBE exchange-correlation functional (Phase A dispatcher LANDED PR #85; Phases B–F ~7–10 CE-days; B unblocks 7 VQEF PBE cells) | large | medium | — | HYBR |
 | HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP | — |
-| ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; P0 landed PR #86; ERR2-AX operations.rs annotations in flight; P1 InvalidInput split remains) | medium | low | — | — |
+| ERR2 | Panic-free production (clippy::unwrap_used + structured InvalidInput split; P0 #86, ERR2-AX #111, TYPB #134 landed; P1 InvalidInput split fully scoped 2026-04-19 — 15 sites → 4 new variants across 4 mergeable PRs, ready to implement) | medium | low | — | — |
 | GOPT | GPU kernel + wgpu host path optimization audit (PR-B #106 + PR-A #138 landed; F5/F6/F8 empirically tested, no measurable gain on M3 Max / naga 29.0 / Metal — audit estimates stale; remaining lever is F1+F2 chain fusion which needs `src/scf/driver.rs` access) | medium | low-medium | — | — |
 | TRV2 | Fresh test-suite review — post-PCFX/CCMX/NCFX/GGAP coverage pass (F1+F3 landed PRs #98/#96; F2 CCMX-extraction deferred on WFRX/driver refactor; 10 Categories 2–5 findings remain) | medium | low | — | — |
 | MAUD | Mathematical accuracy audit of core physics modules (post-MADOC-A cold read; 1 docstring A + 9 C findings; MAUD-AC in flight will address top 2) | small | low | MADOC | — |
