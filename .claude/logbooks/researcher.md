@@ -2,6 +2,46 @@
 
 Entries: date, what was validated, discrepancies found (with numbers), references used. Physics findings only — not code quality or docs.
 
+## 2026-04-19 — VGCH Phase 1a — heavy-atom per-component diagnostic (no fix yet)
+
+Added `tests/vgch_per_component_heavy.rs` (Cu 4×4×4 and Fe 8×8×8
+nspin=1) and `scripts/validate/vgch_vloc_heavy.py`. Fix NOT shipped —
+Phase 1a completed; Phase 1b scoped.
+
+**Per-component residuals (eV, ours − QE):**
+
+| system | one-electron | E_H | E_xc | E_ewald | E_total |
+|---|---|---|---|---|---|
+| Fe 8×8×8 | +10.99 | −0.70 | +0.93 | +0.006 | **+11.50** |
+| Cu 4×4×4 | +37.03 | **−24.57** | +4.73 | +3e-5 | +17.31 |
+
+**Key finding:** residual splits across one-electron and Hartree with
+OPPOSITE SIGNS — signature of a different converged density, not a
+form-factor bug. Cu one-e +37 eV partially canceled by E_H −24.6 eV
+→ net +17 eV.
+
+**V_local(G=0) ruled out.** Python ref `(4π/Ω) ∫ r²[V+Ze²/r] dr`
+agrees with `v_local_of_g(0, Ω)` to all printed digits for all 11
+heavy-atom PPs (Si/Fe/Cu/Ga/As/Na/Cl/Mg/O/Al/C). Fe Z=16 ref: 5.1736
+eV, pwdft: 5.1736 eV.
+
+**Γ eigenvalue shift.** Every Fe eigenvalue offset ~5.1–5.3 eV vs QE,
+matching V_loc(G=0) convention (pwdft zeros G=0 in H, compensated by
+N·V_loc(G=0) additive). Does NOT contribute to E_total residual.
+
+**Phase 1b hypotheses (next session):**
+1. Different SCF fixed point — mixer/initial-density issue on
+   heavy-atom cells, not a PP bug. Needs ρ(G) shell-by-shell diff
+   between pwdft and QE save files.
+2. E_nonlocal d-projector scaling — Cu E_NL = −508.80 eV vs Fe
+   +37.86 eV is a 13× swing. Need beta_q reference extended to Cu
+   and Γ-point assembled-H cross-check for Cu.
+3. Semicore ecut under-convergence. Test by ecut sweep Fe/Cu at
+   ecut ∈ {15, 25, 40, 60} Ry on both codes.
+
+Five VGCH `#[ignore]` strings unchanged (already cite VGCH/TBD). No
+src/ changes; no regression risk.
+
 ## 2026-04-18 — VQEF roadmap (PR #82) — proposal only
 
 Scoped the 8 × 2 (system × functional) QE validation matrix as a gating roadmap. Current state at `origin/main` 0520c8c = **0 GREEN / 8 YELLOW / 8 RED** out of 16 cells. All 7 `#[ignore]` markers in `tests/qe_validation.rs` attributed to one of:
