@@ -79,7 +79,10 @@ fn bench_eigensolver(c: &mut Criterion) {
         vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
         group.bench_function(format!("faer_eigen_n{n}"), |b| {
-            b.iter(|| black_box(dense::diagonalize_hermitian(black_box(&h)).unwrap()));
+            // Full decomposition: n_bands = h.nrows() takes the `subcols(0, n)`
+            // branch of `diagonalize_lowest` with n == full spectrum, which is
+            // one `to_owned()` away from the underlying `self_adjoint_eigen`.
+            b.iter(|| black_box(dense::diagonalize_lowest(black_box(&h), h.nrows()).unwrap()));
         });
 
         // ITEV iterative partial eigensolver (lowest 8 eigenpairs only).

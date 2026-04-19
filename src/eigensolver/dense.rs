@@ -33,7 +33,7 @@ pub const WFRX_RESIDUAL_TOL: f64 = 1e-6;
 /// # Errors
 /// Returns `PwdftError::Eigensolver` if the matrix is not square or if faer
 /// fails to compute the eigendecomposition.
-pub fn diagonalize_hermitian(h: &faer::Mat<Complex64>) -> Result<EigenResult> {
+pub(crate) fn diagonalize_hermitian(h: &faer::Mat<Complex64>) -> Result<EigenResult> {
     let n = h.nrows();
     if n != h.ncols() {
         return Err(PwdftError::Eigensolver {

@@ -2,6 +2,17 @@
 
 Entries: date, metrics (actual counts), findings, proposals affected. Track quality trends over time.
 
+## 2026-04-18 — DEAD landed all three sub-items (PR #127)
+
+DRSD + SMRT + DHPC all shipped in one bundle after rebasing around HKIN/XCTH/ELMN concurrent merges.
+
+Net LOC delta: **−239** (98 ins / 337 del). `real_space.rs` gone (−269). Gate: 306 tests pass, clippy 17/23 unchanged baseline, doc clean.
+
+Notes for next sweep:
+- HKIN's landing mid-session freed `tests/free_electron_bands.rs` so DHPC could land fully. If blocking constraints ever force DHPC-only deferral, keep the bench `diagonalize_lowest(h, h.nrows())` change — it's equivalent but survives on its own.
+- `symmetrize_real_ref` inline in g_space.rs tests = ~75 LOC (proposal said 30). The extra LOC is per-operation loop body; non-negotiable — can't shrink without losing readability.
+- `src/main.rs:88` comment still says "symmetrize_density" (identifier gone). Flagged for Technical Writer as single-line cleanup.
+
 ## 2026-04-19 — TRV2 fresh test-suite review
 
 Wrote `proposals/TRV2-test-suite-review-2026-04-19.md`. PR #91. Targeted gaps TACC/TAUD left. 15 findings, 5 categories.

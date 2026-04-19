@@ -321,8 +321,8 @@ fn test_eigenvalues_are_sorted_diagonal() {
         let mut diag: Vec<f64> = (0..n).map(|i| h[(i, i)].re).collect();
         diag.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-        // Diagonalize
-        let result = dense::diagonalize_hermitian(&h).unwrap();
+        // Diagonalize (full spectrum; passing n_bands = basis.len() returns all)
+        let result = dense::diagonalize_lowest(&h, n).unwrap();
 
         // All eigenvalues should match the sorted diagonal exactly
         for (i, (got, expected)) in result
@@ -350,7 +350,8 @@ fn test_eigenvector_reconstruction() {
     let k = frac_to_cart([0.3, 0.1, 0.2], &lattice);
 
     let h = hamiltonian::build_kinetic(&basis, &k);
-    let result = dense::diagonalize_hermitian(&h).unwrap();
+    // Test iterates only the first 10 eigenpairs below, so request exactly that.
+    let result = dense::diagonalize_lowest(&h, 10).unwrap();
     let n = basis.len();
 
     // Verify H V = V Λ, i.e. H v_i = λ_i v_i for each eigenpair

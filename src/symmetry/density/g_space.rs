@@ -108,11 +108,11 @@ fn flat_to_miller(dims: [usize; 3], idx: usize) -> [i32; 3] {
 /// analytic phase. Our `SpaceGroupOp::rotation` is the integer rotation
 /// that acts on direct-space fractional coords as `r' = R·r + τ`, and
 /// G-vectors in the Miller basis rotate as `n → R^T · n` under the
-/// induced Fourier action. Unlike the real-space form
-/// ([`symmetrize_density`](super::symmetrize_density)) this is **exact**
-/// for any fractional translation on any sufficiently-band-limited
-/// density: a glide of `τ=(¼,¼,¼)` on an 18³ grid incurs no rounding
-/// error (the real-space form does, because `18·¼ = 4.5 ∉ ℤ`).
+/// induced Fourier action. Unlike a real-space nearest-neighbor
+/// averager, this is **exact** for any fractional translation on any
+/// sufficiently-band-limited density: a glide of `τ=(¼,¼,¼)` on an 18³
+/// grid incurs no rounding error (a nearest-neighbor averager does,
+/// because `18·¼ = 4.5 ∉ ℤ`).
 ///
 /// Work per call (leading order): one forward FFT, one inverse FFT,
 /// plus `N_grid · N_ops` complex multiplies/accumulates. At Si 18³ with
@@ -277,16 +277,82 @@ pub fn symmetrize_density_g(
 }
 
 #[cfg(test)]
-// A few tests below cross-validate the G-space form against the
-// deprecated real-space `symmetrize_density` on compatible grids where
-// they must agree; `#[allow(deprecated)]` silences the intentional call.
-#[allow(deprecated)]
 mod tests {
-    use super::super::symmetrize_density;
     use super::*;
     use crate::crystal::{Atom, Crystal, Lattice};
     use approx::relative_eq;
     use nalgebra::Vector3;
+
+    /// Real-space nearest-neighbor symmetrizer, kept local to these tests
+    /// as the transparent reference that `symmetrize_density_g` must match
+    /// on grids compatible with every space-group operation — i.e. the
+    /// regime where `nint(N·τ) = N·τ`, so the round-to-nearest rotation
+    /// lands each grid point on another grid point exactly. Used by
+    /// `test_symmetrize_g_matches_real_space_on_compatible_grid` (direct
+    /// equality on a compatible 12³ grid for Si Fd-3m, τ=(¼,¼,¼)) and
+    /// `test_symmetrize_g_projects_pre_symmetric_density` (fixed-point
+    /// check: applying `symmetrize_density_g` to a density already
+    /// symmetrized by this reference must not change it).
+    #[allow(
+        clippy::cast_possible_wrap,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "FFT dims in these tests are <= 18, well within i64 range; the `(idx % ni) + ni` double-modulo wrap is mathematically non-negative before `as usize`."
+    )]
+    fn symmetrize_real_ref(rho: &mut [f64], dims: [usize; 3], symmetry: &SymmetryInfo) {
+        let [nx, ny, nz] = dims;
+        assert_eq!(rho.len(), nx * ny * nz);
+
+        let frac_to_grid_idx = |frac: f64, n: usize| -> usize {
+            let ni = n as i64;
+            let idx = (frac * n as f64).round() as i64;
+            ((idx % ni) + ni) as usize % n
+        };
+
+        let n_ops = symmetry.n_ops as f64;
+        let rho_orig = rho.to_vec();
+        rho.fill(0.0);
+
+        for op in &symmetry.operations {
+            let s_inv = op.inverse();
+            let r_inv = s_inv.rotation;
+            let tau_inv = s_inv.translation;
+            for ix in 0..nx {
+                for iy in 0..ny {
+                    for iz in 0..nz {
+                        let f = [
+                            ix as f64 / nx as f64,
+                            iy as f64 / ny as f64,
+                            iz as f64 / nz as f64,
+                        ];
+                        let fp = [
+                            f64::from(r_inv[0][0]) * f[0]
+                                + f64::from(r_inv[0][1]) * f[1]
+                                + f64::from(r_inv[0][2]) * f[2]
+                                + tau_inv[0],
+                            f64::from(r_inv[1][0]) * f[0]
+                                + f64::from(r_inv[1][1]) * f[1]
+                                + f64::from(r_inv[1][2]) * f[2]
+                                + tau_inv[1],
+                            f64::from(r_inv[2][0]) * f[0]
+                                + f64::from(r_inv[2][1]) * f[1]
+                                + f64::from(r_inv[2][2]) * f[2]
+                                + tau_inv[2],
+                        ];
+                        let jx = frac_to_grid_idx(fp[0], nx);
+                        let jy = frac_to_grid_idx(fp[1], ny);
+                        let jz = frac_to_grid_idx(fp[2], nz);
+                        let src = jx * ny * nz + jy * nz + jz;
+                        let dst = ix * ny * nz + iy * nz + iz;
+                        rho[dst] += rho_orig[src];
+                    }
+                }
+            }
+        }
+        for v in rho.iter_mut() {
+            *v /= n_ops;
+        }
+    }
 
     fn si_fcc() -> Crystal {
         let a = 5.431;
@@ -449,7 +515,7 @@ mod tests {
             .collect();
 
         let mut rho_real = rho0.clone();
-        symmetrize_density(&mut rho_real, dims, &symmetry);
+        symmetrize_real_ref(&mut rho_real, dims, &symmetry);
 
         let mut rho_g = rho0;
         symmetrize_density_g(&mut rho_g, dims, &mut fft, &symmetry);
@@ -508,7 +574,7 @@ mod tests {
         let mut rho: Vec<f64> = (0..n)
             .map(|i| (i as f64 * 0.17).sin().abs() + 0.01)
             .collect();
-        symmetrize_density(&mut rho, dims, &symmetry);
+        symmetrize_real_ref(&mut rho, dims, &symmetry);
         let rho_pre = rho.clone();
 
         symmetrize_density_g(&mut rho, dims, &mut fft, &symmetry);
