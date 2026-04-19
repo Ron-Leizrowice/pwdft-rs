@@ -273,6 +273,7 @@ fn report_gamma_eigenvalues(label: &str, result: &ScfResult, qe_eigs_ev: &[f64])
 /// carry the V_loc(G=0) ≈ 1.35 eV shift, validated separately in
 /// `test_si_diamond_fermi_vs_qe`).
 #[test]
+#[ignore = "TSPL Tier-2: Si diamond 4×4×4 SCF at ecut=15 Ry (full QE match, 40 meV tol); run with cargo test -- --ignored when touching scf/, potential/, pseudopotential/, or symmetry/ paths"]
 fn test_si_diamond_energy_vs_qe() {
     let crystal = fcc_crystal(
         5.431,

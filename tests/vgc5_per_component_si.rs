@@ -224,6 +224,7 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
 /// Pins per-component values; prints side-by-side vs QE for localization
 /// of the 13.4 eV gap.
 #[test]
+#[ignore = "TSPL Tier-2: Si diamond 4×4×4 SCF at ecut=15 Ry with conv=1e-8 (per-component regression pins); run with cargo test -- --ignored when touching scf/, potential/, pseudopotential/, or symmetry/ paths"]
 fn vgc5_si_per_component() {
     let crystal = fcc_crystal(
         5.431,
@@ -325,6 +326,7 @@ fn vgc5_si_per_component() {
 /// Fe BCC matches QE to ~0.02 eV at the present state; this test pins the
 /// per-component values to confirm the 13.4 eV Si gap is geometry-specific.
 #[test]
+#[ignore = "TSPL Tier-2: Fe BCC 4×4×4 SCF at ecut=15 Ry with max_iter=150 (per-component regression pins); run with cargo test -- --ignored when touching scf/, potential/, pseudopotential/, or NLCC paths"]
 fn vgc5_fe_per_component() {
     let crystal = bcc_crystal(2.87, Atom::new(26, [0.0, 0.0, 0.0]));
     let pp_fe = load_pp("Fe");
@@ -447,6 +449,7 @@ fn vgc5_fe_per_component() {
 /// `E_band = E_kin + E_loc + E_nl + 2·E_H + E_vxc` closes to well
 /// below 1 μeV on a conv=1e-8 SCF.
 #[test]
+#[ignore = "TSPL Tier-2: Si diamond 4×4×4 SCF at ecut=15 Ry with conv=1e-8 (MADOC band-sum identity pin); run with cargo test -- --ignored when touching scf/energy, potential/, or density paths"]
 fn test_madoc_band_sum_identity_si() {
     let crystal = fcc_crystal(
         5.431,
@@ -553,6 +556,7 @@ fn test_madoc_band_sum_identity_si() {
 /// channels; `E_H` is still built from the total density only (Hartree
 /// does not couple spin).
 #[test]
+#[ignore = "TSPL Tier-2: Fe BCC nspin=2 4×4×4 SCF at ecut=15 Ry (MADOC band-sum identity pin, LSDA + CCMX); run with cargo test -- --ignored when touching scf/ spin driver, mixing, energy, or XC paths"]
 fn test_madoc_band_sum_identity_fe_bcc() {
     let crystal = bcc_crystal(2.87, Atom::new(26, [0.0, 0.0, 0.0]));
     let pp_fe = load_pp("Fe");

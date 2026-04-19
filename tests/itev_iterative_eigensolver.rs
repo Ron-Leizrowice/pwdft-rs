@@ -329,6 +329,7 @@ static COUNTING_LOGGER: CountingLogger = CountingLogger::new();
 /// correctness defects that were hidden by the hang (size-independent
 /// Krylov padding, missing warm-start wiring) are addressed by ITEV2.
 #[test]
+#[ignore = "TSPL Tier-2: runs Si SCF twice (Dense vs Iterative) with WFRX warm-start counting; run with cargo test -- --ignored when touching eigensolver/, WFRX, or scf/ paths"]
 fn itev_iterative_matches_dense_si_total_energy() {
     // Install the counting logger (idempotent — errors if already set but we
     // swallow that, since this test is the only one using the WFRX counters).

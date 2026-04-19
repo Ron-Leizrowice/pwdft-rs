@@ -95,6 +95,7 @@ fn run_si_scf(wfrx: bool) -> ScfResult {
 /// proposal's §2 criterion is "match pre-WFRX to within 1e-8 eV on a
 /// converged Si run"; we make that concrete here.
 #[test]
+#[ignore = "TSPL Tier-2: runs Si SCF twice (dense vs WFRX subspace) at ecut=100 conv=1e-8; run with cargo test -- --ignored when touching scf/, eigensolver/, or WFRX paths"]
 fn test_wfrx_subspace_matches_dense_reference_total_energy() {
     let reference = run_si_scf(false);
     let warm = run_si_scf(true);
@@ -122,6 +123,7 @@ fn test_wfrx_subspace_matches_dense_reference_total_energy() {
 /// modulo the entropy TS, which should be indistinguishable at this
 /// smearing.
 #[test]
+#[ignore = "TSPL Tier-2: runs Si SCF twice (dense vs WFRX subspace) at ecut=100 conv=1e-8; run with cargo test -- --ignored when touching scf/, eigensolver/, or WFRX paths"]
 fn test_wfrx_subspace_matches_dense_reference_free_energy() {
     let reference = run_si_scf(false);
     let warm = run_si_scf(true);
@@ -141,6 +143,7 @@ fn test_wfrx_subspace_matches_dense_reference_free_energy() {
 /// would dwarf the 1e-8 eV total-energy gate — this is a tighter per-
 /// eigenvalue sanity check.
 #[test]
+#[ignore = "TSPL Tier-2: runs Si SCF twice (dense vs WFRX subspace) at ecut=100 conv=1e-8; run with cargo test -- --ignored when touching scf/, eigensolver/, or WFRX paths"]
 fn test_wfrx_subspace_matches_dense_reference_eigenvalues() {
     let reference = run_si_scf(false);
     let warm = run_si_scf(true);

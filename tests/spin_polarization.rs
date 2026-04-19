@@ -50,6 +50,7 @@ fn gamma_only() -> Vec<KPoint> {
 }
 
 #[test]
+#[ignore = "TSPL Tier-2: runs Si SCF twice (nspin=1 and nspin=2) for up to 40 iters; run with cargo test -- --ignored when touching scf/ spin driver, density, or XC paths"]
 fn test_si_nspin2_matches_nspin1() {
     // Si with nspin=2 and zero magnetization should match nspin=1 energy.
     let crystal = si_crystal();
@@ -131,6 +132,7 @@ fn test_si_nspin2_matches_nspin1() {
 }
 
 #[test]
+#[ignore = "TSPL Tier-2: Si nspin=2 SCF up to 60 iters; run with cargo test -- --ignored when touching scf/ spin driver, XC, or density paths"]
 fn test_fe_spin_xc_consistency_regression() {
     // Combined SPXC + SPNC regression test.
     //
@@ -231,6 +233,7 @@ fn test_fe_spin_xc_consistency_regression() {
 }
 
 #[test]
+#[ignore = "TSPL Tier-2: Fe BCC nspin=2 4×4×4 SCF at ecut=15 Ry up to 80 iters (CCMX regression); run with cargo test -- --ignored when touching scf/ mixing, spin driver, or symmetry paths"]
 fn test_ccmx_fe_free_magnetization_converges() {
     // CCMX regression: Fe BCC free-magnetization nspin=2 with the same
     // pseudopotential that fixed-mag=2 chokes on (nc/lda/Fe.upf). Pre-CCMX,
@@ -357,6 +360,7 @@ fn test_ccmx_fe_free_magnetization_converges() {
 }
 
 #[test]
+#[ignore = "TSPL Tier-2: Fe BCC fixed-mag nspin=2 4×4×4 SCF at ecut=15 Ry up to 100 iters (inverted regression detector); run with cargo test -- --ignored when touching scf/ mixing or spin driver paths"]
 fn test_fe_ferromagnetic_fixed_moment() {
     // TAUD finding 1.2 — INVERTED from its original (silently-passing) form.
     //
