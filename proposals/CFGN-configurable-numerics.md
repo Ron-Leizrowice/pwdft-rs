@@ -1,15 +1,22 @@
 ---
 id: CFGN
 status: active
-priority: medium
-complexity: large
-risk: medium
-depends_on: [CNST, DDUP, SIMP]
+priority: low
+complexity: medium
+risk: low
+depends_on: []
 blocks: []
 ---
 
 # CFGN: Expose Hardcoded Numerics as Configurable Settings
 
+> **Re-scope 2026-04-19 (post-CFGN1).** CFGN1 (PR #114) landed knob #7
+> (`initial_density.gaussian_sigma`) — the pattern is proven, the rest
+> now breaks up into small independent follow-ups. **Read Section 11
+> first** — it is the current scope. Sections 6–10 are still the fresh
+> 2026-04-18 census but have been pared against what's landed and
+> against what ECUT / ESPL (new proposals 2026-04-19) cover.
+>
 > **Re-scope 2026-04-18.** The original inventory below dates from before
 > MODR (scf/mixing and symmetry/density folder splits, pseudopotential/upf
 > folder split, driver.rs/driver_spin.rs/report.rs extraction), CAST
@@ -489,9 +496,87 @@ already-cleaned constants and can slot in any time after Phase 1 merges.
 
 ## Change-log (re-scope session)
 
+- **2026-04-19** — EM: re-scope pass 2 (post-CFGN1). See Section 11
+  below for current state. Priority lowered from medium to low; the
+  parent stays open as an umbrella, but each remaining knob should
+  land as its own small proposal when a user asks for it. Frontmatter
+  `depends_on` cleared (CNST/DDUP/SIMP all landed earlier this week);
+  complexity downgraded from large to medium (10 knobs left, none
+  large individually).
 - **2026-04-18** — Researcher: full re-scope against `origin/main`
   @ `0be9290`. Original inventory (Section 2) kept verbatim. Added
   Sections 6–10 as the authoritative census, phasing, and decisions.
   Census shrank from ~25 to ~12 exposed knobs after honoring NCFX
   (consolidated XC floors), MODR (file-path renames), CAST (invariant
   documentation), and MXBA (four-constant don't-expose call).
+
+---
+
+## Section 11 — Re-scope 2026-04-19 (supersedes Sections 6–10)
+
+### What landed
+
+- **CFGN1 — `initial_density.gaussian_sigma`** (PR #114, 2026-04-19).
+  Knob #7 from Section 6.1. Proved the pattern: sub-struct under
+  `Settings`, `Default` points at the canonical constant,
+  `Settings::to_scf_params` threads it, validator rejects
+  non-positive/non-finite, bit-identical when omitted from YAML.
+  Four unit tests in `src/settings.rs`.
+
+### What adjacent proposals cover (NOT CFGN's scope)
+
+- **ECUT** — per-PP recommended `ecutwfc` from a PseudoDojo `.standard`
+  table. ECUT is about **replacing** the hardcoded 204.09 eV default
+  with a PP-aware default, not exposing a hardcoded knob. `ecutwfc`
+  itself is already a Settings field (never hardcoded); ECUT only
+  changes the default-value policy. See `proposals/ECUT-pp-recommended-ecut.md`.
+- **ESPL** — split `ElectronSettings` + drop default `scf.max_iter`
+  from 100 to 50. `max_iter` is already a Settings field (never
+  hardcoded); ESPL changes its default. See
+  `proposals/ESPL-electrons-settings-split.md`.
+
+These two adjacent proposals re-tune defaults for *already-exposed*
+settings; CFGN's remaining work is genuinely about exposing new knobs.
+
+### What's actually left in CFGN's scope
+
+Ten knobs, unchanged from Section 6 except for #7 (landed). Originally
+split into two phases; post-CFGN1 they are better landed as individual
+proposals when a user asks for one, because they're independent:
+
+**Phase-1 territory (Fermi + iterative eigensolver; 5 knobs):**
+- #4 `electrons.fermi_search.bounds_factor` (default 10.0)
+- #5 `electrons.fermi_search.max_iter` (default 200)
+- #6 `electrons.fermi_search.tol` (default 1e-14)
+- #8 `scf.iterative_eigensolver.tol` (default ~2.8e-14)
+- #9 `scf.iterative_eigensolver.max_restarts` (default 500)
+
+**Phase-2 territory (Ewald + numerics floors; 5 knobs):**
+- #1/#2 `ewald.cutoff_multiplier` (default 10.0)
+- #3 `ewald.eta: Option<f64>` (default None = auto)
+- #11 `electrons.xc.rho_floor` (default RHO_FLOOR = 1e-30)
+- #12 `electrons.g2_zero_threshold` (default G2_ZERO_THRESHOLD = 1e-12)
+
+**Out of scope** (moved from old Phase 3 into a firm "no"):
+- MXBA `AdaptiveBeta` internals — Section 9 decision stands; algorithmic
+  contract, not a user knob.
+- GPU workgroup / buffer-pool sizes — Section 6.3; WGSL-constant
+  coupling makes them not-trivially-exposable.
+- Knob #10 (`entropy_cutoff`) — low physical impact; defer until a user
+  reports a cold-smearing regression.
+
+### Recommendation
+
+Keep CFGN open as an umbrella, priority **low**. Each remaining knob is
+small enough (≤ ~40 lines) to land as a standalone proposal when a real
+user workflow demands it. Do not pre-emptively plumb all 10 — the YAML
+surface gets bloated with defaults nobody overrides. The CFGN1 pattern
+is the template: one knob per PR, validator-enforced, bit-identical
+when omitted.
+
+### Status of the original Phase plan (Section 10)
+
+Sections 6–10 remain accurate as a census. The phasing in Section 10 is
+now a **menu**, not a sequence: `Phase 1 → Phase 2` ordering no longer
+applies because the knobs are individually tiny. Pull from either list
+on demand.

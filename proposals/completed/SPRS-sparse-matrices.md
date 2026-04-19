@@ -1,14 +1,18 @@
 ---
 id: SPRS
-status: deferred
+status: archived
 priority: low
 complexity: large
 risk: medium
-depends_on: [DVSN]
+depends_on: []
 blocks: []
+archived_on: 2026-04-19
+archived_reason: Sparsity assumption is wrong for this codebase. The plane-wave Hamiltonian has O(n_pw²) dense non-zeros — kinetic is diagonal but V_eff is a convolution in G-space, which fills the matrix. Sparse storage only pays off in real-space-grid or atomic-orbital bases, neither of which this project uses or plans to use. Archived without implementation.
 ---
 
-# SPRS: Sparse Matrix Support
+# SPRS: Sparse Matrix Support — ARCHIVED
+
+> **ARCHIVED 2026-04-19.** Sparsity assumption is wrong for plane-wave DFT: the KS Hamiltonian in a plane-wave basis is structurally dense because V_eff enters as a G-space convolution. Sparse storage would pay off only in real-space-grid or atomic-orbital bases; this project uses neither. Keep this file for historical context only.
 
 > **Note:** Line numbers reference the pre-ScfContext codebase. Proposal 01 (faer) is now completed — faer's own `SparseColMat` may be preferable to adding sprs.
 
