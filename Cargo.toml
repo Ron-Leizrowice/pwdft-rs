@@ -128,3 +128,14 @@ opt-level = 3
 
 [profile.test.package."*"]
 opt-level = 3
+
+# Vendored faer with the MAX_REORTH = 3 `iterate_lanczos` fix (see
+# docs/FAER_ITERATE_LANCZOS_FIX.md). Resolved relative to this Cargo.toml,
+# so worktrees pick up the vendored copy automatically once they pull
+# faer/ from their branch. Both `faer` and `faer-traits` are published on
+# crates.io and both need patching — our dep tree pulls `faer-traits` in
+# transitively and cargo refuses to have two versions (vendored vs. 0.24)
+# of a shared trait crate.
+[patch.crates-io]
+faer = { path = "./faer/faer" }
+faer-traits = { path = "./faer/faer-traits" }

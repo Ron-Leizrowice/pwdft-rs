@@ -1,0 +1,14 @@
+target
+*.out
+f32.txt
+f64.txt
+f128.txt
+c32.txt
+c64.txt
+c128.txt
+*.pdf
+compile_commands.json
+.cache
+diol*.json
+mkl_bench
+openblas_bench

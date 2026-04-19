@@ -1,0 +1,22 @@
+[package]
+name = "faer-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+faer = { version = "0.24.0", path = "../faer" }
+pastey = "0.2.1"
+
+[build-dependencies]
+cbindgen = { version = "0.29" }
+
+[features]
+default = ["std", "rayon", "rand", "linalg", "sparse-linalg"]
+std = ["faer/std"]
+rand = ["faer/rand"]
+rayon = ["faer/rayon", "std"]
+linalg = ["faer/linalg"]
+sparse-linalg = ["faer/sparse-linalg"]
