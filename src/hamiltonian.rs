@@ -52,7 +52,6 @@ pub fn build_hamiltonian(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, reason = "ERR2 § Phase 0: in-src test modules are allowed to panic")]
 mod tests {
     use super::*;
     use crate::crystal::Lattice;
