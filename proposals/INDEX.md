@@ -22,9 +22,10 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
+| RWHK | Reward-hacking audit (2026-04-19). **1 Critical** (C1: `test_gpu_vs_cpu_scf_direct_comparison` compares GPU-vs-GPU, not GPU-vs-CPU — f32/f64 consistency signal structurally absent), **4 Major** (E2 ITEV heuristic narrow coverage; F3 NLCC convention wrong-sign undefended; H1 PBE-actually-invoked soft assertion gap; A5 five `#[ignore]`d LDA tolerances don't match their disclosed residuals), **6 Minor** | small | low | — | VQEF |
 | VGCH-2 | Heavy-atom residual hunt. Part A (#160) per-term trace; Part B (#167) shared-density transplant on Cu **refuted H3 mixer-basin** (+16.34 eV gap at ρ_QE — functional disagrees at same density). Part C (next) = Fermi-finder Python reference, `n_bands` margin audit, smearing function alignment, Cu/GaAs/MgO ρ_core pinning, `D_ij·β·β` contraction cross-check | medium | medium | — | VQEF |
 | VGCH-MECH | Mechanism taxonomy — splits remaining 12 YELLOW cells into **Class A** (8 cells, energy-functional-at-shared-density, continued under VGCH-2 Part C), **Class B** (Fe LDA Hamiltonian-side outlier per BSUM ratio 0.99× — PZ-vs-PW92 / spin-path hypothesis, 1 cell, 1 CE-day diagnostic), **Class C** (C diamond 2 cells, transplant-reuse + Kerker q_TF sweep). Classes B+C can run parallel to VGCH-2 Part C | medium | medium | VGCH-2, BSUM | VQEF |
-| VQEF | Full LDA+PBE QE validation matrix (8 systems × 2 functionals). **Scoreboard (EOD 2026-04-19): 4 GREEN / 12 YELLOW / 0 RED on E_total + 3 GREEN on E_F (Si / Al / C).** Closure path sequenced via VGCH-MECH | medium | low | VGCH-2, VGCH-MECH, GGAP-E | — |
+| VQEF | Full LDA+PBE QE validation matrix (8 systems × 2 functionals). **Scoreboard (EOD 2026-04-19): 4 GREEN / 12 YELLOW / 0 RED on E_total + 3 GREEN on E_F (Si / Al / C).** **Caveat per RWHK C1:** GPU-vs-CPU consistency signal is structurally absent — the `test_gpu_vs_cpu_scf_direct_comparison` test runs GPU on both branches. Closure path sequenced via VGCH-MECH | medium | low | RWHK, VGCH-2, VGCH-MECH, GGAP-E | — |
 
 ### Medium — Physics & Performance
 
