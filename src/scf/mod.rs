@@ -113,6 +113,18 @@ pub struct ScfParams {
     /// so that a YAML typo cannot silently produce LDA results under a
     /// PBE/PBE0/HSE06 label. Real GGA support is tracked by GGAP.
     pub xc_functional: crate::settings::XcFunctional,
+    /// Width (Å) of the Gaussian model atomic charge used by the initial
+    /// Superposition-of-Atomic-Densities (SAD) guess when a pseudopotential
+    /// lacks `PP_RHOATOM`.
+    ///
+    /// Default is 1.0 Å (see `scf::initial_density::DEFAULT_GAUSSIAN_SIGMA`
+    /// for the canonical constant). The SCF refines the initial guess
+    /// away in the first few iterations, so this value does not affect
+    /// the converged density, but it is a legitimate sensitivity-study
+    /// knob: a wider sigma damps high-G content in the starting density
+    /// and can slightly change iteration count for ill-conditioned
+    /// systems (CFGN Phase 1).
+    pub gaussian_sigma: f64,
 }
 
 impl ScfParams {
@@ -152,6 +164,16 @@ impl ScfParams {
                 "pulay_period must be >= 1 for PeriodicPulay mixing".into(),
             ));
         }
+        // Gaussian sigma for the SAD initial density (CFGN Phase 1) must be
+        // positive and finite. A NaN or non-positive value would propagate
+        // into `exp(-|G|^2 * sigma^2 / 2)` and poison the entire starting
+        // density.
+        if !self.gaussian_sigma.is_finite() || self.gaussian_sigma <= 0.0 {
+            return Err(PwdftError::InvalidInput(format!(
+                "gaussian_sigma must be positive and finite, got {}",
+                self.gaussian_sigma
+            )));
+        }
         Ok(())
     }
 }
@@ -177,6 +199,7 @@ impl Default for ScfParams {
             eigensolver: crate::eigensolver::EigensolverKind::default(),
             wfrx_subspace: false,
             xc_functional: crate::settings::XcFunctional::default(),
+            gaussian_sigma: initial_density::DEFAULT_GAUSSIAN_SIGMA,
         }
     }
 }

@@ -21,11 +21,26 @@ use crate::{
 
 use super::FftGrid;
 
-/// Gaussian width parameter for model atomic charge (Å).
-/// Controls the spatial extent of the initial guess.
-/// A value of ~1.0 Å gives a physically reasonable charge distribution
-/// for most elements. Doesn't need to be precise — the SCF will refine.
-const DEFAULT_GAUSSIAN_SIGMA: f64 = 1.0;
+/// Default Gaussian width parameter for the SAD model charge (Å).
+///
+/// Controls the spatial extent of the initial density guess when a
+/// pseudopotential file does not ship with `PP_RHOATOM`. A value of
+/// ~1.0 Å gives a physically reasonable distribution for most elements;
+/// the SCF refines this away in the first few iterations, so the exact
+/// number has weak effect on the converged density, but for numerical
+/// sensitivity studies (a wider sigma smooths the initial high-frequency
+/// G content; a narrower sigma makes the initial Delta-rho larger)
+/// CFGN Phase 1 exposes this as a configurable YAML input
+/// (`initial_density.gaussian_sigma`).
+///
+/// The `pub(crate)` visibility is deliberate: this is the single source
+/// of truth for the default in both `Settings` (YAML deserialization)
+/// and `ScfParams` (programmatic construction). Changing the value here
+/// changes both entry points at once — and will, by definition, change
+/// bit-identity for any caller that did not set `gaussian_sigma`
+/// explicitly. Do not change without coordinating with
+/// `tests/qe_validation.rs` regression guards.
+pub(crate) const DEFAULT_GAUSSIAN_SIGMA: f64 = 1.0;
 
 /// Configuration for initial density generation.
 pub struct InitialDensityConfig {

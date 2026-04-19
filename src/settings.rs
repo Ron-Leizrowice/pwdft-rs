@@ -58,6 +58,15 @@ pub struct Settings {
     /// Output verbosity and write flags.
     #[serde(default)]
     pub output: OutputSettings,
+
+    /// Initial-density (SAD) parameters.
+    ///
+    /// CFGN Phase 1: exposes the `gaussian_sigma` knob that was previously
+    /// hardcoded in `scf/initial_density.rs`. Omitting this block from
+    /// YAML yields defaults that reproduce the pre-CFGN behavior
+    /// bit-identically.
+    #[serde(default)]
+    pub initial_density: InitialDensitySettings,
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +445,35 @@ impl Default for OutputSettings {
     }
 }
 
+/// Initial-density (Superposition of Atomic Densities) parameters.
+///
+/// The SAD initial guess uses a pseudopotential's `PP_RHOATOM` when
+/// available; otherwise it falls back to a Gaussian model of width
+/// `gaussian_sigma` (Å) per atom. This block exposes that width as a
+/// configurable YAML knob (CFGN Phase 1).
+///
+/// Default reproduces the pre-CFGN hardcoded value (1.0 Å, the canonical
+/// constant `scf::initial_density::DEFAULT_GAUSSIAN_SIGMA`), so existing
+/// YAML inputs run bit-identically.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InitialDensitySettings {
+    /// Gaussian model-charge width in Å.
+    ///
+    /// Must be positive and finite. Typical values: 0.5–2.0 Å. Wider
+    /// sigma smooths the initial high-|G| content; narrower sigma gives
+    /// a sharper but numerically stiffer starting density.
+    pub gaussian_sigma: f64,
+}
+
+impl Default for InitialDensitySettings {
+    fn default() -> Self {
+        Self {
+            gaussian_sigma: crate::scf::initial_density::DEFAULT_GAUSSIAN_SIGMA,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Default value functions for serde (only where #[serde(default)] on struct
 // level doesn't work — e.g. enum variants with non-Default values)
@@ -519,6 +557,7 @@ impl Settings {
             eigensolver: self.scf.eigensolver.into(),
             wfrx_subspace: self.scf.wfrx_subspace,
             xc_functional: self.xc.functional,
+            gaussian_sigma: self.initial_density.gaussian_sigma,
         }
     }
 
@@ -1098,6 +1137,111 @@ electrons:
         let s_on = Settings::from_yaml_str(yaml_on).unwrap();
         assert!(s_on.electrons.adaptive_beta);
         assert!(s_on.to_scf_params(8).adaptive_beta);
+    }
+
+    // -----------------------------------------------------------------------
+    // CFGN Phase 1 — initial_density.gaussian_sigma plumbing tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn initial_density_gaussian_sigma_default_matches_pre_cfgn_constant() {
+        // Defaulting path: no `initial_density` block in YAML. The field
+        // must land at the pre-CFGN hardcoded 1.0 Å, i.e.
+        // `DEFAULT_GAUSSIAN_SIGMA`, preserving bit-identical starting
+        // densities for every existing YAML input.
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        let expected = crate::scf::initial_density::DEFAULT_GAUSSIAN_SIGMA;
+        assert!(
+            (s.initial_density.gaussian_sigma - expected).abs() < 1e-15,
+            "default gaussian_sigma {} != DEFAULT_GAUSSIAN_SIGMA {}",
+            s.initial_density.gaussian_sigma,
+            expected,
+        );
+        // And the value must survive the Settings -> ScfParams plumbing.
+        let p = s.to_scf_params(8);
+        assert!(
+            (p.gaussian_sigma - expected).abs() < 1e-15,
+            "ScfParams.gaussian_sigma {} != default {}",
+            p.gaussian_sigma,
+            expected,
+        );
+    }
+
+    #[test]
+    fn initial_density_gaussian_sigma_override_plumbs_through_to_scf_params() {
+        // Override path: a non-default value in YAML must flow unchanged
+        // into `ScfParams`. This is the CFGN Phase 1 plumbing test.
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+initial_density:
+  gaussian_sigma: 0.75
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        assert!(
+            (s.initial_density.gaussian_sigma - 0.75).abs() < 1e-15,
+            "YAML override not picked up: {}",
+            s.initial_density.gaussian_sigma,
+        );
+        let p = s.to_scf_params(8);
+        assert!(
+            (p.gaussian_sigma - 0.75).abs() < 1e-15,
+            "override not threaded into ScfParams: {}",
+            p.gaussian_sigma,
+        );
+    }
+
+    #[test]
+    fn initial_density_settings_roundtrip_via_yaml() {
+        // Serialize -> parse should preserve the value exactly.
+        let mut s = Settings::from_yaml_str(FULL_YAML).unwrap();
+        s.initial_density.gaussian_sigma = 1.25;
+        let yaml = serde_yaml_ng::to_string(&s).unwrap();
+        let restored = Settings::from_yaml_str(&yaml).unwrap();
+        assert!(
+            (restored.initial_density.gaussian_sigma - 1.25).abs() < 1e-15
+        );
+    }
+
+    #[test]
+    fn scf_params_validate_rejects_non_positive_gaussian_sigma() {
+        // `ScfParams::validate()` must reject sigma <= 0 or non-finite
+        // sigma with a structured InvalidInput error — these values
+        // would poison the SAD Gaussian exp(-|G|^2 sigma^2 / 2) term.
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            let params = ScfParams {
+                gaussian_sigma: bad,
+                ..Default::default()
+            };
+            match params.validate() {
+                Err(PwdftError::InvalidInput(msg)) => {
+                    assert!(
+                        msg.contains("gaussian_sigma"),
+                        "error should mention gaussian_sigma, got: {msg}"
+                    );
+                }
+                other => panic!(
+                    "expected InvalidInput for gaussian_sigma = {bad}, got: {other:?}"
+                ),
+            }
+        }
+
+        // Sanity: a positive finite value passes.
+        let ok = ScfParams {
+            gaussian_sigma: 1.0,
+            ..Default::default()
+        };
+        assert!(ok.validate().is_ok());
     }
 
     #[test]

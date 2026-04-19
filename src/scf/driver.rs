@@ -258,8 +258,15 @@ pub(crate) fn run_scf_unpolarized(
         g.prepare_buffers(ctx.n_grid, &ctx.g_squared);
     }
 
-    // Initial density: superposition of atomic densities (SAD)
-    let init_config = initial_density::InitialDensityConfig::non_magnetic(ctx.crystal.atoms.len());
+    // Initial density: superposition of atomic densities (SAD).
+    // CFGN Phase 1: Gaussian width threaded from `ScfParams` (which in turn
+    // is threaded from `Settings::initial_density.gaussian_sigma`); defaults
+    // to `initial_density::DEFAULT_GAUSSIAN_SIGMA` (1.0 Å) when YAML omits
+    // the field, preserving bit-identity with the pre-CFGN hardcoded value.
+    let init_config = initial_density::InitialDensityConfig {
+        magnetic_moments: vec![0.0; ctx.crystal.atoms.len()],
+        gaussian_sigma: Some(ctx.params.gaussian_sigma),
+    };
     let mut rho_r = initial_density::generate_initial_density(
         ctx.crystal, &mut ctx.grid, ctx.pseudopotentials, ctx.n_electrons, &init_config,
     );

@@ -35,3 +35,11 @@ electrons:
 
 pseudopotentials:
   Si: "../pseudopotentials/nc/lda/Si.upf"
+
+# Optional: initial-density (SAD) knobs (CFGN Phase 1). The Gaussian
+# model-charge width (Å) controls the starting guess when a pseudopotential
+# lacks PP_RHOATOM. The SCF refines the initial guess away in the first few
+# iterations, so the default of 1.0 Å is fine for virtually all inputs.
+# Uncomment to override for sensitivity studies.
+# initial_density:
+#   gaussian_sigma: 1.0
