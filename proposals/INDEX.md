@@ -10,6 +10,8 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 **2026-04-19 (Stack decision):** Engineering stack codified — observability stays on `log` + `env_logger` + `indicatif`; profiling adopts `samply` (PROF); benchmarks stay on `criterion`. The `tracing` ecosystem was considered and dropped; reopen triggers documented in PROF § "When to reconsider tracing". MIXL/LOGH/MOAD/DEAD/XCTH/PROF land independently — each is the simplest tool for its job rather than a piece of a unified observability framework.
 
+**2026-04-19 (GRM5 grooming pass — stale-scope review):** Archived **DVSN** (superseded by ITEV — faer's native partial solver), **SPRS** (sparsity doesn't fit plane-wave basis — Hamiltonian is structurally dense because V_eff is a G-space convolution), **HD5I** (3 days deferred with no user demand; re-open fresh when MD/geometry-optimization lands). Re-scoped **CFGN** post-CFGN1 (#114): priority medium→low, complexity large→medium, 10 knobs left (Fermi search tuning, iterative eigensolver tuning, Ewald cutoffs, numerics floors); each should land individually when a user asks. Nine PRs merged today: MPSH #110, ERR2-AX #111, CLAU #113, CFGN1 #114, TPRF #115, PR #112 (observability), GRM4 #116, TPRFB #117, DCLN #118. New `Archived` section added between Deferred and Completed.
+
 **2026-04-19 (GRM4 grooming pass — post-MY_THOUGHTS.md review):** Added 5 new proposals drawn from user review: **ESPL** (split ElectronSettings + max_iter 100→50), **ECUT** (per-PP recommended ecutwfc from PseudoDojo table, drop hardcoded 204.09 eV), **DCLN** (strip 57 proposal-ID + 51 QE tokens from public rustdoc), **ELMN** (trim atoms.rs to a `pub use`), **TYPB** (revert premature i16 Miller narrowing, `fft_grid_size` → u32). DCLN blocks MOAD (which writes 14 new module headers — land DCLN first so those headers are clean). TPRF landed as PR #115 (test profile opt-level=3; cargo test 11 min → 95 s, 7×). PR #112 landed as squash #116 (PROF/DEAD/XCTH/LOGH/MIXL/MOAD + TRCE delete). 6 total PRs merged this pass: MPSH #110, ERR2-AX #111, CLAU #113, CFGN1 #114, TPRF #115, PR #112. MPSH empirically refuted the shift-convention prior for C/Al/Fe residuals — only Si E_total closed; C stall and Al 83 meV gap are NOT shift-related and need separate proposals (C mixer/ecut, Al ecut/Kerker). VGCH V_loc(G=0) eigenvalue zero-reference (1.35 eV Si E_F shift) is a distinct issue from VGCH's heavy-atom residual — may warrant its own proposal rather than folding into VGCH Phase 1.
 
 **2026-04-19 (GRM2 grooming pass — 22 PRs #80–#101 merged today):** WFRX Technique 1 landed (PR #99, opt-in `scf.subspace_diag`, 7% at n_pw=725; Technique 2 stays deferred on ITEV). Promoted WFRX to Completed. Added MLFX/QELK/UNTS/DOCX/CLNP to Completed as small/reactive landings (no proposal files). GGAP Phase A landed (PR #85) — title annotated with phase state. ALOC Finding F-5 landed (PR #100, alloc traffic 16.8 GB → 0 per SCF at production sizes); F-7 and F-12 remain. TRV2 F1 (PR #98) and F3 (PR #96) landed; F2 (CCMX extraction) deferred on WFRX/driver refactor; 10 Category 2–5 findings remain. ERR2 P0 landed (PR #86); ERR2-AX (operations.rs annotations) and P1 (InvalidInput split) remain. MAUD-AC still in flight — title left as-is this pass. Machine-lock enforcement is now owner-scoped end-to-end (MLFX). Next strategic item: GGAP Phase B (PBE semilocal + gradient FFT helper) once MPSH drivers land; that unblocks 7 PBE validation cells in VQEF. Path forward — Validation: MPSH drivers (in flight) → 3 LDA cells; VGCH Phase 1 (Fe ecut sweep) after Phase 0 landed via CLNP. Perf: WFRX Technique 1 done, ALOC F-7/F-12 + GOPT PR-B next. "High — Foundation & Code Quality" subsection retained as a header slot but empty (MODR phases A–D all landed).
@@ -36,7 +38,6 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| CFGN | Expose Hardcoded Numerics as Settings | large | medium | — | — |
 | MADOC | Mathematical documentation push (phased; MADOC-A first) | large | low | — | DLNT |
 | GGAP | GGA/PBE exchange-correlation functional (Phase A dispatcher LANDED PR #85; Phases B–F ~7–10 CE-days; B unblocks 7 VQEF PBE cells) | large | medium | — | HYBR |
 | HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP | — |
@@ -69,15 +70,23 @@ _No active entries (MODR's 4 phases all landed; see Completed)._
 | XCTH | Remove `XC_PARALLEL_THRESHOLD`; always use rayon in `lda_xc_grid` / `lda_xc_spin_grid` (consistency with rest of engine; SCF impact <5 ms over 30 iters) | trivial | low | — | — |
 | ELMN | Trim `src/atoms.rs` to `pub use mendeleev::Element;` — delete `from_symbol`/`from_z` wrappers (6-line shims over mendeleev's native API) | trivial | low | — | — |
 | TYPB | Narrow-int audit — revert premature i16 Miller-index narrowing; switch `fft_grid_size` from `i32` + runtime sign-assert to `u32`; sweep remaining cast suppressions | small | low | — | — |
-| DVSN | Iterative Eigensolver (Davidson / LOBPCG) — SUPERSEDED BY ITEV | large | medium | — | — |
-| HD5I | HDF5 Restart and Structured Output | large | medium | — | — |
-| SPRS | Sparse Matrix Support | large | medium | DVSN | — |
+| CFGN | Expose hardcoded numerics as Settings (umbrella; re-scoped 2026-04-19 post-CFGN1: 10 knobs left across Fermi-search/iterative-eigensolver/Ewald/floors; each should land as its own small proposal when a user asks) | medium | low | — | — |
 | CUCL | CubeCL GPU Kernels | large | high | — | — |
 | FLUP | Follow-up backlog — 7 unpromoted items seeded from today's code reviews | small | low | — | — |
 
 ## Reference Documents
 
 - `psuedopotentials-sota.md` — Survey of pseudopotential formalisms, libraries, and formats
+
+## Archived
+
+Proposals moved out of the active/deferred backlog after a stale-scope review. File bodies kept in `proposals/completed/` for historical reference; frontmatter `status: archived` + `archived_reason` documents why. Re-open as a fresh proposal if the premise changes.
+
+| ID | Title | Archived | Reason |
+|----|-------|----------|--------|
+| DVSN | Iterative Eigensolver (Davidson / LOBPCG) | 2026-04-19 | Superseded by ITEV (faer's native `partial_self_adjoint_eigen`); custom Davidson/LOBPCG is wasted work |
+| SPRS | Sparse Matrix Support | 2026-04-19 | Sparsity assumption wrong for plane-wave DFT — V_eff convolution fills the Hamiltonian; sparse storage only helps real-space-grid or atomic-orbital bases (neither is this project's direction) |
+| HD5I | HDF5 Restart and Structured Output | 2026-04-19 | 3 days deferred with no user demand and no blocking dependency; re-open fresh when MD or geometry-optimization lands |
 
 ## Completed
 

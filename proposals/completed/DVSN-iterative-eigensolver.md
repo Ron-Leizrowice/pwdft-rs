@@ -1,14 +1,18 @@
 ---
 id: DVSN
-status: active
+status: archived
 priority: low
 complexity: large
 risk: medium
 depends_on: []
-blocks: [SPRS]
+blocks: []
+archived_on: 2026-04-19
+archived_reason: Superseded by ITEV (faer's native partial_self_adjoint_eigen). DVSN predated the discovery that faer 0.24 shipped an implicitly-restarted Arnoldi path; custom Davidson/LOBPCG work is now wasted. The live follow-up is ITEV (proposals/ITEV-faer-partial-eigen.md), currently blocked on an upstream faer 0.24 iterate_lanczos bug.
 ---
 
-# DVSN: Iterative Eigensolver (Davidson / LOBPCG)
+# DVSN: Iterative Eigensolver (Davidson / LOBPCG) — ARCHIVED
+
+> **ARCHIVED 2026-04-19.** Superseded by ITEV. `faer::partial_self_adjoint_eigen` (Arnoldi / Krylov-Schur) handles the same problem with no custom code — see `proposals/ITEV-faer-partial-eigen.md` for the active path. Keep this file for historical context only.
 
 > **Note:** Line numbers reference the pre-ScfContext codebase. Proposal 01 (faer) is now completed. Verify locations before implementing.
 

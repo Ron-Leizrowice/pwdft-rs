@@ -1,14 +1,18 @@
 ---
 id: HD5I
-status: deferred
+status: archived
 priority: low
 complexity: large
 risk: medium
 depends_on: []
 blocks: []
+archived_on: 2026-04-19
+archived_reason: Deferred since initial backlog (2026-04-16) with no user demand. Checkpoint/restart and structured output are real eventual needs, but not what research workflows are blocked on today. Archived to keep the active backlog focused; re-open when a concrete user workflow requires it (e.g., long-running geometry relaxation that must survive a crash).
 ---
 
-# HD5I: HDF5 Restart and Structured Output
+# HD5I: HDF5 Restart and Structured Output — ARCHIVED
+
+> **ARCHIVED 2026-04-19.** Deferred for 3 days with no user demand and no blocking dependency. Archived to keep the active backlog focused. Re-open as a fresh proposal (HDF5-rooted naming) when a real workflow needs restart or structured binary output — likely when MD or geometry-optimization lands.
 
 > **Note:** Line numbers reference the pre-ScfContext codebase (src/scf/mod.rs was ~1127 lines, now ~709). Verify locations before implementing.
 
