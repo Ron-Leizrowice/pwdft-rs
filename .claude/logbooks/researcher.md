@@ -2,6 +2,51 @@
 
 Entries: date, what was validated, discrepancies found (with numbers), references used. Physics findings only — not code quality or docs.
 
+## 2026-04-19 — VGCH Phase 1b H1 cleared — β_l(q) is bit-perfect vs QE
+
+Added `scripts/validate/vgch_beta_l_heavy.py` (QE-convention Simpson
+over log mesh, matches `qe-7.5/upflib/beta_mod.f90:111-116`
+byte-for-byte) and `tests/vgch_beta_l_heavy.rs` (pins pwdft-rs'
+`bessel_transform_projector` output against the Python CSV).
+
+**Verdict: H1 CLEARED.** Across 11 elements (Si, C, Al, Fe, Cu, Ga,
+As, Na, Cl, Mg, O) × all projectors × 10 q-values in [0, 7] Bohr⁻¹ =
+590 rows, **max |Δ| = 3.17e-12 Bohr^{3/2}** (Fe l=2 d-projector at
+q=6). 4 orders below the 1e-8 tolerance. C diamond (early-verdict
+case, no semicore) bit-perfect at 2.14e-12 Bohr^{3/2}. Semicore
+shells (Cu 3s/3p/3d, Fe 3s/3p, Mg 2s/2p) all indistinguishable from
+Si's lighter 4-projector layout. Form factors are NOT the bug.
+
+**What remains.** C diamond E_total still 1.45 eV off QE; every pwdft
+Γ eigenvalue is −3.16 eV vs QE (consistent with v_local_g0 = 2·1.5458
+= 3.09 eV / cell). Band-structure GAPS agree to <50 meV (22.121 vs
+22.169 eV Γ_v→Γ_c for C), so the physics is the same — the shift is
+pure V_loc(G=0) absolute-reference convention, cancelled inside
+E_total by `e_local_g0_shift = v_local_g0·N_el`. Phase 1a already
+verified that cancellation works for Si; it also works for the absolute
+eigenvalue column but NOT apparently for E_total on C/Cu/Fe. Since
+VGCMP Phases 1-4 proved the full PP→H pipeline is bit-correct on Si
+(10⁻⁸ eV), this residual is either (a) in SCF mixing dynamics reaching
+different fixed points across materials, or (b) a subtle E_total
+accounting term I missed.
+
+**Phase 1b H2 (SAD initial density) — not yet run.** Script template
+and harness pattern from H1 are directly reusable (parse UPF
+PP_RHOATOM, compare against pwdft's `generate_initial_density`
+output on the FFT grid). PP_RHOATOM integrates to z_valence exactly
+(C=4, Cu=19, Fe=16, Na=9, Cl=7) for every VGCH PP — so the PP-level
+atomic density is well-defined; the open question is whether the
+Bessel-transform + FFT assembly in pwdft's SAD matches QE's atomic
+superposition to high precision.
+
+**Phase 1b H3 (mixer basin) — diagnostic-only.** Hardest to close;
+the most informative test is to transplant QE's iter-1 density into
+pwdft and see which fixed point pwdft reaches. Out of scope for this
+session; proposed as VGCH-2 follow-up.
+
+**Post-H1 scoreboard:** no `#[ignore]` flipped — H1 was diagnostic-
+only. 18 / 24 clippy warnings (unchanged baseline). No src/ changes.
+
 ## 2026-04-19 — VGCH Phase 1a — heavy-atom per-component diagnostic (no fix yet)
 
 Added `tests/vgch_per_component_heavy.rs` (Cu 4×4×4 and Fe 8×8×8
