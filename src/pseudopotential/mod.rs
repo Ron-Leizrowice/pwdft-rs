@@ -151,12 +151,12 @@ impl PseudopotentialData {
     /// units); V_local(G) is invariant to the choice of Gaussian width
     /// because the decomposition is exact for any positive width.
     pub fn v_local_of_g(&self, g_norm: f64, omega: f64) -> f64 {
-        use crate::consts::E2_COULOMB as E2;
+        use crate::consts::{E2_COULOMB as E2, G_ZERO_THRESHOLD};
         use crate::numerics::simpson_integrate;
 
         let four_pi = 4.0 * std::f64::consts::PI;
 
-        if g_norm < 1e-12 {
+        if g_norm < G_ZERO_THRESHOLD {
             // G = 0 case: ∫ r² [V_loc(r) + Z e²/r] dr
             // (Bare Coulomb subtraction here matches QE. The bracketed term is
             // short-ranged because V_loc(r) → −Z·e²/r as r→∞.)
