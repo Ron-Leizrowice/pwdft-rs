@@ -26,6 +26,8 @@ pub mod mixing;
 pub(crate) mod potentials;
 mod report;
 pub mod smearing;
+#[doc(hidden)]
+pub mod transplant;
 
 use num_complex::Complex64;
 
