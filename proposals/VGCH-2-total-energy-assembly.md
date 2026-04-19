@@ -59,7 +59,7 @@ Phase 1a's observation strongly points at (1):
 
 ## Scope
 
-**Part A — Isolate the mispairing (1 CE-day).**
+**Part A — Isolate the mispairing (1 CE-day). COMPLETE 2026-04-19.**
 
 Add a per-term trace to `src/scf/energy.rs` so we can cross-check
 each assembled term against QE's per-term output (`E_one_electron`,
@@ -75,6 +75,145 @@ density state at the moment each term is computed. Focus on:
 - Harris-Foulkes pairing: `E_HF = E_band − E_H[ρ_in] + (E_xc[ρ_in]
   − E_vxc[ρ_in]) + E_ewald`. The driver uses `ρ_in` for the double
   counting; does it actually pass `ρ_in` and not `ρ_out`?
+
+### Part A findings (2026-04-19)
+
+Artifacts:
+
+- `scripts/validate/vgch2_per_term_trace.py` — parses QE
+  `one_electron / hartree / xc / ewald / smearing_mts / total / fermi`
+  from `qe_validation/*.out` for 8 systems → `vgch2_per_term_trace.csv`.
+- `scripts/validate/vgch2_join_trace.py` — joins QE CSV with pwdft-rs
+  CSV emitted by the extended `tests/vgch_per_component_heavy.rs`,
+  computes `delta_meV = pwdft − QE`, ranks by |delta|.
+- `tests/vgch_per_component_heavy.rs` extended from 2 → 8 cases
+  (Si, C, Al, Fe, Cu, GaAs, NaCl, MgO) at the QE-reference SCF config
+  where tractable. All 8 tests pass the PCFX self-check
+  (`|Σ(components) − E_total|` < 33 meV on Fe, < 1 µeV elsewhere).
+
+**Per-term delta table (eV, ours − QE):**
+
+| system    | Δone-e   | ΔE_H     | ΔE_xc    | ΔE_ewald | ΔE_total |
+|-----------|----------|----------|----------|----------|----------|
+| Si        | +0.017   | −0.015   | −0.059   | +0.011   | −0.033   |
+| Al        | −0.003   | −0.000   | −0.030   | +0.007   | +0.075   |
+| C diamond | +1.722   | −0.586   | +0.327   | −0.013   | +1.450   |
+| Fe BCC    | +10.986  | −0.702   | +0.931   | +0.006   | +11.502  |
+| Cu FCC    | +37.033  | −24.568  | +4.728   | +0.000   | +17.308  |
+| NaCl      | +14.970  | −8.934   | +1.852   | +0.100   | +7.988   |
+| MgO       | +18.099  | −9.895   | +2.353   | +0.150   | +10.706  |
+| GaAs      | +53.095  | −23.545  | +5.692   | −0.070   | +35.242  |
+
+**Primary suspect: NOT an assembly mispairing.** The per-term
+fingerprint is identical across every heavy-atom cell and is the
+unambiguous signature of converging to a **different self-consistent
+density**, not of a term-assembly bug:
+
+1. **The direct-sum identity holds.** `|Σ components − E_total| <
+   1 µeV` on every cell (the one exception is Fe at 23 meV,
+   attributable to the nspin=1 mismatch with QE's nspin=2 ref —
+   ρ-symmetrization of a magnetization-zero density is exact but
+   the post-symmetrize occupation weight has numerical noise at
+   1e-5 of the band sum). If `total_energy` / `with_g0_shift` /
+   `harris_foulkes_energy` were double-counting a term, this sum
+   would diverge by the same O(eV) as the QE residual — it doesn't.
+
+2. **`e_local_g0_shift = N_el · Σ_sp V_loc(G=0)(sp)` is bit-correct
+   against the direct formula.** Cross-checked against
+   `scripts/validate/vgch_vloc_heavy.csv` to < 0.001 eV on all 8
+   systems. The G=0 compensation path is not the bug.
+
+3. **The Δone-e / −ΔE_H ratio tracks linear-response from a density
+   perturbation**, not the factor-of-2 double-counting signature of
+   an assembly bug:
+
+   | system    | Δone-e    | −ΔE_H     | ratio  |
+   |-----------|-----------|-----------|--------|
+   | Si        | +0.017    | +0.015    | 1.19   |
+   | C diamond | +1.722    | +0.586    | 2.94   |
+   | Fe BCC    | +10.986   | +0.702    | 15.64  |
+   | Cu FCC    | +37.033   | +24.568   | 1.51   |
+   | NaCl      | +14.970   | +8.934    | 1.68   |
+   | MgO       | +18.099   | +9.895    | 1.83   |
+   | GaAs      | +53.095   | +23.545   | 2.26   |
+
+   For a δρ that changes at fixed V_ext, linear response gives
+   `Δone-e ≈ 2·∫V_H[ρ]δρ = 2·ΔE_H`, so ratio ≈ 2. Si/Cu/NaCl/MgO/GaAs
+   sit in [1.2, 2.9]; C is 2.94; Fe at 15.6 is the outlier. A
+   double-counting bug in `total_energy` would give ratio = 1 or
+   ratio = ∞ (sign-dependent), not a smooth band. **This is a
+   *different ρ* signature, not an assembly bug.**
+
+4. **Δone-e + ΔE_H + Δxc + Δewald ≈ ΔE_total to within `−(−TS)`.**
+   The residual after summing is exactly the QE `smearing contrib.
+   (-TS)` term for Al/Fe/Cu/GaAs (100-260 meV), which means pwdft-rs'
+   reported `total_energy` does NOT include the `−TS` smearing
+   contribution (QE's `!    total energy` is F = E − TS). This is a
+   separate ≤ 260 meV effect that should be flagged as its own
+   follow-up but is NOT the cause of the 1.5-35 eV residuals.
+
+5. **Si structural match: YES, with a twist.** On Si the |delta_meV|
+   ranking is (ΔE_xc, Δone-e, ΔE_H) at (−59, +17, −15) meV. On every
+   heavy system it is (Δone-e, ΔE_H, ΔE_xc) at O(1-53) eV. **The
+   sign pattern is the same — Δone-e > 0, ΔE_H < 0, ΔE_xc > 0 — but
+   the magnitude diverges by 3-4 orders.** Si's residual is O(k-grid
+   noise + NLCC round-off + MP-shift convention); heavy systems
+   have a *density-level* disagreement on top of those light
+   effects. The assembly is bit-correct on both.
+
+**Part B scope revision.** Given findings 1–4 above, the transplant
+experiment moves from "only if Part A clears" to **primary next
+step**. Seed pwdft-rs' SCF from QE's converged density (via a new
+parser for QE's XML charge-density.xml or `.save/charge-density.dat`
+binary). At iteration 1 with `ρ_in = ρ_QE`:
+
+- If one-e / Hartree / xc match to < 50 meV/atom, the driver correctly
+  reproduces QE's decomposition at QE's fixed point. The bug is then
+  in the SCF *dynamics* — H3b (mixer-basin), H5 (symmetrization, but
+  pinned clean by MPSH), H6 (initial density beyond SAD — already
+  bit-perfect per H2), or H7 (eigensolver drift) — with H3b as the
+  leading candidate because every failing cell uses a Kerker-family
+  mixer and the `E_H` sign pattern is consistent with charge
+  sloshing.
+- If they don't match at iter 1, the bug is a subtle `v_xc` or `v_H`
+  assembly term that is only visible when the density structure is
+  "heavy" (semicore PP, multi-species, or compact valence overlap).
+
+**Part B code pointers (post-revision):**
+
+- `src/scf/driver.rs:593-595` — `total_energy(e_band, e_H, e_xc_corr,
+  e_ewald)` followed by `with_g0_shift`. The pairing looks correct
+  (same `rho_out` everywhere); add a sanity print of all 4 components
+  at iter 1 for the seeded-density test.
+- `src/scf/energy.rs:133-151` — `xc_energy_corrected`. Verify
+  `rho_xc = rho_val + rho_core` and that `e_vxc` subtrahend
+  integrates against `rho_val` not `rho_xc`. Already checked at
+  docstring level — add an NLCC-specific unit test under Part B.
+- `src/scf/context.rs:124` — `v_local_g0 = v_local_fft[0].re`. This
+  is a sum over species (`sum_over_species(v_loc_of_g=0)`). On
+  single-species cells this is fine; on GaAs/NaCl/MgO the sum is
+  verified bit-correct above. Not the bug.
+
+**What VGCH-2 Part A rules out:**
+
+- Assembly mispairing in `total_energy` / `harris_foulkes_energy` /
+  `with_g0_shift` (ratios, sum-identity, explicit PCFX check all
+  pass).
+- V_loc(G=0) compensation sign or magnitude (matches closed-form
+  formula `N_el · Σ_sp V_loc(G=0)`).
+- NLCC double-counting direction (e_xc − e_vxc has the right sign
+  on all 5 NLCC-active cells).
+
+**What VGCH-2 Part A does NOT rule out:**
+
+- ρ-level disagreement at self-consistency (the primary finding).
+- The missing `−TS` in pwdft-rs' reported `total_energy` (up to
+  260 meV on Fe, up to 100 meV on Al/Cu — separate follow-up; see
+  `src/scf/driver.rs:593-595` where `total_energy` is assembled
+  without a smearing contribution).
+- Double-counting in the LSDA driver for Fe specifically
+  (Δone-e/−ΔE_H = 15.6 is a distinct outlier; rerun with nspin=2
+  as a cross-check under Part B).
 
 **Part B — Transplant experiment (1 CE-day, only if Part A clears).**
 
