@@ -10,6 +10,30 @@ blocks: []
 
 # CUCL: CubeCL GPU Kernels
 
+> **DEFERRED — explicit trigger condition (2026-04-19).**
+> The current wgpu + hand-written WGSL path is stable for the three
+> existing kernels (Hartree, LDA XC, V_eff assembly). Migrating to
+> CubeCL pays off only when we need kernels that WGSL makes painful.
+> Un-defer CUCL when **any** of the following is true:
+>
+> 1. **Non-local potential moves to GPU.** `NonlocalPotential::add_to_hamiltonian`
+>    is an O(n_pw²) double loop; porting it is the single largest
+>    GPU-scope expansion on the roadmap. The WGSL pain scales
+>    quadratically with kernel complexity; once we're writing > 100
+>    lines of untyped shader code, CubeCL's Rust-typed kernels become
+>    cost-effective.
+> 2. **A GPU PBE / GGA kernel is needed.** Semilocal XC introduces
+>    per-point gradient expressions that are awkward in WGSL's limited
+>    type system. This lands as part of GGAP Phase E.
+> 3. **wgpu's Metal backend regresses** or blocks a concrete feature
+>    we need (e.g., sub-groups for reductions, f64 when upstream adds it).
+> 4. **CubeCL announces a stable 1.0** with Metal as a first-class
+>    backend. Today (v0.6) it's still pre-1.0 and the Metal path is
+>    less battle-tested than wgpu's.
+>
+> Re-open as a fresh proposal at that point; rebuild the cost/benefit
+> against then-current state. Do not land pre-emptively.
+
 > **Note:** Line numbers reference the pre-ScfContext codebase. Verify locations before implementing.
 
 ## Motivation
