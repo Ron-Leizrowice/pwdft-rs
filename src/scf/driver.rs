@@ -589,12 +589,26 @@ pub(crate) fn run_scf_unpolarized(
 
         let e_band = band_energy(&eigenvalues_all, &occupations, &ctx.kpt_weights);
 
+        // Smearing entropy contribution −TS (Mermin free energy). Enters
+        // both the KS total and the Harris-Foulkes estimator symmetrically;
+        // QE's `demet` sign convention is the same (a negative number for
+        // positive physical entropy). For σ → 0 (insulator / Fixed scheme)
+        // `entropy_ts` returns exactly 0 and `e_smearing == 0`, so the
+        // total-energy numerics are bit-identical to the pre-TSEN code
+        // path on genuinely-gapped systems.
+        let ts = smearing::entropy_ts(
+            &eigenvalues_all, &ctx.kpt_weights, fermi_energy,
+            ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
+        );
+        let e_smearing = -ts;
+
         // Kohn-Sham energy: double-counting from OUTPUT density
         let e_total = with_g0_shift(total_energy(
             e_band,
             hartree_energy(&rho_g_new, &ctx.g_squared, ctx.omega),
             xc_energy_corrected(&rho_new_for_xc, &rho_r_new, &exc_r, &vxc_r_energy, ctx.omega),
             ctx.e_ewald,
+            e_smearing,
         ), &ctx);
 
         // Harris-Foulkes energy: double-counting from INPUT density
@@ -604,6 +618,7 @@ pub(crate) fn run_scf_unpolarized(
             hartree_energy(&rho_g, &ctx.g_squared, ctx.omega),
             xc_energy_corrected(&rho_for_xc, &rho_r, &exc_r_in, &vxc_r, ctx.omega),
             ctx.e_ewald,
+            e_smearing,
         ), &ctx);
 
         let hf_diff = (e_harris - e_total).abs();
@@ -639,13 +654,14 @@ pub(crate) fn run_scf_unpolarized(
             rho_g = rho_g_new;
             let rho_g_basis: Vec<Complex64> = ctx.g_to_fft.iter().map(|&idx| rho_g[idx]).collect();
 
-            // Entropy and free energy
-            let ts = smearing::entropy_ts(
-                &eigenvalues_all, &ctx.kpt_weights, fermi_energy,
-                ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
-            );
-            let free_energy = e_total - ts;
-            let energy_sigma0 = f64::midpoint(e_total, free_energy);
+            // Mermin free energy F = E - TS is `e_total` post-TSEN.
+            // Expose the internal energy E = F + TS and the σ → 0
+            // extrapolation E₀ = (E + F)/2 = F + TS/2 for downstream
+            // consumers (QE reports all three; see
+            // `qe-7.5/PW/src/electrons.f90` lines 1709-1710).
+            let internal_energy = e_total + ts;
+            let free_energy = e_total;
+            let energy_sigma0 = f64::midpoint(internal_energy, e_total);
 
             // -------------------------------------------------------------
             // VGC5 per-component decomposition (diagnostic).
@@ -698,6 +714,7 @@ pub(crate) fn run_scf_unpolarized(
                 e_xc: e_xc_term,
                 e_vxc: e_vxc_term,
                 e_ewald: e_ewald_term,
+                e_smearing,
             };
 
             log_convergence_summary(e_total, e_harris, hf_diff, free_energy, energy_sigma0);

@@ -154,12 +154,21 @@ pub(crate) fn xc_energy_corrected(
 /// corrections, evaluated on the **output** density.
 ///
 /// ```text
-///     E_KS = E_band − E_H[ρ_out] + (E_xc[ρ_out] − E_vxc[ρ_out]) + E_ion-ion
+///     E_KS = E_band − E_H[ρ_out] + (E_xc[ρ_out] − E_vxc[ρ_out])
+///            + E_ion-ion + E_smearing
 /// ```
 /// Derivation: `E_band = Σ f w ε` contains `E_H + E_vxc + E_local + E_nl +
 /// E_kin` (each band eigenvalue equals `⟨ψ|T + V_ext + V_H + V_xc|ψ⟩`),
 /// so `E_H` and `E_vxc` are double-counted and must be removed, leaving
 /// `E_xc` as the genuine functional value plus the ion-ion Ewald sum.
+///
+/// `e_smearing = −TS` is the Mermin free-energy correction. The returned
+/// quantity is `F = E_internal − TS`, the variational functional
+/// stationary in the occupations `f_{n,k}` at fixed electron count.
+/// For `σ → 0` (or the [`crate::scf::smearing::SmearingScheme::Fixed`]
+/// path), `e_smearing = 0` and `F = E_internal`. Matches QE's
+/// `! total energy` in the `pw.x` output, which is also `F = E − TS`;
+/// see `qe-7.5/PW/src/electrons.f90` where `etot` includes `demet`.
 ///
 /// All arguments in eV. Caller is responsible for also applying the
 /// `V_local(G=0) · N_el` compensating shift via [`with_g0_shift`] (the
@@ -167,35 +176,43 @@ pub(crate) fn xc_energy_corrected(
 /// finite; see [`crate::scf::context::ScfContext::new`]).
 ///
 /// Using the **output** density for the double-counting terms gives the
-/// variationally exact KS energy once SCF is converged. Away from self-
-/// consistency this estimator is only linear in (ρ_out − ρ_in);
+/// variationally exact KS free energy once SCF is converged. Away from
+/// self-consistency this estimator is only linear in `ρ_out − ρ_in`;
 /// [`harris_foulkes_energy`] gives a better early-iteration estimate.
 pub(crate) fn total_energy(
     e_band: f64,
     e_hartree: f64,
     e_xc_corrected: f64,
     e_ewald: f64,
+    e_smearing: f64,
 ) -> f64 {
-    e_band - e_hartree + e_xc_corrected + e_ewald
+    e_band - e_hartree + e_xc_corrected + e_ewald + e_smearing
 }
 
 /// Harris-Foulkes non-variational energy estimator, evaluated on the
 /// **input** density.
 ///
 /// ```text
-///     E_HF = E_band − E_H[ρ_in] + (E_xc[ρ_in] − E_vxc[ρ_in]) + E_ion-ion
+///     E_HF = E_band − E_H[ρ_in] + (E_xc[ρ_in] − E_vxc[ρ_in])
+///            + E_ion-ion + E_smearing
 /// ```
 /// Unlike [`total_energy`], which mixes output eigenvalues with output
 /// density, E_HF pairs the output eigenvalues (from diagonalizing
 /// `H[ρ_in]`) with double-counting terms built from `ρ_in`. The functional
-/// `E_KS[ρ]` is stationary at the self-consistent density, so the first
+/// `F_KS[ρ]` is stationary at the self-consistent density, so the first
 /// variation vanishes and
 /// ```text
-///     E_HF − E_KS = O(‖ρ_out − ρ_in‖²).
+///     E_HF − F_KS = O(‖ρ_out − ρ_in‖²).
 /// ```
 /// That quadratic convergence makes `|E_HF − E_total|` a sensitive
 /// self-consistency diagnostic — the driver warns when it stays large
 /// after the density threshold is met.
+///
+/// `e_smearing = −TS` enters both estimators symmetrically; the quadratic
+/// stationarity argument depends on the density and not on the
+/// occupation entropy, so the `−TS` piece is identical between the KS
+/// and HF paths. QE includes `demet` in both `etot` and `hwf_energy` for
+/// the same reason (see `qe-7.5/PW/src/electrons.f90`).
 ///
 /// Harris, *Phys. Rev. B* **31**, 1770 (1985);
 /// Foulkes & Haydock, *Phys. Rev. B* **39**, 12520 (1989).
@@ -205,8 +222,9 @@ pub(crate) fn harris_foulkes_energy(
     e_hartree_in: f64,
     e_xc_corrected_in: f64,
     e_ewald: f64,
+    e_smearing: f64,
 ) -> f64 {
-    e_band - e_hartree_in + e_xc_corrected_in + e_ewald
+    e_band - e_hartree_in + e_xc_corrected_in + e_ewald + e_smearing
 }
 
 /// Re-add the G=0 uniform-background piece of the local pseudopotential
@@ -587,6 +605,7 @@ pub(crate) fn xc_energy_bare(rho_xc: &[f64], exc_r: &[f64], omega: f64) -> f64 {
 ///             + e_hartree
 ///             + e_xc
 ///             + e_ewald
+///             + e_smearing             (= −TS; zero without smearing)
 /// ```
 ///
 /// ## Kohn-Sham double-counting identity
@@ -670,6 +689,32 @@ pub struct EnergyComponents {
     /// `ScfContext::new` and copied through every iteration. See
     /// [`crate::ewald::ewald_energy`].
     pub e_ewald: f64,
+    /// Smearing entropy contribution `−TS` in eV (a negative number
+    /// for positive physical entropy `S > 0`).
+    ///
+    /// The Mermin free-energy functional
+    /// `F[ρ, {f_{n,k}}] = E[ρ] − T · S[{f_{n,k}}]` is the variational
+    /// quantity that is stationary with respect to the occupations
+    /// `f_{n,k}` at fixed electron count. `total_energy` (`F`) includes
+    /// `−TS`; the direct-sum identity `Σ(components) = total_energy`
+    /// holds **including** `e_smearing`.
+    ///
+    /// Zero when the smearing width `σ` is zero, when the
+    /// [`crate::scf::smearing::SmearingScheme::Fixed`] scheme is used,
+    /// or when every occupation lands on `0` or `spin_factor` (a true
+    /// gapped insulator with `E_F` far from any band edge). Nonzero on
+    /// metals and on any system with finite-temperature occupations
+    /// that straddle the Fermi level.
+    ///
+    /// Sign convention: `S ≥ 0` for every supported smearing scheme
+    /// (Fermi-Dirac, Gaussian, cold) and `σ > 0`, so `e_smearing ≤ 0`
+    /// in normal use. Methfessel-Paxton can produce a slightly-negative
+    /// physical entropy in extreme tails — then `e_smearing > 0` — and
+    /// this field carries whatever sign `entropy_ts` returned.
+    ///
+    /// Matches QE's `demet` in `PW/src/electrons.f90` (the
+    /// `smearing contrib. (−TS)` line of `pw.x` output).
+    pub e_smearing: f64,
 }
 
 #[cfg(test)]
@@ -776,6 +821,75 @@ mod tests {
         assert!(
             relative_eq!(diff, 1.0, epsilon = 1e-10),
             "Expected diff=1.0, got {diff}"
+        );
+    }
+
+    // ---- TSEN: smearing-entropy pass-through ------------------------------
+
+    /// With `e_smearing == 0` (insulator / σ = 0), [`total_energy`] must
+    /// reduce bit-identically to the pre-TSEN formula. This is the
+    /// "bit-identical for insulators" regression guard.
+    #[test]
+    fn test_total_energy_insulator_bit_identical() {
+        let e_band = -10.0_f64;
+        let e_hartree = 3.25_f64;
+        let e_xc_corr = -1.5_f64;
+        let e_ewald = -4.75_f64;
+
+        let pre_tsen = e_band - e_hartree + e_xc_corr + e_ewald;
+        let post_tsen = total_energy(e_band, e_hartree, e_xc_corr, e_ewald, 0.0);
+
+        // Strict bit-identity: no rounding should occur when the
+        // smearing term is exactly 0.0.
+        assert_eq!(
+            pre_tsen.to_bits(),
+            post_tsen.to_bits(),
+            "insulator (e_smearing = 0) total_energy bits must match pre-TSEN: \
+             pre = {pre_tsen:.15e}, post = {post_tsen:.15e}"
+        );
+    }
+
+    /// With `e_smearing == 0`, [`harris_foulkes_energy`] must likewise
+    /// reduce bit-identically to the pre-TSEN formula.
+    #[test]
+    fn test_harris_foulkes_insulator_bit_identical() {
+        let e_band = -9.7_f64;
+        let e_hartree_in = 3.2_f64;
+        let e_xc_corr_in = -1.4_f64;
+        let e_ewald = -4.8_f64;
+
+        let pre_tsen = e_band - e_hartree_in + e_xc_corr_in + e_ewald;
+        let post_tsen =
+            harris_foulkes_energy(e_band, e_hartree_in, e_xc_corr_in, e_ewald, 0.0);
+
+        assert_eq!(
+            pre_tsen.to_bits(),
+            post_tsen.to_bits(),
+            "insulator harris_foulkes_energy bits must match pre-TSEN: \
+             pre = {pre_tsen:.15e}, post = {post_tsen:.15e}"
+        );
+    }
+
+    /// Metal path: with `e_smearing = −TS < 0`, `total_energy` must be
+    /// exactly the pre-TSEN sum plus `e_smearing`. Exercises the added
+    /// term in the `F = E − TS` assembly without touching the SCF loop.
+    #[test]
+    fn test_total_energy_metal_adds_minus_ts() {
+        let e_band = -10.0_f64;
+        let e_hartree = 3.25_f64;
+        let e_xc_corr = -1.5_f64;
+        let e_ewald = -4.75_f64;
+        // −TS = −0.26 eV (Fe-scale metallic entropy contribution).
+        let e_smearing = -0.26_f64;
+
+        let pre_tsen = e_band - e_hartree + e_xc_corr + e_ewald;
+        let post_tsen = total_energy(e_band, e_hartree, e_xc_corr, e_ewald, e_smearing);
+
+        let delta = post_tsen - pre_tsen;
+        assert!(
+            (delta - e_smearing).abs() < 1e-12,
+            "metal total_energy should shift by exactly e_smearing: \
+             Δ = {delta:.6} eV, expected = {e_smearing:.6} eV"
         );
     }
 }

@@ -230,25 +230,41 @@ impl Default for ScfParams {
 
 /// Output of a converged SCF calculation.
 ///
-/// All energies are in eV. The three energy quantities are:
-/// - `total_energy`: E = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0)·N_el
-/// - `free_energy`: F = E - TS (Mermin functional, variational at finite σ)
-/// - `energy_sigma0`: E₀ = (E + F)/2 (best estimate of T=0 energy)
+/// All energies are in eV. The four energy quantities are:
+/// - `total_energy`: F = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0)·N_el − TS
+///   (the Mermin free-energy functional — matches QE's `! total energy`
+///   line from `pw.x` output, which is also F = E − TS).
+/// - `free_energy`: same quantity as `total_energy`; retained as an
+///   explicit alias for backward-compatible callers.
+/// - `harris_foulkes_energy`: HF estimator of the same Mermin F.
+/// - `energy_sigma0`: E₀ = (E_internal + F)/2, a σ → 0 extrapolation.
+///
+/// Note: prior to TSEN (2026-04-19) `total_energy` omitted the −TS
+/// contribution. The pre-TSEN internal energy `E = F + TS` is recoverable
+/// as `total_energy + entropy_ts`.
 #[derive(Debug)]
 pub struct ScfResult {
-    /// Kohn-Sham total energy (no entropy).
+    /// Mermin free energy `F = E − TS` (includes −TS; matches QE's
+    /// `! total energy` line). Pre-TSEN internal energy is
+    /// `total_energy + entropy_ts`.
     pub total_energy: f64,
-    /// Harris-Foulkes energy (double-counting from input density).
+    /// Harris-Foulkes estimator of the Mermin free energy.
     ///
     /// Uses the input density for Hartree/XC corrections but output eigenvalues.
-    /// Stationary at self-consistency: |E_HF - E_KS| -> 0 quadratically.
+    /// Stationary at self-consistency: `|E_HF − F_KS| → 0` quadratically.
     /// Serves as a convergence quality indicator.
     pub harris_foulkes_energy: f64,
-    /// Free energy F = E - TS (Mermin functional, variational quantity).
+    /// Alias for `total_energy`. Both fields carry the Mermin free energy
+    /// `F = E − TS`; the alias is retained so callers migrating from the
+    /// pre-TSEN API (where `total_energy` was the internal `E` and
+    /// `free_energy` was `E − TS`) can continue to read `free_energy`
+    /// and receive the physically correct quantity.
     pub free_energy: f64,
-    /// Sigma→0 extrapolated energy E₀ = (E + F) / 2.
+    /// σ → 0 extrapolated energy `E₀ = (E_internal + F)/2 = F + TS/2`.
+    /// Best estimate of the T = 0 total energy at a fixed k-grid.
     pub energy_sigma0: f64,
-    /// Entropy contribution T*S in eV.
+    /// Positive entropy contribution `T · S` in eV. The `−TS` term
+    /// folded into `total_energy` has the opposite sign.
     pub entropy_ts: f64,
     /// Eigenvalues indexed as `[spin_k_index][band]`.
     /// For nspin=1: length = n_kpoints. For nspin=2: length = 2 * n_kpoints

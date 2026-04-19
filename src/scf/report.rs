@@ -96,9 +96,8 @@ pub(super) fn log_iteration(pb: &ProgressBar, r: &IterationReport) {
 /// Emit the converged-SCF energy summary: total energy, Harris-Foulkes,
 /// free energy, σ→0 energy.
 ///
-/// The non-spin driver additionally calls [`log_entropy`] after this; the
-/// spin driver historically did not log entropy (see
-/// `scf::driver::run_scf_unpolarized` vs `scf::driver_spin::run_scf_spin`).
+/// Both drivers additionally call [`log_entropy`] after this (TSEN,
+/// 2026-04-19; before TSEN only the non-spin driver logged entropy).
 pub(super) fn log_convergence_summary(
     e_total: f64,
     e_harris: f64,
@@ -112,8 +111,9 @@ pub(super) fn log_convergence_summary(
     info!("E sigma→0 (E₀):  {energy_sigma0:.6} eV");
 }
 
-/// Log entropy contribution if nonzero. Called by the non-spin driver only
-/// (historical behavior — see `log_convergence_summary` doc).
+/// Log entropy contribution if nonzero. Called by both drivers after
+/// [`log_convergence_summary`]. Called even when `ts == 0` would be a no-op
+/// — the `ts.abs() > 1e-8` gate keeps the log clean on insulators.
 pub(super) fn log_entropy(ts: f64, n_atoms: usize) {
     if ts.abs() > 1e-8 {
         info!(
@@ -133,7 +133,8 @@ pub(super) fn log_components(c: &EnergyComponents, e_total: f64, n_electrons: f6
         + c.e_nonlocal
         + c.e_hartree
         + c.e_xc
-        + c.e_ewald;
+        + c.e_ewald
+        + c.e_smearing;
     info!("--- Per-component energies (eV) ---");
     info!("  E_band       = {:.6}", c.e_band);
     info!("  E_kinetic    = {:.6}", c.e_kinetic);
@@ -147,6 +148,7 @@ pub(super) fn log_components(c: &EnergyComponents, e_total: f64, n_electrons: f6
     info!("  E_xc         = {:.6}", c.e_xc);
     info!("  E_vxc        = {:.6}  (∫ρ·V_xc dr)", c.e_vxc);
     info!("  E_ewald      = {:.6}", c.e_ewald);
+    info!("  E_smearing   = {:.6}  (= −TS)", c.e_smearing);
     info!(
         "  E_sum(comp)  = {e_sum:.6}   (vs E_KS {e_total:.6}, Δ={:.2e})",
         e_sum - e_total
