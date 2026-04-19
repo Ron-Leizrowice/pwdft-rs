@@ -298,10 +298,17 @@ fn vgc5_si_per_component() {
 
     let c = &result.components;
     // PCFX correction: τ now applied exactly in G-space; pre-PCFX was E_total=-231.8653 eV.
-    pin("E_band",             c.e_band,             -2.9699); // pre-PCFX: -3.6189
+    //
+    // Post-VGCH-SiEF-B1 (2026-04-19): the `V_loc(G=0)` DC offset
+    // (`10.7447 eV` = 2 Si atoms × N_el/atom scaling) now lives on
+    // the Hamiltonian diagonal, so both `e_band` and `e_local` have
+    // moved up by `V_loc(G=0)·N_el` while `e_local_g0_shift` is now
+    // `0.0`. The per-component sum and `E_total` are algebraically
+    // unchanged.
+    pin("E_band",             c.e_band,              7.7748); // pre-B1:  -2.9699
     pin("E_kinetic",          c.e_kinetic,          83.4120); // pre-PCFX: 83.7203
-    pin("E_local (G≠0)",      c.e_local,           -63.7219); // pre-PCFX: -62.1961
-    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   10.7447); // unchanged (no density dep)
+    pin("E_local",            c.e_local,           -52.9772); // pre-B1: -63.7219 (G≠0 only)
+    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,    0.0);    // pre-B1:  10.7447
     pin("E_nonlocal",         c.e_nonlocal,         35.7641); // pre-PCFX: 35.9570
     pin("E_hartree",          c.e_hartree,          14.8249); // pre-PCFX: 14.3111
     pin("E_xc",               c.e_xc,              -84.3474); // pre-PCFX: -84.7026
@@ -395,10 +402,14 @@ fn vgc5_fe_per_component() {
     // Not byte-matched to QE (nspin=2, 8×8×8); these are regression guards
     // only. See `proposals/completed/NCFX-nlcc-core-density-fix.md` for the
     // impact of NCFX on these numbers.
-    pin("E_band",             c.e_band,           -419.6026); // PRE-NCFX: -411.2020
+    // Post-VGCH-SiEF-B1 (2026-04-19): `e_band` and `e_local` each
+    // gained `V_loc(G=0)·N_el = +82.7774 eV` (Fe, 1 atom, N_el = 16),
+    // `e_local_g0_shift` is now 0. `E_total` is algebraically
+    // unchanged.
+    pin("E_band",             c.e_band,           -336.8252); // pre-B1: -419.6026
     pin("E_kinetic",          c.e_kinetic,         942.0082); // PRE-NCFX:  942.2052
-    pin("E_local (G≠0)",      c.e_local,         -1748.8396); // PRE-NCFX: -1749.3601
-    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,   82.7774); // PRE-NCFX:   82.7774 (unchanged)
+    pin("E_local",            c.e_local,         -1666.0622); // pre-B1: -1748.8396 (G≠0 only)
+    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,    0.0);    // pre-B1:   82.7774
     pin("E_nonlocal",         c.e_nonlocal,         38.7678); // PRE-NCFX:   38.9673
     pin("E_hartree",          c.e_hartree,         363.1071); // PRE-NCFX:  363.4925
     pin("E_xc",               c.e_xc,             -392.5675); // PRE-NCFX: -442.1090 (Δ_QE: −48.85 → +0.69)

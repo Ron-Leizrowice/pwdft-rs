@@ -41,6 +41,13 @@
 //!     qe.ewald          <==>   e_ewald
 //! ```
 //!
+//! Post-VGCH-SiEF-B1 (2026-04-19): `e_local_g0_shift` is always `0.0`
+//! under the QE gauge convention — the `V_loc(G=0)·N_el` piece now
+//! lives inside `e_local`. The sum on the left of the
+//! `qe.one_electron` mapping above is therefore numerically unchanged,
+//! but the split between `e_local` and `e_local_g0_shift` has
+//! collapsed into the former.
+//!
 //! `e_vxc` is NOT mapped to a QE print (QE accumulates it into the
 //! double-counting subtraction internally); we emit it alongside anyway
 //! for the `E_band = T + V_loc + V_nl + 2·E_H + E_vxc` identity check.

@@ -141,10 +141,11 @@ pub(crate) fn compute_core_density(
 /// so `h` does **not** need to be pre-zeroed. This matters because the
 /// non-local KB term ([`crate::potential::nonlocal::NonlocalPotential::add_to_hamiltonian`])
 /// is layered on top via an accumulating `matmul(..., Accum::Add, ...)`:
-/// the contract is "fill first, then accumulate". `V_eff(0) == 0` by
-/// construction (`ScfContext::new` explicitly zeroes
-/// `v_local_fft[0]`), so folding `v_eff_fft[miller_to_idx(..., 0,0,0)]`
-/// into every diagonal is a no-op on that one G=0 entry.
+/// the contract is "fill first, then accumulate". Under the
+/// QE-compatible gauge (see `ScfContext::new`), `V_local(G=0)` is
+/// kept on the Hamiltonian diagonal — and since `V_H(G=0) = 0` and
+/// `V_xc(G=0)` is a real scalar, `V_eff(0) = V_local(G=0) + V_xc(G=0)`
+/// is a finite uniform shift that enters every KS eigenvalue.
 ///
 /// `h` must already be sized `basis.len() × basis.len()`; the shape is
 /// checked with `debug_assert!`. Kept separate from the public

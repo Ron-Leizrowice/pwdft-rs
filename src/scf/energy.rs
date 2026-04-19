@@ -89,7 +89,10 @@ pub(crate) fn band_energy(
 ///
 /// The G=0 divergence is excised: a neutral compensating background from
 /// the ion lattice makes the full electrostatic sum finite. The
-/// compensation is paid back in [`with_g0_shift`] and [`crate::ewald::ewald_energy`].
+/// compensation is paid back through [`crate::ewald::ewald_energy`] (the
+/// ion-ion Ewald sum) and through the local pseudopotential's G=0
+/// contribution, which lives on the Hamiltonian diagonal and therefore
+/// enters the band sum automatically.
 /// Returns E_H in eV.
 pub(crate) fn hartree_energy(rho_g: &[Complex64], g_squared: &[f64], omega: f64) -> f64 {
     let fourpi_e2 = 4.0 * std::f64::consts::PI * crate::consts::E2_COULOMB;
@@ -170,10 +173,10 @@ pub(crate) fn xc_energy_corrected(
 /// `! total energy` in the `pw.x` output, which is also `F = E − TS`;
 /// see `qe-7.5/PW/src/electrons.f90` where `etot` includes `demet`.
 ///
-/// All arguments in eV. Caller is responsible for also applying the
-/// `V_local(G=0) · N_el` compensating shift via [`with_g0_shift`] (the
-/// G=0 of the local PP is zeroed to keep the Hamiltonian diagonal
-/// finite; see [`crate::scf::context::ScfContext::new`]).
+/// All arguments in eV. The local-PP G=0 contribution lives on the
+/// Hamiltonian diagonal (see [`crate::scf::context::ScfContext::new`])
+/// and therefore enters `e_band` directly; no external compensation is
+/// required here.
 ///
 /// Using the **output** density for the double-counting terms gives the
 /// variationally exact KS free energy once SCF is converged. Away from
@@ -216,7 +219,9 @@ pub(crate) fn total_energy(
 ///
 /// Harris, *Phys. Rev. B* **31**, 1770 (1985);
 /// Foulkes & Haydock, *Phys. Rev. B* **39**, 12520 (1989).
-/// All arguments and return value in eV. Caller applies [`with_g0_shift`].
+/// All arguments and return value in eV. The local-PP G=0 contribution
+/// is part of `e_band` (it lives on the Hamiltonian diagonal; see
+/// [`crate::scf::context::ScfContext::new`]).
 pub(crate) fn harris_foulkes_energy(
     e_band: f64,
     e_hartree_in: f64,
@@ -225,28 +230,6 @@ pub(crate) fn harris_foulkes_energy(
     e_smearing: f64,
 ) -> f64 {
     e_band - e_hartree_in + e_xc_corrected_in + e_ewald + e_smearing
-}
-
-/// Re-add the G=0 uniform-background piece of the local pseudopotential
-/// that was subtracted to keep the Hamiltonian diagonal finite.
-///
-/// ```text
-///     E_corrected = E + V_local(G=0) · N_el
-/// ```
-/// where `V_local(G=0) = (1/Ω) ∫ V_local(r) d³r` is the spatial average
-/// of the local PP in eV, and `N_el` is the total valence electron
-/// count (dimensionless). The G=0 component of every local PP diverges
-/// as `−4πZ_α / |G|²` as G→0, so the bare sum is ill-defined. Zeroing
-/// `V_local(G=0)` gauge-shifts the one-body Hamiltonian by a constant;
-/// the constant re-enters here, with the Ewald sum
-/// ([`crate::ewald::ewald_energy`]) providing the matching divergent
-/// ion-ion piece so the total electrostatic energy is cutoff-
-/// independent.
-///
-/// [`crate::scf::context::ScfContext::new`] does the G=0 zeroing.
-/// `energy` and the return value in eV.
-pub(crate) fn with_g0_shift(energy: f64, ctx: &super::context::ScfContext<'_>) -> f64 {
-    energy + ctx.v_local_g0 * ctx.n_electrons
 }
 
 // ---------------------------------------------------------------------------
@@ -322,8 +305,8 @@ pub(crate) fn real_to_g_space(data_r: &[f64], fft: &mut FFT3D) -> Vec<Complex64>
 /// ```text
 ///     V_eff(G) = V_local(G) + V_H(G) + V_xc(G)
 /// ```
-/// - `V_local(G)`: ionic local PP (G=0 zeroed; compensated by
-///   [`with_g0_shift`]);
+/// - `V_local(G)`: ionic local PP (G=0 kept on the Hamiltonian
+///   diagonal; see [`crate::scf::context::ScfContext::new`]);
 /// - `V_H(G) = 4πe² · ρ(G) / |G|²`: classical electron repulsion;
 /// - `V_xc(G)`: Fourier transform of the LDA XC potential `v_xc(r)
 ///   = δE_xc/δρ`.
@@ -466,25 +449,26 @@ pub(crate) fn kinetic_expectation(
         .sum()
 }
 
-/// Electron–ion local-PP energy, integrated on the real-space FFT grid
-/// with the G=0 piece excluded.
+/// Electron–ion local-PP energy, integrated on the real-space FFT grid.
 ///
 /// ```text
-///     E_local(G ≠ 0) = ∫ ρ(r) · V_local(r) d³r  ≈  Σ_r ρ(r) · V_local(r) · dV
+///     E_local = ∫ ρ(r) · V_local(r) d³r  ≈  Σ_r ρ(r) · V_local(r) · dV
 /// ```
 /// with `dV = Ω / N_grid`. `v_local_fft_r` is the inverse FFT of the
-/// reciprocal-space local PP with its G=0 component pre-zeroed by
-/// [`crate::scf::context::ScfContext::new`] (so `∫V_local dV = 0` by
-/// construction). The compensating uniform background is accounted for
-/// separately in `EnergyComponents::e_local_g0_shift` via
-/// [`with_g0_shift`].
+/// reciprocal-space local PP, which carries its full `V_local(G=0)` DC
+/// offset (the G=0 component lives on the Hamiltonian diagonal under
+/// the QE gauge convention adopted here; see
+/// [`crate::scf::context::ScfContext::new`]), so the returned integral
+/// includes the uniform-background `V_local(G=0) · N_el` piece
+/// automatically. `EnergyComponents::e_local_g0_shift` is therefore zero
+/// by construction.
 ///
 /// - `rho_r`: valence density in e/Å³ (total density in spin-
 ///   polarized runs — the local PP is spin-independent);
-/// - `v_local_fft_r`: `V_local(r)` in eV, G=0 removed;
+/// - `v_local_fft_r`: `V_local(r)` in eV;
 /// - `omega`: Ω in Å³.
 ///
-/// Returns the G ≠ 0 piece of E_local in eV.
+/// Returns E_local in eV.
 pub(crate) fn local_pp_energy_grid(
     rho_r: &[f64],
     v_local_fft_r: &[f64],
@@ -599,14 +583,20 @@ pub(crate) fn xc_energy_bare(rho_xc: &[f64], exc_r: &[f64], omega: f64) -> f64 {
 ///
 /// ```text
 ///     E_total = e_kinetic
-///             + e_local
-///             + e_local_g0_shift       (= V_local(G=0) · N_el)
+///             + e_local                (includes V_local(G=0) · N_el)
+///             + e_local_g0_shift       (always 0 under the QE gauge)
 ///             + e_nonlocal
 ///             + e_hartree
 ///             + e_xc
 ///             + e_ewald
 ///             + e_smearing             (= −TS; zero without smearing)
 /// ```
+/// The `e_local` term now carries the full `∫ρ·V_local dV` including
+/// the uniform-background `V_local(G=0) · N_el` piece (QE-compatible
+/// gauge — `V_local(G=0)` lives on the Hamiltonian diagonal). The
+/// legacy `e_local_g0_shift` field is retained at `0.0` for
+/// backward compatibility with older diagnostic scripts; new code
+/// should not assume a nonzero value.
 ///
 /// ## Kohn-Sham double-counting identity
 ///
@@ -650,16 +640,17 @@ pub struct EnergyComponents {
     /// Kinetic-energy expectation `Σ f·w·⟨ψ|T|ψ⟩` in eV, with
     /// `⟨ψ|T|ψ⟩ = Σ_G |c_{n,k}(G)|² · (ℏ²/2m) · |k+G|²`.
     pub e_kinetic: f64,
-    /// Electron–ion local-PP energy `∫ρ(r)·V_local(r)d³r` (G ≠ 0 piece,
-    /// eV). The G=0 component of `V_local` is zeroed at setup to keep
-    /// the Hamiltonian diagonal finite; the compensating uniform
-    /// background is stored separately in `e_local_g0_shift`.
+    /// Electron–ion local-PP energy `∫ρ(r)·V_local(r)d³r` (eV),
+    /// including the uniform-background `V_local(G=0) · N_el` piece.
+    /// Under the QE-compatible gauge the local PP's G=0 component
+    /// lives on the Hamiltonian diagonal and therefore enters this
+    /// grid integral directly.
     pub e_local: f64,
-    /// Uniform-background restoration `V_local(G=0) · N_el` (eV), with
-    /// `V_local(G=0) = (1/Ω) ∫ V_local(r) d³r`. Present in every
-    /// neutral periodic pseudopotential calculation; paired with the
-    /// matching ion-ion Ewald divergence so the total electrostatic
-    /// energy is cutoff-independent.
+    /// Retained-for-compatibility field, always `0.0` under the
+    /// QE-compatible gauge. The `V_local(G=0) · N_el` piece now lives
+    /// inside `e_local` rather than being split out here. Kept in the
+    /// struct so existing diagnostic scripts do not break; new code
+    /// should not assume a nonzero value.
     pub e_local_g0_shift: f64,
     /// Kleinman-Bylander separable non-local PP energy
     /// `Σ f·w·⟨ψ|V_NL|ψ⟩` in eV.
