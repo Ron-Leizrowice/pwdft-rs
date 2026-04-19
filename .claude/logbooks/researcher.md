@@ -4,6 +4,40 @@ Entries: date, what was validated, discrepancies found (with numbers), reference
 
 **Load-bearing cross-language convention (→ candidate CLAUDE.md promotion):** Rust's `f64::round()` is half-away-from-zero; numpy's `np.round` is half-to-even (banker's rounding). At exactly `d = ±0.5` they disagree in sign of the integer. Any Rust↔Python validation that maps real-valued distances/fractions to grid bins must either (a) avoid `.round()` entirely or (b) use an explicit wrap like `d - (d + 0.5).floor()` on both sides. VGCH Phase 1c (2026-04-19) lost half a day to this in a shell-average diagnostic — C diamond showed a bogus 0.2 e/Å³ asymmetry that evaporated on raw-sample diff. No production-code impact yet; diagnostic-only. Worth a §Conventions bullet if it bites again.
 
+## 2026-04-19 — VGCH-SiEF: Si E_F 1.35 eV offset localized to V_loc(G=0) gauge (PR #164)
+
+Per-band δ_n = ε_n^pwdft − ε_n^QE on Si diamond (4×4×4 Γ-centered,
+ecut=15 Ry, LDA) at Γ: **mean −1.3515 eV, std 0.6 meV** — pure
+rigid offset. ΔE_F (pwdft − QE) = −1.3495 eV matches mean band
+shift to 2 meV. E_total green at 45 meV unchanged.
+
+**Mechanism:** pwdft-rs zeroes `v_local_fft[0]` before H assembly
+(`src/scf/context.rs:125`) and compensates total energy via
+`with_g0_shift` (`src/scf/energy.rs:248`). **QE keeps V_loc(G=0) in
+vltot** (`qe-7.5/PW/src/setlocal.f90:91-96`, lines 91-92: `v_of_0 =
+DBLE(aux(1))` is read out but `aux(1)` stays in the IFFT input), so
+QE's KS eigenvalues carry the DC offset and pwdft-rs's do not.
+Predicted shift: `−N_atoms · V_loc(G=0)_per_atom`. Matches Si
+1.343 predicted vs 1.3515 observed (9 meV margin). Matches Fe
+(VGCH-1a: ~5.1–5.3 eV; predicted 5.174 eV) and C diamond (VGCH-1c:
+−3.09 eV; predicted 3.092 eV).
+
+**Fix candidate A** (scoped for Part B1, ~20 LOC, 4 files): drop
+zeroing in context.rs:125, drop `e_local_g0_shift` from driver(s),
+no-op or delete `with_g0_shift`, unignore `test_si_diamond_fermi_vs_qe`.
+Candidates B (Ewald G=0) and C (Fermi solver convention) both ruled
+out by inspection — Ewald never touches Hamiltonian diagonal; Fermi
+solver matches QE's ef.f90 bisection. σ-independence of the shift
+(std 0.6 meV at σ=0.136 eV) also rules out C.
+
+**Per-system predictions** (independent of heavy-atom VGCH-2 work):
+Cu 7.75, Ga+As 4.70, Na+Cl 1.67, Mg+O 3.35 eV — all would close
+with Part B1. Total-energy arms unaffected.
+
+**Artifacts** (all read-only, no src/ changes):
+- `scripts/validate/si_ef_shift_trace.py` + `si_ef_shift.csv`
+- `proposals/VGCH-heavy-atom-vloc-residual.md` § Light-atom E_F shift
+
 ## 2026-04-19 — GGAP Phase F-light: 6 remaining PBE tests wired; VQEF matrix populated (PR #161)
 
 Wired Al/C/Cu/GaAs/NaCl/MgO PBE tests in `tests/qe_validation.rs`
