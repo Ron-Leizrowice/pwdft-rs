@@ -26,8 +26,8 @@ seeded when).
 
 ## Status summary (post-2026-04-19 sweep)
 
-- **Landed:** G0SH, GLUS, SYMP, FDLT, VNMT, RDOC, UPFV, FGRD, MXB1, MXB3, VNLT, VNLB (struck by VNLT), DWGT, DFLT.
-- **Still live (drive-by):** G2ZT (< 0.1 day — replace literal with named constant).
+- **Landed:** G0SH, GLUS, SYMP, FDLT, VNMT, RDOC, UPFV, FGRD, MXB1, MXB3, VNLT, VNLB (struck by VNLT), DWGT, DFLT, G2ZT (PR #153).
+- **Still live (drive-by):** none.
 - **Still live (larger):** MXB2 (Fe CCMX retune, small-medium), ITVF (tracker, blocked on faer 0.25).
 - **Still live (performance investigation):** EIGV, EIGW (bench-noise triage; may self-resolve on next bench pass).
 - **Added 2026-04-19:** TYPE-AX (5 `try_from` expect sites flagged by ERR2 P0 report).
@@ -302,18 +302,27 @@ and a runtime `assert!` at `src/scf/grid.rs::FftGrid::new`. The seven
 "asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`"
 instead of "<= ~512 per axis in practice". See PR FGRD.
 
-### G2ZT — Hoist bare `1e-12` `|G|=0` threshold into `consts`
+### ~~G2ZT — Hoist bare `1e-12` `|G|=0` threshold into `consts`~~ (PR #153)
 
-- **Role:** Code Reviewer
-- **Priority:** trivial, **Complexity:** trivial, **Risk:** low
-- **Source:** CFGN re-scope (PR #78) drive-by finding.
+~~- **Role:** Code Reviewer~~
+~~- **Priority:** trivial, **Complexity:** trivial, **Risk:** low~~
+~~- **Source:** CFGN re-scope (PR #78) drive-by finding.~~
 
-`src/pseudopotential/mod.rs:137` uses a bare `1e-12` literal for its
-`|G|=0` check instead of `crate::consts::G2_ZERO_THRESHOLD` (or its
-sqrt). One-line edit; makes the convention grep-discoverable.
+~~`src/pseudopotential/mod.rs:137` uses a bare `1e-12` literal for its~~
+~~`|G|=0` check instead of `crate::consts::G2_ZERO_THRESHOLD` (or its~~
+~~sqrt). One-line edit; makes the convention grep-discoverable.~~
 
-**Acceptance criterion:** bare `1e-12` replaced with the existing
-constant; `cargo test` bit-identical.
+~~**Acceptance criterion:** bare `1e-12` replaced with the existing~~
+~~constant; `cargo test` bit-identical.~~
+
+Landed as PR #153. The call site at `src/pseudopotential/mod.rs:159`
+compares `g_norm` (i.e. `|G|`) directly against the threshold, not
+`|G|²`, so reusing the existing `G2_ZERO_THRESHOLD` would have silently
+rescaled the floor by 10⁶. Added a sibling `G_ZERO_THRESHOLD = 1e-12`
+in `src/consts.rs` with a docstring flagging the distinction between
+`|G|` and `|G|²` floors; the call site now reads
+`if g_norm < G_ZERO_THRESHOLD`. Zero behavior change (bit-identical
+Tier-1 pass at 330 tests, clippy unchanged at 18/24, rustdoc clean).
 
 ### ~~DFLT — Document density-skip/normalization thresholds in `scf/density.rs`~~ (landed)
 

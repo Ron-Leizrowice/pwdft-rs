@@ -7,8 +7,8 @@
 //! deriving quantities like `ℏ²/2m` in the engine's native units.
 //!
 //! Also defines the small numerical floors
-//! ([`G2_ZERO_THRESHOLD`], [`RHO_FLOOR`]) that gate Coulomb and XC
-//! evaluations against divide-by-zero.
+//! ([`G2_ZERO_THRESHOLD`], [`G_ZERO_THRESHOLD`], [`RHO_FLOOR`]) that gate
+//! Coulomb and XC evaluations against divide-by-zero.
 
 // Atomic unit conversions
 /// Hartree to electronvolt.
@@ -25,6 +25,15 @@ pub const E2_COULOMB: f64 = 14.399_645_351_950_548;
 // Numerical thresholds
 /// Threshold for treating |G|² as zero (skip G=0 in Coulomb sums).
 pub const G2_ZERO_THRESHOLD: f64 = 1e-12;
+/// Threshold for treating |G| as zero (branch on G=0 in reciprocal-space
+/// transforms that compare against `|G|` directly rather than `|G|²`).
+///
+/// Distinct from [`G2_ZERO_THRESHOLD`]: the two are numerically different
+/// floors because they compare against different quantities — using
+/// `1e-12` as a `|G|²` floor is equivalent to using `1e-6` as a `|G|`
+/// floor. Callers should pick the one that matches the quantity they
+/// already have in hand.
+pub const G_ZERO_THRESHOLD: f64 = 1e-12;
 /// Minimum electron density for XC evaluation (e/ų).
 pub const RHO_FLOOR: f64 = 1e-30;
 
