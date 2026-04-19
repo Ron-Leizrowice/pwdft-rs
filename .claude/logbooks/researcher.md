@@ -4,6 +4,49 @@ Entries: date, what was validated, discrepancies found (with numbers), reference
 
 **Load-bearing cross-language convention (→ candidate CLAUDE.md promotion):** Rust's `f64::round()` is half-away-from-zero; numpy's `np.round` is half-to-even (banker's rounding). At exactly `d = ±0.5` they disagree in sign of the integer. Any Rust↔Python validation that maps real-valued distances/fractions to grid bins must either (a) avoid `.round()` entirely or (b) use an explicit wrap like `d - (d + 0.5).floor()` on both sides. VGCH Phase 1c (2026-04-19) lost half a day to this in a shell-average diagnostic — C diamond showed a bogus 0.2 e/Å³ asymmetry that evaporated on raw-sample diff. No production-code impact yet; diagnostic-only. Worth a §Conventions bullet if it bites again.
 
+## 2026-04-19 — GGAP Phase F-light: 6 remaining PBE tests wired; VQEF matrix populated (PR #161)
+
+Wired Al/C/Cu/GaAs/NaCl/MgO PBE tests in `tests/qe_validation.rs`
+mirroring the LDA arms (same cell/k-grid/mixer; new PseudoDojo
+NC/PBE PP + `XcFunctional::Pbe`). Also tightened Si PBE from 100 meV
+→ 20 meV (observed 12.4 meV). Matrix goes `1G/8Y/8R → 1G/15Y/0R`.
+
+**Per-system PBE residuals (eV):**
+
+| System | \|ΔE\| PBE | \|ΔE\| LDA (ref) | Ratio (LDA/PBE) |
+|--------|-----------|------------------|-----------------|
+| Si     | 0.012     | 0.033            | 2.7 (both GREEN-class) |
+| Al     | **0.108** | 0.075            | **0.69** — PBE WORSE |
+| C      | 0.322     | 1.45             | 4.5 |
+| Fe     | 1.97      | 11.5             | 5.8 |
+| Cu     | 10.06     | 16.2             | 1.6 |
+| GaAs   | 17.30     | 33.6             | 1.9 |
+| NaCl   | 4.86      | 7.7              | 1.6 |
+| MgO    | **1.56**  | 10.1             | **6.5** — largest closer |
+
+**Physics findings (important, log them here so VGCH-2A / next
+light-atom investigator can pick up):**
+
+1. **Al is functional-insensitive.** Al PBE is *worse* than Al LDA
+   by 33 meV. This kills the hypothesis that Al's VGCH light-atom gap
+   is an XC artifact. Root cause must be density basin / projector /
+   symmetry. No proposal yet for this split.
+
+2. **Heavy-atom VGCH-2 residual is partially functional-sensitive.**
+   All five heavy/semicore systems (Fe, Cu, GaAs, NaCl, MgO) show
+   1.6×–6.5× PBE improvement over LDA. This tells VGCH-2 Part A that
+   the partial-cancellation signature (Δone-e vs ΔE_H opposite-sign)
+   has a gradient-term-sensitive component. MgO (6.5×, Mg 2s/2p
+   semicore) is the cleanest signal; worth looking first at the
+   Mg pp semicore region in the VGCH-2 trace.
+
+3. **C is partially functional-sensitive.** 4.5× PBE improvement on
+   the 1.45 eV LDA gap. Combined with Al's functional-insensitivity,
+   the "light-atom VGCH class" is at least two mechanisms.
+
+**Gates:** Tier-1 0-fail; clippy 18/24 baseline; doc clean; all 7 PBE
+Tier-2 tests pass under `--ignored` (392s wall on M3 Max).
+
 ## 2026-04-19 — VQEF-AL: Al ecut=24 QE regen, VGCH light-atom reclassification (PR #146)
 
 Regenerated QE 7.5 Al FCC reference at basis-converged cutoff (ecut=24 Ry = PseudoDojo `.standard`, up from 15 Ry) to close the basis-truncation side of VQEF Al.
