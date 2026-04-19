@@ -105,3 +105,18 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.pulp]
 opt-level = 3
+
+# TPRF: compile tests at full optimization. The test profile inherits from
+# dev (opt-level=0) by default, which makes SCF-heavy integration tests
+# (e.g. `tests/vgc5_per_component_si.rs`) run in minutes wall-time. At
+# opt-level=3 the same tests complete in seconds. `debug-assertions` stays
+# on (inherited from dev) — safety checks still fire in tests.
+[profile.test]
+opt-level = 3
+
+# All dependencies also at O3 in test builds. Without the wildcard, deps
+# other than faer/gemm/pulp (ndarray, nalgebra, rayon, ndrustfft, etc.)
+# would fall back to opt-level=0 under test profile and dominate the
+# inner loop.
+[profile.test.package."*"]
+opt-level = 3
