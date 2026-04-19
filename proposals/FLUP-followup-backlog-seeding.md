@@ -26,8 +26,8 @@ seeded when).
 
 ## Status summary (post-2026-04-19 sweep)
 
-- **Landed:** G0SH, GLUS, SYMP, FDLT, VNMT, RDOC, UPFV, FGRD, MXB1, MXB3, VNLT, VNLB (struck by VNLT), DWGT.
-- **Still live (drive-by):** G2ZT, DFLT (both < 0.1 day — replace literal with named constant).
+- **Landed:** G0SH, GLUS, SYMP, FDLT, VNMT, RDOC, UPFV, FGRD, MXB1, MXB3, VNLT, VNLB (struck by VNLT), DWGT, DFLT.
+- **Still live (drive-by):** G2ZT (< 0.1 day — replace literal with named constant).
 - **Still live (larger):** MXB2 (Fe CCMX retune, small-medium), ITVF (tracker, blocked on faer 0.25).
 - **Still live (performance investigation):** EIGV, EIGW (bench-noise triage; may self-resolve on next bench pass).
 - **Added 2026-04-19:** TYPE-AX (5 `try_from` expect sites flagged by ERR2 P0 report).
@@ -315,20 +315,26 @@ sqrt). One-line edit; makes the convention grep-discoverable.
 **Acceptance criterion:** bare `1e-12` replaced with the existing
 constant; `cargo test` bit-identical.
 
-### DFLT — Document density-skip/normalization thresholds in `scf/density.rs`
+### ~~DFLT — Document density-skip/normalization thresholds in `scf/density.rs`~~ (landed)
 
-- **Role:** Code Reviewer
-- **Priority:** trivial, **Complexity:** trivial, **Risk:** low
-- **Source:** CFGN re-scope (PR #78) drive-by finding.
+~~- **Role:** Code Reviewer~~
+~~- **Priority:** trivial, **Complexity:** trivial, **Risk:** low~~
+~~- **Source:** CFGN re-scope (PR #78) drive-by finding.~~
 
-`src/scf/density.rs:61,92` has two `1e-15` literals for occupation-skip
-and normalization-integrand safety. Semi-internal; a small
-`const DENSITY_SKIP_THRESHOLD: f64 = 1e-15` (or two named constants at
-module scope) would document intent for the next reader.
+~~`src/scf/density.rs:61,92` has two `1e-15` literals for occupation-skip~~
+~~and normalization-integrand safety. Semi-internal; a small~~
+~~`const DENSITY_SKIP_THRESHOLD: f64 = 1e-15` (or two named constants at~~
+~~module scope) would document intent for the next reader.~~
 
-**Acceptance criterion:** both literals replaced by named constants
-with a one-line docstring each explaining the physical/numerical
-motivation.
+~~**Acceptance criterion:** both literals replaced by named constants~~
+~~with a one-line docstring each explaining the physical/numerical~~
+~~motivation.~~
+
+Landed as two module-private constants in `src/scf/density.rs`:
+`OCCUPATION_SKIP_THRESHOLD` (guards the forward FFT + |ψ(r)|² accumulation
+from bands below eigensolver round-off) and `NORMALIZATION_INTEGRAL_FLOOR`
+(guards the final ρ-rescale against a vanishing integral). Both sit at
+`1e-15` — bit-identical SCF convergence preserved.
 
 ### FLP3 — NLCC ρ_core(G) regression: parameterize over all 64 NLCC-active PPs
 

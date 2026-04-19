@@ -7,6 +7,16 @@ use rayon::prelude::*;
 
 use crate::{basis::BasisSet, fft::FFT3D, kpoints::KPoint};
 
+/// Bands with effective weight `occ × k-weight` below this threshold are skipped
+/// during density reconstruction — their contribution is below eigensolver
+/// round-off, and the forward FFT plus |ψ(r)|² accumulation would only add noise.
+const OCCUPATION_SKIP_THRESHOLD: f64 = 1e-15;
+
+/// Lower bound on ∫ρ(r)dr before the normalization rescale is applied. Guards
+/// against dividing by a vanishingly small integral when the density on the
+/// grid has underflowed to zero (e.g. all bands skipped as unoccupied).
+const NORMALIZATION_INTEGRAL_FLOOR: f64 = 1e-15;
+
 /// Grid-level parameters needed for density construction.
 pub struct DensityGrid<'a> {
     pub basis: &'a BasisSet,
@@ -58,7 +68,7 @@ pub fn compute_density(
 
                 for ib in 0..n_bands {
                     let f = occ[ib] * kp.weight;
-                    if f < 1e-15 {
+                    if f < OCCUPATION_SKIP_THRESHOLD {
                         continue;
                     }
 
@@ -89,7 +99,7 @@ pub fn compute_density(
     let dvol = omega / n_grid as f64;
     let integral: f64 = rho_r.iter().sum::<f64>() * dvol;
 
-    if integral.abs() > 1e-15 {
+    if integral.abs() > NORMALIZATION_INTEGRAL_FLOOR {
         let scale = n_electrons / integral;
         for v in &mut rho_r {
             *v *= scale;
