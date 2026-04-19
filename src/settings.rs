@@ -94,7 +94,13 @@ pub struct AtomSetting {
 #[serde(default)]
 pub struct BasisSettings {
     /// Wavefunction kinetic-energy cutoff in eV.
-    pub ecutwfc: f64,
+    ///
+    /// `None` means "resolve from the per-element recommended cutoff
+    /// table"; a concrete value bypasses the lookup and is used
+    /// verbatim. Callers must route through
+    /// [`Settings::resolve_ecutwfc`] to turn `None` into a concrete
+    /// eV value — `None` never leaks into the SCF layer.
+    pub ecutwfc: Option<f64>,
     /// Charge-density cutoff ratio: ecutrho = ecutrho_ratio * ecutwfc.
     /// Default `4` is appropriate for norm-conserving pseudopotentials.
     pub ecutrho_ratio: u32,
@@ -105,7 +111,7 @@ pub struct BasisSettings {
 impl Default for BasisSettings {
     fn default() -> Self {
         Self {
-            ecutwfc: 204.09,
+            ecutwfc: None,
             ecutrho_ratio: 4,
             fft_grid: None,
         }
@@ -570,10 +576,48 @@ impl Settings {
         }
     }
 
-    /// Extract the wavefunction energy cutoff in eV.
-    #[must_use]
-    pub fn ecutwfc(&self) -> f64 {
-        self.basis.ecutwfc
+    /// Resolve the wavefunction energy cutoff in eV for this crystal.
+    ///
+    /// - If `basis.ecutwfc` is set in YAML, it is returned verbatim and
+    ///   no warning is emitted.
+    /// - Otherwise the per-element recommended cutoff table is consulted
+    ///   and the maximum across all species in the crystal is used. A
+    ///   [`log::warn!`] is emitted naming the driving species so users
+    ///   cannot silently run with a sub-convergence cutoff.
+    /// - If the crystal contains only elements outside the table, the
+    ///   caller receives an [`PwdftError::InvalidInput`] asking them to
+    ///   set `basis.ecutwfc` explicitly.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PwdftError::InvalidInput`] when no species in
+    /// `crystal` has a tabulated recommended cutoff and `basis.ecutwfc`
+    /// is unset — the calculation cannot proceed with an unknown cutoff.
+    pub fn resolve_ecutwfc(&self, crystal: &Crystal) -> Result<f64> {
+        use crate::pseudopotential::recommended_ecut::{
+            recommended_ecut_for_crystal, EcutVariant,
+        };
+
+        if let Some(user) = self.basis.ecutwfc {
+            return Ok(user);
+        }
+
+        match recommended_ecut_for_crystal(crystal, EcutVariant::Standard) {
+            Some(rec) => {
+                let symbol = crate::atoms::Element::iter()
+                    .find(|e| e.atomic_number() == rec.z)
+                    .map_or_else(|| format!("Z={}", rec.z), |e| e.symbol().to_string());
+                log::warn!(
+                    "basis.ecutwfc not set in YAML; using {:.2} eV recommended for {} (PseudoDojo .standard, max over species). Set `basis.ecutwfc` in YAML to override.",
+                    rec.ev,
+                    symbol,
+                );
+                Ok(rec.ev)
+            }
+            None => Err(PwdftError::InvalidInput(
+                "basis.ecutwfc not set and no species in the crystal has a tabulated recommended cutoff; set `basis.ecutwfc` explicitly in YAML".to_string(),
+            )),
+        }
     }
 
     /// Extract the Monkhorst-Pack grid dimensions, if configured.
@@ -762,7 +806,7 @@ kpoints:
         let s = Settings::from_yaml_str(MINIMAL_YAML).unwrap();
         assert_eq!(s.system.atoms.len(), 2);
         assert_eq!(s.system.atoms[0].symbol, "Si");
-        assert!((s.basis.ecutwfc - 204.09).abs() < f64::EPSILON);
+        assert!((s.basis.ecutwfc.unwrap() - 204.09).abs() < f64::EPSILON);
         assert!(s.mp_grid().is_some());
         assert_eq!(s.mp_grid().unwrap(), [4, 4, 4]);
         // MPSH default: Γ-centered (matches QE's `automatic / … 0 0 0`).
@@ -1260,7 +1304,7 @@ initial_density:
         let restored = Settings::from_yaml_str(&serialized).unwrap();
 
         assert_eq!(original.system.atoms.len(), restored.system.atoms.len());
-        assert!((original.basis.ecutwfc - restored.basis.ecutwfc).abs() < f64::EPSILON);
+        assert_eq!(original.basis.ecutwfc, restored.basis.ecutwfc);
         assert_eq!(original.scf.max_iter, restored.scf.max_iter);
         assert_eq!(original.scf.n_bands, restored.scf.n_bands);
         assert!((original.electrons.mixing_beta - restored.electrons.mixing_beta).abs() < f64::EPSILON);
@@ -1419,5 +1463,110 @@ electrons:
         let s = Settings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.electrons.smearing, SmearingScheme::Fixed);
         assert_eq!(s.electrons.occupations, OccupationType::Fixed);
+    }
+
+    // -----------------------------------------------------------------------
+    // ECUT — per-species recommended-ecutwfc defaulting
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn resolve_ecutwfc_returns_user_value_when_set() {
+        // When YAML sets `basis.ecutwfc`, the resolver returns it verbatim
+        // and does not consult the per-element table.
+        let s = Settings::from_yaml_str(FULL_YAML).unwrap();
+        let crystal = s.to_crystal().unwrap();
+        let resolved = s.resolve_ecutwfc(&crystal).unwrap();
+        assert!((resolved - 204.09).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn resolve_ecutwfc_falls_back_to_table_for_silicon() {
+        // Omit `basis.ecutwfc` from YAML. Si (Z=14) is in the table at
+        // 12 Ha ≈ 326.5 eV. Resolver must produce that value.
+        use crate::consts::HA_TO_EV;
+        let yaml = r#"
+system:
+  lattice:
+    - [0.0, 2.7155, 2.7155]
+    - [2.7155, 0.0, 2.7155]
+    - [2.7155, 2.7155, 0.0]
+  atoms:
+    - symbol: Si
+      position: [0.0, 0.0, 0.0]
+    - symbol: Si
+      position: [0.25, 0.25, 0.25]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        assert!(s.basis.ecutwfc.is_none(), "ecutwfc must be None when omitted");
+        let crystal = s.to_crystal().unwrap();
+        let resolved = s.resolve_ecutwfc(&crystal).unwrap();
+        let expected = 12.0 * HA_TO_EV;
+        assert!(
+            (resolved - expected).abs() < 1e-9,
+            "Si default ecutwfc {resolved} != expected {expected}"
+        );
+    }
+
+    #[test]
+    fn resolve_ecutwfc_takes_max_across_species_iron_wins_over_oxygen() {
+        // Mixed Fe + O crystal: Fe is 30 Ha (~816 eV), O is 24 Ha
+        // (~653 eV). The resolver must pick Fe's higher cutoff.
+        use crate::consts::HA_TO_EV;
+        let yaml = r#"
+system:
+  lattice:
+    - [4.3, 0.0, 0.0]
+    - [0.0, 4.3, 0.0]
+    - [0.0, 0.0, 4.3]
+  atoms:
+    - symbol: Fe
+      position: [0.0, 0.0, 0.0]
+    - symbol: O
+      position: [0.5, 0.5, 0.5]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        let crystal = s.to_crystal().unwrap();
+        let resolved = s.resolve_ecutwfc(&crystal).unwrap();
+        let fe_ev = 30.0 * HA_TO_EV;
+        assert!(
+            (resolved - fe_ev).abs() < 1e-9,
+            "Fe/O default ecutwfc {resolved} must match Fe {fe_ev}, not O {}",
+            24.0 * HA_TO_EV,
+        );
+    }
+
+    #[test]
+    fn resolve_ecutwfc_defaults_to_carbon_for_diamond() {
+        // Diamond (C, Z=6) is harder than Si. .standard = 18 Ha.
+        use crate::consts::HA_TO_EV;
+        let yaml = r#"
+system:
+  lattice:
+    - [0.0, 1.784, 1.784]
+    - [1.784, 0.0, 1.784]
+    - [1.784, 1.784, 0.0]
+  atoms:
+    - symbol: C
+      position: [0.0, 0.0, 0.0]
+    - symbol: C
+      position: [0.25, 0.25, 0.25]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        let crystal = s.to_crystal().unwrap();
+        let resolved = s.resolve_ecutwfc(&crystal).unwrap();
+        let expected = 18.0 * HA_TO_EV;
+        assert!(
+            (resolved - expected).abs() < 1e-9,
+            "C default ecutwfc {resolved} != expected {expected}"
+        );
     }
 }

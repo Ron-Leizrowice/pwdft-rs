@@ -35,7 +35,7 @@ fn main() -> pwdft_rs::error::Result<()> {
         crystal.lattice.volume()
     );
 
-    let ecut = settings.ecutwfc();
+    let ecut = settings.resolve_ecutwfc(&crystal)?;
     let basis = BasisSet::new(&crystal.lattice, ecut);
     info!("Basis set: {} plane waves at ecut = {ecut} eV", basis.len());
 
