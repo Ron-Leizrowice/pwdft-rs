@@ -29,7 +29,7 @@ use super::ScfParams;
 /// energy, etc.). [`Self::h_scratch`] is the one exception: it is a
 /// caller-owned per-(spin, k-point) `faer::Mat` scratch buffer that
 /// the driver mutably borrows each iteration to assemble the
-/// kinetic + V_eff + V_NL Hamiltonian in place (ALOC F-5). Callers
+/// kinetic + V_eff + V_NL Hamiltonian in place. Callers
 /// hold `&mut ScfContext` through the SCF loop, which lets them
 /// `par_iter_mut()` over `h_scratch` while immutably borrowing the
 /// rest of the context.

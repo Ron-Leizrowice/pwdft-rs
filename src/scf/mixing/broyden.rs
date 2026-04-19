@@ -9,7 +9,7 @@ use super::linalg::solve_linear_system;
 
 /// Modified Broyden density mixer (Johnson PRB 38, 12807, 1988).
 ///
-/// Implements the same algorithm as QE's `mix_rho.f90`. At each iteration:
+/// At each iteration:
 ///
 /// 1. Compute residual R = ρ_out - ρ_in (optionally Kerker-preconditioned).
 /// 2. If history exists, store the differences:
@@ -47,7 +47,7 @@ impl BroydenMixer {
     /// Create a new Broyden mixer.
     ///
     /// If `kerker` is true, Kerker preconditioning is applied to the residual
-    /// before the Broyden update (like QE's default behavior).
+    /// before the Broyden update.
     ///
     /// `adaptive_beta = true` activates the Eyert (1996) residual-norm
     /// monitor, which damps β when ‖R‖ grows and restores it toward the

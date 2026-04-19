@@ -105,10 +105,11 @@ use super::{ScfParams, ScfResult, context, density, initial_density, mixing, sme
 /// [`dense::diagonalize_subspace`] with the caller-supplied `v_prev`
 /// warm-start subspace (typically the previous SCF iteration's
 /// eigenvectors at the same k-point). On the first iteration (`v_prev ==
-/// None`) and whenever the WFRX residual gate trips, the subspace path
-/// internally falls back to [`dense::diagonalize_lowest`] so correctness
-/// is never sacrificed. The flag is ignored for `kind == Iterative`
-/// (ITEV owns its own warm-start path via `v0`).
+/// None`) and whenever the per-eigenpair residual gate trips, the
+/// subspace path internally falls back to [`dense::diagonalize_lowest`]
+/// so correctness is never sacrificed. The flag is ignored for
+/// `kind == Iterative` (the iterative path owns its own warm-start via
+/// `v0`).
 pub(super) fn diagonalize_dispatch(
     h: &faer::Mat<Complex64>,
     n_bands: usize,
@@ -184,14 +185,12 @@ pub(super) fn compute_occupations(
 
 /// Evaluate the non-spin XC functional, preferring the GPU fast path for LDA.
 ///
-/// GGAP Phase A wiring: the GPU kernel in `gpu::GpuAccelerator::lda_xc` is
-/// LDA-specific (`src/gpu/shaders/lda_xc.wgsl`). When the active functional
-/// is `XcEvaluator::Pz` and a GPU is available, we keep the direct f32
-/// kernel call — bit-identical to pre-Phase-A output on that code path.
-/// For any other functional, we fall through to the CPU evaluator so the
-/// dispatch stays a single `match` on the data enum (no hidden GPU-only
-/// override). Phase E adds a GPU PBE shader; this helper is the seam where
-/// that branch slots in.
+/// The GPU kernel in `gpu::GpuAccelerator::lda_xc` is LDA-specific
+/// (`src/gpu/shaders/lda_xc.wgsl`). When the active functional is
+/// `XcEvaluator::Pz` and a GPU is available, we dispatch directly to the
+/// f32 kernel. For any other functional, we fall through to the CPU
+/// evaluator so the dispatch stays a single `match` on the data enum
+/// (no hidden GPU-only override).
 #[cfg(feature = "gpu")]
 fn eval_xc_with_gpu(
     xc_evaluator: &XcEvaluator,

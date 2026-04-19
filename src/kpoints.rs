@@ -19,23 +19,23 @@ pub struct KPoint {
 /// Selects between the two common formulas for a uniform k-mesh:
 ///
 /// - [`GammaCentered`](KGridShift::GammaCentered) — `f_j = (i_j − 1)/N_j`
-///   (QE's default `K_POINTS automatic / nk1 nk2 nk3 0 0 0`). For N=4
-///   this yields `{0, 1/4, 1/2, 3/4}`, i.e. **includes** Γ and the
-///   high-symmetry BZ-boundary points (X, L on FCC).
+///   (half-shift flags `0 0 0`). For N=4 this yields `{0, 1/4, 1/2, 3/4}`,
+///   i.e. **includes** Γ and the high-symmetry BZ-boundary points
+///   (X, L on FCC).
 /// - [`MP1976`](KGridShift::MP1976) — `f_j = (2·i_j − N_j + 1)/(2·N_j)`
 ///   (the original Monkhorst & Pack, *Phys. Rev. B* **13**, 5188 (1976)
-///   Eq. 4; equivalent to QE's `1 1 1` half-shift). For N=4 this yields
+///   Eq. 4; half-shift flags `1 1 1`). For N=4 this yields
 ///   `{−3/8, −1/8, 1/8, 3/8}` — **no** point at Γ, symmetric about Γ.
 /// - [`Custom`](KGridShift::Custom) — per-axis half-shift flags
-///   `k_α ∈ {0, 1}` matching QE's free-form third line: `f_j = (i_j − 1)/N_j
-///   + k_j/(2·N_j)`. `Custom(\[0,0,0\])` is identical to `GammaCentered`.
+///   `k_α ∈ {0, 1}` giving `f_j = (i_j − 1)/N_j + k_j/(2·N_j)`.
+///   `Custom([0,0,0])` is identical to `GammaCentered`.
 ///
 /// For odd N both `GammaCentered` and `MP1976` produce the same mesh
 /// modulo a cyclic permutation; for even N they are genuinely distinct
 /// physical samples of the BZ.
 ///
-/// Default: `GammaCentered` — matches Quantum ESPRESSO's default k-mesh
-/// for byte-identical validation comparisons.
+/// Default: `GammaCentered` — the mesh includes Γ and the
+/// high-symmetry BZ-boundary points.
 ///
 /// ## YAML syntax
 ///
@@ -48,19 +48,19 @@ pub struct KPoint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum KGridShift {
-    /// Γ-centered grid (QE default, `0 0 0`).
+    /// Γ-centered grid (half-shift flags `0 0 0`).
     #[default]
     GammaCentered,
-    /// Original Monkhorst & Pack 1976 shifted grid (QE `1 1 1`).
+    /// Original Monkhorst & Pack 1976 shifted grid (half-shift flags `1 1 1`).
     #[serde(rename = "mp1976", alias = "mp_1976", alias = "shifted")]
     MP1976,
-    /// Per-axis half-shift flags (QE's third line on `K_POINTS automatic`).
+    /// Per-axis half-shift flags.
     Custom([u32; 3]),
 }
 
 impl KGridShift {
     /// Return the per-axis half-shift integers `k_α ∈ {0, 1}` that
-    /// parameterise this shift under the QE convention.
+    /// parameterise this shift.
     #[must_use]
     pub fn axis_flags(self) -> [u32; 3] {
         match self {
@@ -74,14 +74,13 @@ impl KGridShift {
 /// Compute the fractional reciprocal coordinate of grid point `(i1,i2,i3)`
 /// on an `N1×N2×N3` Monkhorst-Pack mesh with the given shift.
 ///
-/// Formula (QE `kpoint_grid.f90`): `f_α = (i_α)/N_α + k_α/(2·N_α)` for
-/// `i_α ∈ {0, …, N_α−1}` and `k_α ∈ {0, 1}`. The raw result lies in
-/// `[0, 1)` for `k_α = 0` and in `[1/(2N), 1)` for `k_α = 1`; this
-/// function wraps into the first Brillouin zone `[-1/2, 1/2)` so the
-/// SCF sees k-points in canonical form. (Mathematically k and k+G give
-/// identical physics, but at finite `ecut` the shared plane-wave basis
-/// adapts unequally to them — wrapping keeps kinetic energies minimized
-/// and keeps the result bit-compatible with the pre-MPSH mesh.)
+/// Formula: `f_α = (i_α)/N_α + k_α/(2·N_α)` for `i_α ∈ {0, …, N_α−1}` and
+/// `k_α ∈ {0, 1}`. The raw result lies in `[0, 1)` for `k_α = 0` and in
+/// `[1/(2N), 1)` for `k_α = 1`; this function wraps into the first
+/// Brillouin zone `[-1/2, 1/2)` so the SCF sees k-points in canonical
+/// form. (Mathematically k and k+G give identical physics, but at finite
+/// `ecut` the shared plane-wave basis adapts unequally to them — wrapping
+/// keeps kinetic energies minimized.)
 #[must_use]
 pub fn mp_fractional_coord(
     i1: u32,
@@ -110,12 +109,6 @@ pub fn mp_fractional_coord(
 /// `shift` argument selects between the Γ-centered and MP-1976 (shifted)
 /// conventions — see [`KGridShift`] for the formulas. Fractional
 /// coordinates are converted to Cartesian reciprocal space via `lattice`.
-///
-/// ## Convention vs QE
-///
-/// - `KGridShift::GammaCentered` ↔ QE `K_POINTS automatic / nk1 nk2 nk3 0 0 0`.
-/// - `KGridShift::MP1976` ↔ QE `K_POINTS automatic / nk1 nk2 nk3 1 1 1`.
-/// - `KGridShift::Custom([k1,k2,k3])` ↔ QE `K_POINTS automatic / nk1 nk2 nk3 k1 k2 k3`.
 #[must_use]
 pub fn monkhorst_pack(
     n1: u32,

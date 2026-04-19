@@ -344,9 +344,9 @@ impl NonlocalPotential {
 
 /// Real spherical harmonics Y_lm(q̂) for 0 ≤ l ≤ lmax, written into `out`
 /// in the order (l, m) = (0,0), (1,0), (1,+1), (1,-1), (2,0), (2,+1), (2,-1),
-/// (2,+2), (2,-2), …, matching QE's `ylmr2` layout.
+/// (2,+2), (2,-2), ….
 ///
-/// The algorithm is adapted from QE's `ylmr2_gpu.f90`:
+/// Algorithm:
 ///   1. Compute cos θ, sin θ, φ from the direction of q.
 ///   2. Build Q(l, m) := sqrt((l−m)! / (l+m)!) · P_l^m(cos θ) for 0 ≤ m ≤ l
 ///      using the standard associated-Legendre recurrence.

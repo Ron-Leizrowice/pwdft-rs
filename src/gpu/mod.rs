@@ -52,7 +52,7 @@ pub struct GpuAccelerator {
 /// - `complex_bufs[0]` — `rho_g` (Hartree input).
 /// - `complex_bufs[1]` — `v_h` (Hartree output; also V_eff `v_h` input).
 /// - `complex_bufs[2]` — `v_local` (V_eff input; static across SCF iterations
-///   but uploaded per call until GOPT PR-C fuses the chain).
+///   but currently re-uploaded per call).
 /// - `complex_bufs[3]` — `v_xc_g` (V_eff input).
 /// - `complex_bufs[4]` — `v_eff` (V_eff output).
 ///
@@ -81,12 +81,11 @@ struct BufferPool {
     ///
     /// The cached `hartree_bg` bind group below holds the actual reference the
     /// kernel consumes; this field keeps the buffer alive and documents the
-    /// ownership (kept for symmetry with the other pool fields and so that
-    /// GOPT PR-C can re-bind it when chaining Hartree → XC → V_eff into one
-    /// encoder without rebuilding the pool).
+    /// ownership (retained for a future chain-fusion path that re-binds it
+    /// when encoding Hartree → XC → V_eff into one encoder).
     #[allow(
         dead_code,
-        reason = "Held alive via hartree_bg; explicit ownership needed for PR-C chain fusion"
+        reason = "Held alive via hartree_bg; explicit ownership retained for future chain fusion"
     )]
     g_squared_buf: wgpu::Buffer,
     /// XC real-space density input (n_grid f32).
@@ -193,8 +192,7 @@ impl GpuAccelerator {
     /// Covers all three kernels (Hartree, V_eff, LDA XC). After this call the
     /// pooled branches of `hartree_potential`, `v_eff_assembly`, and `lda_xc`
     /// issue zero `create_buffer` / `create_bind_group` per call — only
-    /// `queue.write_buffer` updates for inputs and the kernel uniform (GOPT
-    /// PR-B, §2 F-4 + F-11).
+    /// `queue.write_buffer` updates for inputs and the kernel uniform.
     #[allow(
         clippy::cast_possible_truncation,
         reason = "GPU mixed-precision strategy (module doc): f64→f32 conversion at the CPU→GPU boundary is intentional; see `GpuAccelerator` documentation"

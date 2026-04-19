@@ -23,7 +23,7 @@ pub(super) fn extract_attr<'a>(content: &'a str, attr_name: &str) -> Option<&'a 
 /// `NonlocalPotential::new`), and `Err(PwdftError::Parse)` when the tag
 /// or attribute is missing or the integer is unparseable. Rejecting at
 /// load time keeps the failure mode "bad UPF file" rather than an
-/// internal assertion deep in the solver (UPFV, 2026-04-18).
+/// internal assertion deep in the solver.
 ///
 /// Zero (s-channel) and positive integers parse unchanged.
 pub(super) fn extract_beta_angular_momentum(content: &str, tag: &str) -> Result<i32> {

@@ -137,9 +137,13 @@ paper. Concretely, every **public** physics-function docstring must have:
    Example: `` `E_xc = ∫ ε_xc(ρ↑, ρ↓) · (ρ↑ + ρ↓) d³r` `` rather than
    "compute the exchange-correlation energy".
 
-2. **Citation** — paper + equation number *or* textbook + page *or* QE
-   source line. Prefer QE cross-references when the convention is taken
-   from QE; e.g. *"matches `qe-7.5/PW/src/v_of_rho.f90:511`"*.
+2. **Citation** — paper + equation number *or* textbook + page.
+   Prefer published-literature citations (e.g. *"Perdew & Zunger, *Phys.
+   Rev. B* **23**, 5048 (1981), Eq. (C1)"*). **Do NOT add QE source-line
+   cross-references in public rustdoc** (per DCLN — the crate's public
+   documentation describes the physics directly rather than positioning
+   itself as a QE derivative). QE cross-references belong in `//` dev
+   comments or test-module docstrings only.
 
 3. **Variable definitions** — every symbol in the equation gets a
    one-line gloss including units. *"`ρ` in e/Å³; `G` in 1/Å; `Ω` cell
@@ -181,7 +185,9 @@ pub fn v_of_g(&self, ig: usize) -> Complex64 { ... }
 ///   as `V_local(G=0) · N_el` in the total-energy accounting (see
 ///   [`crate::scf::energy::with_g0_shift`] and proposal NCFX).
 ///
-/// Mirrors QE 7.5 `PW/src/init_vloc.f90:43`.
+/// Reference: Kleinman & Bylander, *Phys. Rev. Lett.* **48**, 1425 (1982)
+/// for the separable form; the spherical Bessel transform conventions
+/// follow Martin, *Electronic Structure*, §11.4.
 ///
 /// Panics if `ig >= n_basis` (plain slice-index OOB).
 ```

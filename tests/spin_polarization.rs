@@ -480,9 +480,9 @@ fn non_lda_xc_functional_is_rejected_at_scf_entry() {
     // `what` label. Keep max_iter = 1 so that if the dispatch ever regresses,
     // the test fails loudly instead of hanging an SCF run.
     for (variant, want_label) in [
-        (XcFunctional::Pbe, "pbe"),
-        (XcFunctional::Pbe0, "pbe0"),
-        (XcFunctional::Hse06, "hse06"),
+        (XcFunctional::Pbe, "xc_functional 'pbe'"),
+        (XcFunctional::Pbe0, "xc_functional 'pbe0'"),
+        (XcFunctional::Hse06, "xc_functional 'hse06'"),
     ] {
         let params = scf::ScfParams {
             n_bands: 4,
@@ -516,8 +516,8 @@ fn non_lda_xc_functional_is_rejected_at_scf_entry() {
     };
     let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_pz, &sym);
     // Any outcome (Ok, ConvergenceFailure, Eigensolver, …) is acceptable; we
-    // only care that the XCNI trap does NOT fire on LDA. A NotImplemented
-    // leak here would break every existing LDA test.
+    // only care that the not-yet-implemented trap does NOT fire on LDA. A
+    // NotImplemented leak here would break every existing LDA test.
     if let Err(PwdftError::NotImplemented { .. }) = result {
         panic!("LDA (Pz) must not trigger NotImplemented — that would break every existing test");
     }
