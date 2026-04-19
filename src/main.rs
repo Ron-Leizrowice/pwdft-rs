@@ -134,12 +134,12 @@ fn main() -> pwdft_rs::error::Result<()> {
 
             let result = scf::run_scf(&crystal, &basis, &kpts, &pp_refs, &params, &symmetry_info)?;
 
-            eprintln!("SCF converged in {} iterations", result.n_iterations);
-            eprintln!("Total energy: {:.6} eV", result.total_energy);
-            eprintln!("Fermi energy: {:.6} eV", result.fermi_energy);
+            info!("SCF converged in {} iterations", result.n_iterations);
+            info!("Total energy: {:.6} eV", result.total_energy);
+            info!("Fermi energy: {:.6} eV", result.fermi_energy);
             for (ik, evs) in result.eigenvalues.iter().enumerate() {
                 if ik < 3 || ik == result.eigenvalues.len() - 1 {
-                    eprintln!(
+                    info!(
                         "  k-point {ik}: bands = {:?}",
                         evs.iter().map(|e| format!("{e:.4}")).collect::<Vec<_>>()
                     );
