@@ -279,12 +279,10 @@ fn bench_basis(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 // LDA XC grid evaluation (per-iteration hot path)
 //
-// Sizes span the sequential→parallel crossover region:
-//   256   — tiny molecule / sanity
-//   512   — threshold candidate
-//   4_096 — 16^3 grid (small SCF)
-//   32_768 — 32^3 grid (typical production)
-//   262_144 — 64^3 grid (large)
+// Sizes cover the production FFT-grid range:
+//   16_384 — ~25³ grid (small SCF)
+//   32_768 — 32³ grid (typical production)
+//   262_144 — 64³ grid (large)
 // ---------------------------------------------------------------------------
 
 fn make_rho(n: usize) -> Vec<f64> {
@@ -298,7 +296,7 @@ fn make_rho(n: usize) -> Vec<f64> {
 fn bench_xc_grid(c: &mut Criterion) {
     let mut group = c.benchmark_group("xc_grid");
 
-    for &n in &[256_usize, 512, 4_096, 16_384, 32_768, 262_144] {
+    for &n in &[16_384_usize, 32_768, 262_144] {
         let rho_r = make_rho(n);
 
         group.bench_function(format!("lda_xc_grid_n{n}"), |b| {
