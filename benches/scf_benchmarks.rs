@@ -483,9 +483,9 @@ fn bench_hamiltonian_assembly_aloc_f5(c: &mut Criterion) {
                 let miller_idx = basis.miller_indices();
                 for i in 0..n {
                     for j in 0..n {
-                        let dn1 = i32::from(miller_idx[i][0]) - i32::from(miller_idx[j][0]);
-                        let dn2 = i32::from(miller_idx[i][1]) - i32::from(miller_idx[j][1]);
-                        let dn3 = i32::from(miller_idx[i][2]) - i32::from(miller_idx[j][2]);
+                        let dn1 = miller_idx[i][0] - miller_idx[j][0];
+                        let dn2 = miller_idx[i][1] - miller_idx[j][1];
+                        let dn3 = miller_idx[i][2] - miller_idx[j][2];
                         // Inline miller_to_idx (it's private to scf::grid).
                         // For this FFT grid shape, wrap negative indices.
                         let wrap = |d: i32, len: usize| -> usize {
@@ -524,9 +524,9 @@ fn bench_hamiltonian_assembly_aloc_f5(c: &mut Criterion) {
                     let mi = miller_idx[i];
                     for j in 0..n {
                         let mj = miller_idx[j];
-                        let dn1 = i32::from(mi[0]) - i32::from(mj[0]);
-                        let dn2 = i32::from(mi[1]) - i32::from(mj[1]);
-                        let dn3 = i32::from(mi[2]) - i32::from(mj[2]);
+                        let dn1 = mi[0] - mj[0];
+                        let dn2 = mi[1] - mj[1];
+                        let dn3 = mi[2] - mj[2];
                         let wrap = |d: i32, len: usize| -> usize {
                             let l = len as i32;
                             (((d % l) + l) % l) as usize

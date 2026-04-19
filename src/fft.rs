@@ -128,9 +128,6 @@ impl FFT3D {
     }
 }
 
-/// Choose FFT-friendly grid dimensions for a given basis.
-///
-/// Returns the smallest `n >= 2*n_max + 1` that is a product of small primes (2,3,5).
 /// Find the smallest FFT-friendly grid size n ≥ 2·n_max + 1.
 ///
 /// The factor 2·n_max + 1 is the Nyquist criterion: G-vectors range from
@@ -140,22 +137,11 @@ impl FFT3D {
 /// Grid sizes that are products of small primes (2, 3, 5) give optimal FFT
 /// performance; arbitrary sizes may be much slower.
 ///
-/// # Panics
-///
-/// Panics if `n_max < 0`. A negative input would wrap to a huge `usize` in
-/// the `2*n_max + 1` step and cause the loop to effectively hang; the
-/// explicit assertion surfaces that programming error immediately.
+/// `n_max` is typed as `u32` to encode the non-negative invariant at the
+/// API boundary rather than via a runtime assertion.
 #[must_use]
-pub fn fft_grid_size(n_max: i32) -> usize {
-    // n_max is a non-negative Miller-index bound; assert here so a negative
-    // value (which would wrap to a huge usize and loop effectively forever)
-    // surfaces as a clean panic instead of a hang.
-    assert!(n_max >= 0, "fft_grid_size: n_max must be non-negative, got {n_max}");
-    #[allow(
-        clippy::cast_sign_loss,
-        reason = "n_max asserted non-negative on the previous line"
-    )]
-    let min_n = (2 * n_max + 1) as usize;
+pub fn fft_grid_size(n_max: u32) -> usize {
+    let min_n = 2 * (n_max as usize) + 1;
     let mut n = min_n;
     loop {
         if is_fft_friendly(n) {
@@ -224,9 +210,9 @@ mod tests {
 
     #[test]
     fn test_fft_grid_size() {
-        assert_eq!(fft_grid_size(3), 8);
-        assert_eq!(fft_grid_size(4), 9);
-        assert_eq!(fft_grid_size(5), 12);
+        assert_eq!(fft_grid_size(3_u32), 8);
+        assert_eq!(fft_grid_size(4_u32), 9);
+        assert_eq!(fft_grid_size(5_u32), 12);
     }
 
     #[test]

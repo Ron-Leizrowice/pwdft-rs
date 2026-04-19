@@ -72,13 +72,12 @@ pub fn compatible_grid_dims(min_dims: [usize; 3], symmetry: &SymmetryInfo) -> [u
     for _ in 0..100 {
         #[allow(
             clippy::cast_possible_truncation,
-            clippy::cast_possible_wrap,
-            reason = "FFT grid dims are asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`; fit in i32 trivially"
+            reason = "FFT grid dims are asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`; fit in u32 trivially"
         )]
         let candidate = [
-            crate::fft::fft_grid_size(dims[0] as i32 / 2),
-            crate::fft::fft_grid_size(dims[1] as i32 / 2),
-            crate::fft::fft_grid_size(dims[2] as i32 / 2),
+            crate::fft::fft_grid_size((dims[0] / 2) as u32),
+            crate::fft::fft_grid_size((dims[1] / 2) as u32),
+            crate::fft::fft_grid_size((dims[2] / 2) as u32),
         ];
         // Make all equal to the max for safety
         // SAFETY: candidate is [usize; 3], always has 3 elements.

@@ -178,12 +178,9 @@ pub(crate) fn fill_hamiltonian_with_v_eff(
         let mi = miller_idx[i];
         for j in 0..n {
             let mj = miller_idx[j];
-            // Miller entries are `i16` (TYPE-A). Widen to `i32` before
-            // subtraction so differences cannot overflow even at the
-            // i16 boundary; `miller_to_idx` takes `i32` natively.
-            let dn1 = i32::from(mi[0]) - i32::from(mj[0]);
-            let dn2 = i32::from(mi[1]) - i32::from(mj[1]);
-            let dn3 = i32::from(mi[2]) - i32::from(mj[2]);
+            let dn1 = mi[0] - mj[0];
+            let dn2 = mi[1] - mj[1];
+            let dn3 = mi[2] - mj[2];
             let fft_idx = miller_to_idx(grid_dims, dn1, dn2, dn3);
             let v = v_eff_fft[fft_idx];
             h[(i, j)] = if i == j {
