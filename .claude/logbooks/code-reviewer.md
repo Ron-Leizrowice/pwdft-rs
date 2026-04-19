@@ -2,6 +2,25 @@
 
 Entries: date, metrics (actual counts), findings, proposals affected. Track quality trends over time.
 
+## 2026-04-19 — TSPL landed (PR #150)
+
+18 new `#[ignore = "TSPL Tier-2: ..."]` tags. Tier-1 wall: 95 s → **12 s warm** (8× on top of TPRF's 7×; net 55× vs. opt-level=0 baseline). Tier-2 wall: 58 s warm (passing tests only). Gate: 271 unit + 49 integration pass; clippy 18/24 baseline unchanged; rustdoc clean.
+
+Breakdown of new Tier-2:
+- `parallel_consistency.rs`: 2 SCF tests (FFT round-trips stay Tier-1)
+- `spin_polarization.rs`: 4 (all SCF-running tests)
+- `vgc5_per_component_si.rs`: 4 (vgc5_si/fe_per_component + madoc_band_sum_si/fe)
+- `wfrx_subspace_consistency.rs`: 3 (all — each runs 2 SCFs)
+- `itev_iterative_eigensolver.rs`: 1 end-to-end (defect-1 single-shots stay Tier-1)
+- `qe_validation.rs`: 1 (Si-LDA only; Fe/Cu/GaAs/NaCl/MgO/C/Al arms reserved for other agents; Si-Fermi already has VGCH ignore)
+- `gpu_consistency.rs`: 3 SCF tests (kernel-unit tests stay Tier-1)
+
+Fe NLCC regression guard (`test_fe_bcc_xc_nlcc_regression_guard`) **not touched** — uses Fe fixture but is a defensive ecut=15/4×4×4 NLCC guard, not a Fe-vs-QE comparison arm. Left Tier-1 even though it runs SCF — it's fast enough at nspin=1 and catches the NCFX 49 eV pathology on every commit, worth the ~10 s cost.
+
+Limitation: `cargo test -- --ignored` runs the union of TSPL Tier-2 + physics-blockers (VGCH heavy-atom, Al ecut, C mixer, MXBA adaptive-β failure). The 8 physics-blocker tests still fail by design when run with `--ignored`. PR body documents the skip list; reviewer discipline required.
+
+Unexpected rebase: `qe_validation.rs` was modified by a concurrent PR (GGAP Phase B #145) mid-session. TSPL Si ignore absorbed cleanly via `rebase origin/main`; no manual fixup needed.
+
 ## 2026-04-18 — DEAD landed all three sub-items (PR #127)
 
 DRSD + SMRT + DHPC all shipped in one bundle after rebasing around HKIN/XCTH/ELMN concurrent merges.
