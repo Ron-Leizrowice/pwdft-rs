@@ -181,6 +181,10 @@ fn find_translation(
 /// which would indicate a non-crystallographic rotation escaping from
 /// `find_metric_preserving_rotations`.
 fn narrow_rotation(r: &[[i32; 3]; 3]) -> [[i8; 3]; 3] {
+    #[expect(
+        clippy::expect_used,
+        reason = "BUG: TYPE-A narrowing; rotations returned by find_metric_preserving_rotations have crystallographic entries in {-2..=2}, well within i8 range. A panic here indicates a non-crystallographic rotation escaped that routine."
+    )]
     let to_i8 = |v: i32| {
         i8::try_from(v).expect("symmetry::detect: rotation entry exceeds i8 range")
     };

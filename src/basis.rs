@@ -61,6 +61,10 @@ impl BasisSet {
         // the proposal's argument (ecut > 10^7 Ry is non-physical); the
         // panic path is a guard against a caller who passes an absurdly
         // large lattice.
+        #[expect(
+            clippy::expect_used,
+            reason = "BUG: TYPE-A narrowing; Miller indices are bounded by sqrt(ecut / HBAR2_OVER_2M) / |b_min|, giving |n| < 32768 for any physically meaningful ecut (< 10^7 Ry). Infallible by construction; see the preceding comment."
+        )]
         let to_i16 = |n: i32| {
             i16::try_from(n).expect(
                 "BasisSet::new: Miller index exceeds i16 range; ecut must be below 10^7 Ry",
