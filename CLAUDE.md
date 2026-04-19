@@ -81,9 +81,34 @@ Both clippy invocations are required: without `--features gpu`, the `gpu/` sourc
 
 **GPU strategy:** Optional `gpu` feature flag. `GpuAccelerator` with `BufferPool` of pre-allocated f32 buffers. GPU kernels run in f32, CPU in f64, with conversion at boundaries. Falls back to CPU (rayon) when GPU unavailable. Three WGSL shaders handle the per-iteration grid operations.
 
-**Eigensolver:** The SCF loop diagonalizes the Kohn-Sham Hamiltonian at each k-point once per iteration. `EigensolverKind::Dense` (the default) uses `faer::SelfAdjointEigen` — full O(n³) LAPACK-equivalent decomposition. `EigensolverKind::Iterative` (opt-in via `scf.eigensolver: iterative` in YAML) uses faer's partial Arnoldi/Krylov-Schur solver to compute only the lowest `n_bands` eigenpairs, with a shift-and-flip trick to map "algebraically lowest of H" to "largest-magnitude of σI − H". **Stay on `Dense` for now** — Iterative has three unresolved issues tracked in ITEV: (1) faer 0.24 `iterate_lanczos` hangs on near-null Krylov vectors (fix drafted locally, not yet vendored); (2) size-independent `n_request` padding drops 3-fold-degenerate valence clusters at `n_pw ≳ 725`; (3) the iterative dispatch path bypasses WFRX warm-start, so it converges to a *different* SCF fixed point than Dense. On a realistic Si Kohn-Sham Hamiltonian at `n_pw = 725`, single-shot iterative is ~0.48× (i.e. slower than Dense); the earlier "3–10× faster" projection was built from synthetic matrices and does not survive contact with real degeneracies. See `proposals/ITEV-faer-partial-eigen.md` § Status for the full picture.
+**Eigensolver:** The SCF loop diagonalizes the Kohn-Sham Hamiltonian at each k-point once per iteration. `EigensolverKind::Dense` (the default) uses `faer::SelfAdjointEigen` — full O(n³) LAPACK-equivalent decomposition. `EigensolverKind::Iterative` (opt-in via `scf.eigensolver: iterative` in YAML) uses faer's partial Arnoldi/Krylov-Schur solver to compute only the lowest `n_bands` eigenpairs, with a shift-and-flip trick to map "algebraically lowest of H" to "largest-magnitude of σI − H". **Stay on `Dense` for now** — Iterative has two unresolved correctness issues tracked in ITEV: (1) size-independent `n_request` padding drops 3-fold-degenerate valence clusters at `n_pw ≳ 725`; (2) the iterative dispatch path bypasses WFRX warm-start, so it converges to a *different* SCF fixed point than Dense. (The previously-cited faer `iterate_lanczos` hang is fixed in the vendored copy — see § Vendored dependencies below.) On a realistic Si Kohn-Sham Hamiltonian at `n_pw = 725`, single-shot iterative is ~0.48× (i.e. slower than Dense); the earlier "3–10× faster" projection was built from synthetic matrices and does not survive contact with real degeneracies. See `proposals/ITEV-faer-partial-eigen.md` § Status for the full picture.
 
 **Key types:** `Crystal`, `BasisSet`, `KPoint`, `PseudopotentialData`, `ScfParams`/`ScfResult`, `EnergyComponents`, `EigensolverKind`, `MixingMode`/`Mixer`, `NonlocalPotential`, `EigenResult`, `SymmetryInfo`/`SpaceGroupOp`.
+
+## Vendored dependencies
+
+`faer` v0.24.0 is vendored at `./faer/` with a single local edit:
+`MAX_REORTH = 3` on `iterate_lanczos` reorthogonalization to prevent the
+upstream infinite-loop on near-null Krylov vectors. `Cargo.toml` wires it
+via `[patch.crates-io]` so the vendored copy takes over for both `faer`
+and `faer-traits` wherever the dep graph would resolve to crates.io.
+
+- **Editing faer is allowed and expected.** A proposal that needs to
+  change the vendored solver can edit files under `faer/faer/src/...`
+  directly inside its worktree, run the pwdft-rs quality gate, and commit
+  the faer-side + pwdft-rs-side changes together on its feature branch.
+  No separate PR against upstream faer is required for the local build —
+  that happens later when the user submits the patch upstream.
+- **Upstream-submit procedure** lives in `docs/FAER_ITERATE_LANCZOS_FIX.md`.
+  Follow it when any vendored edit is ready to go back to
+  [`codeberg.org/sarah-quinones/faer`](https://codeberg.org/sarah-quinones/faer.git).
+- **Build artifacts** (`faer/target/`, `faer/*.out`, stray `.git`) are in
+  `.gitignore`. Running `cargo test` inside `faer/` to exercise faer's own
+  test suite is safe — artifacts stay out of pwdft-rs's git index.
+- **Version bumps:** when upstream cuts a new release, re-vendor by
+  copying the new source over `faer/`, re-applying the patch (or dropping
+  it if upstream absorbed the fix), and running the pwdft-rs quality gate.
+  The vendored `faer/Cargo.lock` is separate from pwdft-rs's `Cargo.lock`.
 
 ## Workflow
 

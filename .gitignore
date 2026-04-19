@@ -1,5 +1,14 @@
 /target
 
+# Vendored faer (see docs/FAER_ITERATE_LANCZOS_FIX.md). Track source only;
+# build artifacts and upstream-CI dotfiles stay local.
+faer/target/
+faer/.git/
+faer/.claude/
+faer/*.out
+faer/*.pdf
+faer/compile_commands.json
+
 # Override global gitignore for project-specific .claude config
 !.claude/
 !.claude/**
