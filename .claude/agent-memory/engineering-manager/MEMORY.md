@@ -1,1 +1,2 @@
 - [User pushes main directly](feedback_user_pushes_main.md) — fetch + rebase before every EM operation; `/merge` uses rebase not ff-only
+- [No backwards compatibility](feedback_no_backcompat.md) — pre-release, zero users; breaking changes land as hard breaks, no `#[serde(alias)]` / deprecation shims

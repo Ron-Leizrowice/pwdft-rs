@@ -22,6 +22,7 @@ Shared protocols (read once, apply everywhere):
 - `.claude/agents/shared/machine-lock.md` — CPU-contention serialization
 - `.claude/agents/shared/quality-gate.md` — merge criteria
 - `.claude/agents/shared/flup.md` — consuming Flagged-for-follow-up blocks
+- `.claude/agents/shared/no-backcompat.md` — pre-release project; breaking changes land as hard breaks, no shims
 - `.claude/agents/shared/docs-drift.md` — fix or flag stale references
 - `.claude/agents/shared/session-end.md` — logbook handoff rules
 

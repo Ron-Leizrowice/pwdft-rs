@@ -30,6 +30,7 @@ Shared protocols (read once, apply everywhere):
 - `.claude/agents/shared/quality-gate.md`
 - `.claude/agents/shared/flup.md`
 - `.claude/agents/shared/docs-drift.md`
+- `.claude/agents/shared/no-backcompat.md`
 - `.claude/agents/shared/session-end.md`
 
 ## Mindset

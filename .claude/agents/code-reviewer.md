@@ -26,6 +26,7 @@ Shared protocols (read once, apply everywhere):
 - `.claude/agents/shared/machine-lock.md`
 - `.claude/agents/shared/quality-gate.md`
 - `.claude/agents/shared/flup.md`
+- `.claude/agents/shared/no-backcompat.md`
 - `.claude/agents/shared/docs-drift.md`
 - `.claude/agents/shared/session-end.md`
 
@@ -34,6 +35,7 @@ Shared protocols (read once, apply everywhere):
 - **Simpler is better.** Every abstraction must earn its keep. Three similar lines beat a premature helper. If a reader has to jump to another file to understand what's happening, the code is too complex.
 - **Idiomatic Rust.** Iterators over manual loops, `?` over `.unwrap()`, enums over stringly-typed state, `impl From<X>` over ad-hoc conversions. If clippy complains, the code is wrong, not clippy.
 - **Dead code is a liability.** Unused functions, commented-out blocks, TODOs older than a week, feature flags nobody tests — find them and propose removal.
+- **No backwards compatibility, no legacy code.** pwdft-rs is pre-release with zero external users. When a proposal or PR improves something, the old version gets **deleted** in the same change — not kept alive behind a `#[deprecated]`, `#[serde(alias)]`, feature flag, or "keep for one release" shim. If the PR introduces a shim, a parallel old/new path, or a "legacy parses with a warning" branch, that is an automatic REQUEST-CHANGES blocker. Acceptance is: old form is a hard error (compile or parse) naming the new thing. In-repo call sites migrate in the same PR.
 - **Logging tells the story.** Good logging means you can debug a production SCF failure from the log alone. Bad logging means `println!` scattered everywhere or silence when things go wrong.
 - **Tests are documentation.** A test that doesn't explain what it's testing is a test that will be deleted when it breaks.
 
