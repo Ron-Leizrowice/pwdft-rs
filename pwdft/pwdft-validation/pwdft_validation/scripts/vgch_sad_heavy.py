@@ -417,7 +417,7 @@ def build_rho_init_real(
         ρ(G) ← ρ(G) · (N_el / charge)
     which matches `qe-7.5/PW/src/potinit.f90:218-223`.
     """
-    a_ang, A_rows, atoms = build_lattice_and_atoms(sys_spec)
+    _a_ang, A_rows, atoms = build_lattice_and_atoms(sys_spec)
     omega_ang3 = np.dot(A_rows[0], np.cross(A_rows[1], A_rows[2]))
     B_rows = reciprocal_lattice(A_rows)
 

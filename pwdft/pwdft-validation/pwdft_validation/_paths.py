@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# This file lives at ``<repo>/validation/src/pwdft_validation/_paths.py``, so
-# ``parents[3]`` is the workspace root.
-REPO_ROOT: Path = Path(__file__).resolve().parents[3]
+from pyprojroot import find_root, has_file
 
-VALIDATION_DIR: Path = REPO_ROOT / "validation"
+PROJECT_ROOT = find_root(has_file("uv.lock"))
+
+VALIDATION_DIR: Path = PROJECT_ROOT / "validation"
 QE_REF_DIR: Path = VALIDATION_DIR / "reference" / "qe"
 CSV_REF_DIR: Path = VALIDATION_DIR / "reference" / "csv"
 
-PSEUDO_DIR: Path = REPO_ROOT / "pseudopotentials"
-INPUTS_DIR: Path = REPO_ROOT / "inputs"
+PSEUDO_DIR: Path = PROJECT_ROOT / "pseudopotentials"
+INPUTS_DIR: Path = PROJECT_ROOT / "inputs"

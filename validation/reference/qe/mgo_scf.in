@@ -2,7 +2,7 @@
   calculation = 'scf'
   prefix = 'mgo'
   outdir = './tmp'
-  pseudo_dir = './pseudo'
+  pseudo_dir = '../../../pseudopotentials/nc/lda'
   verbosity = 'high'
   disk_io = 'low'
   max_seconds = 540

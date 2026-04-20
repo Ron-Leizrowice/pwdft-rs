@@ -2,7 +2,7 @@
   calculation = 'scf'
   prefix = 'fe_fm_pbe'
   outdir = './tmp_pbe'
-  pseudo_dir = './pseudo_pbe'
+  pseudo_dir = '../../../pseudopotentials/nc/pbe'
   verbosity = 'high'
   disk_io = 'low'
   max_seconds = 540

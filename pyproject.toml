@@ -2,6 +2,9 @@
 requires = ["uv_build>=0.11,<0.12"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+module-root = "pwdft/pwdft-validation"
+
 [project]
 name = "pwdft-validation"
 version = "0.1.0"
@@ -10,7 +13,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "cyclopts>=4.10.2",
+    "cyclopts>=4",
     "numpy>=2",
     "pandas>=3",
     "pyprojroot>=0.3",
@@ -40,6 +43,7 @@ pwdft-validate = "pwdft_validation.cli:main"
 [tool.ruff]
 line-length = 120
 target-version = "py314"
+cache-dir = ".cache/ruff"
 
 [tool.ruff.lint]
 select = [
@@ -70,6 +74,7 @@ ignore = [
 # pytest
 # ------------------------------------------------------------------
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
+testpaths = ["pwdft/pwdft-validation/tests"]
+pythonpath = ["pwdft/pwdft-validation"]
 addopts = "-ra --strict-markers"
+cache_dir = ".cache/pytest"

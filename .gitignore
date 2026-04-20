@@ -31,11 +31,5 @@ outputs/*
 
 # Python tooling (uv / hatchling) for validation package.
 __pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-validation/.venv/
-validation/dist/
-validation/build/
-validation/*.egg-info/
+.venv/
+cache-dir = "~/.cache/ruff"

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Extract PBE reference data from QE output logs for GGAP Phase F.
 
 Parses each *_pbe.out file for:
@@ -18,7 +17,12 @@ import re
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+from pwdft_validation import PSEUDO_DIR, QE_REF_DIR
+
+GAMMA_RE = re.compile(
+    r"k =\s*0\.0000\s+0\.0000\s+0\.0000\s*\(\s*\d+\s*PWs\s*\)\s*bands\s*\(ev\):\s*\n\s*\n(.*?)\n\s*\n",
+    re.DOTALL,
+)
 
 
 def pp_hash(pp_file: Path) -> str:
@@ -54,20 +58,13 @@ def parse_out(path: Path, nspin: int = 1):
     gamma_eigs_up = []
     gamma_eigs_dn = []
 
-    gamma_re = re.compile(
-        r"k =\s*0\.0000\s+0\.0000\s+0\.0000\s*\(\s*\d+\s*PWs\s*\)\s*bands\s*\(ev\):\s*\n\s*\n(.*?)\n\s*\n",
-        re.DOTALL,
-    )
-    matches = gamma_re.findall(post_scf)
+    matches = GAMMA_RE.findall(post_scf)
 
     def parse_block(block: str):
         vals = []
         for line in block.strip().splitlines():
             for tok in line.split():
-                try:
-                    vals.append(float(tok))
-                except ValueError:
-                    pass
+                vals.append(float(tok))
         return vals
 
     if nspin == 2:
@@ -121,7 +118,7 @@ def fmt_eigs(evs, n_max=8):
 def main():
     lines = []
     summary_rows = []
-    pseudo_dir = HERE / "pseudo_pbe"
+    pseudo_dir = PSEUDO_DIR / "nc" / "pbe"
 
     lines.append("# --- PBE reference data (GGAP Phase F-pre) ---")
     lines.append("#")
@@ -133,7 +130,7 @@ def main():
     lines.append("")
 
     for section, in_file, a_ang, ecut_ry, k_grid, degauss_ry, nspin, pp_files, start_mag in SYSTEMS:
-        out_path = HERE / in_file.replace(".in", ".out")
+        out_path = QE_REF_DIR / in_file.replace(".in", ".out")
         parsed = parse_out(out_path, nspin=nspin)
 
         # PP hashes
@@ -188,7 +185,7 @@ def main():
         file=sys.stderr,
     )
     for row in summary_rows:
-        section, ecut_ry, k_grid, e_ry, e_ev, ef, ni, pp_files, tm, am = row
+        section, ecut_ry, k_grid, e_ry, e_ev, ef, ni, pp_files, _tm, am = row
         mag_str = f" |M|={am:.2f} μB" if am is not None else ""
         print(
             f"{section:<22} {ecut_ry:>6.1f} {k_grid!s:<12} {e_ry:>14.6f} {e_ev:>14.4f} {ef:>8.4f} {ni:>3} {','.join(pp_files)}{mag_str}",

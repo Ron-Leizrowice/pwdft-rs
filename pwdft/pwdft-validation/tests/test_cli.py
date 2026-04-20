@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from pwdft_validation import CSV_REF_DIR, PSEUDO_DIR, QE_REF_DIR, REPO_ROOT
 from pwdft_validation.cli import _available_scripts, main
 
