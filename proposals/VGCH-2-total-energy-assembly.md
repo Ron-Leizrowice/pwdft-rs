@@ -369,19 +369,72 @@ density, the bug is not semicore-specific. Part C should run the
 transplant on C, Fe, NaCl as the minimum triangulation set before
 proposing a fix.
 
-**Part C — Fix (1–5 CE-days).**
+**Part C — Diagnosis + fix (1–5 CE-days).**
 
-Scope reserved for the actual fix once Part A or B localizes the
-bug. Expected fix classes, in decreasing prior:
+### Part C session-1 findings (2026-04-20, diagnostic-only) — H-C1 + H-C3 CLEARED
 
-- A sign or dimensional error in the V_loc(G=0) compensation for
-  multi-species or semicore PPs.
+Closed hypotheses this session:
+
+- **H-C1 (Fermi-finder algorithm)** — CLEARED. Python Fermi-Dirac
+  bisection over QE's converged eigenvalues reproduces QE's reported
+  E_F to 6–66 μeV across Cu / Fe / C / MgO, and to 0.036–0.18 meV on
+  NaCl. Pwdft-rs's `smearing::find_fermi_energy` uses the identical
+  sign convention and a bracket-width tolerance (`1e-14 eV`) that
+  converges to the same root as QE's count-tolerance (`1e-10 e`).
+  The finder is not the bug. Artifact:
+  `scripts/validate/vgch2c_fermi_reference.py` + `.csv`.
+- **H-C3 (smearing function mismatch)** — CLEARED on Cu. Every QE
+  reference input deck under `qe_validation/*.in` uses the same
+  smearing function pwdft-rs uses at runtime (Cu: F-D). Cross-
+  smearing gap on Cu is ≤ 0.10 eV (F-D vs MP1 on the same QE
+  eigenvalues), two orders below the 1.82 eV DOS-origin Cu residual.
+
+Convention landmine recorded for future Rust↔Python occupation
+cross-checks: QE's `sumkg.f90` weights already include the spin
+degeneracy (`wk *= degspin` in `setup.f90:673`), sum to 2 for
+nspin=1, and the integrand does NOT apply an additional spin
+factor. Pwdft-rs's `find_fermi_energy` takes weights summing to 1
+plus an explicit `spin_factor = 2.0/nspin`. Identical products,
+but a naive reference that uses QE's `wk` + pwdft-rs's
+`spin_factor = 2` double-counts.
+
+**Remaining hypotheses for Part C session-2:**
+
+- **H-C4 (NLCC ρ_core(G) unpinned on Cu/GaAs/MgO/Mg semicore)** —
+  highest prior. Fe has a regression guard; heavy semicore elements
+  don't. A silent unit-conversion bug on Cu's 3d NLCC could move
+  ΔE_xc at shared density by the observed +8.87 eV (Cu transplant).
+- **H-C5 (V_NL `D_ij · Σ_lm β·β` contraction for Cu d-projectors)** —
+  middle prior. Individual β_l(q) are bit-perfect per VGCH-1b, but
+  the double-sum assembly is untested on Cu-sized cells.
+- **H-C2 (n_bands margin)** — lower prior. Cu has 26 eV of headroom
+  above E_F at Γ (14 bands reach 45 eV; E_F ≈ 19 eV). F-D tails at
+  σ = 0.272 eV decay in ~10 σ = 2.7 eV — well within headroom.
+
+### Part C session-2 scope (next)
+
+- Extend `tests/vgch_per_component_heavy.rs` or add a new NLCC
+  pin for Cu/GaAs/MgO ρ_core(G) at G=0 + first two shells. Parse
+  QE's `rho_core` from the UPF XML (PP_NLCC block) through
+  `scripts/validate/rho_core_g_reference.py`. Target tol: 1e-4
+  e/Å³ at each G.
+- Add a G=G' matrix-element cross-check for the full KB V_NL
+  operator on Cu, extending VNMT's l=2 single-channel pin from Si
+  to Cu. Verify that ⟨G | V_NL | G'⟩ computed by
+  `NonlocalPotential::add_to_hamiltonian` matches a Python reference
+  that sums D_ij · β_l(q) · β_l(q') · Σ_m Y_lm(q̂) Y*_lm(q̂') by
+  brute force.
+
+Expected fix classes, in decreasing prior post-session-1:
+
+- A unit-conversion regression on `PP_NLCC` for heavy semicore
+  elements (H-C4 leading).
+- A scale-factor error in the `D_ij · β·β` contraction or in
+  `add_to_hamiltonian`'s accumulation that only surfaces on Cu-sized
+  cells with dense d-projectors (H-C5).
 - A mis-pairing of input vs. output density in `harris_foulkes_energy`
-  or one of its feeders (the Phase 1a fingerprint is consistent with
-  `ρ_in` vs. `ρ_out` confusion).
-- A missing renormalization in the NLCC double-counting path when
-  ρ_core doesn't integrate exactly to `z_core` due to log-mesh
-  truncation.
+  or one of its feeders (kept as a fallback — Phase 1a fingerprint
+  already clears this at the sum level).
 
 **Part D — Close the matrix (0.5 CE-day).**
 

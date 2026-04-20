@@ -66,6 +66,87 @@ Because `E_HF` uses ρ_in for all DC terms and is invariant to mixer trajectory,
 3. Triangulate the same transplant on C (no semicore, insulator) and Fe (spin-polarized, same 3d semicore structure). If C's transplant is bit-correct and Fe's shows the same 16 eV gap, the problem is specifically in semicore/dense-DOS systems.
 4. Pin Cu / GaAs / MgO ρ_core(G) with the same regression guard Fe has.
 
+### Part C findings (2026-04-20) — H-C1 and H-C3 CLEARED
+
+Artifacts:
+
+- `scripts/validate/vgch2c_fermi_reference.py` — QE-convention Fermi
+  finder in Python. Parses QE's final `bands (ev)` + `wk = ...` blocks
+  from a converged pw.x stdout, applies the three QE smearing functions
+  (Fermi-Dirac, Gaussian, Methfessel-Paxton order-1) and runs two
+  bisection variants — pwdft-style (bracket-width ≤ 1e-14 eV) and
+  QE-style (|N(E_F) − N_target| < 1e-10 electrons, matching
+  `efermig.f90:47,289-307`).
+- `scripts/validate/vgch2c_fermi_reference.csv` — 5 systems × 3
+  smearings × 2 bisections = 30 rows.
+
+**H-C1 verdict: CLEARED.** With QE's converged eigenvalues + weights
+fed into the Python Fermi-Dirac finder, E_F matches QE's reported
+value to **6 μeV on Cu**, **15 μeV on Fe FM (nspin=2)**, **10 μeV on
+C diamond**, **66 μeV on MgO**, **0.036–0.18 meV on NaCl**. The
+bisection algorithm itself is not the bug. Both
+`bracket-width < 1e-14 eV` and `|ΔN| < 1e-10 electrons` convergence
+criteria give identical results to the μeV. pwdft-rs's
+`smearing::find_fermi_energy` is structurally identical to QE's
+`efermig.f90` (sign-convention check: pwdft-rs has
+`x = (ε − E_F)/σ; f = 1/(1+exp(x))`; QE has
+`wgauss((E_F − ε)/σ, −99) = 1/(1+exp(−(E_F−ε)/σ)) = 1/(1+exp((ε−E_F)/σ))`.
+Identical.).
+
+**H-C3 verdict: CLEARED on Cu.** Every QE reference input deck under
+`qe_validation/*.in` uses the smearing that matches pwdft-rs's runtime
+smearing (both F-D for Cu; see `qe_validation/cu_fcc_scf.in:18`).
+On Cu the cross-smearing-function gap is only **−0.08 eV (Gaussian)**
+/ **−0.10 eV (MP)** below the F-D answer — far smaller than the
+observed 1.82 eV DOS-origin gap in the Cu transplant. Even a
+hypothetical smearing mismatch cannot explain the Cu residual.
+
+On wide-gap insulators (C, NaCl, MgO) the cross-smearing gap is
+1.1–2.2 eV — large by construction because the band edge has no DOS
+in the gap, so E_F is weakly constrained. This is expected and NOT a
+bug; for those systems pwdft-rs and QE use the same smearing (F-D)
+and match to <1 meV.
+
+**Key convention landmine documented (for future Rust↔Python
+validation of occupations):** QE's `sumkg.f90` integrates
+`Σ_ik wk(ik) · Σ_b wgauss(...)` where `wk` is pre-multiplied by
+`degspin` in `setup.f90:673` — so `Σ wk = 2` for nspin=1, and
+`sumkg` does NOT apply an additional spin factor. pwdft-rs's
+`find_fermi_energy` takes `kpoint_weights` summing to 1 plus an
+explicit `spin_factor = 2.0/nspin`, and integrates
+`Σ_ik w_k · spin_factor · f_ik`. The products are identical, but a
+naive Python reference that uses QE's `wk` (sum = 2) PLUS an
+explicit `spin_factor = 2` double-counts by a factor of 2. Any
+future cross-check must verify Σ wk at the interface — done in
+`vgch2c_fermi_reference.py::total_n_electrons`.
+
+**Remaining suspects (for Part D or a follow-up):**
+
+- **H-C2 (n_bands margin)** — not closed in this session. Would
+  require running 4 Cu SCFs at `n_bands ∈ {14, 18, 24, 32}`, a
+  ~100-minute machine-locked experiment. On the Cu transplant
+  diagnostic, Γ has 14 bands reaching 45.2 eV (≈ 26 eV above E_F)
+  and other k-points reach 30+ eV — the margin should be enough for
+  F-D tails at σ = 0.272 eV. Priority LOWER than H-C4/H-C5.
+- **H-C4 (Cu/GaAs/MgO ρ_core(G) unpinned)** — not closed in this
+  session. Fe's `test_fe_bcc_xc_nlcc_regression_guard` catches
+  unit-conversion errors on a Z=26 NLCC profile; Cu (Z=29), Ga
+  (Z=31), As (Z=33), Mg (Z=12) have no equivalent. A silent
+  unit-conversion bug would affect E_xc at shared density by
+  exactly the observed order (Cu transplant ΔE_xc = +8.87 eV).
+- **H-C5 (V_NL `D_ij · Σ_lm β·β` contraction on Cu d-projectors)** —
+  not closed in this session. Individual β_l(q) are bit-perfect
+  per VGCH-1b, but the double-sum assembly is untested on Cu-sized
+  cells.
+
+**Revised leading suspect ordering post-Part C:**
+1. H-C4 (ρ_core Fourier transform on heavy semicore elements) —
+   highest prior; fingerprint matches ΔE_xc on transplant.
+2. H-C5 (V_NL assembly) — middle prior; would explain Δone-e at
+   transplant.
+3. H-C2 (n_bands margin) — lower prior; Cu already has 26 eV of
+   headroom above E_F at Γ.
+
 **Acceptance criterion (revised):** Part C closes at least 4 of the 8 Class A cells to ≤ 500 meV at production ecut via either (a) Fermi-finder fix, (b) `n_bands` margin increase as a VQEF-config change, or (c) smearing function alignment. Remaining cells become Class A sub-classes for Part D.
 
 ### Class B — Fe LDA Hamiltonian-side (new, identified by BSUM)
