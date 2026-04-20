@@ -1,20 +1,34 @@
-name: CI
+name: Rust
 
 on:
   push:
     branches: [main]
+    paths:
+      - pwdft/pwdft-core/**
+      - pwdft/faer/**
+      - Cargo.toml
+      - Cargo.lock
+      - .cargo/config.toml
+      - .github/workflows/rust.yml
   pull_request:
+    paths:
+      - pwdft/pwdft-core/**
+      - pwdft/faer/**
+      - Cargo.toml
+      - Cargo.lock
+      - .cargo/config.toml
+      - .github/workflows/rust.yml
   workflow_dispatch:
 
-# Cancel superseded runs on the same ref (PR branch or main) so queue
-# depth stays low when force-pushes land in bursts.
+# Cancel superseded runs on the same ref. Rust and Python workflows use
+# distinct groups so they don't cancel each other.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: rust-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   rust:
-    name: Rust (clippy + test)
+    name: clippy + test
     runs-on: ubuntu-latest
     env:
       # Incremental artifacts are pure bloat in CI — the cache key is
@@ -47,29 +61,3 @@ jobs:
 
       - name: cargo test (tier 1)
         run: cargo test -p pwdft-core
-
-  validation:
-    name: Python (validation)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - name: Sync dependencies
-        run: uv sync
-
-      - name: Ruff format check
-        run: uv run ruff format --check
-
-      - name: Ruff lint
-        run: uv run ruff check
-
-      - name: Ty (Static type checker)
-        run: uv run ty check
-
-      - name: Pytest
-        run: uv run pytest

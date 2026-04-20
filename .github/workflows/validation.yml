@@ -1,0 +1,48 @@
+name: Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - pwdft/pwdft-validation/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/validation.yml
+  pull_request:
+    paths:
+      - pwdft/pwdft-validation/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/validation.yml
+  workflow_dispatch:
+
+concurrency:
+  group: validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validation:
+    name: ruff + ty + pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Ruff format check
+        run: uv run ruff format --check
+
+      - name: Ruff lint
+        run: uv run ruff check
+
+      - name: Ty (Static type checker)
+        run: uv run ty check
+
+      - name: Pytest
+        run: uv run pytest
