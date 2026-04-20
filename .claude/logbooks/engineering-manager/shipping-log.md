@@ -2,7 +2,7 @@
 
 Rolling record of shipped proposals and load-bearing notes that carry over beyond completion. Authoritative file bodies live in `proposals/completed/`; this is the skimmable roll-up. Grouped thematically, not chronologically — `git log proposals/` is the dated source of truth.
 
-Cumulative landings through **2026-04-20**: **72 PRs**.
+Cumulative landings through **2026-04-20**: **73 PRs**.
 
 ## Physics validation — CLOSED
 
@@ -35,7 +35,7 @@ Cumulative landings through **2026-04-20**: **72 PRs**.
 - **Machine lock** (MLFX, QELK) — owner-scoped acquire, QE-aware policy, 17-case shell test suite
 - **Observability** (PROF, MIXL, LOGH, LOGH-2) — samply canonical; `log::info!` on SCF summary
 - **Doc hygiene** (MADOC-A/B/C, MOAD, MOAD-2, DCLN, CLSS, DWGT, RDOC) — module headers, `# Errors`/`# Panics`, rustdoc `-D warnings` gate
-- **CI** (CICI, CINM) — clippy `-D warnings` on default + gpu; branch-protection check names
+- **CI** (CICI, CINM, TDBG) — clippy `-D warnings` on default + gpu; Tier-1 on `--profile=dev` (−28% test step, −51% full job; 330 s budget guardrail)
 - **Conventions** (UNTS, DOCX, DOCLEAN) — eV/Å internal units, `RUSTDOCFLAGS` recipe, Rust-vs-Python rounding + QE `wk` × `degspin` gotchas
 
 ## Audits + grooming

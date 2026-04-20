@@ -137,3 +137,31 @@ The docstring "performs both the transpose and the i8 → i32 widen" becomes
 
 `src/symmetry/density/mod.rs` has `i32::from(r[i][j])` calls for a
 divisibility check. These become bare `r[i][j]` reads.
+
+## Previous attempt (2026-04-20, aborted)
+
+A core-engineer agent (ID `a7fe9ca547748e383`) implemented Steps 1–7
+but aborted before `/pr-submit`. The work is preserved on branch
+**`origin/ROTI/revert-symm-rotation-i8`** at commit `8b6fbbc`.
+
+- **Diff**: +48 / −151 LOC across 4 files (`src/symmetry/operations.rs`,
+  `src/symmetry/detect.rs`, `src/symmetry/density/g_space.rs`,
+  `src/symmetry/density/mod.rs`). Matches the proposal's −80 to −90
+  projection (actually slightly larger).
+- **Not done**: `/quality-gate`, `/test --tier2` (symmetry is a Tier-2
+  trigger), PR creation, session logbook.
+
+**Recovery plan for the next agent.** Check out the preserved branch,
+rebase on `origin/main`, run `/pr-draft` immediately as a safety
+checkpoint, then finish `/quality-gate` + `/test --tier2` + `/pr-submit`.
+Don't re-derive the diff — it's structurally complete.
+
+```bash
+git -C <MAIN> fetch origin
+git worktree add .claude/worktrees/<new-agent> -b ROTI-resume/revert-symm-rotation-i8 origin/ROTI/revert-symm-rotation-i8
+cd .claude/worktrees/<new-agent>
+git rebase origin/main
+/pr-draft "ROTI recovery pickup — Steps 1-7 inherited from 8b6fbbc"
+# ...quality gate + tier-2...
+/pr-submit
+```

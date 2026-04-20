@@ -22,7 +22,6 @@ Proposals use 4/5-letter IDs (e.g., `SIMP` or `UTRU4`) to avoid numbering confli
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
 | PMTL | Split GPU backend into a new workspace crate `pwdft-metal`; define `GridAccelerator` trait in core; unblocks clean second-backend | medium | medium | — | CUCL |
-| TDBG | Switch CI Tier-1 to `cargo test --profile=dev`; projected ≥50% wall reduction on cold-build PR runs; 4-min Tier-1 budget guardrail | small | low | — | — |
 | GGAP | GGA/PBE functional. Only Phase E remains (GPU PBE shader, deferred until CPU validates fully) | medium | medium | — | HYBR |
 | HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP-E | — |
 | ITEV | Iterative eigensolver — correctness defects closed (ITEV2 #140). Only step-4 remains: end-to-end SCF wall-time bench with WFRX active → decide default flip | small | low | — | — |

@@ -1,6 +1,6 @@
 ---
 id: TDBG
-status: active
+status: completed
 priority: medium
 complexity: small
 risk: low
@@ -128,3 +128,7 @@ Add a one-line assertion in the CI job that Tier-1 stays under a budget:
 - **No change to benches.** `cargo bench` already uses the release profile.
 
 **If the number doesn't pan out.** The projections above are ballpark. If Phase A's measured win is <30% of cold-build time, promote to option C (scope `profile.test` to the workspace member only). If still insufficient, keep the O3 Tier-1 and instead invest in `sccache`/`cargo-nextest`/`mold` — these are follow-up options, not blockers for TDBG to land.
+
+## Implementation landed
+
+PR **[#183](https://github.com/Ron-Leizrowice/pwdft-rs/pull/183)** on branch `TDBG/tier1-debug-build-in-ci` (tip `b8352dc`) by a core-engineer agent (ID `a692f78b6497fbbfb`). All four phases (A workflow switch, B cache key, C CLAUDE.md note, D 240 s guardrail) landed. Measured CI wall-time on the PR's own runs (3 steady-state samples) pinned **246 s / 315 s** against the 343 s baseline from main run `24663826105` — **−28 % to −51 %** on the test step, comfortably under the 240 s guardrail. Awaiting EM review + merge.
