@@ -20,8 +20,6 @@ scf:
   max_iter: 60
   conv_threshold: 1.0e-6
   n_bands: 8
-
-electrons:
   mixing_beta: 0.3
   mixing_ndim: 8
   smearing_width: 0.05

@@ -23,7 +23,20 @@ use crate::{
 // ---------------------------------------------------------------------------
 
 /// Complete calculation settings parsed from a YAML file.
+///
+/// YAML-facing schema is split into two orthogonal blocks:
+///
+/// - `electrons:` — *what system are we solving* (spin flag,
+///   magnetization, occupation scheme). Populates [`ElectronsPhysics`].
+/// - `scf:` — *how do we solve it* (max iterations, convergence
+///   thresholds, density mixer, smearing). Populates [`ScfSettings`].
+///
+/// The pre-ESPL layout (mixing/smearing under `electrons:`, integer
+/// `nspin` instead of `spin_polarized`) is a hard parse error — serde
+/// emits "unknown field" naming the migrated key. No deprecation shim,
+/// no alias. See `.claude/agents/shared/no-backcompat.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Settings {
     /// Crystal structure: lattice vectors and atomic positions.
     pub system: SystemSettings,
@@ -35,13 +48,15 @@ pub struct Settings {
     /// k-point sampling.
     pub kpoints: KPointSettings,
 
-    /// Self-consistent field iteration control.
+    /// Self-consistent field iteration control (includes mixing + smearing
+    /// convergence knobs as of ESPL).
     #[serde(default)]
     pub scf: ScfSettings,
 
-    /// Electronic structure parameters (mixing, smearing, occupations).
+    /// Electronic-structure physics: spin channels, magnetization,
+    /// occupation scheme.
     #[serde(default)]
-    pub electrons: ElectronSettings,
+    pub electrons: ElectronsPhysics,
 
     /// Exchange-correlation functional.
     #[serde(default)]
@@ -73,6 +88,7 @@ pub struct Settings {
 
 /// Crystal structure definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SystemSettings {
     /// Lattice vectors in Angstroms: `[[ax,ay,az],[bx,by,bz],[cx,cy,cz]]`.
     pub lattice: [[f64; 3]; 3],
@@ -84,6 +100,7 @@ pub struct SystemSettings {
 
 /// A single atom: element symbol and fractional position.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AtomSetting {
     pub symbol: String,
     pub position: [f64; 3],
@@ -91,7 +108,7 @@ pub struct AtomSetting {
 
 /// Plane-wave basis set parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct BasisSettings {
     /// Wavefunction kinetic-energy cutoff in eV.
     ///
@@ -120,7 +137,7 @@ impl Default for BasisSettings {
 
 /// k-point sampling configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub enum KPointSettings {
     /// Monkhorst-Pack uniform grid.
     #[serde(rename = "monkhorst_pack")]
@@ -151,6 +168,7 @@ pub enum KPointSettings {
 
 /// A high-symmetry point on a band path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PathPointSetting {
     /// Label (e.g. "G", "X", "L").
     pub label: String,
@@ -158,11 +176,20 @@ pub struct PathPointSetting {
     pub frac: [f64; 3],
 }
 
-/// SCF iteration parameters.
+/// SCF iteration + mixing + smearing convergence parameters.
+///
+/// All knobs that describe *how* the SCF loop is driven live here (ESPL
+/// migration). The separate [`ElectronsPhysics`] block carries the
+/// *what system are we solving* knobs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ScfSettings {
     /// Maximum number of SCF iterations.
+    ///
+    /// ESPL default: 50. Well-behaved LDA insulators converge in 10–30
+    /// iters under Anderson/Pulay; when a system needs more, the
+    /// [`PwdftError::ConvergenceFailure`] path fires with a message
+    /// that names `scf.max_iter` as the knob to raise.
     pub max_iter: usize,
     /// Convergence threshold: RMS density change (e/Å³).
     pub conv_threshold: f64,
@@ -177,17 +204,48 @@ pub struct ScfSettings {
     /// subspace before the full diagonalization (opt-in; ignored when
     /// `eigensolver == iterative`). Default `false`.
     pub wfrx_subspace: bool,
+    /// Density mixing parameter (`0 < beta <= 1`). Migrated from
+    /// `electrons.mixing_beta` in ESPL.
+    pub mixing_beta: f64,
+    /// Number of past densities kept for Anderson/Pulay mixing. Migrated
+    /// from `electrons.mixing_ndim` in ESPL.
+    pub mixing_ndim: usize,
+    /// Mixing preconditioning mode. Migrated from `electrons.mixing_mode`
+    /// in ESPL.
+    pub mixing_mode: MixingModeType,
+    /// Periodic Pulay period k (Banerjee et al., JCTC 12, 3053 (2016)).
+    ///
+    /// Only consulted when `mixing_mode == periodic_pulay` or
+    /// `periodic_pulay_kerker`; ignored otherwise. Must be ≥ 1.
+    /// Migrated from `electrons.pulay_period` in ESPL.
+    pub pulay_period: usize,
+    /// Enable adaptive mixing β (Eyert 1996, §3.3 residual-norm monitor).
+    /// Migrated from `electrons.adaptive_beta` in ESPL.
+    pub adaptive_beta: bool,
+    /// Smearing scheme for partial occupations. Migrated from
+    /// `electrons.smearing` in ESPL.
+    pub smearing: SmearingScheme,
+    /// Smearing width in eV. Migrated from `electrons.smearing_width` in
+    /// ESPL.
+    pub smearing_width: f64,
 }
 
 impl Default for ScfSettings {
     fn default() -> Self {
         Self {
-            max_iter: 100,
+            max_iter: 50,
             conv_threshold: 1e-6,
             energy_threshold: 1e-5,
             n_bands: None,
             eigensolver: EigensolverType::default(),
             wfrx_subspace: false,
+            mixing_beta: 0.3,
+            mixing_ndim: 8,
+            mixing_mode: MixingModeType::default(),
+            pulay_period: 3,
+            adaptive_beta: false,
+            smearing: SmearingScheme::default(),
+            smearing_width: 0.05,
         }
     }
 }
@@ -217,60 +275,37 @@ impl From<EigensolverType> for crate::eigensolver::EigensolverKind {
     }
 }
 
-/// Electronic-structure parameters: mixing, smearing, occupations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ElectronSettings {
-    /// Density mixing parameter (`0 < beta <= 1`).
-    pub mixing_beta: f64,
-    /// Number of past densities kept for Anderson/Pulay mixing.
-    pub mixing_ndim: usize,
-    /// Smearing scheme for partial occupations.
-    pub smearing: SmearingScheme,
-    /// Smearing width in eV.
-    pub smearing_width: f64,
-    /// Occupation scheme.
-    pub occupations: OccupationType,
-    /// Mixing preconditioning mode: plain Anderson or Kerker-preconditioned.
-    pub mixing_mode: MixingModeType,
-    /// Periodic Pulay period k (Banerjee et al., JCTC 12, 3053 (2016)).
-    ///
-    /// Only consulted when `mixing_mode == periodic_pulay` or
-    /// `periodic_pulay_kerker`; ignored otherwise. Must be ≥ 1. Default: 3.
-    pub pulay_period: usize,
-    /// Enable adaptive mixing β (Eyert 1996, §3.3 residual-norm monitor).
-    ///
-    /// When `true`, β is damped when the residual norm grows and restored
-    /// toward `mixing_beta` when it decreases steadily for three
-    /// consecutive iterations. Default `false` uses the fixed `mixing_beta`.
-    /// See `src/scf/mixing/mod.rs` module docs for the rule and thresholds.
-    pub adaptive_beta: bool,
-    /// Number of spin channels: 1 (unpolarized) or 2 (collinear spin-polarized).
-    pub nspin: usize,
+/// Electronic-structure physics: spin polarization flag, magnetization,
+/// occupation scheme.
+///
+/// As of ESPL this struct holds only *what system are we solving*
+/// knobs. The mixing / smearing *how do we solve it* knobs now live in
+/// [`ScfSettings`].
+///
+/// The spin knob is a bool (`spin_polarized`), not an integer: the only
+/// two meaningful values in the collinear formulation are "unpolarized"
+/// (one channel, no magnetization) and "spin-polarized" (up/down
+/// channels). Non-collinear DFT (SOC, 2×2 spinors) is a fundamentally
+/// different code path, not another value of this knob; when/if we add
+/// it, it lands as a new enum (`Collinear(bool) | NonCollinear`) — not
+/// a resurrection of integer `nspin`. The integer `nspin` still lives
+/// internally on [`ScfParams`] as plumbing, derived from this bool in
+/// [`Settings::to_scf_params`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ElectronsPhysics {
+    /// Spin-polarization flag. `false` = unpolarized (single channel,
+    /// no magnetization); `true` = collinear spin-polarized (up/down
+    /// channels, CCMX driver dispatch).
+    pub spin_polarized: bool,
     /// Starting magnetization per atom type (fractional, -1 to 1).
     /// Maps from element symbol to magnetization. Empty = non-magnetic.
     pub starting_magnetization: HashMap<String, f64>,
     /// Fixed total magnetization (n_up - n_down) in electrons.
     /// If None, magnetization is determined self-consistently.
     pub tot_magnetization: Option<f64>,
-}
-
-impl Default for ElectronSettings {
-    fn default() -> Self {
-        Self {
-            mixing_beta: 0.3,
-            mixing_ndim: 8,
-            smearing: SmearingScheme::default(),
-            smearing_width: 0.05,
-            occupations: OccupationType::default(),
-            mixing_mode: MixingModeType::default(),
-            pulay_period: 3,
-            adaptive_beta: false,
-            nspin: 1,
-            starting_magnetization: HashMap::new(),
-            tot_magnetization: None,
-        }
-    }
+    /// Occupation scheme.
+    pub occupations: OccupationType,
 }
 
 /// How occupation numbers are determined.
@@ -340,7 +375,7 @@ impl MixingModeType {
 // explicitly so the period is threaded through from settings.
 impl From<MixingModeType> for crate::scf::mixing::MixingMode {
     fn from(mode: MixingModeType) -> Self {
-        // Default period of 3 matches the `ElectronSettings` default and the
+        // Default period of 3 matches the `ScfSettings` default and the
         // paper's recommendation; callers that want a non-default period use
         // `to_scf_mode` instead.
         mode.to_scf_mode(3)
@@ -349,7 +384,7 @@ impl From<MixingModeType> for crate::scf::mixing::MixingMode {
 
 /// Exchange-correlation functional specification.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct XcSettings {
     /// Functional name. Currently implemented: `"pz"` (Perdew-Zunger LDA).
     /// The YAML parser also accepts `"pbe"`, `"pbe0"`, `"hse06"`, but these
@@ -386,7 +421,7 @@ pub enum XcFunctional {
 
 /// Crystal symmetry settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SymmetrySettings {
     /// Whether to detect and exploit crystal symmetry.
     pub enabled: bool,
@@ -426,7 +461,7 @@ pub enum Verbosity {
 
 /// Output and I/O settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct OutputSettings {
     /// Verbosity level.
     pub verbosity: Verbosity,
@@ -456,7 +491,7 @@ impl Default for OutputSettings {
 /// Default is the canonical constant
 /// `scf::initial_density::DEFAULT_GAUSSIAN_SIGMA` (1.0 Å).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct InitialDensitySettings {
     /// Gaussian model-charge width in Å.
     ///
@@ -548,6 +583,11 @@ impl Settings {
     /// Build `ScfParams` from the SCF + electron + basis settings.
     ///
     /// `n_bands_fallback` is used when `scf.n_bands` is `None` (auto mode).
+    ///
+    /// The YAML-facing split between [`ScfSettings`] (convergence knobs)
+    /// and [`ElectronsPhysics`] (system physics) is flattened here into
+    /// the internal [`ScfParams`] struct; callers that depend on
+    /// `ScfParams` do not need to know where each field lived in YAML.
     #[must_use]
     pub fn to_scf_params(&self, n_bands_fallback: usize) -> ScfParams {
         ScfParams {
@@ -555,18 +595,22 @@ impl Settings {
             max_iter: self.scf.max_iter,
             conv_threshold: self.scf.conv_threshold,
             energy_threshold: self.scf.energy_threshold,
-            mixing_beta: self.electrons.mixing_beta,
-            mixing_ndim: self.electrons.mixing_ndim,
-            smearing_sigma: self.electrons.smearing_width,
-            smearing_scheme: self.electrons.smearing,
+            mixing_beta: self.scf.mixing_beta,
+            mixing_ndim: self.scf.mixing_ndim,
+            smearing_sigma: self.scf.smearing_width,
+            smearing_scheme: self.scf.smearing,
             ecutrho_ratio: self.basis.ecutrho_ratio,
             fft_grid: self.basis.fft_grid,
-            mixing_mode: self
-                .electrons
-                .mixing_mode
-                .to_scf_mode(self.electrons.pulay_period),
-            adaptive_beta: self.electrons.adaptive_beta,
-            nspin: self.electrons.nspin,
+            mixing_mode: self.scf.mixing_mode.to_scf_mode(self.scf.pulay_period),
+            adaptive_beta: self.scf.adaptive_beta,
+            // ESPL Part C: the YAML surface is a bool; the internal
+            // `ScfParams.nspin` integer (1 = unpolarized, 2 = up/down
+            // channels) is derived here at the boundary. Keeping the
+            // integer internal lets the spin driver dispatch and all
+            // density-normalization plumbing keep their existing shape
+            // without an `if spin_polarized { … }` sprinkled through
+            // every call site.
+            nspin: if self.electrons.spin_polarized { 2 } else { 1 },
             starting_magnetization: self.electrons.starting_magnetization.clone(),
             tot_magnetization: self.electrons.tot_magnetization,
             eigensolver: self.scf.eigensolver.into(),
@@ -721,7 +765,8 @@ kpoints:
   grid: [4, 4, 4]
 "#;
 
-    /// Full YAML exercising every field.
+    /// Full YAML exercising every field (ESPL new layout: mixing / smearing
+    /// under `scf:`, physics under `electrons:`).
     const FULL_YAML: &str = r#"
 system:
   lattice:
@@ -748,15 +793,15 @@ scf:
   conv_threshold: 1.0e-6
   energy_threshold: 1.0e-5
   n_bands: 8
-
-electrons:
   mixing_beta: 0.3
   mixing_ndim: 8
   smearing: fermi_dirac
   smearing_width: 0.05
-  occupations: smearing
   mixing_mode: plain
-  nspin: 1
+
+electrons:
+  occupations: smearing
+  spin_polarized: false
   starting_magnetization: {}
   tot_magnetization: null
 
@@ -879,13 +924,13 @@ kpoints:
         assert_eq!(s.scf.n_bands, Some(8));
         assert!((s.scf.energy_threshold - 1e-5).abs() < 1e-15);
         assert_eq!(s.basis.fft_grid, Some([24, 24, 24]));
-        assert!((s.electrons.mixing_beta - 0.3).abs() < f64::EPSILON);
-        assert_eq!(s.electrons.mixing_ndim, 8);
-        assert_eq!(s.electrons.smearing, SmearingScheme::FermiDirac);
-        assert!((s.electrons.smearing_width - 0.05).abs() < 1e-15);
+        assert!((s.scf.mixing_beta - 0.3).abs() < f64::EPSILON);
+        assert_eq!(s.scf.mixing_ndim, 8);
+        assert_eq!(s.scf.smearing, SmearingScheme::FermiDirac);
+        assert!((s.scf.smearing_width - 0.05).abs() < 1e-15);
+        assert_eq!(s.scf.mixing_mode, MixingModeType::Plain);
         assert_eq!(s.electrons.occupations, OccupationType::Smearing);
-        assert_eq!(s.electrons.mixing_mode, MixingModeType::Plain);
-        assert_eq!(s.electrons.nspin, 1);
+        assert!(!s.electrons.spin_polarized);
         assert!(s.electrons.starting_magnetization.is_empty());
         assert!(s.electrons.tot_magnetization.is_none());
         assert_eq!(s.xc.functional, XcFunctional::Pz);
@@ -899,6 +944,53 @@ kpoints:
         assert_eq!(s.output.verbosity, Verbosity::Normal);
         assert!(!s.output.write_density);
         assert!(s.output.write_bands);
+    }
+
+    #[test]
+    fn pre_espl_nspin_integer_rejected() {
+        // ESPL § no-backcompat: a YAML deck that still writes the
+        // pre-ESPL `nspin: 1` (or any integer) under `electrons:` must
+        // fail with a hard parse error. Serde's default "unknown field"
+        // path names the new field (`spin_polarized`) so the user has a
+        // concrete pointer to the rename.
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+electrons:
+  nspin: 2
+"#;
+        let err = Settings::from_yaml_str(yaml)
+            .expect_err("pre-ESPL `electrons.nspin` must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("nspin"),
+            "parse error should mention the offending field `nspin`; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn pre_espl_mixing_beta_under_electrons_rejected() {
+        // Sibling check for the other half of the ESPL split: a YAML
+        // deck that still writes `electrons.mixing_beta` must fail with
+        // "unknown field" pointing at the new location (`scf.*`).
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+electrons:
+  mixing_beta: 0.25
+"#;
+        let err = Settings::from_yaml_str(yaml)
+            .expect_err("pre-ESPL `electrons.mixing_beta` must be rejected");
+        assert!(
+            err.to_string().contains("mixing_beta"),
+            "parse error should name the offending field"
+        );
     }
 
     #[test]
@@ -917,17 +1009,20 @@ kpoints:
 
         assert_eq!(s.basis.ecutrho_ratio, 4);
         assert!(s.basis.fft_grid.is_none());
-        assert_eq!(s.scf.max_iter, 100);
+        // ESPL: default dropped 100 → 50. Well-behaved LDA insulators
+        // converge in 10–30 iters; anything more is a configuration
+        // issue and should surface via ConvergenceFailure.
+        assert_eq!(s.scf.max_iter, 50);
         assert!((s.scf.conv_threshold - 1e-6).abs() < 1e-15);
         assert!((s.scf.energy_threshold - 1e-5).abs() < 1e-15);
         assert!(s.scf.n_bands.is_none());
-        assert!((s.electrons.mixing_beta - 0.3).abs() < 1e-15);
-        assert_eq!(s.electrons.mixing_ndim, 8);
-        assert_eq!(s.electrons.smearing, SmearingScheme::FermiDirac);
-        assert!((s.electrons.smearing_width - 0.05).abs() < 1e-15);
+        assert!((s.scf.mixing_beta - 0.3).abs() < 1e-15);
+        assert_eq!(s.scf.mixing_ndim, 8);
+        assert_eq!(s.scf.smearing, SmearingScheme::FermiDirac);
+        assert!((s.scf.smearing_width - 0.05).abs() < 1e-15);
+        assert_eq!(s.scf.mixing_mode, MixingModeType::Plain);
         assert_eq!(s.electrons.occupations, OccupationType::Smearing);
-        assert_eq!(s.electrons.mixing_mode, MixingModeType::Plain);
-        assert_eq!(s.electrons.nspin, 1);
+        assert!(!s.electrons.spin_polarized);
         assert!(s.electrons.starting_magnetization.is_empty());
         assert!(s.electrons.tot_magnetization.is_none());
         assert_eq!(s.xc.functional, XcFunctional::Pz);
@@ -937,6 +1032,34 @@ kpoints:
         assert_eq!(s.output.verbosity, Verbosity::Normal);
         assert!(!s.output.write_density);
         assert!(s.output.write_bands);
+    }
+
+    #[test]
+    fn espl_default_max_iter_is_50() {
+        // ESPL acceptance check: Default `ScfSettings::max_iter` must
+        // be 50, not the pre-ESPL 100. The tighter default surfaces
+        // configuration issues faster — 50 iterations is comfortably
+        // enough for LDA insulators under Anderson/Pulay, and when
+        // it is not the `ConvergenceFailure` path fires with a
+        // message naming `scf.max_iter` as the user-facing knob.
+        let defaults = ScfSettings::default();
+        assert_eq!(defaults.max_iter, 50);
+    }
+
+    #[test]
+    fn convergence_failure_message_names_scf_max_iter() {
+        // ESPL acceptance check: the `PwdftError::ConvergenceFailure`
+        // Display impl must mention `scf.max_iter` so the user has a
+        // concrete YAML-knob-level pointer to the fix.
+        let err = PwdftError::ConvergenceFailure {
+            iterations: 50,
+            delta: 1.2e-4,
+        };
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("scf.max_iter"),
+            "ConvergenceFailure Display must name `scf.max_iter`; got: {rendered}"
+        );
     }
 
     #[test]
@@ -1112,7 +1235,7 @@ xc:
             }
         ));
 
-        // Default period via `Into` is 3 (matches `ElectronSettings` default).
+        // Default period via `Into` is 3 (matches `ScfSettings` default).
         let pp_default: MixingMode = MixingModeType::PeriodicPulay.into();
         assert!(matches!(
             pp_default,
@@ -1131,13 +1254,13 @@ system:
 kpoints:
   type: monkhorst_pack
   grid: [2, 2, 2]
-electrons:
+scf:
   mixing_mode: periodic_pulay
   pulay_period: 4
 "#;
         let s = Settings::from_yaml_str(yaml).unwrap();
-        assert_eq!(s.electrons.mixing_mode, MixingModeType::PeriodicPulay);
-        assert_eq!(s.electrons.pulay_period, 4);
+        assert_eq!(s.scf.mixing_mode, MixingModeType::PeriodicPulay);
+        assert_eq!(s.scf.pulay_period, 4);
     }
 
     #[test]
@@ -1148,16 +1271,13 @@ system:
 kpoints:
   type: monkhorst_pack
   grid: [2, 2, 2]
-electrons:
+scf:
   mixing_mode: periodic_pulay_kerker
 "#;
         let s = Settings::from_yaml_str(yaml).unwrap();
-        assert_eq!(
-            s.electrons.mixing_mode,
-            MixingModeType::PeriodicPulayKerker
-        );
+        assert_eq!(s.scf.mixing_mode, MixingModeType::PeriodicPulayKerker);
         // Default period
-        assert_eq!(s.electrons.pulay_period, 3);
+        assert_eq!(s.scf.pulay_period, 3);
     }
 
     #[test]
@@ -1169,11 +1289,11 @@ system:
 kpoints:
   type: monkhorst_pack
   grid: [2, 2, 2]
-electrons:
+scf:
   mixing_beta: 0.25
 "#;
         let s = Settings::from_yaml_str(yaml_no_key).unwrap();
-        assert!(!s.electrons.adaptive_beta, "default must be false");
+        assert!(!s.scf.adaptive_beta, "default must be false");
         // And the ScfParams round-trip preserves that.
         let params = s.to_scf_params(8);
         assert!(!params.adaptive_beta);
@@ -1185,11 +1305,11 @@ system:
 kpoints:
   type: monkhorst_pack
   grid: [2, 2, 2]
-electrons:
+scf:
   adaptive_beta: true
 "#;
         let s_on = Settings::from_yaml_str(yaml_on).unwrap();
-        assert!(s_on.electrons.adaptive_beta);
+        assert!(s_on.scf.adaptive_beta);
         assert!(s_on.to_scf_params(8).adaptive_beta);
     }
 
@@ -1311,7 +1431,14 @@ initial_density:
         assert_eq!(original.basis.ecutwfc, restored.basis.ecutwfc);
         assert_eq!(original.scf.max_iter, restored.scf.max_iter);
         assert_eq!(original.scf.n_bands, restored.scf.n_bands);
-        assert!((original.electrons.mixing_beta - restored.electrons.mixing_beta).abs() < f64::EPSILON);
+        assert!(
+            (original.scf.mixing_beta - restored.scf.mixing_beta).abs() < f64::EPSILON
+        );
+        assert_eq!(original.scf.mixing_ndim, restored.scf.mixing_ndim);
+        assert_eq!(original.scf.mixing_mode, restored.scf.mixing_mode);
+        assert_eq!(original.scf.smearing, restored.scf.smearing);
+        assert_eq!(original.electrons.spin_polarized, restored.electrons.spin_polarized);
+        assert_eq!(original.electrons.occupations, restored.electrons.occupations);
         assert_eq!(original.xc.functional, restored.xc.functional);
         assert_eq!(original.symmetry.enabled, restored.symmetry.enabled);
         assert_eq!(original.output.verbosity, restored.output.verbosity);
@@ -1357,20 +1484,20 @@ scf:
     }
 
     #[test]
-    fn partial_electrons_uses_defaults() {
+    fn partial_scf_mixing_uses_defaults() {
         let yaml = r#"
 system:
   lattice: [[1,0,0],[0,1,0],[0,0,1]]
 kpoints:
   type: monkhorst_pack
   grid: [2, 2, 2]
-electrons:
+scf:
   mixing_beta: 0.7
 "#;
         let s = Settings::from_yaml_str(yaml).unwrap();
-        assert!((s.electrons.mixing_beta - 0.7).abs() < 1e-15);
-        assert_eq!(s.electrons.mixing_ndim, 8);
-        assert_eq!(s.electrons.smearing, SmearingScheme::FermiDirac);
+        assert!((s.scf.mixing_beta - 0.7).abs() < 1e-15);
+        assert_eq!(s.scf.mixing_ndim, 8);
+        assert_eq!(s.scf.smearing, SmearingScheme::FermiDirac);
     }
 
     #[test]
@@ -1381,11 +1508,11 @@ system:
 kpoints:
   type: monkhorst_pack
   grid: [2, 2, 2]
-electrons:
+scf:
   mixing_mode: broyden
 "#;
         let s = Settings::from_yaml_str(yaml).unwrap();
-        assert_eq!(s.electrons.mixing_mode, MixingModeType::Broyden);
+        assert_eq!(s.scf.mixing_mode, MixingModeType::Broyden);
     }
 
     #[test]
@@ -1396,11 +1523,11 @@ system:
 kpoints:
   type: monkhorst_pack
   grid: [2, 2, 2]
-electrons:
+scf:
   mixing_mode: broyden_kerker
 "#;
         let s = Settings::from_yaml_str(yaml).unwrap();
-        assert_eq!(s.electrons.mixing_mode, MixingModeType::BroydenKerker);
+        assert_eq!(s.scf.mixing_mode, MixingModeType::BroydenKerker);
     }
 
     #[test]
@@ -1411,13 +1538,13 @@ system:
 kpoints:
   type: monkhorst_pack
   grid: [2, 2, 2]
-electrons:
+scf:
   smearing: gaussian
   smearing_width: 0.1
 "#;
         let s = Settings::from_yaml_str(yaml).unwrap();
-        assert_eq!(s.electrons.smearing, SmearingScheme::Gaussian);
-        assert!((s.electrons.smearing_width - 0.1).abs() < 1e-15);
+        assert_eq!(s.scf.smearing, SmearingScheme::Gaussian);
+        assert!((s.scf.smearing_width - 0.1).abs() < 1e-15);
     }
 
     #[test]
@@ -1460,12 +1587,13 @@ system:
 kpoints:
   type: monkhorst_pack
   grid: [2, 2, 2]
-electrons:
+scf:
   smearing: fixed
+electrons:
   occupations: fixed
 "#;
         let s = Settings::from_yaml_str(yaml).unwrap();
-        assert_eq!(s.electrons.smearing, SmearingScheme::Fixed);
+        assert_eq!(s.scf.smearing, SmearingScheme::Fixed);
         assert_eq!(s.electrons.occupations, OccupationType::Fixed);
     }
 

@@ -21,8 +21,6 @@ scf:
   max_iter: 50
   conv_threshold: 1.0e-5
   n_bands: 8
-
-electrons:
   mixing_beta: 0.3
   mixing_ndim: 8
   smearing_width: 0.1
@@ -32,6 +30,10 @@ electrons:
   # mixing except every `pulay_period`-th iteration, which does a DIIS step:
   # mixing_mode: periodic_pulay
   # pulay_period: 3
+
+# `electrons:` now holds only system-physics knobs (spin_polarized,
+# magnetization, occupations). Mixing / smearing convergence knobs moved
+# to `scf:` in ESPL.
 
 pseudopotentials:
   Si: "../pseudopotentials/nc/lda/Si.upf"
