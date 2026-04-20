@@ -22,11 +22,13 @@ matches QE's `upflib/rhoc_mod.f90:107-115` (`init_tab_rhc`):
 
 The CSV output is consumed by the Rust unit tests in
 `src/pseudopotential/upf/convert.rs` that pin ρ_core(G=0) and
-ρ_core(|G|>0) for Si, Fe, Cu, and Mn as regression guards against a
-future NLCC regression.  Si and Fe cover the original NCFX scope
-(PR #40); Cu and Mn extend coverage per TRV2 Finding #3: Cu exercises
-the 3s/3p/3d semicore edge case (Z_val=19), Mn the magnetic reference
-(Z_val=15).
+ρ_core(|G|>0) for Si, Fe, Cu, Mn, Ga, As, O, and Cl as regression
+guards against a future NLCC regression.  Si and Fe cover the
+original NCFX scope (PR #40); Cu and Mn extend coverage per TRV2
+Finding #3 (Cu: 3s/3p/3d semicore edge case, Z_val=19; Mn: magnetic
+reference, Z_val=15); Ga, As, O, and Cl close H-C4 per VGCH-2F Part
+C session-2 (every NLCC-active PP in a Class A heavy-atom QE cell
+is now pinned).  Mg and Na have core_correction=F and need no pin.
 
 Convention (QE native units)
 ----------------------------
@@ -235,6 +237,43 @@ def main() -> int:
             "upf": repo_root / "pseudopotentials" / "nc" / "lda" / "Mn.upf",
             "a_ang": 2.89,
             "lattice": "bcc",
+        },
+        # VGCH-2F (Part C session-2) — H-C4 probe: extend NLCC ρ_core(G)
+        # regression coverage to every NLCC-active PP that appears in a
+        # Class A heavy-atom QE reference cell still unpinned.  Cu was
+        # pinned by TRV2; here we add Ga, As (GaAs zinc-blende), O (MgO
+        # rocksalt), and Cl (NaCl rocksalt).  The remaining NLCC
+        # contributors in Class A systems are then zero.
+        #
+        # Cells: `qe_validation/{gaas,mgo,nacl}_scf.in` — all ibrav=2
+        # (FCC, primitive Ω = a³/4) with celldm(1) in Bohr.  Mg and Na
+        # have core_correction=F (no PP_NLCC block), so they are NOT
+        # Class A ρ_core contributors — H-C4 only concerns the four
+        # elements below whose NLCC actually enters E_xc via
+        # `scf::potentials::compute_core_density`.
+        {
+            "name": "ga",
+            "upf": repo_root / "pseudopotentials" / "nc" / "lda" / "Ga.upf",
+            "a_ang": 10.6829 * BOHR_TO_ANG,  # GaAs: 5.6530 Å
+            "lattice": "fcc",
+        },
+        {
+            "name": "as",
+            "upf": repo_root / "pseudopotentials" / "nc" / "lda" / "As.upf",
+            "a_ang": 10.6829 * BOHR_TO_ANG,  # GaAs: 5.6530 Å
+            "lattice": "fcc",
+        },
+        {
+            "name": "o",
+            "upf": repo_root / "pseudopotentials" / "nc" / "lda" / "O.upf",
+            "a_ang": 7.9586 * BOHR_TO_ANG,   # MgO: 4.2115 Å
+            "lattice": "fcc",
+        },
+        {
+            "name": "cl",
+            "upf": repo_root / "pseudopotentials" / "nc" / "lda" / "Cl.upf",
+            "a_ang": 10.6078 * BOHR_TO_ANG,  # NaCl: 5.6133 Å
+            "lattice": "fcc",
         },
     ]
 
