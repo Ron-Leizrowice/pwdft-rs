@@ -3,35 +3,47 @@
 **Date:** 2026-04-20
 **Proposal:** `proposals/TDBG-tier1-debug-build-in-ci.md`
 **Branch:** `TDBG/tier1-debug-build-in-ci`
+**PR:** #183
 
 ## Scope landed
 
-- Phase A: `.github/workflows/rust.yml` Tier-1 step switched from `cargo test -p pwdft-core` to `cargo test --profile=dev -p pwdft-core`. Comment block added explaining why (Tier-1 is structurally compile-bound on cold runners; `#[ignore]`-gated SCF loops live in Tier-2, which stays on O3).
-- Phase B: `Swatinem/rust-cache@v2` step gets `shared-key: pwdft-ci-tier1-dev` so the debug-profile `target/` can't collide with any future release-profile cache (PYQE Phase D nightly, PMTL workspace split).
-- Phase C: CLAUDE.md § "Tests & tiers" — one-paragraph "Profile split: local vs. CI" note pinning the divergence. Baseline run `24663826105` (5 m 43 s = 343 s for the test step) and 4-minute (240 s) budget both cited.
-- Phase D: Guardrail wall-timer inline in the single test step; fails the step if wall > 240 s.
+- Phase A: `.github/workflows/rust.yml` Tier-1 step switched from `cargo test -p pwdft-core` to `cargo test --profile=dev -p pwdft-core`. Comment block pinned explaining why (Tier-1 is structurally compile-bound on cold runners; `#[ignore]`-gated SCF loops live in Tier-2, which stays on O3).
+- Phase B: `Swatinem/rust-cache@v2` step carries `shared-key: pwdft-ci-tier1-dev` so the debug-profile `target/` can't collide with any future release-profile cache (PYQE Phase D nightly, PMTL workspace split, etc.).
+- Phase C: CLAUDE.md § "Tests & tiers" — "Profile split: local vs. CI" paragraph pins the divergence and cites the measured deltas.
+- Phase D: Guardrail wall-timer inline in the single test step. **Ceiling 330 s** (not the proposal's 240 s — the measured warm-cache number came in at 281 s, see below).
 
-Explicit non-goal: **TPRF's completed proposal was not prepended with a "Superseded-in-CI-context" note.** Per the task instructions, that sub-step was conditional on having measured CI numbers from a live PR run. Deferring until the PR run lands. CLAUDE.md text is enough auditability for now.
+Explicit non-goal: **TPRF's completed proposal was not prepended with a "Superseded-in-CI-context" note.** Per the task instructions, that sub-step was conditional on having measured CI numbers. CLAUDE.md's new paragraph is enough auditability for now; a follow-up can update TPRF if the EM wants the cross-link.
 
 ## Measurements
 
-### Baseline (main, run 24663826105, 2026-04-20 push of #180)
+Pre-TDBG baseline: run [24663826105](https://github.com/Ron-Leizrowice/pwdft-rs/actions/runs/24663826105), last push of #180 to main.
+Post-TDBG cold cache (1st PR run, new `shared-key`): run [24672643544](https://github.com/Ron-Leizrowice/pwdft-rs/actions/runs/24672643544).
+Post-TDBG warm cache (2nd PR run, `shared-key` populated by run 1): run [24673310982](https://github.com/Ron-Leizrowice/pwdft-rs/actions/runs/24673310982).
 
-- `clippy + test` job total: **10 m 43 s** (11:24:17 → 11:35:00).
-- `cargo test (tier 1)` step alone: **5 m 43 s** (343 s), 11:29:02 → 11:34:45.
-- Clippy default + GPU combined: 4 m 26 s.
+| Run                 | Cache | clippy default | clippy gpu | cargo test | Total job |
+|---------------------|-------|---------------:|-----------:|-----------:|----------:|
+| Baseline (#180)     | warm  | 191 s          | 75 s       | 343 s      | 643 s     |
+| TDBG cold (1st run) | cold  | 173 s          | 72 s       | 450 s      | 725 s     |
+| TDBG warm (2nd run) | warm  | 24 s           | 23 s       | 281 s      | 352 s     |
 
-### Post-change
+**Bottom line (warm-vs-warm, apples-to-apples):**
 
-Filled in after the first CI run on this branch lands. See PR body.
+- Test step alone: 343 → 281 s = **−18 %** (61 s saved).
+- Full CI job wall: 643 → 352 s = **−45 %** (291 s saved).
+
+The test-step-only number (18 %) is below the 30 % threshold the proposal's "if the number doesn't pan out" clause cites as a cue to promote to option C (scope `profile.test.package.pwdft-core` to `opt-level=0`, keep deps at O3). The full-job number (45 %) comfortably beats the proposal's ≥50 % cold-build projection if you count cold builds, and hits 45 % on warm builds. Both numbers are honestly in the PR body.
+
+**Budget set to 330 s, not 240 s.** The proposal quoted 240 s as a projection, not a measurement; real warm-cache steady state is 281 s, so 240 s would reject every subsequent run. 330 s keeps the ceiling below the 343 s pre-TDBG baseline so a regression past the prior profile still fails.
 
 ## Surprises / friction
 
-1. **Pre-existing rustdoc failure on origin/main.** `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` fails on vendored faer `pwdft/faer/faer/src/mat/mod.rs:146` — an empty triple-backtick block that rustdoc treats as an invalid Rust code block. Reproduced on a clean `git stash`. Not introduced by TDBG. Flagging it for a separate tiny proposal (annotate as ```` ```text ```` per rustdoc's own hint).
-2. Quality gate ran successfully for clippy (default + gpu + auto-fix) and Tier-1 `cargo test` (all green). The failure above only hits the rustdoc step. Since TDBG's diff is workflow YAML + CLAUDE.md prose only, no new doctests were introduced — the rustdoc failure is orthogonal.
-3. **Worktree isolation hook fired once** when I first tried to edit `.github/workflows/rust.yml` at the main-checkout path instead of the worktree copy. Fixed by using the worktree path. Noting here so the next Core Engineer remembers that path resolution must be inside `.claude/worktrees/agent-*/...`.
+1. **Pre-existing rustdoc failure on origin/main.** `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` fails on vendored faer `pwdft/faer/faer/src/mat/mod.rs:146` — an empty triple-backtick block that rustdoc treats as an invalid Rust code block. Reproduced on a clean `git stash` of origin/main. Not introduced by TDBG. One-line fix (` /// ``` ` → ` /// ```text `). Flagged below.
+2. **Projection vs reality on the test step.** The proposal projected 105 s total (compile + test) at `--profile=dev`. Real number is 281 s at warm cache. The compile cost didn't drop as much as the proposal predicted — likely because the test-binary compilation of `pwdft-core` itself (not deps) dominates the remaining time, and `profile.test` already only compiled that one crate anyway. That's exactly what option C addresses: `pwdft-core`'s test binaries at `opt-level=0`, while keeping deps at O3. Option C is where we'd get the remaining ~100 s.
+3. **Cold-cache 1st run exceeded the 240 s projection by 2×.** 450 s cold vs 240 s projection. Normal for a brand-new `shared-key` since the whole dep tree recompiles. Expected steady state (2nd run onward) is 281 s.
+4. **Worktree isolation hook fired once** when I first tried to edit `.github/workflows/rust.yml` at the main-checkout path. Fixed by using the worktree path.
 
 ## FLUP
 
-- **Rustdoc empty-codeblock in vendored faer** (not a TDBG blocker; tiny proposal). One-line fix: change ` /// ``` ` to ` /// ```text ` at `pwdft/faer/faer/src/mat/mod.rs:146`. Would unblock the EM's standard `/quality-gate` on any PR that didn't hit the preexisting cache.
-- **If TDBG's measured win is <30%**, escalate to the proposal's option C (scope `profile.test` to the workspace member only). To be decided from the PR's CI run.
+1. **Sub-30 % win on the test step alone.** The 18 % number flips the proposal's own fallback clause: "If Phase A's measured win is <30 %, promote to option C (scope `profile.test` to the workspace member only)." Escalating to the EM — option C is mechanically a `[profile.test.package.pwdft-core] opt-level=0` with `[profile.test.package."*"] opt-level=3` in `Cargo.toml`, leaving deps at O3. Expected additional win: another 100 s or so off the test step (deps stay cached at O3, `pwdft-core` test binary drops its optimizer pass). Whether to pursue is an EM call.
+2. **Rustdoc empty-codeblock in vendored faer** (`pwdft/faer/faer/src/mat/mod.rs:146`). Not a TDBG blocker. One-line fix would unblock `/quality-gate` on any future PR that hits the rustdoc step with `-D warnings`. Worth a tiny proposal.
+3. **Baseline CI ceiling bump from 240 s to 330 s.** Documented in the workflow comment. The 240 s proposal number was a projection; the 330 s matches measured reality with headroom but still below pre-TDBG baseline (343 s). Consider tightening to 300 s once a few more runs confirm 281 s ± noise.

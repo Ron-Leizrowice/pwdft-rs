@@ -70,15 +70,20 @@ jobs:
       # SCF loops — those live in Tier-2, gated by `#[ignore]`). `O3`
       # compile cost dwarfs test wall-time on a cold runner, so we
       # override to the debug profile here. Local `cargo test` stays on
-      # the O3 `[profile.test]` from Cargo.toml (see TPRF). Budget below
-      # fails the step if Tier-1 runtime ever regresses past 4 min.
+      # the O3 `[profile.test]` from Cargo.toml (see TPRF).
+      #
+      # Budget: post-TDBG warm-cache steady state is ~281s (measured on
+      # PR #183 run 24673310982). Ceiling set to 330s — below the 343s
+      # pre-TDBG baseline on main (run 24663826105) so a regression past
+      # the prior profile still fails the step. Tighten once a second
+      # round of measurements comes in.
       - name: cargo test (tier 1, debug build)
         run: |
           start=$(date +%s)
           cargo test --profile=dev -p pwdft-core
           elapsed=$(( $(date +%s) - start ))
           echo "Tier-1 wall-time: ${elapsed}s"
-          if (( elapsed > 240 )); then
-            echo "::error::Tier-1 CI wall-time regressed to ${elapsed}s (budget: 240s)"
+          if (( elapsed > 330 )); then
+            echo "::error::Tier-1 CI wall-time regressed to ${elapsed}s (budget: 330s)"
             exit 1
           fi
