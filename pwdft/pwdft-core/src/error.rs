@@ -15,7 +15,7 @@ pub enum PwdftError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("SCF did not converge after {iterations} iterations (delta = {delta:.2e})")]
+    #[error("SCF did not converge after {iterations} iterations (delta = {delta:.2e}); raise `scf.max_iter` or tighten mixing/smearing in the input YAML")]
     ConvergenceFailure { iterations: usize, delta: f64 },
 
     #[error("invalid input: {0}")]
