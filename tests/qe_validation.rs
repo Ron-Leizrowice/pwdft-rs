@@ -9,7 +9,7 @@
 //! Layout of this file:
 //!   * Helpers: `fcc_crystal`, `bcc_crystal`, `run_qe_comparison`,
 //!     `assert_energy_matches_qe`, `assert_fermi_matches_qe`,
-//!     `assert_band_sum_matches_qe` (BSUM gate — shift-compensated
+//!     `assert_one_electron_sum_matches_qe` (BSUM gate — shift-compensated
 //!     `<ψ|T + V_ion|ψ>` residual vs QE's `one-electron contribution`).
 //!   * One `#[test]` per system (8 total).
 //!
@@ -172,10 +172,11 @@ struct QeComparisonConfig<'a> {
     /// Optional QE "one-electron contribution" reference value in Ry
     /// (`eband + deband = <ψ|T + V_ion|ψ>`; the line labeled
     /// `one-electron contribution` in the `pw.x` output). Default `None`;
-    /// test arms that opt into the BSUM band-sum identity gate set this
-    /// to `Some(qe_value_ry)` and call [`assert_band_sum_matches_qe`]
-    /// (see its docstring for why QE's labeled scalar is the density-
-    /// drift indicator rather than the literal `Σ w_k f ε` band sum).
+    /// test arms that opt into the BSUM one-electron-sum identity gate set
+    /// this to `Some(qe_value_ry)` and call
+    /// [`assert_one_electron_sum_matches_qe`] (see its docstring for why
+    /// QE's labeled scalar is the density-drift indicator rather than the
+    /// literal `Σ w_k f ε` band sum).
     /// When `None`, no BSUM assertion is made; the diagnostic
     /// `E_1e^pwdft = e_kin + e_loc + e_loc_g0 + e_nl` is still printed
     /// in [`run_qe_comparison`] for visual diffing.
@@ -320,16 +321,17 @@ fn assert_fermi_matches_qe(
     );
 }
 
-/// BSUM band-sum identity gate: pin the shift-compensated band-sum
-/// against QE's `one-electron contribution`.
+/// BSUM one-electron-sum identity gate: pin the shift-compensated
+/// `<ψ|T + V_ion|ψ>` scalar against QE's `one-electron contribution`.
 ///
-/// Despite the name (kept to match the BSUM proposal brief), this does
-/// **not** compare the literal `Σ w_k · f_{ik} · ε_{ik}` sum — that
-/// quantity is dominated by the V_loc(G=0) convention shift (~1–10 eV
-/// rigid offset on every eigenvalue, tracked separately under VGCH
-/// Phase 1b), so a direct comparison is blind to density-basin drift.
+/// Note: this is **not** a literal `Σ w_k · f_{ik} · ε_{ik}` band sum —
+/// that quantity is dominated by the V_loc(G=0) convention shift
+/// (~1–10 eV rigid offset on every eigenvalue, tracked separately under
+/// VGCH Phase 1b), so a direct comparison is blind to density-basin
+/// drift. The helper is named for what it actually checks: the
+/// one-electron (T + V_ion) expectation value.
 ///
-/// Instead we compare QE's labeled `one-electron contribution` scalar
+/// We compare QE's labeled `one-electron contribution` scalar
 /// (`eband + deband = <ψ|T + V_ion|ψ>`, `PW/src/electrons.f90:1719`)
 /// against its pwdft-rs equivalent
 /// `e_kinetic + e_local + e_local_g0_shift + e_nonlocal`. The `deband`
@@ -353,7 +355,7 @@ fn assert_fermi_matches_qe(
 /// disagreement; one whose residual is carried mostly by
 /// (|ΔE_H| + |ΔE_xc|) with |ΔE_1e| small has a functional or
 /// double-counting-term issue.
-fn assert_band_sum_matches_qe(
+fn assert_one_electron_sum_matches_qe(
     label: &str,
     result: &ScfResult,
     qe_one_electron_ry: f64,
@@ -442,7 +444,7 @@ fn test_si_diamond_energy_vs_qe() {
     // regression that changes the density basin trips this before
     // E_total would (E_total can mask basin drift via Hartree-XC
     // cancellation).
-    assert_band_sum_matches_qe("Si", &result, 4.867_446_32, 0.080);
+    assert_one_electron_sum_matches_qe("Si", &result, 4.867_446_32, 0.080);
 }
 
 /// Si diamond Fermi energy vs QE (FCC, 2 atoms, LDA insulator).
@@ -675,7 +677,7 @@ fn test_c_diamond_vs_qe() {
     // tighter than E_total's residual), set the ceiling at 2.0 eV so
     // the gate catches a 2× regression while documenting the baseline
     // without weakening anything existing. Reference: BSUM docstring.
-    assert_band_sum_matches_qe("C", &result, 8.502_873_41, 2.0);
+    assert_one_electron_sum_matches_qe("C", &result, 8.502_873_41, 2.0);
 }
 
 /// Al FCC (1 atom, simple metal).
@@ -739,7 +741,7 @@ fn test_al_fcc_vs_qe() {
     // metal with nearly-free-electron bands, so one-electron residual
     // should be dominated by the same basis-convergence noise as
     // E_total. 120 meV tolerance (|ΔE_total| + ~30 meV room).
-    assert_band_sum_matches_qe("Al", &result, 2.885_395_88, 0.120);
+    assert_one_electron_sum_matches_qe("Al", &result, 2.885_395_88, 0.120);
 }
 
 /// BCC Fe (1 atom, nspin=2, collapses to non-magnetic under this PP/cutoff).
@@ -1237,7 +1239,7 @@ fn test_si_pbe_non_spin_vs_qe() {
     // BSUM: Si PBE is GREEN on E_total (12 meV); one-electron residual
     // should track similarly since the GGA gradient term enters V_eff
     // identically to QE's. 40 meV tolerance (2× E_total tol + margin).
-    assert_band_sum_matches_qe("Si-PBE", &result, 4.963_857_08, 0.040);
+    assert_one_electron_sum_matches_qe("Si-PBE", &result, 4.963_857_08, 0.040);
 }
 
 /// Fe BCC FM PBE vs QE (Tier-2 spin-polarized GGA validation — GGAP Phase D).
@@ -1400,7 +1402,7 @@ fn test_al_fcc_pbe_vs_qe() {
     assert_energy_matches_qe("Al-PBE", &result, -4.636_581_33, 0.020);
     // BSUM: Al PBE E_total 8.1 meV (GREEN at 20 meV). One-electron
     // tolerance 40 meV (2× E_total tol + safety margin).
-    assert_band_sum_matches_qe("Al-PBE", &result, 2.918_213_34, 0.040);
+    assert_one_electron_sum_matches_qe("Al-PBE", &result, 2.918_213_34, 0.040);
 }
 
 /// C diamond PBE vs QE (wide-gap insulator; GGAP Phase F-light).
@@ -1457,7 +1459,7 @@ fn test_c_diamond_pbe_vs_qe() {
     // ratio suggests |ΔE_1e| ≈ 400 meV here, so 600 meV leaves a small
     // margin for regression-detection while staying below the C-LDA
     // 2.0 eV guard.
-    assert_band_sum_matches_qe("C-PBE", &result, 8.387_646_34, 0.600);
+    assert_one_electron_sum_matches_qe("C-PBE", &result, 8.387_646_34, 0.600);
 }
 
 /// Cu FCC PBE vs QE (transition metal with 3s/3p/3d semicore; GGAP Phase F-light).

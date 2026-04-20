@@ -9,8 +9,8 @@
 #
 # `one_electron_ry` is QE's `one-electron contribution` line
 # (`eband + deband = <ψ|T + V_ion|ψ>`, PW/src/electrons.f90:1719).
-# Consumed by the BSUM band-sum identity gate in
-# `tests/qe_validation.rs::assert_band_sum_matches_qe`, which compares
+# Consumed by the BSUM one-electron-sum identity gate in
+# `tests/qe_validation.rs::assert_one_electron_sum_matches_qe`, which compares
 # it against pwdft-rs's `e_kinetic + e_local + e_local_g0_shift +
 # e_nonlocal`. The deband piece cancels the V_H + V_xc double-counting
 # carried in raw eigenvalues, so the BSUM residual is invariant to the

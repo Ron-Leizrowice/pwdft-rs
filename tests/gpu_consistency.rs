@@ -28,8 +28,15 @@ use pwdft_rs::{
 // Post-NCFX values: pre-NCFX had -198.8926 eV / 6.969 eV; the NLCC unit and
 // radial-weight fix shifts E_tot by -14.1 eV (same magnitude as the E_xc gap
 // NCFX closed on the 4×4×4 CPU path).
+//
+// Post-SiEF-B1 (2026-04-19): every Kohn-Sham eigenvalue now carries
+// V_local(G=0) as a DC offset (QE-compatible gauge;
+// `src/scf/context.rs::ScfContext::new`), closing the ≈ 1.35 eV rigid
+// shift on Si E_F. Pre-SiEF-B1 the pinned Fermi was 6.709 eV; post-fix
+// it is 8.052 eV. E_total is algebraically invariant under the gauge
+// shift, so SI_REFERENCE_TOTAL_EV is unchanged.
 const SI_REFERENCE_TOTAL_EV: f64 = -213.0283;
-const SI_REFERENCE_FERMI_EV: f64 = 6.709;
+const SI_REFERENCE_FERMI_EV: f64 = 8.052;
 
 fn si_crystal() -> Crystal {
     let a = 5.431;

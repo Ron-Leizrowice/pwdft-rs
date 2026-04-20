@@ -324,3 +324,5 @@ NP=$(sysctl -n hw.ncpu)  # macOS; use $(nproc) on Linux
 - No system dependencies required for default build. GPU requires wgpu feature flag.
 - Validation scripts in `scripts/` use Python (uv environment).
 - QE 7.5 source in `qe-7.5/` for reference during validation.
+- **Rust `.round()` vs Python `round()`**: Rust rounds half-away-from-zero; Python 3 rounds half-to-even (banker's rounding). When porting a grid-index computation or integer mapping between Rust and a Python validation script, verify the rounding convention — mismatches appear as off-by-one errors on the ±0.5 boundary.
+- **QE k-point weights pre-multiply degspin**: In Quantum ESPRESSO output and in `charge-density.dat`, the `wk` k-point weights already include the spin degeneracy factor (`degspin = 2` for nspin=1, `1` for nspin=2). When cross-checking against QE from a Python script, do NOT multiply by degspin again — summing `wk * occ` directly yields the correct electron count. This was discovered in VGCH-2 Part C session-1 (#174) where a Python Fermi-finder double-counted by 2× until corrected.
