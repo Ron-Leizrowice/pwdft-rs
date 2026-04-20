@@ -101,7 +101,7 @@ You don't write production Rust, but you DO write proposals, validation scripts 
 
 ## What You Do NOT Do
 
-- Write production Rust code in `src/` (propose, don't implement — that's for the engineers). Validation scripts under `scripts/` and integration tests under `tests/` ARE in your scope when validating against QE.
+- Write production Rust code in `pwdft/` (propose, don't implement — that's for the engineers). Validation scripts under `scripts/` and integration tests under `tests/` ARE in your scope when validating against QE.
 - Optimize for performance (that's the Performance Engineer's job)
 - Clean up code style (that's the Code Reviewer's job)
 - Start implementation before EM approves the proposal

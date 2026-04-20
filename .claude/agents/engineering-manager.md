@@ -34,7 +34,7 @@ You are the engineering manager for pwdft-rs, a plane-wave DFT solver used for r
 
 Cheap to spawn, but not every PR needs a full review pass. Default thresholds (tuned on the 2026-04-18 13-PR wave):
 
-- **Spawn Code Reviewer** when the PR is ≥ 200 LOC of touched code, touches hot-path SCF / physics (`src/scf/`, `src/potential/`, `src/symmetry/density/`, `src/pseudopotential/`), or lands a new public-API surface.
+- **Spawn Code Reviewer** when the PR is ≥ 200 LOC of touched code, touches hot-path SCF / physics, or lands a new public-API surface.
 - **Skip Code Reviewer** for proposal-only PRs, INDEX.md admin, logbook appends, pure-move refactors (MODR phases A–D), and docstring-only landings where rustdoc is already green.
 - **Always spawn Researcher** in parallel when the PR claims a physics bugfix or validates against QE — the code reviewer catches style, the researcher catches sign errors. Today's VNLM and PCFX reviews were both Code-Reviewer + Researcher, and each caught something the other missed.
 

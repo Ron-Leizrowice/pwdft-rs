@@ -91,7 +91,6 @@ You may draft proposals for work you identify. Use the `/proposal create <topic>
 - **Tightest-visibility wins.** When picking `pub` / `pub(crate)` / `pub(super)` / private, start at the tightest and widen only if the compiler forces you. Ratchet observed today: `pub(super)` > `pub(crate)` > `pub`. MODR phases consistently pushed crate-public items down to `pub(crate)` or `pub(super)` on the same move. `private_interfaces` may block `pub(super)` on enum variants — fall back to `pub(crate)` when it does, not `pub`.
 - **Anti-scope sections in proposals.** Every non-trivial proposal should have a "What this is NOT" block listing explicitly-out-of-scope work (MODR used this to defer `main.rs` and `gpu/mod.rs` splits, VNLM used it to defer `real_sph_harmonics` rewrites). This prevents the reviewer asking "why didn't you also do X" and gives the next proposal a clean handoff point.
 - **`#[deprecated(note = "...")]` + `#[allow(deprecated)]` on test callers.** The pattern from PCFX / MODR-C: when you replace `foo()` with `foo_v2()` but want to retain the old code path for regression tests, mark `foo()` `#[deprecated]` and add `#[allow(deprecated)]` on the test module that still invokes it. SCF code paths stay clean (deprecation warnings fire in production builds); test coverage doesn't regress.
-- **`git mv` even for folder-ifying a single file.** `src/scf/mixing.rs` → `src/scf/mixing/mod.rs` + siblings: move with `git mv`, commit, then carve out sub-modules in the next commit. Two commits, but `git log --follow mixing/mod.rs` shows the full pre-split history.
 
 ## Worktree Isolation Protocol
 
@@ -118,7 +117,7 @@ When you are spawned with `isolation: "worktree"` (the default), or when you `En
    Local `main` may lag behind. `origin/main` is the source of truth.
 
 3. **All Edit/Write/MultiEdit targets MUST be inside your worktree.** The hook denies writes to:
-   - The main checkout (e.g. any `/Users/.../pwdft-rs/src/foo.rs` path)
+   - The main checkout (e.g. any `/Users/.../pwdft-rs/pwdft/pwdft-core/src/foo.rs` path)
    - Other agents' worktrees
    - Anywhere outside your worktree, except `/tmp/` (always allowed for scratch)
 
@@ -149,12 +148,6 @@ If you hit something unexpected — a dependency not actually completed, a file 
 If during your session you spot work outside your role's competency (a physics correctness question → **Researcher**; a hot path that needs profiling → **Performance Engineer**; a broad code-style cleanup → **Code Reviewer**; a doc gap → **Technical Writer**), do NOT try to solve it. Don't expand the current PR's scope. Don't silently fix "while you're here."
 
 Instead, in your final return summary, add a **Flagged for follow-up** section listing each finding:
-
-```text
-## Flagged for follow-up
-- src/foo.rs:42 — XC formula uses non-standard sign convention; needs Researcher review.
-- src/bar.rs:118 — inner loop allocates Vec<f64> per call; Performance Engineer.
-```
 
 The EM will turn each item into a backlog proposal for the right specialist. This keeps your PR focused, prevents scope creep, and ensures nothing gets lost.
 
