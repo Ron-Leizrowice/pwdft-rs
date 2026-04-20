@@ -4,6 +4,62 @@ Entries: date, what was validated, discrepancies found (with numbers), reference
 
 **Load-bearing cross-language convention (→ candidate CLAUDE.md promotion):** Rust's `f64::round()` is half-away-from-zero; numpy's `np.round` is half-to-even (banker's rounding). At exactly `d = ±0.5` they disagree in sign of the integer. Any Rust↔Python validation that maps real-valued distances/fractions to grid bins must either (a) avoid `.round()` entirely or (b) use an explicit wrap like `d - (d + 0.5).floor()` on both sides. VGCH Phase 1c (2026-04-19) lost half a day to this in a shell-average diagnostic — C diamond showed a bogus 0.2 e/Å³ asymmetry that evaporated on raw-sample diff. No production-code impact yet; diagnostic-only. Worth a §Conventions bullet if it bites again.
 
+## 2026-04-20 — VGCH-2 Part C session-1: H-C1 / H-C3 CLEARED (PR #174)
+
+Python Fermi-Dirac bisection over QE converged eigenvalues + weights
+reproduces QE's reported E_F to:
+
+| system    | |ΔE_F_py − E_F_QE| |
+|-----------|---------------------|
+| Cu FCC    | 6 μeV               |
+| Fe BCC FM | 15 μeV (nspin=2)    |
+| C diamond | 10 μeV              |
+| MgO       | 66 μeV              |
+| NaCl      | 180 μeV             |
+
+pwdft-rs's `smearing::find_fermi_energy` matches QE's `efermig.f90` on:
+(a) sign convention (`x = (ε−E_F)/σ; f = 1/(1+exp(x))` ≡ QE
+`wgauss((E_F−ε)/σ, −99)`), (b) bracket initialization (`±10σ`), (c)
+the bisection root agrees on `1e-14 eV` bracket-width tol vs QE's
+`1e-10 e` count-tol. **H-C1 finder-algorithm: CLEARED.**
+
+H-C3 smearing-function: Cu deck uses F-D + pwdft-rs uses F-D →
+matched. Cross-smearing gap on Cu (F-D vs Gauss vs MP1): ≤ 0.10 eV.
+**CLEARED on Cu.** On insulators the cross-smearing gap is 1.1-2.2 eV
+by construction (band edge, no DOS in gap) — expected, not a bug.
+
+**Convention landmine (→ CLAUDE.md candidate):** QE's `sumkg.f90`
+weights already include the spin-degeneracy factor (`wk *= degspin`
+at `setup.f90:673`; `Σ wk = 2` for nspin=1), and `wgauss` returns
+values in [0,1] per state with NO additional spin factor applied.
+pwdft-rs uses weights summing to 1 + explicit `spin_factor = 2/nspin`.
+A naive Python reference using QE's `wk` + pwdft-rs's `spin_factor=2`
+double-counts by 2× (original Cu run landed at E_F = 13.42 eV,
+off by 5.79 eV from QE).
+
+**Remaining Part C suspects, reordered:**
+1. H-C4 (Cu/GaAs/MgO/Mg ρ_core(G) unpinned; Fe has a guard, heavies
+   don't). Highest prior — fingerprint matches ΔE_xc = +8.87 eV at
+   transplant.
+2. H-C5 (V_NL `D_ij · β·β` contraction on Cu d-projectors). Middle
+   prior — VNMT tests l=2 m-isolation on Si but not Cu double-sum.
+3. H-C2 (n_bands margin). Lower — Cu has 26 eV headroom above E_F.
+
+**What the 1.82 eV DOS-origin Cu gap means now:** With finder cleared,
+the 1.82 eV Fermi mis-gauge at ρ_QE is a consequence of pwdft-rs and
+QE producing **different eigenvalue distributions** at ρ_QE. Γ matches
+to 0.26 ± 0.03 eV; non-Γ k-points are untested and must differ by
+more (likely driven by V_NL contraction or NLCC V_xc on the
+non-Γ Hamiltonian). Part C session-2's V_NL matrix-element test on
+Cu will probe this directly.
+
+**Artifacts:** `scripts/validate/vgch2c_fermi_reference.py` +
+`.csv` (30 rows), `proposals/VGCH-MECH-mechanism-taxonomy.md` +
+`VGCH-2-total-energy-assembly.md` updates.
+
+**Gates:** Tier-1 357 pass / 0 fail / 49 ign. Clippy 18 / 24 baseline.
+rustdoc clean.
+
 ## 2026-04-19 — VGCH-2 Part B: H3 CLEARED on Cu transplant iter-1 (PR #167)
 
 Seed pwdft-rs with QE's converged Cu FCC ρ_QE, diagonalize one SCF iteration, compare per-term to QE.
