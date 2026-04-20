@@ -1,6 +1,6 @@
 //! VGCH Phase 1c Hypothesis 2 — Superposition-of-Atomic-Densities (SAD)
 //! initial-density cross-check against an independent Python reference
-//! (`pwdft/pwdft-validation/pwdft_validation/scripts/vgch_sad_heavy.py`) for every VGCH-class system.
+//! (`pwdft-validate reference sad`) for every VGCH-class system.
 //!
 //! The hypothesis under test: does pwdft-core' SAD (its PP_RHOATOM Bessel
 //! transform + structure-factor sum + IFFT + clamp/renormalize pipeline)
@@ -461,12 +461,12 @@ fn diagnose_system(
 }
 
 #[test]
-#[ignore = "TSPL Tier-2: VGCH Phase 1c SAD diagnostic — needs CSV from pwdft/pwdft-validation/pwdft_validation/scripts/vgch_sad_heavy.py. Run with `-- --ignored`."]
+#[ignore = "TSPL Tier-2: VGCH Phase 1c SAD diagnostic — needs CSV from pwdft-validate reference sad. Run with `-- --ignored`."]
 fn test_vgch_sad_matches_qe_convention_reference() {
     let csv_path = PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join(CSV_REL_PATH);
     let Some(ref_rows) = load_reference_csv(&csv_path) else {
         panic!(
-            "reference CSV not found at {}: regenerate via `uv run pwdft/pwdft-validation/pwdft_validation/scripts/vgch_sad_heavy.py`",
+            "reference CSV not found at {}: regenerate via `uv run pwdft-validate reference sad`",
             csv_path.display()
         );
     };
@@ -566,7 +566,7 @@ fn test_vgch_sad_matches_qe_convention_reference() {
         !any_raw_fail,
         "VGCH Phase 1c: raw-sample ρ(r) diff exceeded {TOL_RAW_SAMPLE_RHO:.0e} on one or more \
          systems — the Bessel + structure-factor + IFFT pipeline no longer matches the \
-         QE-convention Python reference. See table above and `pwdft/pwdft-validation/pwdft_validation/scripts/vgch_sad_heavy.py`."
+         QE-convention Python reference. See table above and `pwdft-validate reference sad`."
     );
 
     println!();

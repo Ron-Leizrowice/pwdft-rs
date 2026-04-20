@@ -64,7 +64,7 @@ def _bcc_shells(n: int, a_bohr: float) -> list[tuple[int, float]]:
 _SYSTEMS: list[_NlccSystem] = [
     _NlccSystem("si", "Si", 5.431, "fcc"),
     _NlccSystem("fe", "Fe", 2.87, "bcc"),
-    # Cu lattice constant from validation/reference/qe/cu_fcc_scf.in: celldm(1)=6.8219 Bohr.
+    # Cu lattice constant from data/qe/cu_fcc_scf.in: celldm(1)=6.8219 Bohr.
     _NlccSystem("cu", "Cu", 6.8219 * BOHR_TO_ANG, "fcc"),
     _NlccSystem("mn", "Mn", 2.89, "bcc"),
 ]

@@ -42,7 +42,7 @@ const RY_TO_EV: f64 = 13.605_693_122_994;
 const BOHR_TO_ANG: f64 = 0.529_177_210_903;
 const BOHR3_TO_ANG3: f64 = BOHR_TO_ANG * BOHR_TO_ANG * BOHR_TO_ANG;
 
-/// QE density bundle emitted by `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py`.
+/// QE density bundle emitted by `pwdft-validate density`.
 /// Layout matches `tests/vgch_transplant_cu.rs::QeDensity`; see that file
 /// for the canonical specification.
 struct QeDensity {
@@ -197,15 +197,15 @@ fn c_bin_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "TSPL Tier-2: VGCH-2E transplant diagnostic — seed C diamond SCF from QE density, compare iter-1 per-term energies; regenerate c_rho_qe.bin via pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py"]
+#[ignore = "TSPL Tier-2: VGCH-2E transplant diagnostic — seed C diamond SCF from QE density, compare iter-1 per-term energies; regenerate c_rho_qe.bin via pwdft-validate density"]
 fn test_c_diamond_transplant_iter1() {
     let bin_path = c_bin_path().unwrap_or_else(|| {
         panic!(
             "VGCH-2E: expected QE density at /tmp/vgch2e_c/c_rho_qe.bin or \
              data/qe/c_rho_qe.bin — regenerate via \
-             `uv run pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py \
-                --rho <prefix>.save/charge-density.dat \
-                --out /tmp/vgch2e_c/c_rho_qe.bin`"
+             `uv run pwdft-validate density \
+                <prefix>.save/charge-density.dat \
+                /tmp/vgch2e_c/c_rho_qe.bin`"
         )
     });
     let qe = read_qe_density(&bin_path);

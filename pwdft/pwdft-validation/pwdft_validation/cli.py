@@ -169,9 +169,7 @@ def diag_residual_scan(
     max_iter: int = 200,
 ) -> None:
     """PCRS per-component energy residual scan (sweeps conv_threshold)."""
-    raise SystemExit(
-        _residual_scan.run(thresholds=thresholds, no_qe=no_qe, keep_yaml=keep_yaml, max_iter=max_iter)
-    )
+    raise SystemExit(_residual_scan.run(thresholds=thresholds, no_qe=no_qe, keep_yaml=keep_yaml, max_iter=max_iter))
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 //! VGCMP Phase 1 — cross-check pwdft-core V_local(G) against an independent
 //! Python reference for Si (ONCVPSP LDA).
 //!
-//! This test consumes `pwdft/pwdft-validation/pwdft_validation/scripts/vloc_g_si_reference.csv`, generated
-//! by `pwdft/pwdft-validation/pwdft_validation/scripts/vloc_g_reference.py`, which computes V_local(G) for
+//! This test consumes `data/csv/vloc_g_si_reference.csv`, generated
+//! by `pwdft-validate reference vloc`, which computes V_local(G) for
 //! the first 20 distinct |G| shells of Si FCC (a = 5.431 Å) directly from
 //! `pseudopotentials/nc/lda/Si.upf` using QE's erf-subtracted formula.
 //!
@@ -100,7 +100,7 @@ fn vgcmp_phase1_v_local_g_matches_python_reference() {
     let Some(rows) = load_reference_csv(&csv_path) else {
         eprintln!(
             "VGCMP: reference CSV not found at {} — skipping cross-check.\n\
-             (Run `uv run pwdft/pwdft-validation/pwdft_validation/scripts/vloc_g_reference.py` to regenerate.)",
+             (Run `uv run pwdft-validate reference vloc` to regenerate.)",
             csv_path.display()
         );
         return;

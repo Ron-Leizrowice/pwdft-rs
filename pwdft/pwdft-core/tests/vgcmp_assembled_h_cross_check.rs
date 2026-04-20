@@ -14,7 +14,7 @@
 //! Phase 4 tests the assembly directly. We build a Si FCC Γ-point
 //! Hamiltonian with V_eff set to **zero**, leaving only kinetic + V_NL on
 //! the diagonal, and compare to
-//! `pwdft/pwdft-validation/pwdft_validation/scripts/vgcmp_phase4_reference.csv` which was produced by an
+//! `data/csv/vgcmp_phase4_reference.csv` which was produced by an
 //! independent Python implementation that re-uses the Phase 1/2/3 validated
 //! form factors and re-derives the assembly formula from scratch.
 //!
@@ -197,7 +197,7 @@ fn vgcmp_phase4_assembled_h_matches_python_reference() {
     let Some(rows) = load_reference_csv(&csv_path) else {
         eprintln!(
             "VGCMP Phase 4: reference CSV not found at {} — skipping cross-check.\n\
-             (Run `uv run pwdft/pwdft-validation/pwdft_validation/scripts/vgcmp_phase4_assembled_h.py` to regenerate.)",
+             (Run `uv run pwdft-validate reference hamiltonian` to regenerate.)",
             csv_path.display()
         );
         return;

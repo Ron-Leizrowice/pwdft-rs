@@ -247,7 +247,7 @@ mod tests {
     // NLCC audit (Part A) — pin ρ_core(G) at G=0 and the first non-zero
     // G shell for Si and Fe. Reference values were computed by an
     // independent Python implementation
-    // (`pwdft/pwdft-validation/pwdft_validation/scripts/rho_core_g_reference.py`, which parses the UPF
+    // (`pwdft-validate reference nlcc`, which parses the UPF
     // with regex and integrates with `scipy.integrate.simpson` in QE
     // native units, then converts e/Bohr³ → e/Å³). The Rust integrator
     // below trapezoidal-sums the same formula on the *Å-unit*
@@ -297,7 +297,7 @@ mod tests {
     /// (a = 5.431 Å, FCC: Ω = a³/4 = 40.032 Å³) with Q_core ≈ 0.7399 e,
     /// we expect ρ_core(0) ≈ 1.8476·10⁻² e/Å³.
     ///
-    /// Reference: `pwdft/pwdft-validation/pwdft_validation/scripts/rho_core_g_reference.csv` row
+    /// Reference: `data/csv/rho_core_g_reference.csv` row
     /// `(si, shell 0)` = 1.8476428665e-02 e/Å³.
     #[test]
     fn test_si_rho_core_of_g_zero() {
@@ -323,7 +323,7 @@ mod tests {
     ///
     /// Chosen G is the smallest non-zero |G| for Si FCC; it exercises
     /// the full Bessel-transform integrand (not just j₀ = 1). Reference:
-    /// `pwdft/pwdft-validation/pwdft_validation/scripts/rho_core_g_reference.csv` row `(si, shell 1)`
+    /// `data/csv/rho_core_g_reference.csv` row `(si, shell 1)`
     /// = 1.5427684529e-02 e/Å³.
     #[test]
     fn test_si_rho_core_of_g_first_shell() {
@@ -356,7 +356,7 @@ mod tests {
     /// that motivates NLCC most strongly.
     ///
     /// BCC primitive Ω = a³/2 = 11.820 Å³ at a = 2.87 Å. Reference:
-    /// `pwdft/pwdft-validation/pwdft_validation/scripts/rho_core_g_reference.csv` row `(fe, shell 0)`
+    /// `data/csv/rho_core_g_reference.csv` row `(fe, shell 0)`
     /// = 2.4679728958e-01 e/Å³.
     #[test]
     fn test_fe_rho_core_of_g_zero() {
@@ -381,7 +381,7 @@ mod tests {
     /// — the first non-zero BCC shell (the {110} family). In Å⁻¹:
     ///     |G| = 2π/a · √2 ≈ 3.096355 Å⁻¹.
     ///
-    /// Reference: `pwdft/pwdft-validation/pwdft_validation/scripts/rho_core_g_reference.csv` row
+    /// Reference: `data/csv/rho_core_g_reference.csv` row
     /// `(fe, shell 1)` = 2.2502662616e-01 e/Å³.
     #[test]
     fn test_fe_rho_core_of_g_first_shell() {
@@ -424,7 +424,7 @@ mod tests {
     ///
     /// Cell: FCC a = 6.8219 Bohr = 3.610 Å (matches
     /// `data/qe/cu_fcc_scf.in`).
-    /// Reference: `pwdft/pwdft-validation/pwdft_validation/scripts/rho_core_g_reference.csv` row
+    /// Reference: `data/csv/rho_core_g_reference.csv` row
     /// `(cu, shell 0)` = 2.5568474262e-01 e/Å³.
     #[test]
     fn test_cu_rho_core_of_g_zero() {
@@ -448,7 +448,7 @@ mod tests {
     /// — the first non-zero FCC shell (the {111} family). In Å⁻¹:
     ///     |G| = 2π/a · √3 ≈ 3.014181 Å⁻¹.
     ///
-    /// Reference: `pwdft/pwdft-validation/pwdft_validation/scripts/rho_core_g_reference.csv` row
+    /// Reference: `data/csv/rho_core_g_reference.csv` row
     /// `(cu, shell 1)` = 2.3967132540e-01 e/Å³.
     #[test]
     fn test_cu_rho_core_of_g_first_shell() {
@@ -483,7 +483,7 @@ mod tests {
     /// for NLCC regression only the cell volume matters. We use a
     /// simple BCC container at a = 2.89 Å (close to Fe) so Mn's
     /// ρ_core(G) appears in the same |G|-shell range as Fe's.
-    /// Reference: `pwdft/pwdft-validation/pwdft_validation/scripts/rho_core_g_reference.csv` row
+    /// Reference: `data/csv/rho_core_g_reference.csv` row
     /// `(mn, shell 0)` = 3.4733264804e-01 e/Å³.
     #[test]
     fn test_mn_rho_core_of_g_zero() {
@@ -507,7 +507,7 @@ mod tests {
     /// — the first non-zero BCC shell (the {110} family). In Å⁻¹:
     ///     |G| = 2π/a · √2 ≈ 3.074921 Å⁻¹.
     ///
-    /// Reference: `pwdft/pwdft-validation/pwdft_validation/scripts/rho_core_g_reference.csv` row
+    /// Reference: `data/csv/rho_core_g_reference.csv` row
     /// `(mn, shell 1)` = 3.1210083482e-01 e/Å³.
     #[test]
     fn test_mn_rho_core_of_g_first_shell() {

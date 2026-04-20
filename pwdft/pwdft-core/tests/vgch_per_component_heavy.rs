@@ -26,7 +26,7 @@
 //! Per-term CSV emission (VGCH-2 Part A): every test writes rows to
 //! `<CARGO_TARGET_TMPDIR>/vgch2_per_term_trace_pwdft.csv` via the shared
 //! `write_pwdft_terms` helper. The Python script
-//! `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_per_term_trace.py` parses QE's equivalent
+//! `pwdft-validate energy trace` parses QE's equivalent
 //! from `data/qe/*.out`; the two CSVs are joined on
 //! `(system, term_name)` for the PR-body comparison table.
 //!
@@ -78,7 +78,7 @@ const RY_TO_EV: f64 = 13.605_693_122_994;
 //
 // Each per-component test appends rows to
 // `<CARGO_TARGET_TMPDIR>/vgch2_per_term_trace_pwdft.csv` so
-// `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_per_term_trace.py` can join against QE.
+// `pwdft-validate energy trace` can join against QE.
 // A static mutex serializes writes if cargo runs tests in parallel.
 
 static CSV_LOCK: Mutex<()> = Mutex::new(());
@@ -171,7 +171,7 @@ fn load_pp(element: &str) -> PseudopotentialData {
 // ---------------------------------------------------------------------------
 
 /// Per-term QE reference block in eV. Matches
-/// `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_per_term_trace.py` column order.
+/// `pwdft-validate energy trace` column order.
 struct QeReference {
     total: f64,
     one_electron: f64,

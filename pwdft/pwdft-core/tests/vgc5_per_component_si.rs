@@ -92,7 +92,7 @@ struct QeReference {
 
 impl QeReference {
     fn si() -> Self {
-        // From data/qe/si_scf.out (see pwdft/pwdft-validation/pwdft_validation/scripts/vgc5_qe_si_components.csv).
+        // From data/qe/si_scf.out (see data/csv/vgc5_qe_si_components.csv).
         // Parsed: one-electron=4.86744632 Ry, hartree=1.11010670 Ry,
         //         xc=-6.20301507 Ry, ewald=-16.79667313 Ry,
         //         total=-17.02299344 Ry (includes -TS).

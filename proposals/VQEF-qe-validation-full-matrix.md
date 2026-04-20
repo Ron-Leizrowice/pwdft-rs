@@ -305,7 +305,7 @@ lands, the VQEF task is to:
    and capture the raw `pw.x` output at `qe_validation/pbe/<system>_pbe.out`.
 3. Extract total energy (Ry), Fermi energy (eV), magnetization (if
    nspin=2), Γ-eigenvalues.
-4. Append a section to `qe_validation/reference_data.toml`:
+4. Append a section to `data/qe/reference_data.toml`:
    ```
    [si_diamond_pbe]
    input_file        = "pbe/si_pbe.in"
@@ -416,7 +416,7 @@ bug), not in the converged density.
   populated, `run_qe_comparison` prints the diagnostic residual
   unconditionally (so heavy-atom cells owned by other tracks also emit
   machine-parsable numbers under `cargo test -- --ignored --nocapture`).
-- `qe_validation/reference_data.toml` gains a `one_electron_ry` key per
+- `data/qe/reference_data.toml` gains a `one_electron_ry` key per
   cell (all 16 entries; values harvested from the existing `*.out`
   files, no QE re-runs required).
 - BSUM assertion wired into 6 cells (Si LDA E, Si PBE, Al LDA, Al PBE,
@@ -508,7 +508,7 @@ VQEF is complete when **all** of the following hold on `main`:
 
 ### 6c. Reference data hygiene
 
-- `qe_validation/reference_data.toml` contains 16 named sections
+- `data/qe/reference_data.toml` contains 16 named sections
   (8 LDA + 8 PBE), each with provenance (`generated_date`,
   `qe_version = "7.5"`, `mpi_ranks`, host architecture).
 - `qe_validation/pbe/` folder exists and contains 8 `*_pbe.in` +
@@ -653,7 +653,7 @@ compresses to ~3 calendar weeks.
 
 VQEF delivers, across P2/P5/P8/P10:
 
-- **16 entries in `qe_validation/reference_data.toml`** (8 LDA + 8 PBE).
+- **16 entries in `data/qe/reference_data.toml`** (8 LDA + 8 PBE).
 - **16 test functions in `tests/qe_validation.rs`**, 0 `#[ignore]`
   unless a system genuinely cannot converge under PBE (each such
   `#[ignore]` cites its follow-up proposal).
@@ -681,7 +681,7 @@ VQEF delivers, across P2/P5/P8/P10:
   (out of scope for VQEF, referenced for downstream context).
 - `tests/qe_validation.rs` — live test harness at `origin/main`
   0520c8c (2026-04-18).
-- `qe_validation/reference_data.toml` — current LDA reference data.
+- `data/qe/reference_data.toml` — current LDA reference data.
 - User directive, 2026-04-18: "We should be able to match QE values
   closely for Al, C, Cu, Fe (FM), GaAs, MgO, NaCl, and Si — with both
   LDA and PBE in the case that each can converge for that system."

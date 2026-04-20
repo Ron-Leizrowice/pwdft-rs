@@ -18,7 +18,7 @@
 //!    write `charge-density.dat`; copy it to `/tmp/vgch2b_cu/cu.in`,
 //!    flip `disk_io` to `'medium'`, and run with the machine lock).
 //! 2. Parse the resulting `<outdir>/cu.save/charge-density.dat` with
-//!    `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py --verbose` → produces
+//!    `pwdft-validate density --verbose` → produces
 //!    `cu_rho_qe.bin` with `{mill, rho_g (e/Bohr³), b1, b2, b3}` in a
 //!    flat little-endian binary bundle (VGCH2BIN magic — chosen over
 //!    `.npz` to avoid pulling a ZIP crate into the test harness).
@@ -60,7 +60,7 @@ const RY_TO_EV: f64 = 13.605_693_122_994;
 const BOHR_TO_ANG: f64 = 0.529_177_210_903;
 const BOHR3_TO_ANG3: f64 = BOHR_TO_ANG * BOHR_TO_ANG * BOHR_TO_ANG;
 
-/// QE density bundle emitted by `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py`.
+/// QE density bundle emitted by `pwdft-validate density`.
 ///
 /// Layout (all little-endian, see Python script for the canonical
 /// specification):
@@ -263,15 +263,15 @@ fn cu_bin_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "TSPL Tier-2: VGCH-2B transplant diagnostic — seed Cu FCC SCF from QE density, compare iter-1 per-term energies; regenerate `cu_rho_qe.npz` via pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py"]
+#[ignore = "TSPL Tier-2: VGCH-2B transplant diagnostic — seed Cu FCC SCF from QE density, compare iter-1 per-term energies; regenerate `cu_rho_qe.npz` via pwdft-validate density"]
 fn test_cu_fcc_transplant_iter1() {
     let bin_path = cu_bin_path().unwrap_or_else(|| {
         panic!(
             "VGCH-2B: expected QE density at /tmp/vgch2b_cu/cu_rho_qe.bin or \
              data/qe/cu_rho_qe.bin — regenerate via \
-             `uv run pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py \
-                --rho <prefix>.save/charge-density.dat \
-                --out /tmp/vgch2b_cu/cu_rho_qe.bin`"
+             `uv run pwdft-validate density \
+                <prefix>.save/charge-density.dat \
+                /tmp/vgch2b_cu/cu_rho_qe.bin`"
         )
     });
     let qe = read_qe_density(&bin_path);

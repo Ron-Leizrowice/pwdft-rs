@@ -47,7 +47,7 @@
 //! across one-electron sum and Hartree with opposite signs — signature
 //! of a different converged density, not a form-factor bug.
 //! V_local(G=0) Z-scaling and Ewald for large Z are both ruled out (see
-//! `pwdft/pwdft-validation/pwdft_validation/scripts/vgch_vloc_heavy.py` pinning V_local(G=0) on every
+//! `pwdft-validate reference vloc --heavy` pinning V_local(G=0) on every
 //! heavy-atom PP to the last printed digit, and `test_fe_bcc_ewald_vs_qe`
 //! which stays green at <0.01 eV). The continuing investigation is
 //! tracked under VGCH Phase 1b (mixer / initial-density / non-local

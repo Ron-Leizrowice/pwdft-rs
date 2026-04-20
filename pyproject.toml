@@ -87,3 +87,12 @@ testpaths = ["pwdft/pwdft-validation/tests"]
 pythonpath = ["pwdft/pwdft-validation"]
 addopts = "-ra --strict-markers"
 cache_dir = ".cache/pytest"
+
+# ------------------------------------------------------------------
+# ty
+# ------------------------------------------------------------------
+[tool.ty.rules]
+possibly-missing-import = "warn"
+possibly-unresolved-reference = "warn"
+possibly-missing-attribute = "warn"
+division-by-zero = "error"
