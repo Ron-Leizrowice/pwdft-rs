@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: clippy (default features)
+        run: cargo clippy -q --all-targets -- -D warnings
+
+      - name: clippy (gpu feature)
+        run: cargo clippy -q --all-targets --features gpu -- -D warnings
