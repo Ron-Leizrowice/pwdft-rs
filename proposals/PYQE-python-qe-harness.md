@@ -250,37 +250,3 @@ Sweep + replace:
 | E | A, C | full cleanup |
 
 Phases A+B land together as one PR (runner + lock are a single mental unit). Phase C is a second PR (skill rename). Phase D is a third PR (CI job + workflow file). Phase E is a small cleanup PR. Parallel work possible once A lands.
-
-## Verification
-
-**Phase A.**
-
-- `uv run pwdft-validate qe --help` shows the new sub-app with `run / regenerate / check / compare`.
-- `uv run pwdft-validate qe check` parses every file in `data/qe/*.out` with no regex fallout; values match the pre-refactor diagnostics bit-for-bit (pin via `tests/test_qe_parse.py`).
-- `uv run pwdft-validate qe run si_diamond` on a dev machine runs `mpirun pw.x` under the lock, writes a timestamped `.out` to `/tmp/pwdft-qe-runs/`, returns a `QeResult` parseable by `QeScfOutput`.
-- Unit tests: `tests/test_qe_binary.py` exercises path resolution (env override, fallback, missing-binary error).
-
-**Phase B.**
-
-- `tests/test_qe_lock.py` spawns two concurrent subprocess invocations of a dummy-binary `run_pwx`; lock directory holds exactly one owner at a time; second call waits the configured timeout.
-- Manually: `pwdft-validate qe run ...` in one shell, `cargo test` in another; the Rust hook at `.claude/bin/check-worktree.sh` denies the second until the Python run releases.
-
-**Phase C.**
-
-- `Skill(qe-validation)` resolves and the description matches the triggers in the rewrite.
-- `rg qe-runner` returns nothing under `.claude/` or `CLAUDE.md`.
-
-**Phase D.**
-
-- `uv run pwdft-validate qe report --format markdown --output /tmp/r.md` on a dev machine emits a populated accuracy + wall-time table (fast tier); JSON sibling has matching records.
-- `--baseline` diff column shows `+0.0 meV` when run twice against itself and a nonzero delta when a tolerance-field tweak is committed.
-- CI passes on a no-op PR and posts the report comment. CI fails on a PR that perturbs `data/qe/reference_data.toml` without a matching QE re-run, *and* the failure comment shows exactly which cell regressed.
-- The sticky-comment action updates in place across force-pushes (no comment spam).
-- Full-tier workflow runs green on `workflow_dispatch`; nightly schedule posts the full-matrix report to the tracking issue.
-- Smoke test locally: `act pull_request -j qe-validation` (using `nektos/act`) completes in <3 min with conda cache and produces a valid Markdown artifact.
-
-**Phase E.**
-
-- `rg 'mpirun.*pw\.x|qe-7\.5/build/bin'` returns only historical-archive matches (completed proposals, CLAUDE.md examples that *document* the legacy path for context).
-
-**Regression budget.** The v1 `qe compare` uses the same tolerances as `qe_validation.rs`. Any cell that's YELLOW in VQEF today stays YELLOW (tolerances are already loose to accommodate the open VGCH-MECH work). The new gate catches *new* drift against the committed TOML — it does not retroactively tighten the existing matrix.

@@ -127,12 +127,4 @@ Add a one-line assertion in the CI job that Tier-1 stays under a budget:
 - **No change to Tier 2.** `cargo test -- --ignored` continues to use the O3 test profile. The whole point of Tier 2 is production-scale SCF loops, which need optimization.
 - **No change to benches.** `cargo bench` already uses the release profile.
 
-## Verification
-
-- New CI run on an empty PR completes the Tier-1 step in **under 2.5 minutes** end-to-end (cache hit) or **under 4 minutes** (cache miss), measured by the GitHub Actions timing.
-- `cargo test --profile=dev -p pwdft-core` locally produces the same pass/fail set as `cargo test -p pwdft-core` (no test is accidentally skipped or mode-sensitive). Verify by running both on the current commit and diffing `--list`.
-- No flakes introduced. A test that's `#[should_panic]` at `opt-level=3` because the optimizer eliminated a UB path is a latent bug — flag it, don't paper over it with a profile.
-- The cache key isolates the `dev` target from the main branch's `test` target — confirm by forcing a CI run, verifying no evict-churn in the subsequent PR's cache step.
-- Nightly QE job (PYQE Phase D companion) still uses `--profile=release` via `cargo build --release -p pwdft-core` (quoted in the PYQE proposal) — untouched.
-
 **If the number doesn't pan out.** The projections above are ballpark. If Phase A's measured win is <30% of cold-build time, promote to option C (scope `profile.test` to the workspace member only). If still insufficient, keep the O3 Tier-1 and instead invest in `sccache`/`cargo-nextest`/`mold` — these are follow-up options, not blockers for TDBG to land.

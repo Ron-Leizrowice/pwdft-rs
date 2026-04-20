@@ -117,19 +117,6 @@ Each job gets its own `Swatinem/rust-cache@v2` with a distinct `shared-key` so c
 
 Before landing Phase C, check the post-CICH cache size from a real run's "Post Swatinem" log line. If it's > 3 GB, parallelization would push us into cache-eviction territory on the 10 GB ceiling.
 
-## Verification
-
-Each phase lands in its own PR with a before/after wall-clock comparison pulled from Actions:
-
-- Cold-cache run: compare "Set up job" → "Complete job" total on a cache-invalidation commit (e.g., touching `Cargo.lock`).
-- Warm-cache run: same measurement on a second consecutive push that hits the restored cache.
-
-Phase A success: ≥10% wall-clock reduction on the total rust-job timing, with `-fuse-ld=mold` visible in a `cargo build -v` manual run.
-
-Phase B success: either the doctest audit confirms a clean swap (nextest replaces cargo test with no coverage loss) or the two-step variant works. Measure 2-3× test-step runtime reduction on tests that run in practice.
-
-Phase C success: wall-clock of the new slowest job (probably `clippy`) is at least 40% below the pre-split `rust` job total. If the new max is within 20% of the old sum, parallelization is not paying off and the extra cache storage isn't worth it — revert to a single job.
-
 ## Non-goals
 
 - **`sccache`** — TDBG mentions it as a fallback if nothing else pans out. Not pursued here unless A+B+C land and still aren't enough. Adds moving parts (remote cache backend, auth, eviction) that `Swatinem/rust-cache@v2` already covers for 90% of cases.

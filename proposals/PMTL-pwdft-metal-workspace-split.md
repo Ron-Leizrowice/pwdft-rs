@@ -167,16 +167,6 @@ Pick **`pwdft-metal`**. When CUCL lands, add a sibling crate `pwdft-cubecl`; bot
 
 Phases A+B+C land together (one atomic PR — the trait move is not useful without the crate split). D+E are separate cleanup PRs.
 
-## Verification
-
-- `cargo build -p pwdft-core` succeeds with *no* `wgpu`/`pollster`/`bytemuck` in the compiled artifact (verify via `cargo tree -p pwdft-core -e normal`).
-- `cargo build --features metal` (on macOS) produces a binary with the wgpu backend linked.
-- `cargo test --workspace` — all existing tests pass, `gpu_consistency` runs under `pwdft-metal`.
-- Cold-build time for `cargo build -p pwdft-core` drops (rough estimate: −30 to −60 s on a fresh target dir, from removing ~40 wgpu-transitive crates).
-- `rg '#\[cfg\(feature\s*=\s*"gpu"\)\]' pwdft/pwdft-core/src/` returns zero hits.
-- SCF driver reads linearly top-to-bottom — no more paired cfg forks.
-- The trait indirection cost is measured: on the existing `scf_benchmarks`, CPU-only path should be within noise (±1%) of pre-refactor baseline — dyn-dispatch on `Option<&dyn GridAccelerator>` evaluates one branch per iteration, not per grid-point.
-
 **Risk register.**
 
 - **Trait-object overhead.** `Option<&dyn GridAccelerator>` introduces one indirect call per grid-level op (3× per SCF iteration — Hartree, XC, V_eff). Each op is a single bulk call, not a per-point invocation, so the overhead is amortized over a full grid. Bench before merging to confirm <1% regression.

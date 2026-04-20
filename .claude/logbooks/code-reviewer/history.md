@@ -108,7 +108,3 @@ Counts: 5 critical silent-pass, 8 tolerance gaps, 1 confirmed stale `#[ignore]`,
 - **MUST:** Applied `#[must_use]` to 70/80 candidate functions; 10 deferred for parallel-agent safety. Remaining 10 should close after SPXC/XCPR/VGCMP merge.
 - **ERRH:** 16 production unwrap/panic/expect → 0. 13 remaining `expect()` all documented with `BUG:` prefix.
 - **SDED:** `MixingModeType` and `OccupationType` dedup closed; `From` conversions preferred over inline match in YAML settings paths.
-
-## 2026-04-16 — Baseline sweep
-
-Clippy 0; production unwrap 11, panic 2, expect 3; 185 tests, 3 failing (kb_projector_validation — later fixed by KBTF). DDUP 5 issues present.

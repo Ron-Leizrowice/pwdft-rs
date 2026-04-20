@@ -1,332 +1,149 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repository.
 
-## What This Is
+## What this is
 
 A plane-wave density functional theory (PWDFT) solver in Rust, targeting macOS with Apple Metal GPU acceleration. Used for real research — correctness is paramount. Results are validated against Quantum ESPRESSO 7.5.
 
-## Build & Run
+The repo is a Cargo workspace:
+
+- `pwdft/pwdft-core/` — the Rust solver (library + binary, integration tests, benches)
+- `pwdft/pwdft-validation/` — Python (uv) validation harness: QE invocation, reference-data parsing, diagnostic scripts
+- `pwdft/faer/` — vendored `faer` v0.24.0 with one local patch (see § Vendored dependencies)
+- `data/qe/`, `data/csv/` — reference data (QE outputs, CSV pins)
+- `inputs/` — example YAML input decks
+- `qe-7.5/` — Quantum ESPRESSO 7.5 source + build, symlinked during setup
+- `pseudopotentials/` — NC / USPP / PAW libraries consumed by QE and pwdft-rs
+
+## Build & run
 
 ```bash
-# Build (CPU only)
-cargo build --release
+cargo build --release                          # CPU only
+cargo build --release --features gpu           # with Metal/Vulkan via wgpu
 
-# Build with GPU (Metal/Vulkan via wgpu)
-cargo build --release --features gpu
-
-# Run SCF calculation
 cargo run --release -- --input inputs/si_scf.yaml
-
-# Run band structure
 cargo run --release -- --input inputs/si_free_electron.yaml -o bands.tsv
 ```
 
-## Tests & Benchmarks
+## Workflow skills
 
-```bash
-cargo test                                    # all tests
-cargo test --features gpu                     # with GPU tests
-cargo test test_name                          # single test by name
-cargo test --test free_electron_bands         # single integration test file
-cargo test -- --nocapture                     # with stdout
-cargo test -- --ignored                       # run Tier-2 heavy SCF suites only (see TSPL)
-cargo test -- --include-ignored               # run both tiers
+All common cargo / profiling / review operations are wrapped in skills under `.claude/skills/`. Prefer skills over raw bash — they handle the machine lock, arg parsing, and feature-flag invariants for you:
 
-cargo bench --bench scf_benchmarks            # SCF benchmarks
-cargo bench --bench gpu_benchmarks --features gpu  # GPU benchmarks
-```
+- `/quality-gate` — the full merge-criterion gate (fix clippy + default clippy + gpu clippy + rustdoc `-D warnings` + Tier-1 tests).
+- `/test [args]` — tier-aware `cargo test`. Default Tier-1; `--tier2` runs `--ignored`; `--all` runs `--include-ignored`; anything else passes through.
+- `/bench <bench-name>` — `cargo bench` under the lock.
+- `/profile <cmd>` — `samply record <cmd>` under the lock.
+- `/lint` — both clippy invocations (auto-fix + default + `--features gpu`).
+- `/cargo <args>` — escape hatch: any cargo command, lock-wrapped.
+- `/worktree-start PROP/slug` — fetch + branch from `origin/main` boilerplate.
+- `/pr-submit` — quality gate + rebase + `gh pr create`.
+- `/pr-review <N>` — EM review helper: metadata + diff + checklist.
+- `/merge <N>` — EM merge trilogy.
+- `/proposal {create,list,complete}` — proposal lifecycle.
+- `/qe-runner` — Quantum ESPRESSO invocation recipes.
 
-Integration tests in `pwdft/pwdft-core/tests/`: free-electron band validation (Si, C diamond, BCC Fe), KB projector validation, non-local symmetry, parallel consistency, GPU vs CPU consistency, VGC5 per-component energies + MADOC band-sum identity (Si, Fe), QE validation (8-system reference set), spin polarization, WFRX subspace consistency, ITEV iterative eigensolver cross-checks.
+## Tests & tiers
 
-### Test suite tiers
+Integration tests live in `pwdft/pwdft-core/tests/`: free-electron bands (Si, C diamond, BCC Fe), KB projector, non-local symmetry, parallel consistency, GPU vs CPU consistency, VGC5 per-component energies + MADOC band-sum identity, QE validation (8-system reference set), spin polarization, WFRX subspace consistency, ITEV eigensolver cross-checks.
 
-The suite is split into two tiers, gated by Rust's `#[ignore]` attribute
-with a `TSPL Tier-2: ...` reason string on each heavy case. Default
-`cargo test` runs Tier 1 only; opt into Tier 2 via `--ignored`.
+The suite is split into two tiers via Rust's `#[ignore]` attribute with a `TSPL Tier-2: ...` reason string on each heavy case:
 
-- **Tier 1 — `cargo test`** (fast default, target ≤ 2 min wall on M3
-  Max). All `pwdft/pwdft-core/src/**` unit tests plus lightweight integration:
-  free-electron bands, KB projector, non-local symmetry, VGCMP Phase
-  1–4 cross-checks, V_local erf consistency, LAPACK smoke, ALOC F-5
-  Hamiltonian cache, FFT serial-vs-parallel round-trips, Fe Ewald vs
-  QE, ITEV single-shot (defect 1) eigenvalue checks. Every test here
-  is either a pure unit check or a single-shot operation on a small
-  matrix — no test runs an SCF loop for more than a handful of
-  iterations at production `n_pw`.
-- **Tier 2 — `cargo test -- --ignored`** (heavy, budget 5–10 min wall
-  on M3 Max). Every case that runs a production-scale SCF loop (>20
-  iterations at `n_pw ≥ 100`, or two SCFs back-to-back): QE validation
-  (full-system energy/Fermi matches), VGC5 per-component pins,
-  MADOC band-sum identity (Si + Fe), spin-polarization regression
-  guards (Si nspin=2, Fe CCMX, fixed-moment inverted detector),
-  serial-vs-parallel SCF agreement (Plain + Kerker), WFRX subspace
-  consistency, ITEV iterative-vs-dense end-to-end SCF, GPU-vs-CPU
-  SCF (behind the `gpu` feature). Each Tier-2 `#[ignore]` reason
-  names the code paths that should trigger a Tier-2 run.
-- **Both tiers** — `cargo test -- --include-ignored`. Rarely needed;
-  use when regenerating Tier-2 pins or auditing a deep refactor.
+- **Tier 1** (default via `/test`) — unit tests + lightweight integration; every test is a pure unit check or a single-shot small-matrix operation. Target ≤ 2 min wall; currently ~12 s warm-cache on M3 Max.
+- **Tier 2** (`/test --tier2`) — every case that runs a production-scale SCF loop (> 20 iters at `n_pw ≥ 100`, or two SCFs back-to-back). Target 5–10 min wall; currently ~58 s warm-cache.
 
-**Tier-2 PR policy.** Any PR that touches `pwdft/pwdft-core/src/scf/`,
-`pwdft/pwdft-core/src/potential/`, `pwdft/pwdft-core/src/symmetry/`, `pwdft/pwdft-core/src/pseudopotential/`,
-`pwdft/pwdft-core/src/eigensolver/`, `pwdft/pwdft-core/src/basis.rs`, `pwdft/pwdft-core/src/fft.rs`, `pwdft/pwdft-core/src/ewald.rs`,
-`pwdft/pwdft-core/src/gpu/`, `pwdft/pwdft-core/src/crystal.rs`, `pwdft/pwdft-core/src/kpoints.rs`, or any `Cargo.toml`
-bump of a numerics dep (faer / ndrustfft / nalgebra / ndarray) must
-run `cargo test -- --ignored` locally and report the outcome in the
-PR body. Doc-only, proposal-only, and lint-only PRs skip Tier 2.
+**Tier-2 PR policy.** Any PR that touches `pwdft/pwdft-core/src/{scf,potential,symmetry,pseudopotential,eigensolver,gpu}/`, `basis.rs`, `fft.rs`, `ewald.rs`, `crystal.rs`, `kpoints.rs`, or bumps a numerics dep (faer / ndrustfft / nalgebra / ndarray) must run `/test --tier2` and report the outcome in the PR body. Doc-only, proposal-only, and lint-only PRs skip Tier 2. `/test --tier2` hits the pre-TSPL physics-blocker ignores (VGCH heavy-atom cells, Al ecut, C mixer, MXBA) that fail by design — the authoritative skip list is in the `#[ignore]` reason strings in `pwdft/pwdft-core/tests/qe_validation.rs` and `pwdft/pwdft-core/tests/mxba_adaptive_beta_fe.rs`.
 
-Runtime (M3 Max, 2026-04-19, post-TPRF + TSPL, warm cache): Tier 1 ~12
-s wall (`cargo test`), Tier 2 ~58 s wall (`cargo test -- --ignored`,
-excluding the pre-TSPL physics-blocker `#[ignore]`s on
-`qe_validation.rs` heavy-atom cells and MXBA which fail by design).
-Pre-TSPL `cargo test` was ~95 s wall (post-TPRF, before bifurcation) —
-an 8× speedup on the default-fast tier. Clippy + doc each ≲ 30 s.
+## Observability stack
 
-Note that `cargo test -- --ignored` also runs the pre-TSPL
-physics-blocker ignores (VGCH heavy-atom cells, Al ecut, C mixer,
-MXBA) — those are separate tickets and their failure is known. A
-green `-- --ignored` run requires filtering those out; see the
-`#[ignore]` reason strings in `pwdft/pwdft-core/tests/qe_validation.rs` and
-`pwdft/pwdft-core/tests/mxba_adaptive_beta_fe.rs` for the authoritative skip list.
+Three layers, three tools, no overlap:
 
-## Observability, profiling, benchmarking
+- **Observability** ("what is the SCF doing right now?") → `log` + `env_logger` + `indicatif`. Always-on, human-readable.
+- **Profiling** ("where does wall-time go?") → `samply` via `/profile`. Zero code overhead; emits a Firefox Profiler HTML artifact.
+- **Benchmarks** ("did this change regress function X?") → `criterion` via `/bench`. Benches in `pwdft/pwdft-core/benches/`.
 
-Three layers, three tools, no overlap. Reach for the one that matches your
-question:
-
-- **Observability** — "what is the SCF doing right now?" → `log` crate
-  (`info!` / `warn!` / `error!`), routed through `env_logger`, plus
-  `indicatif` progress bars. Always-on, human-readable, low overhead.
-  Answers *did it converge?*, *what was the final β?*, *which mixer ran?*
-- **Profiling** — "where does wall-time go?" → `samply` (see recipe
-  below). Run on demand, sees everything including `faer` / `ndrustfft`
-  / BLAS internals, zero code overhead. Answers *is V_NL apply or
-  eigensolve dominating?*, *did that PR regress the XC kernel?*
-- **Benchmarks** — "did this change regress function X?" → `criterion`
-  via `cargo bench`. Statistical regression gating on targeted kernels.
-  Already in `pwdft/pwdft-core/benches/scf_benchmarks.rs` and `pwdft/pwdft-core/benches/gpu_benchmarks.rs`.
-
-Do not mix layers. `log` is not a profiler; `samply` is not a benchmark
-harness; `cargo bench` is not a runtime status display.
-
-### Profiling recipe (samply)
-
-`samply` is the canonical profiler. It is a sampling profiler that runs
-unprivileged on macOS (Apple silicon and Intel) and Linux, needs no
-kernel extension, and emits a self-contained HTML profile served in the
-Firefox Profiler UI — the profile URL or exported `.json.gz` is
-shareable, so an agent can paste one into a logbook entry and the
-reviewer can open it in any browser.
-
-Install once:
-
-```bash
-cargo install samply
-```
-
-Profile a run (wrap in the machine lock — samply-hosted runs saturate
-the CPU the same way `cargo bench` does):
-
-```bash
-.claude/bin/machine-lock run "Performance Engineer" "samply Si SCF" -- \
-  samply record cargo run --release -- --input inputs/si_scf.yaml
-```
-
-Profile a benchmark:
-
-```bash
-.claude/bin/machine-lock run "Performance Engineer" "samply scf_bench" -- \
-  samply record cargo bench --bench scf_benchmarks -- --profile-time 10
-```
-
-Do **not** reach for `cargo flamegraph`, `tracing-flame`, or
-hand-rolled `Instant::now()` timers for new profiling work. Samply sees
-inside library code those approaches cannot, adds zero overhead, and
-produces a portable profile artifact. Instruments.app remains useful as
-a fallback for deep Metal GPU investigations where Xcode's Metal
-debugger is required.
-
-### When to reconsider `tracing`
-
-The `tracing` ecosystem is deliberately not in the stack. Reopen the
-question only if one of the following becomes true:
-
-1. **Async code enters the codebase.** `log` has no concept of span
-   context across `.await` boundaries; `tracing` does.
-2. **Structured per-span post-mortem analysis is needed** — e.g., a
-   regression watcher or validation dashboard wants to parse
-   per-iteration SCF events as records rather than regex over log lines.
-3. **Distributed tracing across a multi-process calculation** becomes a
-   requirement (MPI-style parallelism, out-of-process validation
-   harnesses).
-
-Until one of those triggers fires, `log` covers runtime observability,
-`samply` covers profiling, and `criterion` covers regression benching —
-each the simplest tool for one job.
-
-## Code Quality
-
-After finishing a batch of work, always run:
-
-```bash
-cargo clippy -q --fix --allow-dirty --allow-staged --all-targets
-cargo clippy -q --all-targets                  # default-feature warnings
-cargo clippy -q --all-targets --features gpu   # GPU feature warnings
-RUSTDOCFLAGS='-D warnings' cargo doc --no-deps # rustdoc is error-clean
-cargo test                                     # verify nothing broke
-```
-
-Both clippy invocations are required: without `--features gpu`, the `gpu/` source tree and the GPU-only test binaries are not linted, so warnings accumulate silently. Fix auto-fixable warnings, address remaining ones. Do not suppress codesmell warnings like `too_many_arguments` — refactor the code instead.
-
-`RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` is now part of the gate (RDOC 2026-04-18). Any new docstring that breaks an intra-doc link, leaves a bracket unescaped, or links at a private item will fail the gate — either fix the prose or drop the link. Do not `#[allow]` rustdoc warnings. (Note: `cargo doc --no-deps -- -D warnings` is rejected by current cargo — the `-D warnings` flag must travel through the `RUSTDOCFLAGS` env var.)
+Do **not** reach for `cargo flamegraph`, `tracing-flame`, or hand-rolled `Instant::now()` timers — samply sees inside `faer` / `ndrustfft` / BLAS where annotation-based tools can't. Instruments.app is the fallback for Metal GPU timelines only. The `tracing` ecosystem stays out of the stack until (a) async code enters the codebase, (b) structured per-span post-mortem parsing becomes necessary, or (c) distributed tracing across a multi-process calculation is required.
 
 ## Architecture
 
-**Entry point:** `pwdft/pwdft-core/src/main.rs` parses CLI args and YAML input (`pwdft/pwdft-core/src/settings.rs`), then either computes a free-electron band structure or runs SCF.
+**Entry point:** `pwdft/pwdft-core/src/main.rs` parses CLI args and YAML input (`settings.rs`), then either computes a free-electron band structure or runs SCF.
 
-**SCF loop** (`scf::run_scf` in `pwdft/pwdft-core/src/scf/mod.rs` — a thin dispatcher that validates inputs and hands off to `scf::driver::run_scf_unpolarized` in `pwdft/pwdft-core/src/scf/driver.rs` for `nspin=1` or `scf::driver_spin::run_scf_spin` in `pwdft/pwdft-core/src/scf/driver_spin.rs` for `nspin=2`). The central computation pipeline:
+**SCF loop** (`scf::run_scf` in `pwdft/pwdft-core/src/scf/mod.rs` — thin dispatcher into `scf::driver::run_scf_unpolarized` for `nspin=1` or `scf::driver_spin::run_scf_spin` for `nspin=2`):
 
-1. Build local pseudopotential V_local on FFT grid (spherical Bessel transform). If any PP has NLCC (`core_correction="T"`), also build ρ_core(r) on the grid (same Bessel transform; see `scf::potentials::compute_core_density`).
+1. Build local pseudopotential V_local on the FFT grid (spherical Bessel transform). If any PP has NLCC (`core_correction="T"`), also build ρ_core(r) on the grid.
 2. Initialize density via SAD (superposition of atomic densities).
-3. Each iteration: Hartree potential (valence density only) → LDA XC (on ρ_val + ρ_core if NLCC — Louie, Froyen, Cohen, PRB 26, 1738 (1982)) → assemble V_eff → build Hamiltonian (kinetic + V_eff + KB non-local) → diagonalize (faer, `EigensolverKind::Dense` by default or `Iterative` when opted in) → Fermi-Dirac occupations → reconstruct density → symmetrize (G-space phase factors, PCFX) → check convergence → density mixing. Available mixers: Anderson/Pulay (DIIS), modified Broyden (BROY), and Periodic Pulay (PRPL); any mixer can be combined with Kerker preconditioning. The spin driver uses the coupled-channel (ρ_total, m) basis (CCMX) rather than independent (ρ↑, ρ↓), so both channels share residual history.
-4. Compute total energy (kinetic + local + non-local + Hartree + XC + Ewald), with the NLCC double-counting subtraction applied to E_xc when core correction is active. Each driver also returns an `EnergyComponents` breakdown (VGC5 diagnostic: per-term energies and the Harris-Foulkes stationary estimator).
+3. Each iteration: Hartree (valence only) → LDA XC (on ρ_val + ρ_core if NLCC — Louie, Froyen, Cohen, PRB 26, 1738 (1982)) → assemble V_eff → Hamiltonian (kinetic + V_eff + KB non-local) → diagonalize (faer; `EigensolverKind::Dense` default) → Fermi-Dirac occupations → density → symmetrize (G-space phase factors, PCFX) → convergence check → density mixing. Mixers: Anderson/Pulay (DIIS), modified Broyden, Periodic Pulay; any can be Kerker-preconditioned. Spin driver uses coupled-channel (ρ_total, m) basis (CCMX).
+4. Total energy (kinetic + local + non-local + Hartree + XC + Ewald), with NLCC double-counting subtraction applied to E_xc. Drivers return an `EnergyComponents` breakdown (VGC5 diagnostic).
+
+All source paths below are relative to `pwdft/pwdft-core/src/`.
 
 **Module groups:**
 
-- **Crystal & basis:** `crystal.rs` (lattice + atoms), `basis.rs` (G-vectors up to ecut), `kpoints.rs` (Monkhorst-Pack, band paths), `atoms.rs` (elements 1-92).
-- **Pseudopotentials:** `pseudopotential/mod.rs` (`PseudopotentialData` + `v_local_of_g`); `pseudopotential/upf/` is a folder with `mod.rs` (40-line `parse(&str)` entry point), `xml.rs` (text helpers for UPF v2 XML), and `convert.rs` (Ry→eV, Bohr→Å unit conversion, `PP_RHOATOM`, `PP_NLCC` assembly).
-- **Potentials:** `potential/xc.rs` (Perdew-Zunger LDA, spin-polarized variant), `potential/local.rs`, `potential/nonlocal.rs` (Kleinman-Bylander separable form, arbitrary l via recurrence; V_NL assembly via single GEMM, VNLM). The Hartree potential is assembled inline in `scf::energy` / `scf::driver` / `scf::driver_spin`; there is no standalone `potential/hartree.rs` module.
-- **SCF internals:** `scf/mod.rs` (thin `run_scf` dispatcher + `ScfParams`/`ScfResult`), `scf/driver.rs` (non-spin hot loop), `scf/driver_spin.rs` (spin-polarized hot loop), `scf/report.rs` (per-iteration progress + final summary; `IterationReport`, `log_iteration`, `log_convergence_summary`), `scf/energy.rs` (total-energy assembly + `EnergyComponents`), `scf/density.rs`, `scf/initial_density.rs` (SAD), `scf/smearing.rs` (Fermi-Dirac, Gaussian, Methfessel-Paxton, cold), `scf/context.rs` (immutable per-calculation state), `scf/potentials.rs` (Hamiltonian assembly helpers), `scf/grid.rs` (FFT grid setup).
-- **Density mixing:** `scf/mixing/mod.rs` exposes `MixingMode` (Plain / Kerker / Broyden / PeriodicPulay) and the `Mixer` dispatcher enum. Algorithms live in siblings: `anderson.rs` (Anderson/Pulay DIIS + PeriodicPulay wrapper), `broyden.rs` (modified Broyden, Johnson PRB 38, 12807), `kerker.rs` (preconditioner + Thomas-Fermi `q_TF` auto-estimate), `linalg.rs` (small dense solver for the DIIS/Broyden system — delegates to `faer::partial_piv_lu` with a tiny-pivot fallback to uniform coefficients for numerically singular overlap matrices).
-- **Numerics:** `fft.rs` (3D FFT via ndrustfft, zero unsafe), `eigensolver/mod.rs` (`EigensolverKind::{Dense, Iterative}`), `eigensolver/dense.rs` (full faer Hermitian eigendecomposition), `eigensolver/iterative.rs` (ITEV — faer's partial Arnoldi/Krylov-Schur, shift-and-flip for lowest `n_bands`; experimental, opt-in, blocked on an upstream faer 0.24 `iterate_lanczos` reorthogonalization bug), `numerics.rs` (Simpson and radial quadrature), `ewald.rs` (ion-ion energy, erfc via puruspe).
-- **Symmetry:** `symmetry/mod.rs` (`SymmetryInfo`), `symmetry/operations.rs` (`SpaceGroupOp` {R|τ}), `symmetry/detect.rs` (space group finder), `symmetry/kpoints.rs` (k-point reduction to IBZ), `symmetry/density/` (folder: `mod.rs` with the facade, `real_space.rs` — legacy `#[deprecated]` `nint`-rounding path, `g_space.rs` — PCFX phase-factor form; SCF always uses the G-space path).
+- **Crystal & basis:** `crystal.rs`, `basis.rs`, `kpoints.rs`, `atoms.rs`.
+- **Pseudopotentials:** `pseudopotential/mod.rs` (`PseudopotentialData` + `v_local_of_g`); `pseudopotential/upf/` holds `mod.rs` (40-line `parse(&str)`), `xml.rs`, `convert.rs` (Ry→eV, Bohr→Å at the UPF boundary; assembles `PP_RHOATOM`, `PP_NLCC`).
+- **Potentials:** `potential/xc.rs` (PZ LDA, spin-polarized variant, PBE GGA), `potential/local.rs`, `potential/nonlocal.rs` (Kleinman-Bylander, arbitrary l; V_NL via single GEMM per VNLM). Hartree is assembled inline in `scf::{energy,driver,driver_spin}` — no separate `hartree.rs`.
+- **SCF internals:** `scf/{mod,driver,driver_spin,report,energy,density,initial_density,smearing,context,potentials,grid}.rs`.
+- **Density mixing:** `scf/mixing/mod.rs` (`MixingMode` + `Mixer` dispatcher). Algorithms: `anderson.rs`, `broyden.rs` (Johnson PRB 38, 12807), `kerker.rs`, `linalg.rs`.
+- **Numerics:** `fft.rs` (ndrustfft, zero unsafe), `eigensolver/{mod,dense,iterative}.rs`, `numerics.rs`, `ewald.rs`.
+- **Symmetry:** `symmetry/{mod,operations,detect,kpoints}.rs`; `symmetry/density/` has `mod.rs` facade, `real_space.rs` (legacy `#[deprecated]`), `g_space.rs` (PCFX, what SCF uses).
 - **GPU:** `gpu/mod.rs` (wgpu compute), `gpu/shaders/` (WGSL kernels for Hartree, LDA XC, V_eff assembly).
 
-**GPU strategy:** Optional `gpu` feature flag. `GpuAccelerator` with `BufferPool` of pre-allocated f32 buffers. GPU kernels run in f32, CPU in f64, with conversion at boundaries. Falls back to CPU (rayon) when GPU unavailable. Three WGSL shaders handle the per-iteration grid operations.
+**GPU strategy:** Optional `gpu` feature flag. `GpuAccelerator` with `BufferPool` of pre-allocated f32 buffers. GPU kernels run in f32, CPU in f64, with conversion at boundaries. Falls back to CPU (rayon) when GPU unavailable.
 
-**Eigensolver:** The SCF loop diagonalizes the Kohn-Sham Hamiltonian at each k-point once per iteration. `EigensolverKind::Dense` (the default) uses `faer::SelfAdjointEigen` — full O(n³) LAPACK-equivalent decomposition. `EigensolverKind::Iterative` (opt-in via `scf.eigensolver: iterative` in YAML) uses faer's partial Arnoldi/Krylov-Schur solver to compute only the lowest `n_bands` eigenpairs, with a shift-and-flip trick to map "algebraically lowest of H" to "largest-magnitude of σI − H". **Stay on `Dense` for now** — Iterative has two unresolved correctness issues tracked in ITEV: (1) size-independent `n_request` padding drops 3-fold-degenerate valence clusters at `n_pw ≳ 725`; (2) the iterative dispatch path bypasses WFRX warm-start, so it converges to a *different* SCF fixed point than Dense. (The previously-cited faer `iterate_lanczos` hang is fixed in the vendored copy — see § Vendored dependencies below.) On a realistic Si Kohn-Sham Hamiltonian at `n_pw = 725`, single-shot iterative is ~0.48× (i.e. slower than Dense); the earlier "3–10× faster" projection was built from synthetic matrices and does not survive contact with real degeneracies. See `proposals/ITEV-faer-partial-eigen.md` § Status for the full picture.
+**Eigensolver:** `EigensolverKind::Dense` (default) uses `faer::SelfAdjointEigen` — full O(n³). `EigensolverKind::Iterative` (opt-in via `scf.eigensolver: iterative`) uses faer's partial Arnoldi/Krylov-Schur. **Stay on `Dense` for now** — Iterative has open correctness issues tracked in ITEV: size-independent `n_request` padding drops 3-fold-degenerate valence clusters at `n_pw ≳ 725`, and the iterative dispatch bypasses WFRX warm-start. See `proposals/ITEV-*.md` § Status.
 
 **Key types:** `Crystal`, `BasisSet`, `KPoint`, `PseudopotentialData`, `ScfParams`/`ScfResult`, `EnergyComponents`, `EigensolverKind`, `MixingMode`/`Mixer`, `NonlocalPotential`, `EigenResult`, `SymmetryInfo`/`SpaceGroupOp`.
 
 ## Vendored dependencies
 
-`faer` v0.24.0 is vendored at `./pwdft/faer/` with a single local edit:
-`MAX_REORTH = 3` on `iterate_lanczos` reorthogonalization to prevent the
-upstream infinite-loop on near-null Krylov vectors. `Cargo.toml` wires it
-via `[patch.crates-io]` so the vendored copy takes over for both `faer`
-and `faer-traits` wherever the dep graph would resolve to crates.io.
+`faer` v0.24.0 is vendored at `./pwdft/faer/` with a single local edit: `MAX_REORTH = 3` on `iterate_lanczos` reorthogonalization to prevent the upstream infinite-loop on near-null Krylov vectors. `Cargo.toml` wires it via `[patch.crates-io]` so the vendored copy takes over for both `faer` and `faer-traits`.
 
-- **Editing faer is allowed and expected.** A proposal that needs to
-  change the vendored solver can edit files under `pwdft/faer/faer/src/...`
-  directly inside its worktree, run the pwdft-rs quality gate, and commit
-  the faer-side + pwdft-rs-side changes together on its feature branch.
-  No separate PR against upstream faer is required for the local build —
-  that happens later when the user submits the patch upstream.
-- **Upstream-submit procedure** lives in `docs/FAER_ITERATE_LANCZOS_FIX.md`.
-  Follow it when any vendored edit is ready to go back to
-  [`codeberg.org/sarah-quinones/faer`](https://codeberg.org/sarah-quinones/faer.git).
-- **Build artifacts** (`pwdft/faer/target/`, `pwdft/faer/*.out`, stray `.git`) are in
-  `.gitignore`. Running `cargo test` inside `pwdft/faer/` to exercise faer's own
-  test suite is safe — artifacts stay out of pwdft-rs's git index.
-- **Version bumps:** when upstream cuts a new release, re-vendor by
-  copying the new source over `pwdft/faer/`, re-applying the patch (or dropping
-  it if upstream absorbed the fix), and running the pwdft-rs quality gate.
-  The vendored `pwdft/faer/Cargo.lock` is separate from pwdft-rs's `Cargo.lock`.
+- **Editing faer is allowed and expected.** A proposal that needs to change the vendored solver edits files under `pwdft/faer/faer/src/...` directly, runs the pwdft-rs quality gate, and commits the faer-side + pwdft-rs-side changes together on its feature branch. No separate upstream PR is required for the local build.
+- **Upstream-submit procedure** lives in `docs/FAER_ITERATE_LANCZOS_FIX.md`. Follow it when a vendored edit is ready to submit back to [`codeberg.org/sarah-quinones/faer`](https://codeberg.org/sarah-quinones/faer.git).
+- **Build artifacts** (`pwdft/faer/target/`, `pwdft/faer/*.out`, stray `.git`) are in `.gitignore`. Running `cargo test` inside `pwdft/faer/` is safe.
+- **Version bumps:** re-vendor by copying new source over `pwdft/faer/`, re-applying the patch (or dropping it if upstream absorbed the fix), and running the pwdft-rs gate. `pwdft/faer/Cargo.lock` is separate from pwdft-rs's `Cargo.lock`.
 
 ## Workflow
 
-This project uses a branch-and-PR workflow. Multiple agents may work concurrently.
+Branch-and-PR workflow with isolated worktrees and multiple concurrent agents. **Agents should read the shared protocols in `.claude/agents/shared/` at session start** — those files are the authoritative source for worktree, machine-lock, quality-gate, FLUP, and session-end rules. This section is a pointer, not a duplicate.
 
-- **Always use a worktree.** Never modify files in the user's main checkout. Use `isolation: "worktree"` when spawning agents, or `EnterWorktree` for interactive work. This keeps the main checkout clean and allows concurrent agents.
-- **Worktree isolation is hook-enforced.** `.claude/bin/check-worktree.sh` (PreToolUse on Edit/Write/MultiEdit) blocks writes to (a) the main checkout's `pwdft/pwdft-core/`, `pwdft/faer/`, and `validation/` trees from any cwd, and (b) anything outside your worktree when your cwd is in a worktree. If a write is blocked, your `file_path` is wrong — fix the path, don't disable the hook. See `.claude/agents/*.md` for the full protocol.
-- **Branch from `origin/main`, not local `main`.** Local `main` may be stale. Run `git fetch origin && git checkout -b <PROPOSAL-ID>/<slug> origin/main` from inside your worktree.
-- **Rebase your branch onto `origin/main` before submitting the PR.** Avoids "DIRTY/CONFLICTING" PRs that the EM has to resolve manually.
-- **Never commit directly to main.** All work happens on feature branches.
-- **One proposal per branch.** Branch name: `<PROPOSAL-ID>/<slug>` (e.g., `SIMP/simpson-quadrature`).
-- **PRs against main.** Title format: `<PROPOSAL-ID>: <description>`. PR body must reference the proposal and include a summary and test plan.
-- **Quality gate before PR:** `cargo test` plus both `cargo clippy -q --all-targets` and `cargo clippy -q --all-targets --features gpu` must pass (see § Code Quality for why both clippy invocations are required).
-- **Commit messages:** `<PROPOSAL-ID>: <imperative description>`.
-- **Proposals drive work.** See `proposals/INDEX.md` for the backlog. Each proposal has a 4-letter ID (e.g., `SIMP`), frontmatter with priority/complexity/risk/dependencies, and an implementation plan.
-- **Propose first, implement after approval.** All roles draft proposals and wait for EM approval before starting work.
-- **Logbooks** at `.claude/logbooks/<role>.md` — every agent reads theirs at session start, appends findings at session end. Cross-read other roles' logbooks when relevant.
-- **Agent roles** (see `.claude/agents/` for full definitions):
-  - **Engineering Manager** — reviews PRs, manages proposals, merges to main. Never writes code.
-  - **Core Engineer** — implements proposals (refactors, features, bug fixes). Scientist-developer mindset.
-  - **Performance Engineer** — benchmarks and optimizes. Measure first, optimize second.
-  - **Researcher** — owns physics/math correctness. Proposes features, validates against QE and literature.
-  - **Code Reviewer** — owns code quality. Hunts dead code, enforces idioms, improves logging/tests.
-  - **Technical Writer** — owns documentation. README, CLAUDE.md, docstrings, code comments.
+- **Branch from `origin/main`** (local `main` can lag). Branch name: `<PROPOSAL-ID>/<slug>`.
+- **Rebase on `origin/main` before opening the PR.**
+- **Never commit directly to main** — all work goes through PR.
+- **One proposal per branch.** PR title: `<PROPOSAL-ID>: <description>`; commit messages the same. PR body must include Summary + Test Plan.
+- **Quality gate before PR** — see § Code quality gate above; also in `.claude/agents/shared/quality-gate.md`.
+- **Proposals drive work.** See `proposals/INDEX.md`. Each proposal has a 4-letter ID, frontmatter (priority/complexity/risk/dependencies), and an implementation plan. Propose first, implement after EM approval.
+- **Logbooks** at `.claude/logbooks/<role>/` — one file per session, named `YYYY-MM-DD-<slug>.md`. Sub-agents write their entry inside their worktree and the file lands as part of their PR. See `.claude/logbooks/README.md` and `.claude/agents/shared/session-end.md`. Search (`rg <topic> .claude/logbooks/`) at session start before re-investigating a known area.
 
-## Machine Coordination
+**Agent roles** (see `.claude/agents/*.md` for full prompts; ):
 
-Multiple agents share this machine. The machine lock exists for **benchmark integrity**: it serializes CPU-bound work so that `cargo bench` wall-time measurements aren't polluted by background CPU load from another agent's test run, compile, or reference calculation. This is a benchmark-contamination concern, not a test-isolation concern — two heavy CPU jobs are usually correct when run concurrently; they just invalidate each other's timings.
+- **`engineering-manager`** — reviews PRs, manages proposals, merges to main. Never writes code. Runs on the main checkout. Specialists never spawn this agent; delegation flows one-way (see `.claude/agents/shared/flup.md`).
+- **`core-engineer`** — implements proposals. Scientist-developer mindset.
+- **`performance-engineer`** — benchmarks, profiles, optimizes. Measure first.
+- **`researcher`** — owns physics / math correctness. Proposes features, validates against QE.
+- **`code-reviewer`** — owns code quality. Hunts dead code, enforces idioms, improves tests.
+- **`technical-writer`** — owns documentation. README, CLAUDE.md, docstrings, comments.
 
-**General principle:** any CPU-bound job that could contaminate a benchmark measurement must hold the lock while it runs. That includes all `cargo` subcommands *and* all Quantum ESPRESSO invocations.
+## Machine coordination
 
-**What requires the lock:**
+The machine lock serializes CPU-bound work to protect `cargo bench` wall-time measurements from contamination. See `.claude/agents/shared/machine-lock.md` for the protocol, and `.claude/bin/machine-lock` for the implementation. TL;DR:
 
-- `cargo test`, `cargo bench`, `cargo build`, `cargo clippy` — any cargo command that compiles or runs code.
-- **Any Quantum ESPRESSO run:** `pw.x`, `mpirun pw.x`, `ph.x`, `pp.x`, `bands.x`, `projwfc.x`, `q2r.x`, `matdyn.x`, `dos.x` — whether it's a one-off reference calculation, a validation against `data/qe/`, or regeneration of reference data. QE is multi-threaded/multi-process and saturates the CPU; running it during a benchmark window corrupts the numbers.
-- Any other long-running CPU-bound job (`pwdft-validate` sub-commands that spin up BLAS, etc.).
-
-**What does NOT require the lock:** reading files, editing code in worktrees, writing proposals, git operations, `machine-lock status`.
-
-```bash
-# Check lock state:
-.claude/bin/machine-lock status
-
-# Acquire before cargo commands (from inside your worktree — scope is recorded):
-.claude/bin/machine-lock acquire "Core Engineer" "cargo test"
-cargo test
-.claude/bin/machine-lock release
-
-# Block until the lock is free (default 10 min, configurable):
-.claude/bin/machine-lock acquire --wait --timeout=900 "Core Engineer" "long bench"
-
-# One-liner (acquire --wait + run + release). `run` uses --wait internally,
-# so two concurrent run calls serialize instead of racing:
-.claude/bin/machine-lock run "Core Engineer" "cargo test" -- cargo test
-
-# QE runs use the same lock — wrap the whole mpirun invocation.
-# Auto-detect cores; do not hardcode rank counts:
-NP=$(sysctl -n hw.ncpu)  # macOS; use $(nproc) on Linux
-.claude/bin/machine-lock run "Researcher" "QE Si SCF validation" -- \
-  gtimeout 600 mpirun -np "$NP" qe-7.5/build/bin/pw.x -in si.in
-```
-
-- **The lock is worktree-scoped (MLFX 2026-04-18).** `acquire` records your
-  worktree root; the Bash PreToolUse hook compares every cargo command's cwd
-  against that root. An agent running `cargo test` from a different worktree
-  (or from the main checkout) while the lock is held is denied, with a
-  message pointing at the owning worktree. Acquire from your worktree once
-  at session start, run all cargo/QE commands from that same worktree.
-- **Acquire is atomic.** `machine-lock` uses `mkdir` (POSIX-atomic) to claim
-  the lock directory — two racing acquires cannot both win.
-- **Staleness is PID-based first.** The acquirer's shell PID is recorded;
-  a lock is only stale if that PID is dead (`kill -0` returns non-zero).
-  A secondary 3-hour time cap protects against PID reuse on torn-down
-  worktrees. This means long benches no longer get stolen at 30 min.
-- **Always check/acquire before any cargo or QE command.** If blocked, wait
-  (pass `--wait`) or retry — do not force-remove another agent's lock.
-- **Release promptly.** Don't hold the lock while reading code or writing
-  proposals. `trap 'machine-lock release' EXIT` at session start is a good
-  pattern for multi-command sessions.
-- Lock state: `.claude/locks/machine.lock.d/` (directory, gitignored). The
-  lock records `agent`, `desc`, `ts`, `pid`, and `worktree`. Pre-MLFX flat
-  files at `.claude/locks/machine.lock` are auto-cleared on next acquire.
-- Shell-test suite: `.claude/bin/tests/machine-lock.test.sh` (17 cases).
-  Run whenever touching the lock scripts.
+- Acquire before any `cargo` subcommand or QE invocation (`pw.x`, `ph.x`, `pp.x`, `bands.x`, `projwfc.x`, `q2r.x`, `matdyn.x`, `dos.x`).
+- Prefer the `run` one-liner: `.claude/bin/machine-lock run "<role>" "<desc>" -- <cmd>`.
+- Lock is worktree-scoped (MLFX). Running cargo from a different worktree while the lock is held is denied by the Bash PreToolUse hook. Staleness is PID-based with a secondary 3-hour time cap.
+- Lock state lives in `.claude/locks/machine.lock.d/` (gitignored). Never force-remove another agent's lock.
+- Shell-test suite: `.claude/bin/tests/machine-lock.test.sh` — run when touching the lock scripts.
 
 ## Conventions
 
-- Cargo.toml uses `>=` version specifiers (not `^` or exact).
-- Rust edition 2024. Release profile: opt-level 3, thin LTO.
-- Floating-point comparisons use `approx::relative_eq!` in tests.
-- Internal units are **eV for energies, Å for lengths, e/Å³ for densities** — used by SCF arrays, `EnergyComponents`, Hamiltonian assembly, and every routine downstream of pseudopotential parsing. Conversion constants in `consts.rs` (`HA_TO_EV`, `RY_TO_EV`, `BOHR_TO_ANG`, `BOHR3_TO_ANG3`, `E2_COULOMB` in eV·Å, `HBAR2_OVER_2M` in eV·Å²). Ry/Bohr appear **only** at the UPF unit boundary in `pwdft/pwdft-core/src/pseudopotential/upf/convert.rs`, which converts PP_LOCAL (Ry→eV), PP_DIJ (Ry→eV), PP_R/PP_RAB (Bohr→Å), PP_RHOATOM (e/Bohr→e/Å), and PP_NLCC (e/Bohr³→e/Å³) before the data enters the engine.
-- Input files are YAML (see `inputs/`), parsed via serde_yaml_ng into `Settings`.
+- `Cargo.toml` uses `>=` version specifiers (not `^` or exact).
+- Rust edition 2024. Release profile: `opt-level = 3`, thin LTO.
+- Floating-point comparisons in tests use `approx::relative_eq!`.
+- **Internal units are eV / Å / e·Å⁻³.** Used by SCF arrays, `EnergyComponents`, Hamiltonian assembly, and every routine downstream of pseudopotential parsing. Conversion constants in `pwdft/pwdft-core/src/consts.rs` (`HA_TO_EV`, `RY_TO_EV`, `BOHR_TO_ANG`, `BOHR3_TO_ANG3`, `E2_COULOMB` in eV·Å, `HBAR2_OVER_2M` in eV·Å²). Ry/Bohr appear **only** at the UPF boundary in `pwdft/pwdft-core/src/pseudopotential/upf/convert.rs`.
+- Input files are YAML in `inputs/`, parsed via `serde_yaml_ng` into `Settings`.
 - Pure Rust stack: faer (eigensolver), ndrustfft (FFT), nalgebra (geometry), ndarray (grid ops).
-- No system dependencies required for default build. GPU requires wgpu feature flag.
-- Validation scripts live in `validation/` (uv package) use Python (uv environment).
+- No system dependencies required for the default build. GPU requires the `gpu` feature flag.
+- Validation harness in `pwdft/pwdft-validation/pwdft_validation/` (Python, uv environment): QE invocation, reference-data parsing, diagnostic scripts. Reference data in `data/qe/` and `data/csv/`.
 - QE 7.5 source in `qe-7.5/` for reference during validation.
-- **Rust `.round()` vs Python `round()`**: Rust rounds half-away-from-zero; Python 3 rounds half-to-even (banker's rounding). When porting a grid-index computation or integer mapping between Rust and a Python validation script, verify the rounding convention — mismatches appear as off-by-one errors on the ±0.5 boundary.
-- **QE k-point weights pre-multiply degspin**: In Quantum ESPRESSO output and in `charge-density.dat`, the `wk` k-point weights already include the spin degeneracy factor (`degspin = 2` for nspin=1, `1` for nspin=2). When cross-checking against QE from a Python script, do NOT multiply by degspin again — summing `wk * occ` directly yields the correct electron count. This was discovered in VGCH-2 Part C session-1 (#174) where a Python Fermi-finder double-counted by 2× until corrected.
+- **Rust `.round()` vs Python `round()`.** Rust rounds half-away-from-zero; Python 3 rounds half-to-even (banker's rounding). When porting a grid-index computation between Rust and a Python validation script, verify the rounding convention — mismatches appear as off-by-one errors on the ±0.5 boundary.
+- **QE k-point weights pre-multiply `degspin`.** In QE output and in `charge-density.dat`, `wk` already includes the spin degeneracy factor (`degspin = 2` for `nspin=1`, `1` for `nspin=2`). Do not multiply by `degspin` again when cross-checking from Python — summing `wk * occ` directly yields the correct electron count.

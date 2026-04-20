@@ -1,58 +1,58 @@
 ---
 name: qe-runner
 description: |
-  Run Quantum ESPRESSO 7.5 calculations and extract results for validating a Rust planewave DFT implementation. Use this skill whenever: creating QE input files for pw.x / ph.x / pp.x / bands.x / projwfc.x, running any QE calculation, validating DFT results (energies, eigenvalues, forces, stress, phonons, band structure, DOS) against QE, comparing planewave DFT outputs, or parsing QE output. Trigger on any mention of "Quantum ESPRESSO", "QE", "pw.x", "validate against QE", "reference calculation", "run SCF", "band structure", "phonon calculation", "density of states", or requests to check DFT results against a known-good implementation.
+  Run Quantum ESPRESSO 7.5 calculations and extract results for validating pwdft-rs. Use this skill whenever: creating QE input files for pw.x / ph.x / pp.x / bands.x / projwfc.x, running any QE calculation, validating DFT results (energies, eigenvalues, forces, stress, phonons, band structure, DOS) against QE, or parsing QE output. Trigger on "Quantum ESPRESSO", "QE", "pw.x", "validate against QE", "reference calculation", "run SCF", "band structure", "phonon calculation", "density of states", or requests to check pwdft-rs against QE.
 ---
 
-# Quantum ESPRESSO 7.5 Runner
+# Quantum ESPRESSO 7.5 runner
 
-## Paths
+## Paths (relative to project root)
 
-Relative to the pwdft-rs project root:
+- **Executables:** `qe-7.5/build/bin/` — `pw.x`, `ph.x`, `pp.x`, `bands.x`, `projwfc.x`, `q2r.x`, `matdyn.x`, `dos.x`. `qe-7.5/` is a symlink created by `./setup.sh`; if missing, fix the symlink rather than hard-coding absolute paths.
+- **Installed optimized `pw.x`:** `$HOME/qe/bin/pw.x` (libxc + veclibfort / Accelerate; optional, used for larger systems).
+- **Pseudopotentials:** `pseudopotentials/` at the project root — see § Pseudopotentials.
+- **QE reference outputs:** `data/qe/` — committed `.out` logs that pwdft-rs validates against. `pwdft/pwdft-validation/pwdft_validation/paths.py` exposes this as `QE_REF_DIR`.
+- **Input decks:** `inputs/` for pwdft-rs YAML; QE `.in` files for reference calculations live next to their outputs under `data/qe/`.
+- **Working dirs:** create under `qe-7.5/runs/<material>/<calc_type>/`. Set `outdir = './tmp'` inside the input.
+- **Build instructions:** `docs/qe-build.md` (not this skill — you build QE once, not per validation).
 
-- **Executables**: `qe-7.5/build/bin/` — `pw.x`, `ph.x`, `pp.x`, `bands.x`, `projwfc.x`, `q2r.x`, `matdyn.x`, `dos.x`
-- **Installed pw.x**: `$HOME/qe/bin/pw.x` (optimized build with libxc + veclibfort/Accelerate)
-- **Pseudopotentials**: `pseudopotentials/` (primary — NC, USPP, PAW libraries)
-- **Working dirs**: create under `qe-7.5/runs/<material>/<calc_type>/`
-- **Benchmark data**: `$HOME/qe-bench/results/` (baseline.json, optimized.json, comparison.md)
+## Python validation harness — `pwdft-validate`
 
-### Machine lock — MANDATORY for every QE run
-
-**Every QE invocation must be wrapped in the machine lock.** QE runs (`pw.x`, `mpirun pw.x`, `ph.x`, `pp.x`, `bands.x`, `projwfc.x`, `q2r.x`, `matdyn.x`, `dos.x`) are CPU- and memory-intensive. The machine lock serializes them against `cargo bench` windows so that benchmark wall-time measurements aren't polluted by background CPU load.
-
-**The concern is benchmark integrity, not test isolation.** Two QE calculations can run concurrently against each other without correctness issues — the lock exists so that the Performance Engineer's bench numbers stay clean. Skipping the lock corrupts someone else's measurements silently.
-
-Use the `machine-lock run` one-liner, which handles acquire / release / cleanup on failure:
+The canonical way to extract and compare QE results is the `pwdft-validate` CLI (`pwdft/pwdft-validation/pwdft_validation/`), installed as a uv entry point. Prefer it over hand-rolled grep where a sub-command exists:
 
 ```bash
-# Wrap the full mpirun pw.x invocation — lock covers compile-free runtime only,
-# so acquire is cheap and the lock window is as short as the run itself.
+uv run pwdft-validate --help          # list sub-apps
+uv run pwdft-validate energy --help   # per-term decomposition (VGC5 / VGCH-2)
+uv run pwdft-validate fermi --help    # Fermi-level bisection reference
+uv run pwdft-validate pbe --help      # PBE reference extraction from QE logs
+uv run pwdft-validate reference --help  # CSV pin file generators (vloc, beta, D_ij, hamiltonian, NLCC, SAD)
+uv run pwdft-validate density --help  # parse QE charge-density.dat → binary
+uv run pwdft-validate diag --help     # cross-check diagnostics
+```
+
+`paths.py` holds `PROJECT_ROOT`, `DATA_DIR`, `QE_REF_DIR`, `CSV_REF_DIR`, `PSEUDO_DIR`, `INPUTS_DIR` — scripts import these rather than deriving paths, so reorganizations don't break them.
+
+## Machine lock — mandatory for every QE run
+
+Wrap every invocation in the machine lock — QE saturates CPU and silently corrupts anyone else's `cargo bench` numbers otherwise. Use the `run` one-liner:
+
+```bash
+NP=${NP:-$(sysctl -n hw.ncpu)}  # macOS; use $(nproc) on Linux
 .claude/bin/machine-lock run "Researcher" "QE Si SCF reference" -- \
-  gtimeout 600 mpirun -np "${NP:-$(sysctl -n hw.ncpu)}" qe-7.5/build/bin/pw.x -in si.in > si.out 2>&1
+  gtimeout 600 mpirun -np "$NP" qe-7.5/build/bin/pw.x -in si.in > si.out 2>&1
 ```
 
-For multi-step pipelines (e.g. scf → bands → bands.x), either wrap the whole shell pipeline in one `machine-lock run` (preferred — holds the lock across the full workflow), or acquire / release explicitly around each step if there's user-facing waiting time between them:
+For multi-step pipelines (scf → bands → bands.x), wrap the whole pipeline in one `machine-lock run` so the lock covers the full workflow.
 
-```bash
-.claude/bin/machine-lock acquire "Researcher" "QE Si band structure"
-NP=$(sysctl -n hw.ncpu)  # auto-detect all cores on macOS; use $(nproc) on Linux
-gtimeout 600 mpirun -np "$NP" qe-7.5/build/bin/pw.x -in si.scf.in  > si.scf.out
-gtimeout 600 mpirun -np "$NP" qe-7.5/build/bin/pw.x -in si.bands.in > si.bands.out
-gtimeout 600 qe-7.5/build/bin/bands.x        -in si.bandsx.in   > si.bandsx.out
-.claude/bin/machine-lock release
-```
+If the lock is held by another agent, wait (`acquire --wait`) or retry. Never force-remove another agent's lock. See `.claude/agents/shared/machine-lock.md` for the full policy.
 
-If the lock is held by another agent, wait and retry — never force-remove another agent's lock. See the "Machine Coordination" section in the project root `CLAUDE.md` for the full policy.
+## Runtime configuration
 
-### Runtime configuration
+**10-minute hard cap per run.** Use both QE's `max_seconds = 540` in `&CONTROL` (graceful stop, writes checkpoint at ~9 min) and an external `gtimeout 600` (hard kill) as belt-and-suspenders. If a validation run doesn't finish in 10 min, the parameters are wrong — shrink them, don't extend the timeout. On macOS, `timeout` is not built in; `brew install coreutils` provides `gtimeout`.
 
-**Every QE invocation must be bounded by a timeout — 10 minutes max.** Use both QE's internal `max_seconds` (graceful stop, writes checkpoint) and an external wall-clock timeout (hard kill) as belt-and-suspenders. If a validation run doesn't finish in 10 min, the parameters are wrong — cut them down rather than extend the timeout.
+**Detect core count once per shell session.** Never hard-code MPI ranks or OMP threads. On macOS: `NP=$(sysctl -n hw.ncpu)`; on Linux: `NP=$(nproc)`.
 
-On macOS, `timeout` is not built in. Install once: `brew install coreutils` (provides `gtimeout`). The examples below assume `gtimeout` is available; fall back to `perl -e 'alarm shift; exec @ARGV' 600 ...` if not.
-
-**Detect core count once per shell session.** Do NOT hardcode MPI rank or OMP thread counts — values that work on a 12-core laptop become oversubscription on an 8-core runner and vice versa. Always parameterize via `$NP` (or a caller-supplied override `NP=...`). On macOS: `NP=$(sysctl -n hw.ncpu)`. On Linux: `NP=$(nproc)`.
-
-For **small systems** (< 16 atoms), pure MPI is fastest (`ranks = cores, 1 thread each`):
+For **small systems** (< 16 atoms), pure MPI is fastest:
 
 ```bash
 NP=${NP:-$(sysctl -n hw.ncpu)}
@@ -63,7 +63,7 @@ ulimit -s unlimited
   gtimeout 600 mpirun -np "$NP" qe-7.5/build/bin/pw.x -in input.in > output.out 2>&1
 ```
 
-For **larger systems** (16+ atoms), the installed optimized build may benefit from hybrid MPI+OMP. Split `$NP` into `RANKS × OMP` so the product stays close to `$NP` (e.g. on 12 cores: 6×2; on 8 cores: 4×2):
+For **larger systems** (16+ atoms), hybrid MPI+OMP with the optimized build may help. Split `$NP` into `RANKS × OMP`:
 
 ```bash
 NP=${NP:-$(sysctl -n hw.ncpu)}
@@ -75,51 +75,39 @@ export VECLIB_MAXIMUM_THREADS=1 LC_ALL=C LANG=C
   gtimeout 600 mpirun -np "$RANKS" $HOME/qe/bin/pw.x -in input.in > output.out 2>&1
 ```
 
-Always set `outdir = './tmp'` in input files.
+## Mandatory parameter limits
 
-## Runtime safety — mandatory parameter limits
+Validation runs are for correct reference values, not production-quality calculations. Use the smallest parameters that still give a meaningful result.
 
-Validation runs must be fast. The goal is a correct reference value, not a production-quality calculation. Use the smallest parameters that still give a physically meaningful result. Excessively long runs block other agents (machine lock), waste wall time, and rarely improve validation precision.
-
-### Always use the PP's suggested cutoff
-
-**Do not guess `ecutwfc`.** Every UPF file carries a recommended cutoff from the author. Use it — don't pad it. pw.x cost scales roughly as `ecutwfc^{1.5}`, so inflating from 40 → 80 Ry nearly triples wall time with no meaningful precision gain for validation.
-
-Extract it from the UPF header (substitute the element you're working with):
+**Cutoffs — always use the PP's suggested cutoff.** pw.x cost scales ≈ `ecutwfc^1.5`; inflating 40 → 80 Ry nearly triples wall time for no precision gain.
 
 ```bash
-grep -iE 'suggested|cutoff|wfc_cutoff|rho_cutoff' pseudopotentials/nc/pbe/<Element>.upf | head -20
-# or for UPF v2 XML:
 grep -oE 'wfc_cutoff="[0-9.]+"|rho_cutoff="[0-9.]+"' pseudopotentials/nc/pbe/<Element>.upf
 ```
 
-Typical values (Ry) once located:
+| PP type | ecutwfc (Ry) | ecutrho | Notes |
+|---------|-------------|---------|-------|
+| ONCV NC (pseudo-dojo) | 30–50 | 4 × ecutwfc | Most common for pwdft-rs |
+| NC HGH / older NC | 40–60 | 4 × ecutwfc | |
+| USPP (SSSP efficiency) | 25–40 | 8–10 × ecutwfc | High ecutrho mandatory |
+| PAW | 30–50 | 8–12 × ecutwfc | |
 
-| PP type | ecutwfc | ecutrho | Notes |
-|---------|---------|---------|-------|
-| ONCV NC (pseudo-dojo) | 30–50 | 4× ecutwfc | Most common for pwdft-rs validation |
-| NC HGH / older NC | 40–60 | 4× ecutwfc | |
-| USPP (SSSP efficiency) | 25–40 | 8–10× ecutwfc | High ecutrho is mandatory |
-| PAW | 30–50 | 8–12× ecutwfc | |
-
-If the UPF doesn't list a suggested cutoff, run a quick convergence sweep (e.g. 20, 30, 40, 50 Ry on a 2-atom cell) and pick the smallest value where total energy changes by <1 meV/atom between steps. Cache the result in a comment at the top of the input file.
-
-### Hard ceilings (exceed only with explicit user approval)
+**Hard ceilings** (exceed only with explicit user approval):
 
 | Parameter | Ceiling | Rationale |
 |-----------|---------|-----------|
-| External wall timeout | **10 min** (`gtimeout 600`) | Hard kill; prevents runaway jobs |
-| `max_seconds` in `&CONTROL` | **540** (9 min) | QE stops gracefully ~60s before hard kill, writing checkpoint |
-| `electron_maxstep` in `&ELECTRONS` | **60** | Well-posed SCF converges in 15–30 iters; >60 signals bad mixing/smearing |
-| `nstep` in `&CONTROL` (relax) | **30** | Ionic steps; bail early if forces not decreasing |
-| Atoms in unit cell | **8** (routine), 16 (absolute max) | pw.x scales ~O(N³); 16 atoms already risks the 10-min cap |
-| `ecutwfc` (Ry) | **PP's suggested cutoff, +5 Ry at most** | See section above; never a blanket 80 Ry |
-| `ecutrho` (Ry) | **4× ecutwfc** NC, **8–12× ecutwfc** USPP/PAW | Match PP type; too low gives ringing, too high wastes FFT grid |
-| k-grid (Monkhorst-Pack) | **≤ 6×6×6** metals, **≤ 4×4×4** insulators | Use symmetry; irreducible k-point count is what matters |
-| NSCF dense grid (DOS) | **≤ 12×12×12** | Check runtime first; reduce if >5 min |
-| Phonon q-grid (`ldisp`) | **≤ 2×2×2** | Each q-point ≈ one SCF; 4³ routinely busts the cap |
+| External wall timeout | **10 min** (`gtimeout 600`) | Hard kill |
+| `max_seconds` in `&CONTROL` | **540** (9 min) | QE graceful stop before hard kill |
+| `electron_maxstep` in `&ELECTRONS` | **60** | Good SCFs converge in 15–30 iters |
+| `nstep` in `&CONTROL` (relax) | **30** | Bail early if forces not decreasing |
+| Atoms in unit cell | **8** routine, 16 absolute max | pw.x scales ~O(N³) |
+| `ecutwfc` | **PP's suggested cutoff, +5 Ry at most** | |
+| `ecutrho` | **4× ecutwfc NC, 8–12× USPP/PAW** | Match PP type |
+| k-grid (Monkhorst-Pack) | **≤ 6³ metals, ≤ 4³ insulators** | |
+| NSCF dense grid (DOS) | **≤ 12³** | Check runtime first |
+| Phonon q-grid (`ldisp`) | **≤ 2³** | Each q-point ≈ one SCF |
 
-### Required `&CONTROL` settings for every run
+### Required `&CONTROL` settings
 
 ```fortran
 &CONTROL
@@ -127,9 +115,9 @@ If the UPF doesn't list a suggested cutoff, run a quick convergence sweep (e.g. 
   prefix          = '<material>'
   outdir          = './tmp'
   pseudo_dir      = '<project_root>/pseudopotentials/nc/pbe'
-  max_seconds     = 540             ! MANDATORY — QE graceful stop before 10 min hard kill
+  max_seconds     = 540             ! MANDATORY graceful-stop before hard kill
   disk_io         = 'low'           ! skip unnecessary wavefunction writes
-  verbosity       = 'default'       ! use 'high' only when eigenvalues per k are needed
+  verbosity       = 'default'       ! 'high' only when per-k eigenvalues needed
   tstress         = .false.         ! enable only if stress is the validation target
   tprnfor         = .false.         ! enable only if forces are the validation target
 /
@@ -141,41 +129,27 @@ If the UPF doesn't list a suggested cutoff, run a quick convergence sweep (e.g. 
 &ELECTRONS
   electron_maxstep = 60
   conv_thr         = 1.0d-8         ! do not tighten below 1d-10 for validation
-  mixing_beta      = 0.4            ! 0.7 insulators, 0.3 metals; Kerker helps metals
-  mixing_mode      = 'plain'        ! 'local-TF' for charged/metallic
+  mixing_beta      = 0.4            ! 0.7 insulators, 0.3 metals
+  mixing_mode      = 'plain'        ! 'local-TF' for charged / metallic
   diagonalization  = 'david'
 /
 ```
 
-### Pre-flight checklist (run before every QE invocation)
+### Pre-flight checklist
 
-1. **Atom count** — ≤8 for routine validation; 16 absolute max.
-2. **Pseudopotential** — sourced from `pseudopotentials/` (never `qe-7.5/pseudo/` or elsewhere). XC functional matches `&SYSTEM`.
-3. **ecutwfc** — pulled from the UPF's suggested cutoff (see section above), not guessed. `ecutrho` matches the PP type.
-4. **k-grid** — smallest grid that still resolves the physics (4³ insulators, 6³ metals for validation).
-5. **max_seconds = 540** present in `&CONTROL`? External `gtimeout 600` in the launch command?
-6. **disk_io = 'low'** unless a later step needs the wavefunctions?
-7. **Estimated cost** — ballpark on 12 MPI ranks: 2-atom sp-bonded insulator, ecutwfc=30, 4³ k ≈ 1–3s; 8-atom cell, ecutwfc=40, 6³ k ≈ 20–60s. Heavier elements, d/f electrons, spin-polarized, magnetic, or metallic systems cost 3–10× more. If projected runtime exceeds 3 min, cut parameters further.
+1. **Atom count** ≤ 8 for routine validation; 16 absolute max.
+2. **Pseudopotential** from `pseudopotentials/` only. XC matches `&SYSTEM`.
+3. **ecutwfc** from the UPF's suggested cutoff. `ecutrho` matches PP type.
+4. **k-grid** smallest that still resolves the physics.
+5. **`max_seconds = 540`** in `&CONTROL`? External `gtimeout 600` in the launch command?
+6. **`disk_io = 'low'`** unless a later step needs the wavefunctions?
+7. **Estimated cost** — on 12 MPI ranks: 2-atom sp-bonded insulator ecut 30, 4³ k ≈ 1–3 s; 8-atom cell ecut 40, 6³ k ≈ 20–60 s. Heavy elements, d/f electrons, spin-polarized, magnetic, and metallic systems cost 3–10× more. Projected runtime > 3 min ⇒ shrink further.
 
-If any item fails, shrink the calculation before launching. When a run is killed by timeout, **do not re-run with a longer timeout** — diagnose why it was slow (too many k-points, SCF not converging, wrong smearing for a metal) and fix the input.
-
-## Input file reference
-
-Read the relevant reference file before constructing an input:
-
-| Program | Reference | Purpose |
-|---------|-----------|---------|
-| pw.x | `references/pw-input.md` | SCF, NSCF, bands, relax, vc-relax. All namelists (`&CONTROL`, `&SYSTEM`, `&ELECTRONS`, `&IONS`, `&CELL`), all cards (`ATOMIC_SPECIES`, `ATOMIC_POSITIONS`, `K_POINTS`, `CELL_PARAMETERS`), `ibrav` table, XC functionals. |
-| ph.x | `references/ph-input.md` | Phonons via DFPT at single q-points or q-grids. Dispersion workflow with `q2r.x` + `matdyn.x`. |
-| pp.x | `references/pp-input.md` | Post-processing: charge density, potentials, wavefunctions. `plot_num` values, output formats, Cube file format. |
-| bands.x | `references/bands-input.md` | Extract band energies from pw.x bands calculation. Output file formats. High-symmetry k-paths for FCC/BCC/HEX. |
-| projwfc.x | `references/projwfc-input.md` | Projected DOS onto atomic orbitals. k-resolved PDOS for fat bands. |
+If any item fails, shrink before launching. A run killed by timeout means the inputs were wrong — diagnose (too many k-points, SCF not converging, wrong smearing for a metal), don't extend the timeout.
 
 ## Pseudopotentials
 
-All pseudopotentials live in `pseudopotentials/` at the project root. Set `pseudo_dir` in QE input files to the appropriate subdirectory.
-
-### Directory layout
+All PPs live in `pseudopotentials/` at the project root. Set `pseudo_dir` in QE input files to the appropriate subdirectory.
 
 ```text
 pseudopotentials/
@@ -183,23 +157,25 @@ pseudopotentials/
   nc/lda/     — Norm-conserving, LDA (74 elements, includes Fe_dalcorso, Ga_oncv, N_oncv, Si_hgh variants)
   uspp/pbe/   — Ultrasoft, PBE (41 files, SSSP selection)
   paw/pbe/    — PAW, PBE (12 files)
-  SSSP_1.3.0_PBE_efficiency.tar.gz   — full SSSP efficiency archive
-  SSSP_1.3.0_PBE_precision.tar.gz    — full SSSP precision archive
+  SSSP_1.3.0_PBE_{efficiency,precision}.tar.gz — full archives
 ```
 
-### Which to use
+- **For pwdft-rs validation:** use `nc/pbe/` or `nc/lda/` — pwdft-rs implements norm-conserving only. Files are named `<Element>.upf`.
+- **For QE-only reference calculations:** `uspp/pbe/` or `paw/pbe/` are fine.
+- **Match the XC functional between PP and `&SYSTEM`** — mixing PBE PP with LDA input (or vice versa) gives silently wrong energies.
+- **Never** reach into `qe-7.5/pseudo/`, `$HOME/qe/pseudo/`, or any other location — those may differ from what pwdft-rs validates against. If an element isn't in `pseudopotentials/`, stop and tell the user.
 
-**Always pull pseudopotentials from the `pseudopotentials/` tree at the project root.** Do not reach into `qe-7.5/pseudo/`, `$HOME/qe/pseudo/`, or any other location — those are legacy/untracked and may differ from what pwdft-rs validates against. If the element you need isn't in `pseudopotentials/`, stop and tell the user rather than substituting an unvetted PP.
+## Input-file reference
 
-- **For pwdft-rs validation**: use `nc/pbe/` or `nc/lda/` (pwdft-rs implements norm-conserving only). Files are named `<Element>.upf`.
-- **For QE-only reference calculations** (no pwdft-rs comparison): `uspp/pbe/` or `paw/pbe/` are fine. File naming follows SSSP conventions.
-- **Match the XC functional between PP and `&SYSTEM`** — mixing a PBE PP with LDA input or vice versa gives silently wrong energies.
+Read the relevant reference file before constructing an input:
 
-### Example pseudo_dir in input files
-
-```text
-pseudo_dir = '<project_root>/pseudopotentials/nc/pbe'
-```
+| Program | Reference | Purpose |
+|---------|-----------|---------|
+| pw.x | `references/pw-input.md` | SCF, NSCF, bands, relax, vc-relax. All namelists, cards, `ibrav`, XC functionals. |
+| ph.x | `references/ph-input.md` | Phonons via DFPT. Dispersion via `q2r.x` + `matdyn.x`. |
+| pp.x | `references/pp-input.md` | Charge density, potentials, wavefunctions. `plot_num` values, Cube format. |
+| bands.x | `references/bands-input.md` | Band energies from pw.x bands run. High-symmetry k-paths for FCC/BCC/HEX. |
+| projwfc.x | `references/projwfc-input.md` | Projected DOS onto atomic orbitals. |
 
 ## Multi-step workflows
 
@@ -215,7 +191,7 @@ Each step reads from the previous step's `outdir`. Same `prefix` and `outdir` th
 
 ## Units
 
-QE uses **Rydberg atomic units**:
+QE uses Rydberg atomic units:
 
 | Quantity | QE unit | Conversion |
 |----------|---------|------------|
@@ -223,12 +199,16 @@ QE uses **Rydberg atomic units**:
 | Length | Bohr | 1 Bohr = 0.529177 Å |
 | Force | Ry/Bohr | |
 | Stress | Ry/Bohr³ | also printed in kbar |
-| Eigenvalues | eV (in text output) | Ha in XML |
+| Eigenvalues | eV (text output) | Ha (XML) |
 | Phonon freq | THz and cm⁻¹ | |
+
+pwdft-rs's internal units are eV / Å. All conversion happens at the UPF boundary in `pwdft/pwdft-core/src/pseudopotential/upf/convert.rs`.
 
 ## Output parsing
 
-### Key grep patterns (pw.x)
+Prefer `pwdft-validate` sub-commands (§ Python validation harness). Where no sub-command exists, use `data-file-schema.xml` for full precision — never hand-scrape the text output for production validation.
+
+### Text output (pw.x) — quick grep patterns
 
 ```bash
 grep '!    total energy'       output.out   # converged total energy (Ry)
@@ -241,7 +221,7 @@ grep 'force ='                 output.out   # forces (Ry/Bohr)
 grep 'total   stress'          output.out   # stress tensor
 ```
 
-Eigenvalues appear per-k-point when `verbosity = 'high'`:
+Eigenvalues with `verbosity = 'high'`:
 
 ```text
           k = 0.0000 0.0000 0.0000 (   749 PWs)   bands (ev):
@@ -250,62 +230,10 @@ Eigenvalues appear per-k-point when `verbosity = 'high'`:
 
 ### XML (full precision)
 
-`tmp/<prefix>.save/data-file-schema.xml` contains all energies, eigenvalues, k-points, occupations, and cell data at full machine precision. Prefer this for automated validation over text scraping.
+`tmp/<prefix>.save/data-file-schema.xml` — all energies, eigenvalues, k-points, occupations, cell data at machine precision. The `pwdft-validate` parsers read the XML where available; text scraping is fallback only.
 
 ### Phonon output (ph.x)
 
 ```text
      freq (    1) =      15.298080 [THz] =     510.374390 [cm-1]
 ```
-
-## Build instructions
-
-Two build configurations are available. Use the **fast build** for small validation benchmarks and the **optimized build** when libxc or OpenMP threading is needed.
-
-### Fast build (OpenBLAS, no OpenMP — best for small systems)
-
-```bash
-cd qe-7.5 && rm -rf build && mkdir build && cd build
-cmake .. -DCMAKE_Fortran_COMPILER=mpifort -DCMAKE_C_COMPILER=mpicc \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/openblas;/opt/homebrew/opt/fftw;/opt/homebrew/opt/scalapack" \
-  -DBLA_VENDOR=OpenBLAS \
-  -DLAPACK_LIBRARIES="/opt/homebrew/opt/openblas/lib/libopenblas.dylib" \
-  -DBLAS_LIBRARIES="/opt/homebrew/opt/openblas/lib/libopenblas.dylib" \
-  -DQE_ENABLE_MPI=ON -DQE_ENABLE_OPENMP=OFF -DQE_ENABLE_SCALAPACK=ON
-make -j$(sysctl -n hw.ncpu) pw pp ph
-```
-
-### Optimized build (Accelerate/AMX, OpenMP, libxc — best for larger systems)
-
-Requires: `brew install veclibfort libxc`
-
-**Note**: QE 7.5 CMakeLists.txt requests libxc >= 5.1.2 but uses major-version matching. If libxc 7.x is installed, temporarily patch lines 578+581 in the top-level CMakeLists.txt: change `5.1.2` to `7.0.0` in both `find_package(Libxc ...)` calls. Revert after configure.
-
-**Note**: LTO (`-flto`) fails on macOS Tahoe due to LLVM version mismatch between Apple Clang (C files, LLVM 22.x) and gfortran's linker (LLVM 17.x). Do not use.
-
-```bash
-cd qe-7.5 && rm -rf build && mkdir build && cd build
-cmake .. -DCMAKE_C_COMPILER=mpicc -DCMAKE_Fortran_COMPILER=mpifort \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_FLAGS="-O3 -mcpu=apple-m3" \
-  -DCMAKE_Fortran_FLAGS="-O3 -mcpu=apple-m3 -mtune=apple-m3 -ffree-line-length-none -funroll-loops" \
-  -DQE_ENABLE_OPENMP=ON -DQE_ENABLE_MPI=ON -DQE_ENABLE_SCALAPACK=OFF \
-  -DQE_ENABLE_LIBXC=ON -DQE_ENABLE_HDF5=OFF \
-  -DBLAS_LIBRARIES=/opt/homebrew/lib/libveclibfort.dylib \
-  -DLAPACK_LIBRARIES=/opt/homebrew/lib/libveclibfort.dylib \
-  -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/libxc" \
-  -DCMAKE_INSTALL_PREFIX=$HOME/qe
-make -j$(sysctl -n hw.ncpu) pw pp ph
-cp bin/pw.x $HOME/qe/bin/pw.x   # install
-```
-
-### Performance notes (M3 Max, Si 2-atom, ecutwfc=50 Ry, 8x8x8 k-grid)
-
-| Config | Build | Wall time |
-|--------|-------|-----------|
-| MPI=12, OMP=1 | Fast (OpenBLAS) | **1.19s** |
-| MPI=12, OMP=1 | Optimized (Accelerate) | 1.77s |
-| Serial | Fast (OpenBLAS) | 6.51s |
-
-For small systems, OpenBLAS outperforms Accelerate/AMX because AMX coprocessor startup latency exceeds the tiny BLAS call durations. The crossover favoring Accelerate is around 30+ atoms.
