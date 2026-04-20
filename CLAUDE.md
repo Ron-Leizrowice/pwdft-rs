@@ -104,7 +104,7 @@ question:
   eigensolve dominating?*, *did that PR regress the XC kernel?*
 - **Benchmarks** — "did this change regress function X?" → `criterion`
   via `cargo bench`. Statistical regression gating on targeted kernels.
-  Already in `pwdft/pwdft-benches/benches/scf_benchmarks.rs` and `pwdft/pwdft-benches/benches/gpu_benchmarks.rs`.
+  Already in `pwdft/pwdft-core/benches/scf_benchmarks.rs` and `pwdft/pwdft-core/benches/gpu_benchmarks.rs`.
 
 Do not mix layers. `log` is not a profiler; `samply` is not a benchmark
 harness; `cargo bench` is not a runtime status display.
@@ -235,7 +235,7 @@ and `faer-traits` wherever the dep graph would resolve to crates.io.
 This project uses a branch-and-PR workflow. Multiple agents may work concurrently.
 
 - **Always use a worktree.** Never modify files in the user's main checkout. Use `isolation: "worktree"` when spawning agents, or `EnterWorktree` for interactive work. This keeps the main checkout clean and allows concurrent agents.
-- **Worktree isolation is hook-enforced.** `.claude/bin/check-worktree.sh` (PreToolUse on Edit/Write/MultiEdit) blocks writes to (a) the main checkout's `pwdft/pwdft-core/`, `pwdft/pwdft-benches/`, `pwdft/faer/`, and `validation/` trees from any cwd, and (b) anything outside your worktree when your cwd is in a worktree. If a write is blocked, your `file_path` is wrong — fix the path, don't disable the hook. See `.claude/agents/*.md` for the full protocol.
+- **Worktree isolation is hook-enforced.** `.claude/bin/check-worktree.sh` (PreToolUse on Edit/Write/MultiEdit) blocks writes to (a) the main checkout's `pwdft/pwdft-core/`, `pwdft/faer/`, and `validation/` trees from any cwd, and (b) anything outside your worktree when your cwd is in a worktree. If a write is blocked, your `file_path` is wrong — fix the path, don't disable the hook. See `.claude/agents/*.md` for the full protocol.
 - **Branch from `origin/main`, not local `main`.** Local `main` may be stale. Run `git fetch origin && git checkout -b <PROPOSAL-ID>/<slug> origin/main` from inside your worktree.
 - **Rebase your branch onto `origin/main` before submitting the PR.** Avoids "DIRTY/CONFLICTING" PRs that the EM has to resolve manually.
 - **Never commit directly to main.** All work happens on feature branches.

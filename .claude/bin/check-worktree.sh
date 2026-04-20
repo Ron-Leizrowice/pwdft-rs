@@ -17,7 +17,7 @@
 #
 #   2. MAIN-CHECKOUT SOURCE-FILE GUARD
 #      If the cwd is the main checkout (toplevel's .git is a *directory*),
-#      block edits to the Rust crates (pwdft/pwdft-core/, pwdft/pwdft-benches/)
+#      block edits to the Rust crates (pwdft/pwdft-core/, pwdft/faer/)
 #      and the Python validation package (validation/). Allow .claude/,
 #      proposals/, CLAUDE.md, docs/, inputs/, outputs/, etc. — those are
 #      infrastructure that may legitimately be changed from main as admin
@@ -83,7 +83,7 @@ fi
 # Block source-file edits (must be done in a worktree via PR), allow infra.
 rel_path="${file_path#$cwd_toplevel/}"
 case "$rel_path" in
-    pwdft/pwdft-core/*|pwdft/pwdft-benches/*|pwdft/faer/*|validation/*)
+    pwdft/pwdft-core/*|pwdft/faer/*|validation/*)
         deny "Source file '${rel_path}' must be edited in a worktree, not the main checkout. Use EnterWorktree (interactive) or isolation: \"worktree\" (Agent tool)."
         ;;
 esac

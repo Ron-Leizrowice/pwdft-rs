@@ -50,7 +50,7 @@ resolves it.
 ## §3 Method
 
 1. **Pick the benchmark set.** Reuse the existing criterion harness
-   at `pwdft/pwdft-benches/benches/scf_benchmarks.rs`. Focus on the
+   at `pwdft/pwdft-core/benches/scf_benchmarks.rs`. Focus on the
    targets that actually exercise cross-crate hot paths:
    - `eigensolver` (faer-heavy)
    - `vnl_apply` (faer GEMM + pwdft-core assembly)
@@ -60,7 +60,7 @@ resolves it.
      for this audit only.
 
 2. **Measure baseline (thin).** Acquire the machine lock, run
-   `cargo bench -p pwdft-benches --bench scf_benchmarks`. Save the
+   `cargo bench -p pwdft-core --bench scf_benchmarks`. Save the
    `target/criterion/` report as the thin baseline.
 
 3. **Flip to fat.** In `Cargo.toml` set `lto = "fat"` under

@@ -3098,23 +3098,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "pwdft-benches"
-version = "0.0.0"
-dependencies = [
- "criterion",
- "faer",
- "nalgebra 0.34.2",
- "num-complex",
- "pwdft-core",
-]
-
-[[package]]
 name = "pwdft-core"
 version = "0.1.0"
 dependencies = [
  "approx",
  "bytemuck",
  "clap",
+ "criterion",
  "dyn-stack",
  "env_logger",
  "faer",

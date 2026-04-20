@@ -2,7 +2,6 @@
 resolver = "3"
 members = [
     "pwdft/pwdft-core",
-    "pwdft/pwdft-benches",
     "pwdft/faer/faer",
     "pwdft/faer/faer-traits",
     "pwdft/faer/faer-macros",
