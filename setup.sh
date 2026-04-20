@@ -52,10 +52,14 @@ fi
 echo "Running uv sync..."
 uv sync
 
+echo "Installing pre-commit hooks..."
+uv run prek install
+
 echo
 echo "Setup complete."
 echo "  QE:     $link → $QE_PATH"
 echo "  Python: .venv/ (via uv sync)"
+echo "  Hooks:  .git/hooks/pre-commit (via prek)"
 echo
 echo "Next steps:"
 echo "  cargo test                             # Tier-1"
