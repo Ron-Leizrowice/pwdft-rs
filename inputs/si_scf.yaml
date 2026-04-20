@@ -31,10 +31,6 @@ scf:
   # mixing_mode: periodic_pulay
   # pulay_period: 3
 
-# `electrons:` now holds only system-physics knobs (spin_polarized,
-# magnetization, occupations). Mixing / smearing convergence knobs moved
-# to `scf:` in ESPL.
-
 pseudopotentials:
   Si: "../pseudopotentials/nc/lda/Si.upf"
 
