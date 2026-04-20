@@ -64,14 +64,27 @@ def _bcc_shells(n: int, a_bohr: float) -> list[tuple[int, float]]:
 _SYSTEMS: list[_NlccSystem] = [
     _NlccSystem("si", "Si", 5.431, "fcc"),
     _NlccSystem("fe", "Fe", 2.87, "bcc"),
-    # Cu lattice constant from data/qe/cu_fcc_scf.in: celldm(1)=6.8219 Bohr.
+    # TRV2 Finding #3 — Cu FCC covers the 3s/3p/3d semicore edge case (Z_val=19).
+    # Lattice constant from data/qe/cu_fcc_scf.in: celldm(1) = 6.8219 Bohr.
     _NlccSystem("cu", "Cu", 6.8219 * BOHR_TO_ANG, "fcc"),
+    # TRV2 Finding #3 — Mn (Z_val=15, magnetic reference). α-Mn has a complex
+    # 58-atom cubic ground state; for NLCC regression only the cell volume
+    # matters, so we use a simple BCC container with a = 2.89 Å (close to Fe's
+    # a = 2.87 Å — puts Mn's ρ_core(G) in the same |G|-shell range as Fe's).
     _NlccSystem("mn", "Mn", 2.89, "bcc"),
+    # VGCH-2F Part C session-2 — H-C4: extend NLCC ρ_core(G) regression
+    # coverage to every NLCC-active PP in a Class A heavy-atom QE cell. Cu
+    # was pinned by TRV2; Ga/As close GaAs zinc-blende, O closes MgO, Cl
+    # closes NaCl. Mg and Na PPs have core_correction=F — no pin needed.
+    _NlccSystem("ga", "Ga", 10.6829 * BOHR_TO_ANG, "fcc"),  # GaAs: 5.6530 Å
+    _NlccSystem("as", "As", 10.6829 * BOHR_TO_ANG, "fcc"),  # GaAs: 5.6530 Å
+    _NlccSystem("o", "O", 7.9586 * BOHR_TO_ANG, "fcc"),  # MgO: 4.2115 Å
+    _NlccSystem("cl", "Cl", 10.6078 * BOHR_TO_ANG, "fcc"),  # NaCl: 5.6133 Å
 ]
 
 
 def generate(pseudo_dir: Path, out_csv: Path) -> int:
-    """Generate ``rho_core_g_reference.csv`` (NLCC audit — Si, Fe, Cu, Mn)."""
+    """Generate ``rho_core_g_reference.csv`` (NLCC audit — Si, Fe, Cu, Mn, Ga, As, O, Cl)."""
     rows: list[tuple] = []
 
     for cfg in _SYSTEMS:

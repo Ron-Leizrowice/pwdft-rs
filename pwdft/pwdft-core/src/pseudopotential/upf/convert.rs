@@ -526,6 +526,241 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------
+    // VGCH-2F Part C session-2 — H-C4 probe: close the remaining NLCC
+    // ρ_core(G) coverage gap.  Cu was pinned by TRV2; VGCH-2 Part B
+    // identified a shared-density ΔE_xc = +8.87 eV on the Cu transplant
+    // whose fingerprint is consistent with a silent ρ_core unit- or
+    // mesh-conversion bug on a heavy element.  The Class A NLCC
+    // contributors without a pin pre-VGCH-2F were Ga and As (GaAs
+    // zinc-blende), O (MgO rocksalt), and Cl (NaCl rocksalt).  After
+    // these four pins every NLCC-active PP that enters a Class A QE
+    // reference cell is pinned at G=0 and the first non-zero G-shell.
+    //
+    // Mg and Na have `core_correction="F"` → no PP_NLCC block → no pin
+    // needed.  The Class A NLCC surface is closed.
+    //
+    // Reference values: `scripts/validate/rho_core_g_reference.csv`,
+    // regenerated from `scripts/validate/rho_core_g_reference.py` with
+    // cells matching `qe_validation/{gaas,mgo,nacl}_scf.in` (ibrav=2,
+    // FCC primitive Ω = a³/4).
+
+    fn ga_content() -> String {
+        std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("pseudopotentials/nc/lda/Ga.upf"),
+        )
+        .unwrap()
+    }
+
+    /// VGCH-2F A.9 — pin Ga ρ_core(G=0).  Ga ONCVPSP has the full
+    /// 3d semicore in the valence (Z_val = 13, 3d¹⁰4s²4p¹) with
+    /// Q_core ≈ 7.94 e — the largest of the Class A pinned elements.
+    ///
+    /// Cell: GaAs zinc-blende, a = 10.6829 Bohr = 5.6530 Å (matches
+    /// `qe_validation/gaas_scf.in`).  Ω = a³/4 Å³.
+    /// Reference: `rho_core_g_reference.csv` row `(ga, shell 0)`
+    /// = 1.7582117492e-01 e/Å³.
+    #[test]
+    fn test_ga_rho_core_of_g_zero() {
+        let pp = parse(&ga_content()).unwrap();
+        assert!(pp.has_nlcc(), "Ga ONCVPSP should have core_correction=T");
+
+        let a = 10.6829_f64 * crate::consts::BOHR_TO_ANG; // 5.6530 Å
+        let omega = a * a * a / 4.0;
+        let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
+
+        let expected = 1.758_211_749_2e-1;
+        // Ga's NLCC is ≈ Fe's at G=0 in absolute magnitude; 1e-4
+        // tolerance ≈ 6·10⁻⁴ relative on the ONCVPSP log mesh.
+        assert!(
+            (rho_g0 - expected).abs() < 1.0e-4,
+            "Ga ρ_core(G=0) = {rho_g0:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    /// VGCH-2F A.10 — pin Ga ρ_core(G≠0) at |G|² = 3·(2π/a)² — the
+    /// first non-zero FCC shell (the {111} family).  In Å⁻¹:
+    ///     |G| = 2π/a · √3 ≈ 1.9254 Å⁻¹.
+    ///
+    /// Reference: `rho_core_g_reference.csv` row `(ga, shell 1)`
+    /// = 1.6454252388e-01 e/Å³.
+    #[test]
+    fn test_ga_rho_core_of_g_first_shell() {
+        let pp = parse(&ga_content()).unwrap();
+        assert!(pp.has_nlcc());
+
+        let a = 10.6829_f64 * crate::consts::BOHR_TO_ANG;
+        let omega = a * a * a / 4.0;
+        let g_norm = 2.0 * std::f64::consts::PI / a * (3.0_f64).sqrt();
+        let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
+
+        let expected = 1.645_425_238_8e-1;
+        assert!(
+            (rho_g - expected).abs() < 1.0e-4,
+            "Ga ρ_core(first shell) = {rho_g:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    fn as_content() -> String {
+        std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("pseudopotentials/nc/lda/As.upf"),
+        )
+        .unwrap()
+    }
+
+    /// VGCH-2F A.11 — pin As ρ_core(G=0).  As ONCVPSP (Z_val = 5,
+    /// 4s²4p³) + 3d semicore → Q_core ≈ 7.99 e.
+    ///
+    /// Cell: GaAs zinc-blende, a = 5.6530 Å (same as Ga).
+    /// Reference: `rho_core_g_reference.csv` row `(as, shell 0)`
+    /// = 1.7690334999e-01 e/Å³.
+    #[test]
+    fn test_as_rho_core_of_g_zero() {
+        let pp = parse(&as_content()).unwrap();
+        assert!(pp.has_nlcc(), "As ONCVPSP should have core_correction=T");
+
+        let a = 10.6829_f64 * crate::consts::BOHR_TO_ANG;
+        let omega = a * a * a / 4.0;
+        let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
+
+        let expected = 1.769_033_499_9e-1;
+        assert!(
+            (rho_g0 - expected).abs() < 1.0e-4,
+            "As ρ_core(G=0) = {rho_g0:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    /// VGCH-2F A.12 — pin As ρ_core(G≠0) at |G|² = 3·(2π/a)².
+    ///
+    /// Reference: `rho_core_g_reference.csv` row `(as, shell 1)`
+    /// = 1.6708351731e-01 e/Å³.
+    #[test]
+    fn test_as_rho_core_of_g_first_shell() {
+        let pp = parse(&as_content()).unwrap();
+        assert!(pp.has_nlcc());
+
+        let a = 10.6829_f64 * crate::consts::BOHR_TO_ANG;
+        let omega = a * a * a / 4.0;
+        let g_norm = 2.0 * std::f64::consts::PI / a * (3.0_f64).sqrt();
+        let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
+
+        let expected = 1.670_835_173_1e-1;
+        assert!(
+            (rho_g - expected).abs() < 1.0e-4,
+            "As ρ_core(first shell) = {rho_g:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    fn o_content() -> String {
+        std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("pseudopotentials/nc/lda/O.upf"),
+        )
+        .unwrap()
+    }
+
+    /// VGCH-2F A.13 — pin O ρ_core(G=0).  O ONCVPSP (Z_val = 6,
+    /// 2s²2p⁴) has a small core (no semicore) → Q_core ≈ 0.574 e.
+    /// Smallest ρ_core magnitude of the pinned Class A elements —
+    /// sensitive to trapezoidal-vs-Simpson mesh differences, so the
+    /// tolerance is tightened to 1e-5 to match Si's regime.
+    ///
+    /// Cell: MgO rocksalt, a = 7.9586 Bohr = 4.2115 Å (matches
+    /// `qe_validation/mgo_scf.in`).  Reference: `rho_core_g_reference.csv`
+    /// row `(o, shell 0)` = 3.0760542725e-02 e/Å³.
+    #[test]
+    fn test_o_rho_core_of_g_zero() {
+        let pp = parse(&o_content()).unwrap();
+        assert!(pp.has_nlcc(), "O ONCVPSP should have core_correction=T");
+
+        let a = 7.9586_f64 * crate::consts::BOHR_TO_ANG; // 4.2115 Å
+        let omega = a * a * a / 4.0;
+        let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
+
+        let expected = 3.076_054_272_5e-2;
+        // O NLCC is ≈ 2× Si's at G=0; keep the same 1e-5 tolerance
+        // as Si (O and Si are both on the no-semicore regime).
+        assert!(
+            (rho_g0 - expected).abs() < 1.0e-5,
+            "O ρ_core(G=0) = {rho_g0:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    /// VGCH-2F A.14 — pin O ρ_core(G≠0) at |G|² = 3·(2π/a)².
+    ///
+    /// Reference: `rho_core_g_reference.csv` row `(o, shell 1)`
+    /// = 2.9521130484e-02 e/Å³.
+    #[test]
+    fn test_o_rho_core_of_g_first_shell() {
+        let pp = parse(&o_content()).unwrap();
+        assert!(pp.has_nlcc());
+
+        let a = 7.9586_f64 * crate::consts::BOHR_TO_ANG;
+        let omega = a * a * a / 4.0;
+        let g_norm = 2.0 * std::f64::consts::PI / a * (3.0_f64).sqrt();
+        let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
+
+        let expected = 2.952_113_048_4e-2;
+        assert!(
+            (rho_g - expected).abs() < 1.0e-5,
+            "O ρ_core(first shell) = {rho_g:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    fn cl_content() -> String {
+        std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("pseudopotentials/nc/lda/Cl.upf"),
+        )
+        .unwrap()
+    }
+
+    /// VGCH-2F A.15 — pin Cl ρ_core(G=0).  Cl ONCVPSP (Z_val = 7,
+    /// 3s²3p⁵) → Q_core ≈ 1.872 e.  Intermediate magnitude between O
+    /// and Si on one side and the heavier Ga/As/Cu on the other.
+    ///
+    /// Cell: NaCl rocksalt, a = 10.6078 Bohr = 5.6134 Å (matches
+    /// `qe_validation/nacl_scf.in`).  Reference:
+    /// `rho_core_g_reference.csv` row `(cl, shell 0)` = 4.2341213379e-02 e/Å³.
+    #[test]
+    fn test_cl_rho_core_of_g_zero() {
+        let pp = parse(&cl_content()).unwrap();
+        assert!(pp.has_nlcc(), "Cl ONCVPSP should have core_correction=T");
+
+        let a = 10.6078_f64 * crate::consts::BOHR_TO_ANG; // 5.6134 Å
+        let omega = a * a * a / 4.0;
+        let rho_g0 = rho_core_of_g_ang(&pp, 0.0, omega);
+
+        let expected = 4.234_121_337_9e-2;
+        assert!(
+            (rho_g0 - expected).abs() < 1.0e-5,
+            "Cl ρ_core(G=0) = {rho_g0:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
+    /// VGCH-2F A.16 — pin Cl ρ_core(G≠0) at |G|² = 3·(2π/a)².
+    ///
+    /// Reference: `rho_core_g_reference.csv` row `(cl, shell 1)`
+    /// = 3.9423292394e-02 e/Å³.
+    #[test]
+    fn test_cl_rho_core_of_g_first_shell() {
+        let pp = parse(&cl_content()).unwrap();
+        assert!(pp.has_nlcc());
+
+        let a = 10.6078_f64 * crate::consts::BOHR_TO_ANG;
+        let omega = a * a * a / 4.0;
+        let g_norm = 2.0 * std::f64::consts::PI / a * (3.0_f64).sqrt();
+        let rho_g = rho_core_of_g_ang(&pp, g_norm, omega);
+
+        let expected = 3.942_329_239_4e-2;
+        assert!(
+            (rho_g - expected).abs() < 1.0e-5,
+            "Cl ρ_core(first shell) = {rho_g:.8e}, expected {expected:.8e} e/Å³"
+        );
+    }
+
     // UPFV: parse-time rejection of negative `angular_momentum`.
     //
     // `extract_beta_angular_momentum` returned `Option<i32>` before UPFV,

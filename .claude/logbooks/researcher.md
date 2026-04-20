@@ -475,3 +475,47 @@ pwdft-rs' `monkhorst_pack` hard-codes shifted MP-1976 (`frac = (2i−N+1)/(2N)`)
 **Low-priority open questions:** IBZ 10 vs QE 8 (→ SYKP); spin exchange at `xc.rs:249` non-standard weighted-average (correct, needs doc); `total_energy()` docstring omits V_local(G=0)·N_el (→ MADOC).
 
 Refs: PZ PRB 23 5048; KB PRL 48 1425; NLCC PRB 26 1738; QE `vloc_mod.f90`, `simpsn.f90`, `setlocal.f90`.
+
+## 2026-04-20 — VGCH-2F Part C session-2: H-C4 REFUTED, H-C5 narrowed (PR #179)
+
+H-C4 closed. Extended `scripts/validate/rho_core_g_reference.py` from 4 to
+8 elements (added Ga, As for GaAs; O for MgO; Cl for NaCl). Mg, Na have
+`core_correction=F`; no pin. 8 new Rust `#[test]` fns (VGCH-2F A.9–A.16)
+pin ρ_core(G=0) and ρ_core at first non-zero FCC shell against
+Python-Simpson reference. All pass at < 1e-5 e/Å³.
+
+Reference values at G=0 (e/Å³): Ga 1.758e-1, As 1.769e-1, O 3.076e-2,
+Cl 4.234e-2. Cell geometries match `qe_validation/{gaas,mgo,nacl}_scf.in`
+(ibrav=2 FCC primitive Ω = a³/4).
+
+Cu shared-density ΔE_xc = +8.87 eV cannot originate in ρ_core(G):
+upper bound on H-C4 contribution is ≤ 1 meV. Refuted.
+
+H-C5 narrowed. Verified via Python extraction that both Si.upf and Cu.upf
+`PP_DIJ` are strictly diagonal 6×6 (no cross-projector coupling). VNMT's
+Si l=2 Y_{2,m} m-isolation pins the angular surface — structurally
+identical for Cu. **Unique Cu signal is the two radial d-projectors
+summed in one l=2 channel** (ν=0 and ν=1). Filed **VNLM-CUD** as
+Medium-priority follow-up (1 CE-day) for a targeted Cu Γ per-m pin.
+
+Cu transplant iter-1 numbers unchanged (for session continuity):
+E_kin=+1760.21, E_loc=−3232.01, E_nl=−499.21 eV at shared ρ_QE;
+Δone-e=+62.87, ΔE_H=−54.74, ΔE_xc=+8.87, ΔE_ewald=+0.005,
+ΔE_total=+68.61 eV. E_F: +21.29 vs +19.21 eV.
+
+Leading suspect order EOD: **H-C5** (needs VNLM-CUD test) > H-C2
+(n_bands margin on 3d DOS tail). H-C1, H-C3, H-C4 all closed.
+Remaining Class A YELLOW cells: Cu LDA+PBE, GaAs LDA+PBE, NaCl LDA+PBE,
+MgO LDA+PBE, Fe PBE = 8 cells. None closed this session.
+
+**Factual correction from session-1:** Cu was already pinned by TRV2 —
+session-1 framing "Cu unpinned" was incorrect. The real gap closed is
+Ga/As/O/Cl. Conclusion unchanged.
+
+**CLAUDE.md convention bullet landed** (not by me; by DOCLEAN #176):
+QE k-point weights pre-multiply degspin — do not apply `spin_factor=2`
+on top when cross-checking. This catches the session-1 Python finder
+double-counting bug.
+
+Refs: NLCC PRB 26 1738 (Louie/Froyen/Cohen); QE `upflib/rhoc_mod.f90:107-115`
+(`init_tab_rhc`), `upflib/read_upf_new.f90` (PP_NLCC parse).
