@@ -5,20 +5,20 @@ Submodules:
     _paths      — shared filesystem layout constants.
 """
 
-from pwdft_validation._paths import (
+from pwdft_validation.paths import (
     CSV_REF_DIR,
+    DATA_DIR,
     INPUTS_DIR,
+    PROJECT_ROOT,
     PSEUDO_DIR,
     QE_REF_DIR,
-    REPO_ROOT,
-    VALIDATION_DIR,
 )
 
 __all__ = [
     "CSV_REF_DIR",
+    "DATA_DIR",
     "INPUTS_DIR",
+    "PROJECT_ROOT",
     "PSEUDO_DIR",
     "QE_REF_DIR",
-    "REPO_ROOT",
-    "VALIDATION_DIR",
 ]
