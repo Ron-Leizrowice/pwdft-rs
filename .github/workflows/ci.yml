@@ -6,10 +6,23 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Cancel superseded runs on the same ref (PR branch or main) so queue
+# depth stays low when force-pushes land in bursts.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   rust:
     name: Rust (clippy + test)
     runs-on: ubuntu-latest
+    env:
+      # Incremental artifacts are pure bloat in CI — the cache key is
+      # Cargo.lock + toolchain, so a true incremental reuse never fires.
+      CARGO_INCREMENTAL: "0"
+      # Strip DWARF; CI checks correctness, not debuggability. Cuts
+      # target/ by ~40-60% on this workspace (faer + wgpu dominate).
+      RUSTFLAGS: "-C debuginfo=0"
     steps:
       - uses: actions/checkout@v6
 
@@ -18,6 +31,10 @@ jobs:
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Save cache on clippy/test failure too — the next run restores
+          # the partial target/ and only rebuilds the changed crate.
+          cache-on-failure: true
 
       # Scope to our own crates. The vendored faer group
       # (faer, faer-traits, faer-macros, faer-ffi) is upstream code —
