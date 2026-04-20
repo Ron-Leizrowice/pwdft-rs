@@ -1,0 +1,75 @@
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[project]
+name = "pwdft-validation"
+version = "0.1.0"
+description = "Quantum ESPRESSO cross-checks and reference-data generators for pwdft-rs"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+    "cyclopts>=4.10.2",
+    "numpy>=2",
+    "pandas>=3",
+    "pyprojroot>=0.3",
+    "scipy>=1",
+]
+[dependency-groups]
+dev = [
+    "pytest>=9",
+    "ruff>=0.15",
+    "ty>=0.0.31",
+]
+
+[project.scripts]
+pwdft-validate = "pwdft_validation.cli:main"
+
+# NOTE: reference/ (CSV pins + QE outputs) is deliberately NOT shipped in the
+# wheel. It's consumed by Rust tests from the workspace source tree via
+# env!("CARGO_WORKSPACE_DIR"). Python scripts locate it through
+# pwdft_validation.CSV_REF_DIR / QE_REF_DIR, which also resolve against the
+# source tree. Shipping the symlinks (reference/qe/pseudo → ../../pseudopotentials)
+# in a wheel would break install anyway.
+
+# ------------------------------------------------------------------
+# ruff — lint + format. Matches pwdft-core's taste: warn on casts and
+# panicky idioms, forbid unused/shadowed imports, enforce import order.
+# ------------------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "RUF", # ruff-native
+    "N",   # pep8-naming
+    "PTH", # flake8-use-pathlib
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",   # line length — soft-limit; formatter handles it
+    "E741",   # ambiguous variable name — physics uses single-letter names (k, n, etc.)
+    "N806",   # local var lowercase — scripts use mathematical names (E_XC, V_NL)
+    "N802",   # function name lowercase — physics conventions (V_local_of_G, etc.)
+    "N803",   # arg name lowercase — same reason
+    "RUF001", # ambiguous string char — physics uses Greek + ×, ·, °
+    "RUF002", # ambiguous docstring char — same
+    "RUF003", # ambiguous comment char — same (π, ≠, ∫, ρ, ψ, …)
+]
+
+# ------------------------------------------------------------------
+# pytest
+# ------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"

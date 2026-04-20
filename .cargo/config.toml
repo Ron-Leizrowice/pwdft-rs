@@ -1,0 +1,7 @@
+# Exposes the workspace root as an env var to the build & test environment.
+# Tests use env!("CARGO_WORKSPACE_DIR") to locate top-level data directories
+# (pseudopotentials/, qe_validation/) without hard-coding `..` walks from
+# CARGO_MANIFEST_DIR. `relative = true` resolves the value against the
+# directory containing this file, i.e. the workspace root.
+[env]
+CARGO_WORKSPACE_DIR = { value = "", relative = true }

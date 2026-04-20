@@ -1,47 +1,23 @@
-[package]
-name = "pwdft-rs"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "2"
+members = [
+    "pwdft/pwdft-core",
+    "pwdft/pwdft-benches",
+    "pwdft/faer/faer",
+    "pwdft/faer/faer-traits",
+    "pwdft/faer/faer-macros",
+    "pwdft/faer/faer-ffi",
+]
+exclude = [
+    "pwdft/faer/faer-no-std-test",
+    "pwdft/faer/eigen-bench-setup",
+]
 
-[features]
-default = []
-gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+[workspace.dependencies]
+faer = { path = "pwdft/faer/faer" }
+faer-traits = { path = "pwdft/faer/faer-traits" }
 
-[dependencies]
-approx = ">=0.5"
-nalgebra = { version = ">=0.34", features = ["serde-serialize"] }
-faer = ">=0.24"
-dyn-stack = ">=0.13"
-ndarray = ">=0.16"
-ndrustfft = ">=0.5"
-mendeleev = { version = ">=0.8", default-features = false, features = ["atomic_number", "symbol", "element_list"] }
-num-complex = ">=0.4"
-puruspe = ">=0.4"
-rayon = ">=1.11"
-serde = { version = ">=1", features = ["derive"] }
-serde_yaml_ng = ">=0.10"
-thiserror = ">=2"
-clap = { version = ">=4", features = ["derive"] }
-log = ">=0.4"
-env_logger = ">=0.11"
-indicatif = ">=0.17"
-wgpu = { version = ">=24.0", optional = true }
-pollster = { version = ">=0.4", optional = true }
-bytemuck = { version = ">=1.14", features = ["derive"], optional = true }
-
-[dev-dependencies]
-criterion = { version = ">=0.5", features = ["html_reports"] }
-
-[[bench]]
-name = "scf_benchmarks"
-harness = false
-
-[[bench]]
-name = "gpu_benchmarks"
-harness = false
-required-features = ["gpu"]
-
-[lints.clippy]
+[workspace.lints.clippy]
 # Bug prevention
 float_cmp = "warn"
 # Performance
@@ -68,38 +44,17 @@ unnecessary_box_returns = "warn"
 unnecessary_wraps = "warn"
 
 # --- CAST audit: numeric cast correctness lints ---
-# Every `as` cast that hits one of these must either be rewritten with
-# `try_from` / `u64::from` / explicit saturation, or carry
-# `#[allow(clippy::cast_..., reason = "...")]` documenting the invariant.
-# Module-level allows preferred over file-level so future casts still get flagged.
 cast_possible_truncation = "warn"
 cast_possible_wrap = "warn"
 cast_sign_loss = "warn"
 
 # --- ERR2 Phase 0: panic-family enforcement in production code ---
-# `warn` (not `deny`) so the pre-PR `-D warnings` clippy gate still blocks
-# regressions while individual surviving sites can carry a line-level
-# `#[allow(clippy::expect_used, reason = "BUG: <invariant>")]` following CAST's
-# discipline. Tests in `src/` (inside `mod tests`) and all of `tests/` and
-# `benches/` carry module- or file-level `#[allow]` banners — tests are allowed
-# to panic.
-# P3 (3-month soak) may promote `unwrap_used` to `deny` once production
-# conversions land in P1/P2. See proposals/ERR2-panic-free-production-audit.md.
 unwrap_used = "warn"
 expect_used = "warn"
 panic = "warn"
 
 # --- CLSS: lossless-cast + doc hygiene ---
-# `cast_lossless` catches `x as f64` on types that have a `From<T> for f64`
-# impl (i8/i16/i32/u8/u16/u32/f32). Prefer `f64::from(x)` so the cast breaks
-# at compile time if the source widens to an i64/u64. Distinct from
-# `cast_precision_loss` (intentionally unset) which flags `usize → f64`.
 cast_lossless = "warn"
-# Public `fn -> Result<...>` must have a `# Errors` section describing which
-# variant fires when. Public panicking functions must have a `# Panics`
-# section (or an `#[expect(clippy::missing_panics_doc, reason = "...")]`
-# when the panic is unreachable under crate invariants, matching ERR2's
-# documented-invariant pattern).
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 
@@ -107,35 +62,14 @@ missing_panics_doc = "warn"
 opt-level = 3
 lto = "thin"
 
-# All dependencies compile at O3 in dev builds. The local pwdft-rs crate
-# stays at the dev default opt-level=0 for fast incremental rebuilds.
-# Tests inherit these dep artifacts (see [profile.test] below), so we
-# compile each dep exactly once at O3 and reuse it for cargo build,
-# cargo check, and cargo test.
+# All dependencies compile at O3 in dev builds. The local crates
+# stay at the dev default opt-level=0 for fast incremental rebuilds.
 [profile.dev.package."*"]
 opt-level = 3
 
-# TPRF: the local crate is compiled at O3 under the test profile. Dev
-# profile keeps the crate at O0 for fast incremental rebuilds. The
-# package.*.opt-level=3 entry below is explicit (not inherited) because
-# cargo's profile inheritance does NOT carry package-specific overrides —
-# but the values match `[profile.dev.package."*"]` above, so cargo
-# fingerprints the dep artifacts as identical and reuses them between
-# dev and test profiles. `debug-assertions` stays on (inherited from
-# dev) — safety checks still fire in tests.
+# TPRF: local crates are compiled at O3 under the test profile.
 [profile.test]
 opt-level = 3
 
 [profile.test.package."*"]
 opt-level = 3
-
-# Vendored faer with the MAX_REORTH = 3 `iterate_lanczos` fix (see
-# docs/FAER_ITERATE_LANCZOS_FIX.md). Resolved relative to this Cargo.toml,
-# so worktrees pick up the vendored copy automatically once they pull
-# faer/ from their branch. Both `faer` and `faer-traits` are published on
-# crates.io and both need patching — our dep tree pulls `faer-traits` in
-# transitively and cargo refuses to have two versions (vendored vs. 0.24)
-# of a shared trait crate.
-[patch.crates-io]
-faer = { path = "./faer/faer" }
-faer-traits = { path = "./faer/faer-traits" }

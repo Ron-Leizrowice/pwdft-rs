@@ -1,0 +1,28 @@
+[package]
+name = "pwdft-benches"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[features]
+default = []
+gpu = ["pwdft-core/gpu"]
+
+[dependencies]
+pwdft-core = { path = "../pwdft-core" }
+criterion = { version = ">=0.5", features = ["html_reports"] }
+nalgebra = ">=0.34"
+num-complex = ">=0.4"
+faer = { workspace = true }
+
+[[bench]]
+name = "scf_benchmarks"
+harness = false
+
+[[bench]]
+name = "gpu_benchmarks"
+harness = false
+required-features = ["gpu"]
+
+[lints]
+workspace = true

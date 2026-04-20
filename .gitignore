@@ -2,12 +2,12 @@
 
 # Vendored faer (see docs/FAER_ITERATE_LANCZOS_FIX.md). Track source only;
 # build artifacts and upstream-CI dotfiles stay local.
-faer/target/
-faer/.git/
-faer/.claude/
-faer/*.out
-faer/*.pdf
-faer/compile_commands.json
+pwdft/faer/target/
+pwdft/faer/.git/
+pwdft/faer/.claude/
+pwdft/faer/*.out
+pwdft/faer/*.pdf
+pwdft/faer/compile_commands.json
 
 # Override global gitignore for project-specific .claude config
 !.claude/
@@ -15,14 +15,27 @@ faer/compile_commands.json
 .claude/settings.local.json
 .claude/locks/*.lock
 .claude/locks/*.lock.d/
+
+# Scratch QE build tree, browser partials, archives.
 qe-7.5/
-# Ignore untracked scratch under scripts/ but keep committed validation helpers.
-scripts/*
-!scripts/validate/
 *.tar.gz
 *.tgz
-
-# Partial browser downloads
 Unconfirmed*
 *.crdownload
 *.part
+
+# outputs/ is a scratch dir for SCF runs; keep the dir (via .gitkeep) but
+# ignore everything else.
+outputs/*
+!outputs/.gitkeep
+
+# Python tooling (uv / hatchling) for validation package.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+validation/.venv/
+validation/dist/
+validation/build/
+validation/*.egg-info/
