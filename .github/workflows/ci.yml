@@ -4,8 +4,8 @@ on:
   pull_request:
 
 jobs:
-  clippy:
-    name: Clippy
+  rust:
+    name: Rust (clippy + test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -16,7 +16,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Scope clippy to our own crates. The vendored faer group
+      # Scope to our own crates. The vendored faer group
       # (faer, faer-traits, faer-macros, faer-ffi) is upstream code —
       # we track it for local patches, not to gate on its lints.
       - name: clippy (default features)
@@ -24,6 +24,14 @@ jobs:
 
       - name: clippy (gpu feature)
         run: cargo clippy -q -p pwdft-core --all-targets --features gpu
+
+      - name: cargo test (tier 1)
+        run: cargo test -q -p pwdft-core
+
+      - name: rustdoc (warnings deny)
+        run: cargo doc --no-deps -p pwdft-core
+        env:
+          RUSTDOCFLAGS: "-D warnings"
 
   validation:
     name: Python (validation)
