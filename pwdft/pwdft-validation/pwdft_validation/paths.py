@@ -13,9 +13,9 @@ from pyprojroot import find_root, has_file
 
 PROJECT_ROOT = find_root(has_file("uv.lock"))
 
-DATA_DIR: Path = PROJECT_ROOT / "validation"
-QE_REF_DIR: Path = DATA_DIR / "reference" / "qe"
-CSV_REF_DIR: Path = DATA_DIR / "reference" / "csv"
+DATA_DIR: Path = PROJECT_ROOT / "data"
+QE_REF_DIR: Path = DATA_DIR / "qe"
+CSV_REF_DIR: Path = DATA_DIR / "csv"
 
 PSEUDO_DIR: Path = PROJECT_ROOT / "pseudopotentials"
 INPUTS_DIR: Path = PROJECT_ROOT / "inputs"

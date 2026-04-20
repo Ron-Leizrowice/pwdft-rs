@@ -28,9 +28,6 @@ jobs:
   validation:
     name: Python (validation)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: validation
     steps:
       - uses: actions/checkout@v6
 

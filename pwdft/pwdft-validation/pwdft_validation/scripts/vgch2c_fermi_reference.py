@@ -13,7 +13,7 @@ using:
 Bisection on Σ_ik w_k · spin_factor · f_ik = N_el.
 
 For the Cu FCC reference:
- - Reads `validation/reference/qe/cu_fcc_scf.out`.
+ - Reads `data/qe/cu_fcc_scf.out`.
  - nspin = 1 → spin_factor = 2; wk-sum = 2 per QE convention.
  - Cu N_el = 19.
 
@@ -26,8 +26,8 @@ to μeV, pwdft-rs' `find_fermi_energy` is numerically correct. Differences
 between the three smearing columns cap the maximum effect of H-C3.
 
 Usage:
-    uv run validation/src/pwdft_validation/scripts/vgch2c_fermi_reference.py \\
-        > validation/reference/csv/vgch2c_fermi_reference.csv
+    uv run pwdft/pwdft-validation/pwdft_validation/scripts/vgch2c_fermi_reference.py \\
+        > data/csv/vgch2c_fermi_reference.csv
 
 Source cross-refs:
     qe-7.5/PW/src/efermig.f90 (bisection + Newton)

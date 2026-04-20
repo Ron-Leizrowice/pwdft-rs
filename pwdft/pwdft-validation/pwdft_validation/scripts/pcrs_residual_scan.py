@@ -27,13 +27,13 @@ Generates YAML configs for Si SCF at a sweep of conv_threshold values
 
     conv_threshold | iters | E_total | E_sum | |E_sum - E_total|
 
-Also computes QE's own identity closure from `validation/reference/qe/si_scf.out`
+Also computes QE's own identity closure from `data/qe/si_scf.out`
 (one_electron + hartree + xc + ewald = internal_E) as the reference.
 
 Usage
 -----
     cd .claude/worktrees/<YOUR_WORKTREE>
-    uv run validation/src/pwdft_validation/scripts/pcrs_residual_scan.py
+    uv run pwdft/pwdft-validation/pwdft_validation/scripts/pcrs_residual_scan.py
 
 Requires the machine lock for cargo commands. This script acquires it
 itself via `.claude/bin/machine-lock` if present; otherwise runs raw.
@@ -60,7 +60,7 @@ RY_TO_EV = 13.605_693_122_994
 # ---------------------------------------------------------------------------
 
 SI_YAML_TEMPLATE = """\
-# PCRS Si SCF scan; matches validation/reference/qe/si_scf.in parameters.
+# PCRS Si SCF scan; matches data/qe/si_scf.in parameters.
 # a = 5.431 A, ecutwfc = 15 Ry = 204.085 eV, 4x4x4 MP, FD smearing.
 
 system:

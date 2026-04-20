@@ -1,8 +1,8 @@
 //! VGCMP Phase 2 — cross-check pwdft-core KB non-local projector form factors
 //! β_l(q) against an independent Python reference for Si (ONCVPSP LDA).
 //!
-//! Compiles and consumes `validation/src/pwdft_validation/scripts/beta_q_si_reference.csv`, generated
-//! by `validation/src/pwdft_validation/scripts/beta_q_reference.py`. The reference computes, for each
+//! Compiles and consumes `pwdft/pwdft-validation/pwdft_validation/scripts/beta_q_si_reference.csv`, generated
+//! by `pwdft/pwdft-validation/pwdft_validation/scripts/beta_q_reference.py`. The reference computes, for each
 //! UPF β-projector and 20 q-values in [0.1, 7.0] Bohr⁻¹,
 //!
 //!     F_l(q) = 4π · ∫ χ(r) · j_l(q·r) · r dr
@@ -48,7 +48,7 @@ use pwdft_core::{
     pseudopotential::{PseudopotentialData, load},
 };
 
-const CSV_REL_PATH: &str = "validation/reference/csv/beta_q_si_reference.csv";
+const CSV_REL_PATH: &str = "data/csv/beta_q_si_reference.csv";
 const UPF_REL_PATH: &str = "pseudopotentials/nc/lda/Si.upf";
 
 /// Per-row tolerance in Bohr^(3/2). Phase 1 achieved ~1e-9 Ry via the same
@@ -172,7 +172,7 @@ fn vgcmp_phase2_beta_q_matches_python_reference() {
     let Some(rows) = load_reference_csv(&csv_path) else {
         eprintln!(
             "VGCMP Phase 2: reference CSV not found at {} — skipping cross-check.\n\
-             (Run `uv run validation/src/pwdft_validation/scripts/beta_q_reference.py` to regenerate.)",
+             (Run `uv run pwdft/pwdft-validation/pwdft_validation/scripts/beta_q_reference.py` to regenerate.)",
             csv_path.display()
         );
         return;

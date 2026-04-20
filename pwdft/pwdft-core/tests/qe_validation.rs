@@ -3,8 +3,8 @@
 //!
 //! All QE runs use PseudoDojo ONCV NC/LDA pseudopotentials (same PPs as
 //! pwdft-core), Fermi-Dirac smearing, Monkhorst-Pack k-grids. Reference inputs
-//! and `pw.x` outputs live in `validation/reference/qe/`; machine-readable reference
-//! values are in `validation/reference/qe/reference_data.toml`.
+//! and `pw.x` outputs live in `data/qe/`; machine-readable reference
+//! values are in `data/qe/reference_data.toml`.
 //!
 //! Layout of this file:
 //!   * Helpers: `fcc_crystal`, `bcc_crystal`, `run_qe_comparison`,
@@ -47,7 +47,7 @@
 //! across one-electron sum and Hartree with opposite signs — signature
 //! of a different converged density, not a form-factor bug.
 //! V_local(G=0) Z-scaling and Ewald for large Z are both ruled out (see
-//! `validation/src/pwdft_validation/scripts/vgch_vloc_heavy.py` pinning V_local(G=0) on every
+//! `pwdft/pwdft-validation/pwdft_validation/scripts/vgch_vloc_heavy.py` pinning V_local(G=0) on every
 //! heavy-atom PP to the last printed digit, and `test_fe_bcc_ewald_vs_qe`
 //! which stays green at <0.01 eV). The continuing investigation is
 //! tracked under VGCH Phase 1b (mixer / initial-density / non-local
@@ -209,7 +209,7 @@ fn run_qe_comparison(cfg: &QeComparisonConfig<'_>) -> PwdftResult<ScfResult> {
     let ecut_ev = cfg.ecut_ry * RY_TO_EV;
     let basis = BasisSet::new(&cfg.crystal.lattice, ecut_ev);
     // MPSH: match QE's `K_POINTS automatic / Nx Ny Nz 0 0 0` by sampling on
-    // a Γ-centered grid. Every reference input under `validation/reference/qe/*.in`
+    // a Γ-centered grid. Every reference input under `data/qe/*.in`
     // uses `0 0 0`.
     let kpts = kpoints::monkhorst_pack(
         cfg.nk,
@@ -392,7 +392,7 @@ fn report_gamma_eigenvalues(label: &str, result: &ScfResult, qe_eigs_ev: &[f64])
 
 /// Si diamond total energy vs QE (FCC, 2 atoms, LDA insulator).
 ///
-/// QE ref (validation/reference/qe/si_scf.in): E = -17.022_993_44 Ry,
+/// QE ref (data/qe/si_scf.in): E = -17.022_993_44 Ry,
 /// E_F = 6.3449 eV, converges in 7 iters.
 ///
 /// Post-TSEN baseline (Γ-centered grid matching QE, `total_energy`
@@ -425,7 +425,7 @@ fn test_si_diamond_energy_vs_qe() {
         nk: 4,
         n_bands: 8,
         // BSUM gate: Si LDA 4×4×4 at ecut=15 Ry. See QE reference
-        // `validation/reference/qe/reference_data.toml::si_diamond.one_electron_ry`.
+        // `data/qe/reference_data.toml::si_diamond.one_electron_ry`.
         one_electron_qe_ry: Some(4.867_446_32),
         ..QeComparisonConfig::new(&crystal, vec![&pp_si])
     };
@@ -1176,9 +1176,9 @@ fn test_fe_bcc_ewald_vs_qe() {
 ///
 /// End-to-end PBE SCF cross-check. GGAP Phase A.1 wired the driver-side
 /// ∇ρ FFT + semilocal V_xc assembly; GGAP F-pre (PR #154) pre-generated
-/// the QE reference at `validation/reference/qe/si_scf_pbe.in`.
+/// the QE reference at `data/qe/si_scf_pbe.in`.
 ///
-/// QE reference (see `validation/reference/qe/reference_data.toml::si_diamond_pbe`):
+/// QE reference (see `data/qe/reference_data.toml::si_diamond_pbe`):
 /// PseudoDojo ONCV NC/PBE v0.4 `.standard` Si.upf, ecut = 24 Ry, 4×4×4
 /// Γ-centered, degauss = 0.01 Ry:
 ///   `E_total = -16.91056535 Ry ≈ -230.0896 eV`
@@ -1205,7 +1205,7 @@ fn test_si_pbe_non_spin_vs_qe() {
     let pp_si = load_pp_pbe("Si");
 
     let cfg = QeComparisonConfig {
-        ecut_ry: 24.0, // matches validation/reference/qe/si_scf_pbe.in
+        ecut_ry: 24.0, // matches data/qe/si_scf_pbe.in
         nk: 4,
         n_bands: 8,
         xc_functional: XcFunctional::Pbe,
@@ -1232,7 +1232,7 @@ fn test_si_pbe_non_spin_vs_qe() {
         pbe_calls_after - pbe_calls_before,
     );
 
-    // QE PBE reference, see validation/reference/qe/reference_data.toml.
+    // QE PBE reference, see data/qe/reference_data.toml.
     let qe_total_ry = -16.910_565_35_f64;
     // Tolerance 20 meV = observed 12.4 meV + ~60% margin (GGAP F-light).
     assert_energy_matches_qe("Si-PBE", &result, qe_total_ry, 0.020);
@@ -1244,8 +1244,8 @@ fn test_si_pbe_non_spin_vs_qe() {
 
 /// Fe BCC FM PBE vs QE (Tier-2 spin-polarized GGA validation — GGAP Phase D).
 ///
-/// QE ref (`validation/reference/qe/fe_bcc_fm_scf_pbe.{in,out}`, see
-/// `validation/reference/qe/reference_data.toml::fe_bcc_fm_pbe`):
+/// QE ref (`data/qe/fe_bcc_fm_scf_pbe.{in,out}`, see
+/// `data/qe/reference_data.toml::fe_bcc_fm_pbe`):
 /// `E_total = −250.538_358_24 Ry = −3408.7480 eV`, `E_F = 17.82 eV`,
 /// `M = 2.34 μB/cell`, ecut = 60 Ry, 8×8×8 k-grid, converges in 13 iters.
 /// Unlike the LDA reference (which collapses to non-magnetic at ecut=15
@@ -1280,7 +1280,7 @@ fn test_fe_bcc_fm_pbe_vs_qe() {
     starting_mag.insert("Fe".to_string(), 0.5);
 
     let cfg = QeComparisonConfig {
-        ecut_ry: 60.0, // matches validation/reference/qe/fe_bcc_fm_scf_pbe.in
+        ecut_ry: 60.0, // matches data/qe/fe_bcc_fm_scf_pbe.in
         nk: 8,
         n_bands: 12,
         mixing: MixingMode::Kerker { q_tf: None },
@@ -1346,7 +1346,7 @@ fn test_fe_bcc_fm_pbe_vs_qe() {
 // Each test below mirrors its LDA sibling's cell / k-grid / mixer choice and
 // simply swaps in the PseudoDojo NC/PBE PP and `XcFunctional::Pbe`. Ecut is
 // pinned to the PseudoDojo `.standard` recommendation for each species-max
-// (matches `validation/reference/qe/reference_data.toml::*_pbe.ecutwfc_ry` exactly so
+// (matches `data/qe/reference_data.toml::*_pbe.ecutwfc_ry` exactly so
 // both codes work at the same basis-converged cutoff).
 //
 // VQEF scoreboard contract: GREEN (<= 20 meV) drops `#[ignore]` and tightens
@@ -1361,8 +1361,8 @@ fn test_fe_bcc_fm_pbe_vs_qe() {
 
 /// Al FCC PBE vs QE (simple metal; GGAP Phase F-light).
 ///
-/// QE ref (`validation/reference/qe/al_fcc_scf_pbe.{in,out}`, see
-/// `validation/reference/qe/reference_data.toml::al_fcc_pbe`):
+/// QE ref (`data/qe/al_fcc_scf_pbe.{in,out}`, see
+/// `data/qe/reference_data.toml::al_fcc_pbe`):
 /// PseudoDojo ONCV NC/PBE v0.4 `.standard` Al.upf, ecut = 24 Ry,
 /// 8×8×8 Γ-centered, degauss = 0.02 Ry, local-TF mixing, 6 iters.
 ///   `E_total = -4.636_581_33 Ry = -63.0839 eV`, `E_F = 7.8038 eV`.
@@ -1386,7 +1386,7 @@ fn test_al_fcc_pbe_vs_qe() {
     let pp_al = load_pp_pbe("Al");
 
     let cfg = QeComparisonConfig {
-        ecut_ry: 24.0, // matches validation/reference/qe/al_fcc_scf_pbe.in
+        ecut_ry: 24.0, // matches data/qe/al_fcc_scf_pbe.in
         nk: 8,
         n_bands: 6,
         mixing: MixingMode::Kerker { q_tf: None },
@@ -1407,8 +1407,8 @@ fn test_al_fcc_pbe_vs_qe() {
 
 /// C diamond PBE vs QE (wide-gap insulator; GGAP Phase F-light).
 ///
-/// QE ref (`validation/reference/qe/c_diamond_scf_pbe.{in,out}`, see
-/// `validation/reference/qe/reference_data.toml::c_diamond_pbe`):
+/// QE ref (`data/qe/c_diamond_scf_pbe.{in,out}`, see
+/// `data/qe/reference_data.toml::c_diamond_pbe`):
 /// PseudoDojo ONCV NC/PBE v0.4 `.standard` C.upf, ecut = 36 Ry,
 /// 4×4×4 Γ-centered, degauss = 0.01 Ry, 15 iters.
 ///   `E_total = -23.934_297_85 Ry = -325.6427 eV`, `E_F = 15.7827 eV`.
@@ -1439,7 +1439,7 @@ fn test_c_diamond_pbe_vs_qe() {
     let pp_c = load_pp_pbe("C");
 
     let cfg = QeComparisonConfig {
-        ecut_ry: 36.0, // matches validation/reference/qe/c_diamond_scf_pbe.in
+        ecut_ry: 36.0, // matches data/qe/c_diamond_scf_pbe.in
         nk: 4,
         n_bands: 8,
         mixing: MixingMode::Broyden { kerker: true },
@@ -1464,8 +1464,8 @@ fn test_c_diamond_pbe_vs_qe() {
 
 /// Cu FCC PBE vs QE (transition metal with 3s/3p/3d semicore; GGAP Phase F-light).
 ///
-/// QE ref (`validation/reference/qe/cu_fcc_scf_pbe.{in,out}`, see
-/// `validation/reference/qe/reference_data.toml::cu_fcc_pbe`):
+/// QE ref (`data/qe/cu_fcc_scf_pbe.{in,out}`, see
+/// `data/qe/reference_data.toml::cu_fcc_pbe`):
 /// PseudoDojo ONCV NC/PBE v0.4 `.standard` Cu.upf, ecut = 60 Ry,
 /// 8×8×8 Γ-centered, degauss = 0.02 Ry, local-TF mixing, 11 iters.
 ///   `E_total = -378.986_716_46 Ry = -5156.3770 eV`, `E_F = 17.4696 eV`.
@@ -1486,7 +1486,7 @@ fn test_cu_fcc_pbe_vs_qe() {
     let pp_cu = load_pp_pbe("Cu");
 
     let cfg = QeComparisonConfig {
-        ecut_ry: 60.0, // matches validation/reference/qe/cu_fcc_scf_pbe.in
+        ecut_ry: 60.0, // matches data/qe/cu_fcc_scf_pbe.in
         nk: 8,
         n_bands: 14,
         mixing: MixingMode::Kerker { q_tf: None },
@@ -1502,8 +1502,8 @@ fn test_cu_fcc_pbe_vs_qe() {
 
 /// GaAs zincblende PBE vs QE (III-V semiconductor, two heavy species; GGAP Phase F-light).
 ///
-/// QE ref (`validation/reference/qe/gaas_scf_pbe.{in,out}`, see
-/// `validation/reference/qe/reference_data.toml::gaas_zincblende_pbe`):
+/// QE ref (`data/qe/gaas_scf_pbe.{in,out}`, see
+/// `data/qe/reference_data.toml::gaas_zincblende_pbe`):
 /// PseudoDojo ONCV NC/PBE v0.4 `.standard` Ga.upf + As.upf, ecut = 44 Ry,
 /// 4×4×4 Γ-centered, degauss = 0.01 Ry, 11 iters.
 ///   `E_total = -361.078_863_91 Ry = -4912.7282 eV`, `E_F = 9.0818 eV`.
@@ -1529,7 +1529,7 @@ fn test_gaas_zincblende_pbe_vs_qe() {
     let pp_as = load_pp_pbe("As");
 
     let cfg = QeComparisonConfig {
-        ecut_ry: 44.0, // matches validation/reference/qe/gaas_scf_pbe.in
+        ecut_ry: 44.0, // matches data/qe/gaas_scf_pbe.in
         nk: 4,
         n_bands: 18,
         xc_functional: XcFunctional::Pbe,
@@ -1543,8 +1543,8 @@ fn test_gaas_zincblende_pbe_vs_qe() {
 
 /// NaCl rocksalt PBE vs QE (ionic insulator; GGAP Phase F-light).
 ///
-/// QE ref (`validation/reference/qe/nacl_scf_pbe.{in,out}`, see
-/// `validation/reference/qe/reference_data.toml::nacl_rocksalt_pbe`):
+/// QE ref (`data/qe/nacl_scf_pbe.{in,out}`, see
+/// `data/qe/reference_data.toml::nacl_rocksalt_pbe`):
 /// PseudoDojo ONCV NC/PBE v0.4 `.standard` Na.upf + Cl.upf, ecut = 36 Ry,
 /// 4×4×4 Γ-centered, degauss = 0.01 Ry, 8 iters.
 ///   `E_total = -123.159_525_87 Ry = -1675.6707 eV`, `E_F = 3.9131 eV`.
@@ -1569,7 +1569,7 @@ fn test_nacl_rocksalt_pbe_vs_qe() {
     let pp_cl = load_pp_pbe("Cl");
 
     let cfg = QeComparisonConfig {
-        ecut_ry: 36.0, // matches validation/reference/qe/nacl_scf_pbe.in
+        ecut_ry: 36.0, // matches data/qe/nacl_scf_pbe.in
         nk: 4,
         n_bands: 12,
         xc_functional: XcFunctional::Pbe,
@@ -1583,8 +1583,8 @@ fn test_nacl_rocksalt_pbe_vs_qe() {
 
 /// MgO rocksalt PBE vs QE (wide-gap ionic insulator, Mg 2s/2p semicore; GGAP Phase F-light).
 ///
-/// QE ref (`validation/reference/qe/mgo_scf_pbe.{in,out}`, see
-/// `validation/reference/qe/reference_data.toml::mgo_rocksalt_pbe`):
+/// QE ref (`data/qe/mgo_scf_pbe.{in,out}`, see
+/// `data/qe/reference_data.toml::mgo_rocksalt_pbe`):
 /// PseudoDojo ONCV NC/PBE v0.4 `.standard` Mg.upf + O.upf, ecut = 48 Ry,
 /// 4×4×4 Γ-centered, degauss = 0.01 Ry, 8 iters.
 ///   `E_total = -151.672_241_44 Ry = -2063.6060 eV`, `E_F = 10.5529 eV`.
@@ -1614,7 +1614,7 @@ fn test_mgo_rocksalt_pbe_vs_qe() {
     let pp_o = load_pp_pbe("O");
 
     let cfg = QeComparisonConfig {
-        ecut_ry: 48.0, // matches validation/reference/qe/mgo_scf_pbe.in
+        ecut_ry: 48.0, // matches data/qe/mgo_scf_pbe.in
         nk: 4,
         n_bands: 10,
         xc_functional: XcFunctional::Pbe,

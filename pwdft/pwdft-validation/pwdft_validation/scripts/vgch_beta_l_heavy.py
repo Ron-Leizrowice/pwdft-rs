@@ -22,12 +22,12 @@ same F_l(q) in pwdft-rs' internal Å convention (Å^{3/2}) after the
 `1/√BOHR_TO_ANG` conversion applied in
 `src/pseudopotential/upf/convert.rs::parse_body`.
 
-This mirrors the already-landed `validation/src/pwdft_validation/scripts/beta_q_reference.py`
+This mirrors the already-landed `pwdft/pwdft-validation/pwdft_validation/scripts/beta_q_reference.py`
 (which covers only Si) but extends to the 9 VGCH-scope elements and uses
 the QE-style `Σ c_i·f_i·rab_i` quadrature — byte-identical to both QE's
 `qe-7.5/upflib/simpsn.f90` and pwdft-rs' `src/numerics.rs::simpson_integrate`.
 
-The resulting CSV at `validation/reference/csv/vgch_beta_l_heavy.csv` is then
+The resulting CSV at `data/csv/vgch_beta_l_heavy.csv` is then
 consumed by a Rust integration test (`tests/vgch_beta_l_heavy.rs`) that
 pins `NonlocalPotential`'s form-factor output against this reference to
 1e-8 Bohr^{3/2} (QE's printed `tab_beta` precision).

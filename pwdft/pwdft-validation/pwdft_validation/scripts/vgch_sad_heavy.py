@@ -37,7 +37,7 @@ reproducing the QE `atomic_rho.f90` pipeline:
 
   4. Compute shell-average ρ(r) vs r around each atom by binning
      grid points by distance-to-atom (minimum image convention).
-     Write `validation/reference/csv/vgch_sad_heavy.csv` with rows
+     Write `data/csv/vgch_sad_heavy.csv` with rows
      `(system, atom_label, r_bin_center_ang, rho_avg_e_per_ang3,
      n_bin_points)`.
 
@@ -64,7 +64,7 @@ Key design choices:
     H2 is cleared — the bug is either in the mixer basin (H3) or in
     the energy-assembly code (V_loc(G=0) compensation).
 
-The 7 VGCH systems mirror `validation/reference/qe/*.in`. GaAs, NaCl, MgO are
+The 7 VGCH systems mirror `data/qe/*.in`. GaAs, NaCl, MgO are
 two-species; others are one-species.
 """
 
@@ -83,7 +83,7 @@ BOHR_TO_ANG = 0.529_177_210_903
 
 
 # ---------------------------------------------------------------------------
-# System registry — mirrors `validation/reference/qe/*.in` and
+# System registry — mirrors `data/qe/*.in` and
 # `tests/vgch_per_component_heavy.rs`. Grid dims are chosen small enough
 # to make shell-averaging well-sampled near the atom cores (nx·ny·nz ≈
 # a few thousand points per Å³ cell) while large enough to resolve the
@@ -123,7 +123,7 @@ SYSTEMS: list[SystemSpec] = [
     SystemSpec(
         name="c_diamond",
         lattice_type="fcc",
-        celldm1_bohr=6.7409,  # from validation/reference/qe/c_diamond_scf.in
+        celldm1_bohr=6.7409,  # from data/qe/c_diamond_scf.in
         atoms=[
             AtomSpec("C", (0.00, 0.00, 0.00)),
             AtomSpec("C", (0.25, 0.25, 0.25)),

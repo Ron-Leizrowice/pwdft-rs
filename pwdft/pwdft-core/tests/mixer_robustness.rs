@@ -107,7 +107,7 @@ fn test_plain_anderson_stalls_on_c_diamond() {
     let ecut_ev = ecut_ry * RY_TO_EV;
     let basis = BasisSet::new(&crystal.lattice, ecut_ev);
     // Γ-centered 4×4×4 — matches QE's `K_POINTS automatic / 4 4 4 0 0 0`
-    // in validation/reference/qe/c_scf.in. The stall is specific to this FFT-grid
+    // in data/qe/c_scf.in. The stall is specific to this FFT-grid
     // / gap / mixer combination; changing the grid shift or k-density may
     // alter the failure mode.
     let kpts = kpoints::monkhorst_pack(

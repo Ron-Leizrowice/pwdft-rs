@@ -44,7 +44,7 @@ Layout:
             QE's normalization, matches pwdft-rs' (1/N) forward-FFT)
 
 Usage:
-    uv run validation/src/pwdft_validation/scripts/vgch2_parse_qe_density.py \\
+    uv run pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py \\
         --rho path/to/prefix.save/charge-density.dat \\
         --out path/to/cu_rho_qe.bin
 

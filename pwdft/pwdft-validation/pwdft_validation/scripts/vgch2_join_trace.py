@@ -3,7 +3,7 @@
 
 Reads two inputs:
 
-- ``validation/reference/csv/vgch2_per_term_trace.csv``
+- ``data/csv/vgch2_per_term_trace.csv``
   (produced by ``vgch2_per_term_trace.py``; columns
    ``system, term_name, qe_value_ry, qe_value_eV``)
 - ``target/tmp/vgch2_per_term_trace_pwdft.csv``

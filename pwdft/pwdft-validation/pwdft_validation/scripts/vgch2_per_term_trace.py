@@ -18,12 +18,12 @@ Columns:
     system, term_name, qe_value_ry, qe_value_eV
 
 Systems covered (8): Si, C diamond, Al, Fe BCC (nspin=2 FM), Cu FCC,
-GaAs, NaCl, MgO. Reads from the checked-in ``validation/reference/qe/<system>.out``
+GaAs, NaCl, MgO. Reads from the checked-in ``data/qe/<system>.out``
 files; does NOT rerun QE.
 
 Usage:
-    uv run validation/src/pwdft_validation/scripts/vgch2_per_term_trace.py \\
-        > validation/reference/csv/vgch2_per_term_trace.csv
+    uv run pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_per_term_trace.py \\
+        > data/csv/vgch2_per_term_trace.csv
 
 Cross-references QE source lines that print these fields:
     qe-7.5/PW/src/electrons.f90:1612-1621 (print_energies).
@@ -41,7 +41,7 @@ from pathlib import Path
 
 RY_TO_EV = 13.605_693_122_994
 
-# System -> QE output filename stem under validation/reference/qe/.
+# System -> QE output filename stem under data/qe/.
 SYSTEMS: list[tuple[str, str]] = [
     ("Si", "si_scf"),
     ("C_diamond", "c_diamond_scf"),

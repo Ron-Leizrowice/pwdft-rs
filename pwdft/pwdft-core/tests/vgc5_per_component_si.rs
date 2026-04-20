@@ -1,10 +1,10 @@
 //! VGC5 (VGCMP Phase 5) — Per-component energy accounting.
 //!
 //! Runs Si diamond and Fe BCC SCF with the VGC5 parameters (matching
-//! `validation/reference/qe/si_scf.in` and `fe_bcc_fm_scf.in`) and:
+//! `data/qe/si_scf.in` and `fe_bcc_fm_scf.in`) and:
 //!
 //! 1. Prints the per-component decomposition (`EnergyComponents`) alongside
-//!    the QE reference values parsed from `validation/reference/qe/*.out`.
+//!    the QE reference values parsed from `data/qe/*.out`.
 //! 2. Pins the pwdft-core per-component values as regression guards.
 //!
 //! This is Phase 5 of the VGCMP audit: the pseudopotential -> Hamiltonian
@@ -92,7 +92,7 @@ struct QeReference {
 
 impl QeReference {
     fn si() -> Self {
-        // From validation/reference/qe/si_scf.out (see validation/src/pwdft_validation/scripts/vgc5_qe_si_components.csv).
+        // From data/qe/si_scf.out (see pwdft/pwdft-validation/pwdft_validation/scripts/vgc5_qe_si_components.csv).
         // Parsed: one-electron=4.86744632 Ry, hartree=1.11010670 Ry,
         //         xc=-6.20301507 Ry, ewald=-16.79667313 Ry,
         //         total=-17.02299344 Ry (includes -TS).
@@ -107,7 +107,7 @@ impl QeReference {
     }
 
     fn fe() -> Self {
-        // From validation/reference/qe/fe_bcc_fm_scf.out.
+        // From data/qe/fe_bcc_fm_scf.out.
         // one-electron=-50.85651213 Ry, hartree=26.64115855 Ry,
         // xc=-28.90402134 Ry, ewald=-171.77906580 Ry,
         // total=-224.91744934 Ry.
@@ -221,7 +221,7 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
 
 /// VGC5 Si diamond per-component audit.
 ///
-/// Matches `validation/reference/qe/si_scf.in` parameters:
+/// Matches `data/qe/si_scf.in` parameters:
 ///   a = 5.431 Å, ecutwfc = 15 Ry = 204.085 eV, 4×4×4 MP, FD smearing
 ///   degauss = 0.01 Ry, conv_thr = 1e-8.
 ///
@@ -331,7 +331,7 @@ fn vgc5_si_per_component() {
 
 /// VGC5 Fe BCC per-component audit.
 ///
-/// Matches `validation/reference/qe/fe_bcc_fm_scf.in` parameters:
+/// Matches `data/qe/fe_bcc_fm_scf.in` parameters:
 ///   a = 2.87 Å, ecutwfc = 15 Ry, 8×8×8 MP, FD smearing degauss = 0.02 Ry,
 ///   nspin = 2 with starting_magnetization(Fe) = 0.5.
 ///

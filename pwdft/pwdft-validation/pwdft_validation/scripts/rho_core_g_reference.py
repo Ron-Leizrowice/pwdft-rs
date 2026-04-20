@@ -217,7 +217,7 @@ def main() -> int:
             "lattice": "bcc",
         },
         # TRV2 Finding #3 — Cu FCC covers the 3s/3p/3d semicore edge case
-        # (Z_val=19).  Lattice constant matches `validation/reference/qe/cu_fcc_scf.in`:
+        # (Z_val=19).  Lattice constant matches `data/qe/cu_fcc_scf.in`:
         # celldm(1) = 6.8219 Bohr = 3.6100 Å.
         {
             "name": "cu",

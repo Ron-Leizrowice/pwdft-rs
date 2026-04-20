@@ -262,8 +262,8 @@ Multiple agents share this machine. The machine lock exists for **benchmark inte
 
 **What requires the lock:**
 - `cargo test`, `cargo bench`, `cargo build`, `cargo clippy` — any cargo command that compiles or runs code.
-- **Any Quantum ESPRESSO run:** `pw.x`, `mpirun pw.x`, `ph.x`, `pp.x`, `bands.x`, `projwfc.x`, `q2r.x`, `matdyn.x`, `dos.x` — whether it's a one-off reference calculation, a validation against `validation/reference/qe/`, or regeneration of reference data. QE is multi-threaded/multi-process and saturates the CPU; running it during a benchmark window corrupts the numbers.
-- Any other long-running CPU-bound job (Python scripts under `validation/src/pwdft_validation/scripts/` that spin up BLAS, etc.).
+- **Any Quantum ESPRESSO run:** `pw.x`, `mpirun pw.x`, `ph.x`, `pp.x`, `bands.x`, `projwfc.x`, `q2r.x`, `matdyn.x`, `dos.x` — whether it's a one-off reference calculation, a validation against `data/qe/`, or regeneration of reference data. QE is multi-threaded/multi-process and saturates the CPU; running it during a benchmark window corrupts the numbers.
+- Any other long-running CPU-bound job (Python scripts under `pwdft/pwdft-validation/pwdft_validation/scripts/` that spin up BLAS, etc.).
 
 **What does NOT require the lock:** reading files, editing code in worktrees, writing proposals, git operations, `machine-lock status`.
 

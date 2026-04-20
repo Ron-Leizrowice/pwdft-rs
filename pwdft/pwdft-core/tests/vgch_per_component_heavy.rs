@@ -26,8 +26,8 @@
 //! Per-term CSV emission (VGCH-2 Part A): every test writes rows to
 //! `<CARGO_TARGET_TMPDIR>/vgch2_per_term_trace_pwdft.csv` via the shared
 //! `write_pwdft_terms` helper. The Python script
-//! `validation/src/pwdft_validation/scripts/vgch2_per_term_trace.py` parses QE's equivalent
-//! from `validation/reference/qe/*.out`; the two CSVs are joined on
+//! `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_per_term_trace.py` parses QE's equivalent
+//! from `data/qe/*.out`; the two CSVs are joined on
 //! `(system, term_name)` for the PR-body comparison table.
 //!
 //! QE's printed decomposition (see `qe-7.5/PW/src/electrons.f90:1612-1621`)
@@ -78,7 +78,7 @@ const RY_TO_EV: f64 = 13.605_693_122_994;
 //
 // Each per-component test appends rows to
 // `<CARGO_TARGET_TMPDIR>/vgch2_per_term_trace_pwdft.csv` so
-// `validation/src/pwdft_validation/scripts/vgch2_per_term_trace.py` can join against QE.
+// `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_per_term_trace.py` can join against QE.
 // A static mutex serializes writes if cargo runs tests in parallel.
 
 static CSV_LOCK: Mutex<()> = Mutex::new(());
@@ -167,11 +167,11 @@ fn load_pp(element: &str) -> PseudopotentialData {
 }
 
 // ---------------------------------------------------------------------------
-// QE reference data (parsed from `validation/reference/qe/*.out`)
+// QE reference data (parsed from `data/qe/*.out`)
 // ---------------------------------------------------------------------------
 
 /// Per-term QE reference block in eV. Matches
-/// `validation/src/pwdft_validation/scripts/vgch2_per_term_trace.py` column order.
+/// `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_per_term_trace.py` column order.
 struct QeReference {
     total: f64,
     one_electron: f64,
@@ -352,7 +352,7 @@ fn vgch2_si_per_component() {
         ..default_heavy_params(8, MixingMode::Plain, 1)
     };
 
-    // QE: validation/reference/qe/si_scf.out — total=-17.02299344 Ry,
+    // QE: data/qe/si_scf.out — total=-17.02299344 Ry,
     // one-e=4.86744632, hartree=1.11010670, xc=-6.20301507, ewald=-16.79667313.
     let qe = QeReference::from_ry(
         -17.022_993_44,
@@ -396,7 +396,7 @@ fn vgch2_c_diamond_per_component() {
         ..default_heavy_params(8, MixingMode::Broyden { kerker: true }, 1)
     };
 
-    // QE: validation/reference/qe/c_diamond_scf.out — total=-23.84343910 Ry,
+    // QE: data/qe/c_diamond_scf.out — total=-23.84343910 Ry,
     // one-e=8.50287341, hartree=1.82838120, xc=-8.60280600, ewald=-25.57188769.
     let qe = QeReference::from_ry(
         -23.843_439_10,
@@ -430,7 +430,7 @@ fn vgch2_al_per_component() {
 
     let params = default_heavy_params(6, MixingMode::Kerker { q_tf: None }, 1);
 
-    // QE: validation/reference/qe/al_fcc_scf.out — total=-4.72724484 Ry,
+    // QE: data/qe/al_fcc_scf.out — total=-4.72724484 Ry,
     // one-e=2.88539588, hartree=0.00731666, xc=-2.22048340, ewald=-5.39205235.
     let qe = QeReference::from_ry(
         -4.727_244_84,
@@ -456,7 +456,7 @@ fn vgch2_al_per_component() {
 
 /// VGCH Phase 1a — Cu FCC per-component diagnostic.
 ///
-/// Matches `validation/reference/qe/cu_fcc_scf.in` cell (a=3.610 Å FCC, nspin=1)
+/// Matches `data/qe/cu_fcc_scf.in` cell (a=3.610 Å FCC, nspin=1)
 /// but runs at a reduced 4×4×4 k-grid + ecut=25 Ry to keep the test
 /// tractable. Prints the per-component decomposition alongside the QE
 /// reference. Used by VGCH Phase 1b + VGCH-2 to localize the ~16 eV
@@ -467,7 +467,7 @@ fn vgch2_al_per_component() {
 #[test]
 #[ignore = "VGCH Phase 1a diagnostic: Cu per-component run is intentionally slow; use `-- --ignored` to print the table"]
 fn vgch_cu_per_component() {
-    // FCC a = 6.8219 Bohr ≈ 3.610 Å (matches validation/reference/qe/cu_fcc_scf.in).
+    // FCC a = 6.8219 Bohr ≈ 3.610 Å (matches data/qe/cu_fcc_scf.in).
     let a_bohr = 6.8219_f64;
     let a_ang = a_bohr * 0.529_177_210_903;
     let crystal = fcc_crystal(a_ang, vec![Atom::new(29, [0.0, 0.0, 0.0])]);
@@ -475,7 +475,7 @@ fn vgch_cu_per_component() {
 
     let params = default_heavy_params(14, MixingMode::Kerker { q_tf: None }, 1);
 
-    // QE reference at 8×8×8 (from validation/reference/qe/cu_fcc_scf.out):
+    // QE reference at 8×8×8 (from data/qe/cu_fcc_scf.out):
     //   total = -356.73602869 Ry; one_e = -149.48760888 Ry;
     //   hartree = 76.47616676 Ry; xc = -41.09518682 Ry; ewald = -242.62085475 Ry.
     // Note: this test's 4×4×4 sampling will differ from QE's 8×8×8 by
@@ -501,10 +501,10 @@ fn vgch_cu_per_component() {
 
 /// VGCH Phase 1a — Fe BCC per-component diagnostic (8×8×8 nspin=1).
 ///
-/// Matches `validation/reference/qe/fe_bcc_fm_scf.in` at the full 8×8×8 k-grid
+/// Matches `data/qe/fe_bcc_fm_scf.in` at the full 8×8×8 k-grid
 /// but with nspin=1 (the QE ref uses nspin=2, which collapses to M=0
 /// anyway with PseudoDojo Fe LDA at ecut=15 Ry — see
-/// `validation/reference/qe/reference_data.toml`). Prints per-component
+/// `data/qe/reference_data.toml`). Prints per-component
 /// decomposition for the VGCH Phase 1 PR body.
 ///
 /// The `vgc5_fe_per_component` test in `tests/vgc5_per_component_si.rs`

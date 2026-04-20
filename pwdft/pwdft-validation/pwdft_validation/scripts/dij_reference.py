@@ -25,7 +25,7 @@ different-l blocks are zero.
 Output
 ------
 - Prints the full 6×6 matrix in Ry to stdout in a readable grid.
-- Writes `validation/reference/csv/dij_si_reference.csv` with columns:
+- Writes `data/csv/dij_si_reference.csv` with columns:
       i, j, dij_ry
   in row-major order (i is the outer loop).
 

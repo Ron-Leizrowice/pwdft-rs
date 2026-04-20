@@ -3,20 +3,20 @@
 
 Runs the pwdft-rs `test_si_diamond_fermi_vs_qe` Tier-2 test (unignored) to
 capture the converged Γ-point eigenvalues, diffs them against QE's
-`validation/reference/qe/si_scf.out` reference, and emits a per-band shift CSV +
+`data/qe/si_scf.out` reference, and emits a per-band shift CSV +
 a short verdict on whether the shift is a rigid offset or per-band.
 
 Usage (from the pwdft-rs worktree root):
 
-    uv run validation/src/pwdft_validation/scripts/si_ef_shift_trace.py
+    uv run pwdft/pwdft-validation/pwdft_validation/scripts/si_ef_shift_trace.py
 
 Dependencies:
 - Python 3.10+, numpy (optional — not required for the arithmetic here).
 - `cargo test` available; the test itself compiles pwdft-rs in --release.
-- `validation/reference/qe/si_scf.out` present at expected path.
+- `data/qe/si_scf.out` present at expected path.
 
 Output:
-- `validation/reference/csv/si_ef_shift.csv` with columns
+- `data/csv/si_ef_shift.csv` with columns
   band, eps_pwdft_eV, eps_qe_eV, delta_eV
 - summary printout: mean_delta, std_delta, V_loc(G=0)_sum prediction, verdict.
 

@@ -14,11 +14,11 @@
 //! ## How to regenerate the input density
 //!
 //! 1. Run QE Cu FCC SCF with `disk_io='medium'` (the QE input at
-//!    `validation/reference/qe/cu_fcc_scf.in` has `disk_io='low'` and does NOT
+//!    `data/qe/cu_fcc_scf.in` has `disk_io='low'` and does NOT
 //!    write `charge-density.dat`; copy it to `/tmp/vgch2b_cu/cu.in`,
 //!    flip `disk_io` to `'medium'`, and run with the machine lock).
 //! 2. Parse the resulting `<outdir>/cu.save/charge-density.dat` with
-//!    `validation/src/pwdft_validation/scripts/vgch2_parse_qe_density.py --verbose` → produces
+//!    `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py --verbose` → produces
 //!    `cu_rho_qe.bin` with `{mill, rho_g (e/Bohr³), b1, b2, b3}` in a
 //!    flat little-endian binary bundle (VGCH2BIN magic — chosen over
 //!    `.npz` to avoid pulling a ZIP crate into the test harness).
@@ -60,7 +60,7 @@ const RY_TO_EV: f64 = 13.605_693_122_994;
 const BOHR_TO_ANG: f64 = 0.529_177_210_903;
 const BOHR3_TO_ANG3: f64 = BOHR_TO_ANG * BOHR_TO_ANG * BOHR_TO_ANG;
 
-/// QE density bundle emitted by `validation/src/pwdft_validation/scripts/vgch2_parse_qe_density.py`.
+/// QE density bundle emitted by `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py`.
 ///
 /// Layout (all little-endian, see Python script for the canonical
 /// specification):
@@ -239,7 +239,7 @@ fn integrated_charge(rho_g_fft: &[Complex64], omega: f64, _dims: [usize; 3]) -> 
 }
 
 // ---------------------------------------------------------------------------
-// QE reference (validation/reference/qe/cu_fcc_scf.out, 8×8×8 Γ-centered, ecut=25 Ry).
+// QE reference (data/qe/cu_fcc_scf.out, 8×8×8 Γ-centered, ecut=25 Ry).
 // ---------------------------------------------------------------------------
 const QE_CU_TOTAL_RY: f64 = -356.736_028_69;
 const QE_CU_ONE_E_RY: f64 = -149.487_608_88;
@@ -257,19 +257,19 @@ fn cu_bin_path() -> Option<PathBuf> {
     // (matches the QE-run + parse pipeline in the module header).
     let candidates = [
         PathBuf::from("/tmp/vgch2b_cu/cu_rho_qe.bin"),
-        PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("validation/reference/qe/cu_rho_qe.bin"),
+        PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("data/qe/cu_rho_qe.bin"),
     ];
     candidates.into_iter().find(|p| p.is_file())
 }
 
 #[test]
-#[ignore = "TSPL Tier-2: VGCH-2B transplant diagnostic — seed Cu FCC SCF from QE density, compare iter-1 per-term energies; regenerate `cu_rho_qe.npz` via validation/src/pwdft_validation/scripts/vgch2_parse_qe_density.py"]
+#[ignore = "TSPL Tier-2: VGCH-2B transplant diagnostic — seed Cu FCC SCF from QE density, compare iter-1 per-term energies; regenerate `cu_rho_qe.npz` via pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py"]
 fn test_cu_fcc_transplant_iter1() {
     let bin_path = cu_bin_path().unwrap_or_else(|| {
         panic!(
             "VGCH-2B: expected QE density at /tmp/vgch2b_cu/cu_rho_qe.bin or \
-             validation/reference/qe/cu_rho_qe.bin — regenerate via \
-             `uv run validation/src/pwdft_validation/scripts/vgch2_parse_qe_density.py \
+             data/qe/cu_rho_qe.bin — regenerate via \
+             `uv run pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py \
                 --rho <prefix>.save/charge-density.dat \
                 --out /tmp/vgch2b_cu/cu_rho_qe.bin`"
         )
@@ -310,7 +310,7 @@ fn test_cu_fcc_transplant_iter1() {
         mixing_mode: MixingMode::Kerker { q_tf: None },
         nspin: 1,
         starting_magnetization: HashMap::new(),
-        // Force the FFT grid to match QE's 15×15×15 (see validation/reference/qe/cu_fcc_scf.out
+        // Force the FFT grid to match QE's 15×15×15 (see data/qe/cu_fcc_scf.out
         // "Dense grid: 1363 G-vectors FFT dimensions: (15, 15, 15)"). Without
         // this override, pwdft-core picks a 2/3/5-smooth grid that may differ,
         // and the transplant would have to interpolate.

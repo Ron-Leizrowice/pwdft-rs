@@ -42,7 +42,7 @@ const RY_TO_EV: f64 = 13.605_693_122_994;
 const BOHR_TO_ANG: f64 = 0.529_177_210_903;
 const BOHR3_TO_ANG3: f64 = BOHR_TO_ANG * BOHR_TO_ANG * BOHR_TO_ANG;
 
-/// QE density bundle emitted by `validation/src/pwdft_validation/scripts/vgch2_parse_qe_density.py`.
+/// QE density bundle emitted by `pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py`.
 /// Layout matches `tests/vgch_transplant_cu.rs::QeDensity`; see that file
 /// for the canonical specification.
 struct QeDensity {
@@ -179,7 +179,7 @@ fn integrated_charge(rho_g_fft: &[Complex64], omega: f64) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// QE reference (validation/reference/qe/c_diamond_scf.out, 4×4×4 Γ-centered, ecut=30 Ry).
+// QE reference (data/qe/c_diamond_scf.out, 4×4×4 Γ-centered, ecut=30 Ry).
 // ---------------------------------------------------------------------------
 const QE_C_TOTAL_RY: f64 = -23.843_439_10;
 const QE_C_ONE_E_RY: f64 = 8.502_873_41;
@@ -191,19 +191,19 @@ const QE_C_FERMI_EV: f64 = 15.8873;
 fn c_bin_path() -> Option<PathBuf> {
     let candidates = [
         PathBuf::from("/tmp/vgch2e_c/c_rho_qe.bin"),
-        PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("validation/reference/qe/c_rho_qe.bin"),
+        PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("data/qe/c_rho_qe.bin"),
     ];
     candidates.into_iter().find(|p| p.is_file())
 }
 
 #[test]
-#[ignore = "TSPL Tier-2: VGCH-2E transplant diagnostic — seed C diamond SCF from QE density, compare iter-1 per-term energies; regenerate c_rho_qe.bin via validation/src/pwdft_validation/scripts/vgch2_parse_qe_density.py"]
+#[ignore = "TSPL Tier-2: VGCH-2E transplant diagnostic — seed C diamond SCF from QE density, compare iter-1 per-term energies; regenerate c_rho_qe.bin via pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py"]
 fn test_c_diamond_transplant_iter1() {
     let bin_path = c_bin_path().unwrap_or_else(|| {
         panic!(
             "VGCH-2E: expected QE density at /tmp/vgch2e_c/c_rho_qe.bin or \
-             validation/reference/qe/c_rho_qe.bin — regenerate via \
-             `uv run validation/src/pwdft_validation/scripts/vgch2_parse_qe_density.py \
+             data/qe/c_rho_qe.bin — regenerate via \
+             `uv run pwdft/pwdft-validation/pwdft_validation/scripts/vgch2_parse_qe_density.py \
                 --rho <prefix>.save/charge-density.dat \
                 --out /tmp/vgch2e_c/c_rho_qe.bin`"
         )
@@ -250,7 +250,7 @@ fn test_c_diamond_transplant_iter1() {
         mixing_mode: MixingMode::Broyden { kerker: true },
         nspin: 1,
         starting_magnetization: HashMap::new(),
-        // QE uses 20×20×20 (see validation/reference/qe/c_diamond_scf.out
+        // QE uses 20×20×20 (see data/qe/c_diamond_scf.out
         // "Dense grid: 1687 G-vectors FFT dimensions: (20, 20, 20)").
         fft_grid: Some([20, 20, 20]),
         ..Default::default()
@@ -350,7 +350,7 @@ fn test_c_diamond_transplant_iter1() {
         for (nb, &e) in gamma_eigs.iter().take(n_print).enumerate() {
             eprintln!("    band {nb}: {e:>10.4} eV");
         }
-        // QE reference (validation/reference/qe/c_diamond_scf.out at Γ, eV):
+        // QE reference (data/qe/c_diamond_scf.out at Γ, eV):
         //   -8.1456  14.0232  14.0232  14.0232  19.3568  19.3568  19.3568  27.2505
         eprintln!("  QE Γ eigenvalues (converged, eV):");
         let qe_eigs = [-8.1456, 14.0232, 14.0232, 14.0232, 19.3568, 19.3568, 19.3568, 27.2505];
