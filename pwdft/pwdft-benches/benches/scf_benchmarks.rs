@@ -15,6 +15,12 @@
     clippy::panic,
     reason = "ERR2 § Phase 0: benchmarks are allowed to panic"
 )]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    reason = "Benchmark scaffolding uses ad-hoc size casts; not production code."
+)]
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;

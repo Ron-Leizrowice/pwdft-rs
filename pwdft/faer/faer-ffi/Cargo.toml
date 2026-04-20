@@ -20,3 +20,13 @@ rand = ["faer/rand"]
 rayon = ["faer/rayon", "std"]
 linalg = ["faer/linalg"]
 sparse-linalg = ["faer/sparse-linalg"]
+
+# Vendored upstream code. Opt out of pwdft-rs's lint policy — we track faer
+# for local patches (MAX_REORTH fix, see docs/FAER_ITERATE_LANCZOS_FIX.md),
+# not to gate on its internal style. Without this, workspace-member status
+# exposes faer to our CI's `-D warnings`, which would block every PR.
+[lints.rust]
+warnings = "allow"
+
+[lints.clippy]
+all = { level = "allow", priority = -1 }

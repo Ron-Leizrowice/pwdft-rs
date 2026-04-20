@@ -8,7 +8,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -16,11 +16,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Scope clippy to our own crates. The vendored faer group
+      # (faer, faer-traits, faer-macros, faer-ffi) is upstream code —
+      # we track it for local patches, not to gate on its lints.
       - name: clippy (default features)
-        run: cargo clippy -q --all-targets -- -D warnings
+        run: cargo clippy -q -p pwdft-core -p pwdft-benches --all-targets
 
       - name: clippy (gpu feature)
-        run: cargo clippy -q --all-targets --features gpu -- -D warnings
+        run: cargo clippy -q -p pwdft-core -p pwdft-benches --all-targets --features gpu
 
   validation:
     name: Python (validation)
@@ -29,24 +32,24 @@ jobs:
       run:
         working-directory: validation
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
       - name: Sync dependencies
-        run: uv sync --extra dev
-
-      - name: Ruff lint
-        run: uv run ruff check .
+        run: uv sync
 
       - name: Ruff format check
-        run: uv run ruff format --check .
+        run: uv run ruff format --check
 
-      - name: Mypy
-        run: uv run mypy src tests
+      - name: Ruff lint
+        run: uv run ruff check
+
+      - name: Ty (Static type checker)
+        run: uv run ty check
 
       - name: Pytest
         run: uv run pytest

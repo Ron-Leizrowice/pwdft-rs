@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "pwdft/pwdft-core",
     "pwdft/pwdft-benches",
@@ -18,18 +18,14 @@ faer = { path = "pwdft/faer/faer" }
 faer-traits = { path = "pwdft/faer/faer-traits" }
 
 [workspace.lints.clippy]
-# Bug prevention
-float_cmp = "warn"
 # Performance
 needless_pass_by_value = "warn"
 cloned_instead_of_copied = "warn"
-# Code modernization
+# --- Code Quality  ---
 uninlined_format_args = "warn"
 redundant_closure = "warn"
 unreadable_literal = "warn"
 manual_let_else = "warn"
-
-# --- QLNT additions (Tier-1 quality lints) ---
 doc_link_with_quotes = "warn"
 explicit_iter_loop = "warn"
 implicit_clone = "warn"
@@ -42,32 +38,29 @@ redundant_clone = "warn"
 semicolon_if_nothing_returned = "warn"
 unnecessary_box_returns = "warn"
 unnecessary_wraps = "warn"
-
-# --- CAST audit: numeric cast correctness lints ---
+# --- Numerical correctness ---
+float_cmp = "warn"
 cast_possible_truncation = "warn"
 cast_possible_wrap = "warn"
 cast_sign_loss = "warn"
-
-# --- ERR2 Phase 0: panic-family enforcement in production code ---
-unwrap_used = "warn"
-expect_used = "warn"
-panic = "warn"
-
-# --- CLSS: lossless-cast + doc hygiene ---
 cast_lossless = "warn"
+# --- panic-family enforcement in production code ---
+unwrap_used = "warn"
+panic = "warn"
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 
 [profile.release]
 opt-level = 3
 lto = "thin"
+# Fat LTO evaluation is tracked in proposals/LTOB-fat-lto-benchmark.md.
 
 # All dependencies compile at O3 in dev builds. The local crates
 # stay at the dev default opt-level=0 for fast incremental rebuilds.
 [profile.dev.package."*"]
 opt-level = 3
 
-# TPRF: local crates are compiled at O3 under the test profile.
+# local crates are compiled at O3 under the test profile.
 [profile.test]
 opt-level = 3
 

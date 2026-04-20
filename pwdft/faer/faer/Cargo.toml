@@ -125,7 +125,12 @@ features = ["default"]
 rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "katex-header.html"]
 
 
+# Vendored upstream code. Opt out of pwdft-rs's lint policy — we track faer
+# for local patches (MAX_REORTH fix, see docs/FAER_ITERATE_LANCZOS_FIX.md),
+# not to gate on its internal style. Without this, workspace-member status
+# exposes faer to our CI's `-D warnings`, which would block every PR.
 [lints.rust]
+warnings = "allow"
 unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(eigen)',
     'cfg(openblas)',
@@ -136,3 +141,6 @@ unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(suitesparse)',
     'cfg(docs_rs)',
   ] }
+
+[lints.clippy]
+all = { level = "allow", priority = -1 }
