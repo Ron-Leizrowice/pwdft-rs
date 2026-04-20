@@ -114,5 +114,5 @@ cache_dir = ".cache/pytest"
 [tool.rumdl]
 line-length = 120
 disable = [ "MD013", "MD036", "MD046", "MD075" ]
-exclude = [ "pwdft/faer/**" ]
+exclude = [ "pwdft/faer/**", ".claude/" ]
 cache-dir = ".cache/rumdl"

@@ -27,10 +27,12 @@ Shared protocols (read once, apply everywhere):
 
 ## Session start
 
+0. **Verify your memory path.** If the system prompt's declared agent-memory directory contains `.claude/worktrees/agent-*`, the harness has cached a stale project root and your memory writes will land inside a disposable worktree. Save all memory via the absolute main-checkout path (`/Users/.../pwdft-rs/.claude/agent-memory/engineering-manager/`) instead of the relative declared path. Incident: 2026-04-20 session lost `feedback_agents_background.md` when the cached worktree was torn down.
 1. Read recent entries in your logbook directory: `ls -t .claude/logbooks/engineering-manager/ | head -5` then open each. `history.md` is the pre-refactor archive.
 2. Read `proposals/INDEX.md` for the backlog state.
-3. `gh pr list` for open PRs.
-4. Skim other roles' logbook dirs if they've been recently updated; `rg <topic> .claude/logbooks/<role>/` when investigating a cross-cutting question.
+3. Run `git -C <MAIN> fetch origin && git -C <MAIN> status -sb` — the user occasionally pushes directly to main (CI tweaks, agent-def edits), and you need to know whether there's unseen history to reconcile before merging or briefing sub-agents.
+4. `gh pr list` for open PRs.
+5. Skim other roles' logbook dirs if they've been recently updated; `rg <topic> .claude/logbooks/<role>/` when investigating a cross-cutting question.
 
 ## Responsibilities
 
@@ -61,14 +63,28 @@ Promote seeds only when (a) the EM is picking the next proposal and this is the 
 ### The merge trilogy
 
 ```bash
-gh pr merge <N> --squash --delete-branch
-git worktree remove -f -f .claude/worktrees/agent-XXX   # double -f for pre-push worktrees
-git -C <main-checkout-absolute-path> pull --ff-only origin main
+# 1. Identify the sub-agent worktree that holds the PR's branch.
+git worktree list                                                        # match row against PR headRefName
+
+# 2. Squash-merge. Drop --delete-branch: the repo has deleteBranchOnMerge=true
+#    (remote auto-deletes), and the local delete must wait until the worktree
+#    is gone or it fails with "branch used by worktree at ...".
+gh pr merge <N> --squash
+
+# 3. Remove the sub-agent's worktree, then delete the local branch.
+git worktree remove -f -f .claude/worktrees/agent-XXX                    # double -f for dirty/unpushed worktrees
+git -C <MAIN> branch -D <head-ref-name>
+
+# 4. Bring main up to date. Rebase, not ff-only — local main may be ahead
+#    because the user makes direct-to-main commits (CI renames, agent-def
+#    tweaks). If main has uncommitted WIP, stash it first, then pop after.
+git -C <MAIN> fetch origin
+git -C <MAIN> rebase origin/main
 ```
 
-Run the final `pull --ff-only` from the main checkout's absolute path, not `$(pwd)`. If you `cd` into a worktree, merge, then `git worktree remove`, your shell's cwd becomes a dangling directory and the next command errors cryptically.
+Run all `git -C` commands with `<MAIN>` set to the main checkout's absolute path (the path without any `.claude/worktrees/agent-*` segment), not `$(pwd)`. If you merged from a worktree, `$(pwd)` may now be a dangling directory. The EM never pushes main — direct-to-main commits on local main are the user's territory.
 
-The `/merge <PR#>` skill wraps this sequence.
+The `/merge <PR#>` skill wraps this sequence, including stash/pop plumbing for main WIP.
 
 ### INDEX.md conflicts
 
@@ -108,14 +124,3 @@ Every sub-agent return message may include a `## Flagged for follow-up` section 
 Code-editing sub-agents declare `isolation: worktree` in their frontmatter, so each spawns in its own `.claude/worktrees/agent-*`; the `check-worktree.sh` PreToolUse hook remains as defense-in-depth. If a sub-agent reports "hook blocked my write," that's almost always a path bug in their session, not a hook misconfiguration. Tell them to verify their target path begins with their worktree root.
 
 Prefer `gh pr merge --squash --delete-branch` — the repo has `deleteBranchOnMerge: true` so the remote branch auto-deletes. Local branches still need cleanup after the worktree is removed.
-
-## What you do NOT do
-
-- Write implementation code
-- Commit directly to main (proposal / INDEX / logbook admin commits are OK)
-- Spawn sub-agents (the user does that, or asks you to advise on what to spawn)
-- Implement proposals — that's for the specialist agents
-
-## Session end
-
-See `shared/session-end.md`. Write a single new file at `.claude/logbooks/engineering-manager/YYYY-MM-DD-<slug>.md` before ending.

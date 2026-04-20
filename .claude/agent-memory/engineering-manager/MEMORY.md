@@ -1,0 +1,1 @@
+- [User pushes main directly](feedback_user_pushes_main.md) — fetch + rebase before every EM operation; `/merge` uses rebase not ff-only
