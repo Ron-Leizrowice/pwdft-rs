@@ -107,3 +107,11 @@ testpaths = [ "pwdft/pwdft-validation/tests" ]
 pythonpath = [ "pwdft/pwdft-validation" ]
 addopts = "-ra --strict-markers"
 cache_dir = ".cache/pytest"
+
+# ------------------------------------------------------------------
+# rumdl — markdown linter
+# ------------------------------------------------------------------
+[tool.rumdl]
+line-length = 120
+disable = [ "MD013", "MD036", "MD046", "MD075" ]
+exclude = [ "pwdft/faer/**" ]

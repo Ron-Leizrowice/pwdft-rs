@@ -142,6 +142,7 @@ A new regression test was started at `tests/spin_polarization.rs` (archived at `
 ### Issue encountered
 
 With `conv_threshold = 1e-7` the Fe BCC test failed to converge in 120 iterations. The existing `test_fe_ferromagnetic_fixed_moment` uses `conv_threshold = 1e-6` and does converge. It is unclear whether this is:
+
 - A genuine convergence issue introduced by the fix (unlikely — the change only affects energy accounting post-density-update)
 - An artifact of the tighter threshold (Anderson mixing's default history depth may be insufficient)
 - Test-scaffolding noise (the agent reported SCF bailing out at ~12 ms per iteration, which suggests an early exit not a real iteration)

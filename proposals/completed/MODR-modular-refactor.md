@@ -9,9 +9,9 @@ blocks: []
 status: proposed
 ---
 
-# MODR — Modular refactor audit
+## MODR — Modular refactor audit
 
-## Motivation
+### Motivation
 
 Two drivers.
 
@@ -46,6 +46,7 @@ Cross-referencing the active proposal bodies against these files:
 
 **2. Code quality.** This is a research codebase — correctness over cleverness.
 "High quality" for MODR means:
+
 - single-responsibility modules,
 - thin public API per module (prefer `pub(crate)`; module is at most 3–5
   re-exported symbols),
@@ -60,12 +61,12 @@ dispatch, and per-iteration logging — every change is a merge hazard. This
 is the cheapest class of fix: move code around to reduce conflict surface
 without touching physics.
 
-## Current module map
+### Current module map
 
 LOC from `wc -l`; ★ marks god-modules. Production LOC (excluding
 `#[cfg(test)] mod tests`) is shown in parens for the stars.
 
-```
+```text
 src/
 ├── lib.rs                    19   crate root, re-exports
 ├── main.rs                  153   CLI + two calculation modes inlined
@@ -114,12 +115,12 @@ src/
     └── density.rs           287   ★ (small but doubling scope under PCFX)
 ```
 
-## Proposed module map
+### Proposed module map
 
 Every new sub-module has a one-line purpose. "API:" lists the intended public
 surface (3–5 symbols).
 
-```
+```text
 src/
 ├── scf/
 │   ├── mod.rs                 ~150   Re-exports + ScfParams + ScfResult + run_scf() dispatcher
@@ -173,7 +174,7 @@ src/
     │   └── bands.rs           ~40    BandPath → compute_band_structure + TSV write
 ```
 
-### Consequence for in-flight proposals
+#### Consequence for in-flight proposals
 
 - **PRPL** → `scf/mixing/anderson.rs` + one enum variant in `mixing/mod.rs`.
 - **MXBA** → `scf/mixing/anderson.rs` + `scf/mixing/broyden.rs` (adaptive-β
@@ -187,13 +188,13 @@ src/
 
 After Phases A+B+C, no two in-flight proposals share a file.
 
-## Phased rollout
+### Phased rollout
 
 Ordered so earlier phases unblock the most concurrent work. Each phase is a
 separate PR with its own implementation proposal (MODR-A, MODR-B, MODR-C,
 MODR-D).
 
-### ✅ Phase A (PR #46) — Split `scf/mixing.rs` (unblocks PRPL + MXBA)
+#### ✅ Phase A (PR #46) — Split `scf/mixing.rs` (unblocks PRPL + MXBA)
 
 **Why first:** three active proposals target this file.
 
@@ -206,7 +207,7 @@ Tests travel with their production code. **No behavior change.**
 
 Size: ~2 h. Risk: low (pure move).
 
-### ✅ Phase B (PR #50) — Split `scf/mod.rs` (unblocks CCMX + ITEV + future energy work)
+#### ✅ Phase B (PR #50) — Split `scf/mod.rs` (unblocks CCMX + ITEV + future energy work)
 
 Moved `run_scf` → `scf/driver.rs::run_scf_unpolarized` (pub(crate));
 `run_scf_spin` → `scf/driver_spin.rs::run_scf_spin` (pub(crate));
@@ -229,7 +230,7 @@ imported sibling-to-sibling by `driver_spin`.
 Size: ~3 h. Risk: low–medium (the hot loop is long but the split
 follows a clean seam — spin vs non-spin vs logging).
 
-### ✅ Phase C (PR #48) — Split `symmetry/density.rs` (prepares PCFX)
+#### ✅ Phase C (PR #48) — Split `symmetry/density.rs` (prepares PCFX)
 
 Turn `symmetry/density.rs` into a folder. `real_space.rs` is the current
 implementation verbatim. `g_space.rs` is a stub file (empty module) that
@@ -240,7 +241,7 @@ or move into `real_space.rs` — both become pub(super).
 
 Size: ~1 h. Risk: low (pure move + tiny facade).
 
-### ✅ Phase D (PR #47) — Split `pseudopotential/upf.rs` (prepares future PP formats)
+#### ✅ Phase D (PR #47) — Split `pseudopotential/upf.rs` (prepares future PP formats)
 
 Turn `upf.rs` into a folder. `xml.rs` holds the three text helpers
 (`extract_attr`, `extract_data_block`, `extract_beta_angular_momentum`).
@@ -252,6 +253,7 @@ Size: ~1 h. Risk: low. Future benefit: PSP8 support (deferred) drops in
 as a sibling folder `pseudopotential/psp8/`.
 
 **Not included in any phase:**
+
 - `main.rs` split (153 LOC, low touch-rate, not worth the churn yet)
 - `gpu/mod.rs` (rewriting behind CUCL proposal; splitting now would
   fight that rewrite)
@@ -261,7 +263,7 @@ as a sibling folder `pseudopotential/psp8/`.
 - `potential/xc.rs`, `potential/nonlocal.rs`, `scf/smearing.rs` — not
   god-modules; cohesion is high and conflict rate is low.
 
-## Risk + validation
+### Risk + validation
 
 The whole refactor is semantics-preserving. The validator is `cargo test`
 plus both clippy invocations. Concerns per phase:
@@ -285,7 +287,7 @@ plus both clippy invocations. Concerns per phase:
 **Weak-coverage areas that MODR does NOT touch:** `main.rs` (integration
 only, no unit tests) and `gpu/mod.rs` (dependent on GPU-enabled CI).
 
-## What this is NOT
+### What this is NOT
 
 - **Not a trait-introduction refactor.** A `Mixer` trait object was
   considered and rejected: dispatch is once per SCF call, the current
@@ -302,7 +304,7 @@ only, no unit tests) and `gpu/mod.rs` (dependent on GPU-enabled CI).
 - **Not a public-API expansion.** All new sub-modules are `pub(crate)`
   or `pub(super)`. Nothing private becomes public.
 
-## Open questions
+### Open questions
 
 1. **EnergyComponents home.** Currently in `scf/mod.rs`, produced only
    at the end of the drivers. Proposed: move into `scf/energy.rs`,
@@ -314,6 +316,7 @@ only, no unit tests) and `gpu/mod.rs` (dependent on GPU-enabled CI).
    zero-behavior-change) first so PCFX drops into a ready folder.
 
 **Flagged for follow-up (not MODR scope):**
+
 - `src/scf/driver.rs` (e_total/e_harris assembly) and
   `src/scf/driver_spin.rs` (same pair) — the G0-shift expression
   `+ ctx.v_local_g0 * ctx.n_electrons` is duplicated four times around

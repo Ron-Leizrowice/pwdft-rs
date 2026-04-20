@@ -26,7 +26,15 @@ repos:
         entry: uv run --frozen --no-sync pyproject-fmt pyproject.toml
         pass_filenames: false
         files: ^pyproject\.toml$
-        priority: 0
+        priority: 1
+
+      - id: rumdl-fmt
+        name: Markdown format
+        language: system
+        entry: uv run --frozen --no-sync rumdl check --fix .
+        pass_filenames: true
+        types_or: [markdown]
+        priority: 1
 
       - id: ruff-format
         name: Ruff format

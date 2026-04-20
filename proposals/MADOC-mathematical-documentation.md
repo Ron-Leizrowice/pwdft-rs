@@ -11,9 +11,9 @@ author: Researcher
 date: 2026-04-18
 ---
 
-# MADOC — Systematic mathematical-content docstring push
+## MADOC — Systematic mathematical-content docstring push
 
-## Problem
+### Problem
 
 Three physics bugs caught in the last week (NCFX — NLCC unit convention;
 PCFX — τ phase direction in real-space density symmetrization; CCMX —
@@ -38,7 +38,7 @@ This proposal sizes a systematic push to raise every physics-critical
 physicist reading only the docstring can reproduce the computation on
 paper without opening the body.
 
-## Relationship to DLNT / DWGT (lint gates)
+### Relationship to DLNT / DWGT (lint gates)
 
 The EM has drafted FLUP/DWGT (add `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` to
 the quality gate) and is considering a follow-up DLNT (enable
@@ -69,7 +69,7 @@ complementary:
 DWGT (quality-gate flip for zero-warning `cargo doc`) is orthogonal to
 both and can land at any point.
 
-## Scope — module triage
+### Scope — module triage
 
 Sampled one `pub` or `pub(crate)` item per module. Each item is
 classified by the target-shape criteria in § "Target docstring shape"
@@ -80,7 +80,7 @@ below:
 - **P**araphrase — restates the signature; no equation; no citation
 - **M**issing — no docstring at all
 
-### Tier 1 — wrong equation produces wrong physics silently
+#### Tier 1 — wrong equation produces wrong physics silently
 
 | Module | Pub items | E | A | P | M | Notes |
 |--------|----------:|--:|--:|--:|--:|-------|
@@ -98,7 +98,7 @@ below:
 
 **Tier 1 total: ~47 `pub`/`pub(crate)` items. Distribution: ~21 E / ~18 A / ~8 P / 0 M.**
 
-### Tier 2 — feeds Tier 1 (numerics layer)
+#### Tier 2 — feeds Tier 1 (numerics layer)
 
 | Module | Pub items | E | A | P | M | Notes |
 |--------|----------:|--:|--:|--:|--:|-------|
@@ -113,13 +113,13 @@ below:
 
 **Tier 2 total: ~49 `pub`/`pub(crate)` items. Distribution: ~7 E / ~23 A / ~19 P / 0 M.**
 
-### Tier 3 — infrastructure (out of scope for MADOC)
+#### Tier 3 — infrastructure (out of scope for MADOC)
 
 `settings.rs`, `context.rs`, `scf/grid.rs`, `scf/report.rs`, `main.rs`,
 `error.rs`, GPU scaffolding. Math content is minimal; a docstring push
 here produces busy-work without bug-catching value. Defer.
 
-### Summary
+#### Summary
 
 **Top-tier (Tier 1) scope: ~47 items, ~8 paraphrase + ~18 adequate to upgrade
 (roughly 26 items need real work; the 21 already-excellent ones get
@@ -127,7 +127,7 @@ spot-checks, not rewrites).** Tier 2 adds ~42 more items with paraphrase
 or adequate status. Nothing is missing — every sampled item has at least
 one sentence.
 
-## Target docstring shape
+### Target docstring shape
 
 A physicist reads the docstring and can reproduce the computation on
 paper. Concretely, every **public** physics-function docstring must have:
@@ -156,7 +156,7 @@ paper. Concretely, every **public** physics-function docstring must have:
 5. **Returned units / shape** — mandatory for functions returning
    `Vec<f64>`, `Mat<Complex64>`, or other shape-opaque types.
 
-### Before / after example
+#### Before / after example
 
 **Before** (`src/potential/local.rs:67`, current):
 
@@ -196,7 +196,7 @@ Roughly 4× longer. Every symbol has a unit; every convention has a
 cross-reference; the "why is G=0 zero?" question is answered before it's
 asked. This is the bar.
 
-## Phased rollout
+### Phased rollout
 
 Full coverage of Tier 1 alone is ~47 items with ~26 needing rewrites.
 That's too much for one PR. Six phases, each ≤ one afternoon of
@@ -233,7 +233,7 @@ work. E/F are maintenance-grade — fewer surprises, fewer citations to
 hunt down. Each phase stands alone; no phase blocks another; EM can
 parallelize across agents if capacity allows.
 
-## Anti-scope
+### Anti-scope
 
 Explicitly **not** in MADOC:
 
@@ -252,7 +252,7 @@ Explicitly **not** in MADOC:
 - **No Tier 3 infrastructure.** `settings.rs`, `scf/context.rs`,
   `main.rs`, error types. Useful documentation, but not math.
 
-## Acceptance criteria
+### Acceptance criteria
 
 Per phase:
 
@@ -278,7 +278,7 @@ Per whole proposal:
 - DLNT can be flipped to `warn` without producing a warning cascade
   on Tier 1 or Tier 2 modules.
 
-## Risk
+### Risk
 
 Low. Pure content changes; no behavior modified. The only way MADOC
 *introduces* a bug is if a hand-written equation in a docstring contains
@@ -286,6 +286,6 @@ a typo (`ρ^(1/3)` written as `ρ^(1/2)`) that a future reader trusts over
 the code. Mitigation: each phase PR is reviewed by Researcher against
 the cited reference, same as a physics-code PR.
 
-## Out of scope — flagged for follow-up
+### Out of scope — flagged for follow-up
 
 None. This proposal is self-contained.

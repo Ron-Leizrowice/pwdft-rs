@@ -29,12 +29,14 @@ We have 70 NC/LDA PseudoDojo pseudopotentials available. The Ljubljana QE tutori
 ## Design Principles
 
 All QE reference runs must use:
+
 - **Same PPs** as pwdft-rs: PseudoDojo ONCV NC/LDA from `pseudopotentials/nc/lda/`
 - **Same XC**: LDA (Perdew-Zunger), which is what these PPs encode
 - **Same parameters**: ecut, k-grid, smearing type and width stated explicitly
 - **QE 7.5** for reproducibility
 
 Each test should compare:
+
 1. **Total energy** (primary): agree within 0.01 eV (limited by different eigensolvers/FFT grids)
 2. **Fermi energy** (metals): agree within 0.05 eV
 3. **Magnetization** (nspin=2): agree within 0.1 μB
@@ -46,9 +48,10 @@ Each test should compare:
 ### Tier 1 — Core validation (must pass for correctness)
 
 #### 1. Si diamond (insulator, 2 atoms, FCC)
+
 Already tested. Canonical semiconductor, gap ~1.1 eV (LDA underestimates).
 
-```
+```text
 # QE input: qe_validation/si_scf.in
 &CONTROL
     calculation = 'scf'
@@ -82,9 +85,10 @@ K_POINTS automatic
 **What it validates**: Basic SCF, diamond structure, insulator occupations.
 
 #### 2. C diamond (wide-gap insulator, 2 atoms, FCC)
+
 Already tested. Large band gap (~5.5 eV), stiff lattice.
 
-```
+```text
 # QE input: qe_validation/c_diamond_scf.in
 &SYSTEM
     ibrav = 2
@@ -108,9 +112,10 @@ K_POINTS automatic
 **What it validates**: Higher ecut, wide-gap insulator, light element.
 
 #### 3. Al FCC (simple metal, 1 atom)
+
 **NEW.** The simplest metal — nearly-free-electron, tests metallic occupation and Kerker preconditioning.
 
-```
+```text
 # QE input: qe_validation/al_fcc_scf.in
 &SYSTEM
     ibrav = 2
@@ -134,9 +139,10 @@ K_POINTS automatic
 **Rust test**: Use `MixingMode::Kerker`, `smearing_sigma = 0.02 * RY_TO_EV`, 8x8x8 k-grid.
 
 #### 4. BCC Fe (magnetic metal, 1 atom, nspin=2)
+
 Partially tested (fixed moment only). Add free-moment test.
 
-```
+```text
 # QE input: qe_validation/fe_bcc_fm_scf.in
 &SYSTEM
     ibrav = 3
@@ -164,9 +170,10 @@ K_POINTS automatic
 ### Tier 2 — Compound systems and diversity
 
 #### 5. GaAs zincblende (III-V semiconductor, 2 atoms, FCC)
+
 The canonical compound semiconductor. Tests multi-species handling with different PP types.
 
-```
+```text
 # QE input: qe_validation/gaas_scf.in
 &SYSTEM
     ibrav = 2
@@ -191,9 +198,10 @@ K_POINTS automatic
 **What it validates**: Two atom types with different PPs and projectors, NLCC on both species, compound gap.
 
 #### 6. Cu FCC (transition metal, 1 atom)
+
 Noble metal with d-electrons. Tests d-band crossing the Fermi level, harder convergence than Al.
 
-```
+```text
 # QE input: qe_validation/cu_fcc_scf.in
 &SYSTEM
     ibrav = 2
@@ -217,9 +225,10 @@ K_POINTS automatic
 **What it validates**: Transition metal d-states, NLCC, higher ecut, metallic Kerker mixing.
 
 #### 7. NaCl rocksalt (ionic insulator, 2 atoms, FCC)
+
 Strongly ionic system with large charge transfer. Tests charge sloshing (Anderson mixing) and multi-species with very different electronegativity.
 
-```
+```text
 # QE input: qe_validation/nacl_scf.in
 &SYSTEM
     ibrav = 2
@@ -244,9 +253,10 @@ K_POINTS automatic
 **What it validates**: Ionic bonding, two species with very different Z, rocksalt structure, charge transfer.
 
 #### 8. MgO rocksalt (wide-gap ionic, 2 atoms, FCC)
+
 Similar to NaCl but with stronger ionic character and wider gap (~7.7 eV). Standard benchmark in DFT validation.
 
-```
+```text
 # QE input: qe_validation/mgo_scf.in
 &SYSTEM
     ibrav = 2
@@ -273,22 +283,25 @@ K_POINTS automatic
 ### Tier 3 — Convergence studies
 
 #### 9. Si ecutwfc convergence
+
 Sweep ecut from 10 to 40 Ry at fixed 4x4x4 k-grid. Total energy should decrease monotonically and converge. Validates that our plane-wave expansion is variational.
 
-```
+```text
 # Run QE at ecut = 10, 12, 15, 20, 25, 30, 35, 40 Ry
 # Same input as test 1, varying ecutwfc only
 ```
 
 **Rust test**: Run pwdft-rs at the same ecut values, verify:
+
 - Energy decreases monotonically with ecut
 - Converged energy matches QE within 0.01 eV
 - Energy difference between 30 and 40 Ry < 0.001 eV
 
 #### 10. Si k-point convergence
+
 Sweep k-grid from 2x2x2 to 8x8x8 at fixed ecut=15 Ry. Tests BZ sampling.
 
-```
+```text
 # Run QE at nk = 2, 3, 4, 5, 6, 8
 # Same input as test 1, varying K_POINTS only
 ```
@@ -296,9 +309,10 @@ Sweep k-grid from 2x2x2 to 8x8x8 at fixed ecut=15 Ry. Tests BZ sampling.
 **Rust test**: Verify energy converges and matches QE at each grid.
 
 #### 11. Al smearing convergence
+
 Sweep degauss from 0.005 to 0.10 Ry at fixed ecut=15 Ry, 8x8x8. Validates that sigma→0 extrapolation converges and different smearing schemes agree in the limit.
 
-```
+```text
 # Run QE at degauss = 0.005, 0.01, 0.02, 0.04, 0.06, 0.10 Ry
 # Test with smearing = 'fd', 'gauss', 'mp', 'mv'
 ```
@@ -310,6 +324,7 @@ Sweep degauss from 0.005 to 0.10 Ry at fixed ecut=15 Ry, 8x8x8. Validates that s
 ### Step 1: Generate QE reference data
 
 Create `qe_validation/` directory with input files for all 11 tests. Run each with QE 7.5 and extract:
+
 - Total energy (Ry)
 - Fermi energy (eV)
 - Magnetization (μB, if nspin=2)
@@ -361,6 +376,7 @@ fn assert_fermi_matches_qe(result: &ScfResult, qe_fermi_ev: f64, tolerance_ev: f
 ### Step 3: Write Rust tests
 
 One `#[test]` per system. Convergence studies use parameterized loops. All tests should:
+
 - Print the comparison values (even on pass) for CI visibility
 - Use `assert!` with descriptive messages
 - Be `#[ignore]`-tagged for convergence studies (they're slow)

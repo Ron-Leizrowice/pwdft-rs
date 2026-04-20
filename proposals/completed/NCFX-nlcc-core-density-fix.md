@@ -16,12 +16,14 @@ owner: core-engineer
 
 Implemented on branch `NCFX/nlcc-core-density-fix` (rebased onto
 `origin/main` post-VGC5). Both compounding bugs fixed:
+
 - `src/pseudopotential/upf.rs`: PP_NLCC unit conversion changed from
   `/BOHR_TO_ANG` to `/BOHR_TO_ANG³`. Now stores bare ρ_core(r) in e/Å³.
 - `src/scf/potentials.rs`: Bessel transform gained the missing `r²`
   weight and `4π` prefactor, matching QE `rhoc_mod.f90:107-115`.
 
 **Impact (Si diamond, ecut=15 Ry, 4×4×4 MP):**
+
 | term   | pre-NCFX  | post-NCFX | QE       | Δ (post-NCFX − QE) |
 |--------|-----------|-----------|----------|---------------------|
 | E_xc   | −70.658   | −84.703   | −84.396  | −0.306              |
@@ -37,6 +39,7 @@ The residual +8 eV is consistent with the same MP-shift residual plus
 Fe ecut convergence (QE reference uses 8×8×8 nspin=2).
 
 Tests:
+
 - New unit test `test_si_core_charge_integrates_to_partial_core`:
   Si ONCVPSP partial core charge = 0.7399 e (expected 0.74 e).
 - GPU Si pins updated (`tests/gpu_consistency.rs`): Si total energy
@@ -101,7 +104,7 @@ i.e. `ρ_core(G) = (1/Ω) ∫ ρ_core(r) · j₀(Gr) dr`.
 
 The correct radial FT of a spherically symmetric density is
 
-```
+```text
 ρ_core(G) = (4π / Ω) ∫ ρ_core(r) · j₀(Gr) · r² dr
 ```
 
@@ -113,7 +116,7 @@ are both missing from pwdft-rs.**
 
 Together, the two bugs give a G=0 core charge roughly
 
-```
+```text
 ρ_core(G=0)[pwdft-rs] ≈ (1/BOHR_TO_ANG) · ∫ρ_core(r) dr / Ω
 ρ_core(G=0)[QE]      = (4π/BOHR_TO_ANG³) · ∫ρ_core(r)·r² dr / Ω
 ```
@@ -163,14 +166,15 @@ mechanical.
 From `tests/vgc5_per_component_si.rs` pins (a161221 + VGC5 patch):
 
 Si diamond, ecut=15 Ry, 4×4×4 MP, FD smearing σ=0.01 Ry:
-- E_kinetic       =   82.866 eV      (QE part of "one-electron")
-- E_local(G≠0)    =  -58.468 eV
-- E_local(G=0)·N  =   10.745 eV
-- E_nonlocal      =   33.465 eV
-- E_hartree       =   13.593 eV      (QE: 15.104,  Δ = −1.51)
-- E_xc            =  -70.658 eV      (QE: −84.396, Δ = **+13.74**)
-- E_ewald         = -228.519 eV      (QE: −228.530, Δ = +0.011)
-- E_total         = -218.181 eV      (QE: −231.610, Δ = +13.43)
+
+- E_kinetic = 82.866 eV (QE part of "one-electron")
+- E_local(G≠0)    = -58.468 eV
+- E_local(G=0)·N = 10.745 eV
+- E_nonlocal = 33.465 eV
+- E_hartree = 13.593 eV (QE: 15.104, Δ = −1.51)
+- E_xc            = -70.658 eV (QE: −84.396, Δ = **+13.74**)
+- E_ewald = -228.519 eV (QE: −228.530, Δ = +0.011)
+- E_total = -218.181 eV (QE: −231.610, Δ = +13.43)
 
 Fe BCC (nspin=1, 4×4×4 MP, σ=0.02 Ry) shows the same XC-dominated pattern
 with Δ_xc = −48.85 eV.

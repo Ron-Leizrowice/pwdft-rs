@@ -15,8 +15,8 @@ blocks: []
 **In scope.** This is a static read-only audit of heap allocations that
 occur **inside the SCF iteration body** — the body of the
 `for iter in 0..ctx.params.max_iter` loops in
-[`src/scf/driver.rs:161-393`](../src/scf/driver.rs) (non-spin) and
-[`src/scf/driver_spin.rs:135-507`](../src/scf/driver_spin.rs) (spin).
+[`src/scf/driver.rs:161-393`](../pwdft/pwdft-core/src/scf/driver.rs) (non-spin) and
+[`src/scf/driver_spin.rs:135-507`](../pwdft/pwdft-core/src/scf/driver_spin.rs) (spin).
 Callees of that body (`lda_xc_grid`, `assemble_v_eff`, `hartree_on_fft_grid`,
 `compute_density`, `symmetrize_density_g`, `hartree_energy`, `xc_energy_*`,
 `add_core_density`, `density_r_to_g`, `real_to_g_space`, `build_hamiltonian_with_v_eff`,
@@ -26,8 +26,8 @@ whenever they allocate on behalf of the loop.
 **Out of scope.**
 
 - **One-time-setup allocations** in `ScfContext::new`
-  ([`src/scf/context.rs`](../src/scf/context.rs)), `NonlocalPotential::new`
-  ([`src/potential/nonlocal.rs:106`](../src/potential/nonlocal.rs)),
+  ([`src/scf/context.rs`](../pwdft/pwdft-core/src/scf/context.rs)), `NonlocalPotential::new`
+  ([`src/potential/nonlocal.rs:106`](../pwdft/pwdft-core/src/potential/nonlocal.rs)),
   initial density (SAD), `compute_v_local`, `compute_core_density`. These
   run once before the SCF loop, so even a large `Vec` there is irrelevant
   to per-iteration overhead.
@@ -43,7 +43,7 @@ whenever they allocate on behalf of the loop.
   f32→f64 conversions on the CPU side happen inside the GPU helper
   methods, not in the driver body.
 - **The convergence branch** (the `if rho_converged && energy_converged`
-  block at [driver.rs:314-388](../src/scf/driver.rs)). Runs once at
+  block at [driver.rs:314-388](../pwdft/pwdft-core/src/scf/driver.rs)). Runs once at
   convergence, not per iteration.
 - **Eigensolve internals** (faer dense Hermitian). Proposals WFRX + ITEV
   address eigensolver cost directly. The driver-side handling of
@@ -84,7 +84,7 @@ The hot loop body is analyzed in execution order. For each finding:
 
 #### F-1. Hartree potential — `hartree_on_fft_grid` allocates full Complex64 grid
 
-- **Site:** [`energy.rs:232-247`](../src/scf/energy.rs) (called from `driver.rs:175, 199`).
+- **Site:** [`energy.rs:232-247`](../pwdft/pwdft-core/src/scf/energy.rs) (called from `driver.rs:175, 199`).
 - **What:** `par_iter().zip(...).collect()` → `Vec<Complex64>` of length `n_grid`.
 - **Size:** `16 · n_grid` bytes (16 bytes per Complex64). 64³ = 4 MB.
 - **Per iter:** 1 (non-spin) / 1 (spin — shared Hartree).
@@ -97,14 +97,14 @@ The hot loop body is analyzed in execution order. For each finding:
 #### F-2. XC potential — two `Vec<f64>` from `lda_xc_grid` + G-space FFT of V_xc
 
 - **Sites:**
-  - [`xc.rs:75-94`](../src/potential/xc.rs): `lda_xc_grid` returns
+  - [`xc.rs:75-94`](../pwdft/pwdft-core/src/potential/xc.rs): `lda_xc_grid` returns
     `(Vec<f64>, Vec<f64>)` of length `n_grid` each.
-  - [`energy.rs:186-190`](../src/scf/energy.rs): `real_to_g_space` wraps
+  - [`energy.rs:186-190`](../pwdft/pwdft-core/src/scf/energy.rs): `real_to_g_space` wraps
     `density_r_to_g` and allocates a fresh `Vec<Complex64>` of length
     `n_grid`.
-  - [`driver.rs:187,189`](../src/scf/driver.rs): both are consumed
+  - [`driver.rs:187,189`](../pwdft/pwdft-core/src/scf/driver.rs): both are consumed
     immediately.
-  - [`driver.rs:266`](../src/scf/driver.rs): a **second** pair of
+  - [`driver.rs:266`](../pwdft/pwdft-core/src/scf/driver.rs): a **second** pair of
     `lda_xc_grid` calls on the OUTPUT density for the Harris-Foulkes
     / E_KS split.
 - **Size:** `8 · n_grid` bytes each for exc / vxc; `16 · n_grid` for vxc_g.
@@ -119,7 +119,7 @@ The hot loop body is analyzed in execution order. For each finding:
 
 #### F-3. `add_core_density` — `Vec<f64>` even when there is no NLCC
 
-- **Site:** [`energy.rs:219-229`](../src/scf/energy.rs), called at
+- **Site:** [`energy.rs:219-229`](../pwdft/pwdft-core/src/scf/energy.rs), called at
   `driver.rs:179, 265` and twice per iter in the spin driver.
 - **What:** Branch A (NLCC off) does `rho_val.to_vec()` → a fresh
   `Vec<f64>` of length `n_grid`, wasted — the caller could use
@@ -136,7 +136,7 @@ The hot loop body is analyzed in execution order. For each finding:
 
 #### F-4. `assemble_v_eff` — per-iteration `Vec<Complex64>` of length `n_grid`
 
-- **Site:** [`energy.rs:193-205`](../src/scf/energy.rs), called at
+- **Site:** [`energy.rs:193-205`](../pwdft/pwdft-core/src/scf/energy.rs), called at
   `driver.rs:199, 196`.
 - **What:** Parallel `map + collect` over three zipped `[Complex64]`
   inputs → new `Vec<Complex64>`.
@@ -149,7 +149,7 @@ The hot loop body is analyzed in execution order. For each finding:
 
 #### F-5. Per-k-point Hamiltonian matrix — `faer::Mat::<Complex64>::zeros(n_pw, n_pw)`
 
-- **Site:** [`scf/potentials.rs:147`](../src/scf/potentials.rs).
+- **Site:** [`scf/potentials.rs:147`](../pwdft/pwdft-core/src/scf/potentials.rs).
 - **What:** Fresh zeroed n_pw × n_pw complex matrix every iteration, per k-point.
 - **Size:** `16 · n_pw²` bytes. **725² × 16 = 8.4 MB per k-point.**
 - **Per iter:** `n_k` non-spin / `2 · n_k` spin. For Si 4×4×4 with 10 IBZ
@@ -178,8 +178,8 @@ The hot loop body is analyzed in execution order. For each finding:
 
 #### F-6. Eigenvalue extraction — `Vec<Vec<f64>>` clone per k-point
 
-- **Site:** [`driver.rs:214`](../src/scf/driver.rs) and
-  [`driver_spin.rs:184-185`](../src/scf/driver_spin.rs).
+- **Site:** [`driver.rs:214`](../pwdft/pwdft-core/src/scf/driver.rs) and
+  [`driver_spin.rs:184-185`](../pwdft/pwdft-core/src/scf/driver_spin.rs).
 - **What:** `kpoint_results.iter().map(|r| r.eigenvalues.clone()).collect()` —
   clones the eigenvalue vector out of each `EigenResult` so the
   subsequent `all_kpoint_wavefns` move doesn't borrow-check-fail.
@@ -197,7 +197,7 @@ The hot loop body is analyzed in execution order. For each finding:
 
 #### F-7. `compute_density` — per-worker per-band `psi_g` allocation
 
-- **Site:** [`scf/density.rs:65`](../src/scf/density.rs) inside the rayon
+- **Site:** [`scf/density.rs:65`](../pwdft/pwdft-core/src/scf/density.rs) inside the rayon
   `fold` closure:
   `let mut psi_g = vec![Complex64::new(0.0, 0.0); n_grid];`
 - **What:** Fresh `Vec<Complex64>` of length `n_grid` **for every band of
@@ -230,11 +230,11 @@ The hot loop body is analyzed in execution order. For each finding:
 #### F-8. `density_r_to_g` caller-side staging — `rho_g`, `rho_g_new`, `rho_total_new_g`
 
 - **Sites:**
-  - [`driver.rs:142`](../src/scf/driver.rs): `rho_g` outside the loop
+  - [`driver.rs:142`](../pwdft/pwdft-core/src/scf/driver.rs): `rho_g` outside the loop
     (one-time, fine).
-  - [`driver.rs:262`](../src/scf/driver.rs): `rho_g_new` allocated inside
+  - [`driver.rs:262`](../pwdft/pwdft-core/src/scf/driver.rs): `rho_g_new` allocated inside
     the loop.
-  - [`driver_spin.rs:139, 294`](../src/scf/driver_spin.rs): two more
+  - [`driver_spin.rs:139, 294`](../pwdft/pwdft-core/src/scf/driver_spin.rs): two more
     per-iter allocations.
 - **Size:** `16 · n_grid` bytes per Vec.
 - **Per iter:** 1 non-spin / 2 spin. Plus the per-iter
@@ -247,13 +247,13 @@ The hot loop body is analyzed in execution order. For each finding:
 
 #### F-9. `density_diff` — no allocation, fine
 
-- **Site:** [`energy.rs:163-171`](../src/scf/energy.rs).
+- **Site:** [`energy.rs:163-171`](../pwdft/pwdft-core/src/scf/energy.rs).
 - **What:** Pure `iter().zip().map().sum()`. Zero allocations.
 - **Note:** Called 1× non-spin / 2× spin. No action.
 
 #### F-10. `symmetrize_density_g` — several per-call allocations
 
-- **Site:** [`symmetry/density/g_space.rs:156-271`](../src/symmetry/density/g_space.rs).
+- **Site:** [`symmetry/density/g_space.rs:156-271`](../pwdft/pwdft-core/src/symmetry/density/g_space.rs).
 - **What:**
   - Line 173: `let mut rho_g: Vec<Complex64> = rho_r.iter().map(...).collect();`
     — `16 · n_grid` bytes.
@@ -274,14 +274,14 @@ The hot loop body is analyzed in execution order. For each finding:
 
 #### F-11. Mixer — per-iter allocations in `Mixer::mix`
 
-- **Sites (Anderson, [anderson.rs:117-121](../src/scf/mixing/anderson.rs)):**
+- **Sites (Anderson, [anderson.rs:117-121](../pwdft/pwdft-core/src/scf/mixing/anderson.rs)):**
   The `mix` path calls `push_history` → `diis_step`.
   - `push_history` (line 130): builds `raw_residual` via
     `&rho_out_arr - &rho_in_arr` → `Array1::zeros`-equivalent. Allocates.
   - `push_history` (line 135): `precondition_residual(&raw_residual.to_vec(), ...)`
     — calls `raw_residual.to_vec()`, a fresh `Vec<f64>` clone of the
     residual Array1 (length n_grid).
-  - `precondition_residual` ([kerker.rs:24-42](../src/scf/mixing/kerker.rs)):
+  - `precondition_residual` ([kerker.rs:24-42](../pwdft/pwdft-core/src/scf/mixing/kerker.rs)):
     allocates `res_g: Vec<Complex64>` and the final `Vec<f64>` output.
     Two further `n_grid` allocations.
   - `push_history` (line 153): `rho_in_arr.to_owned()` — new `Array1<f64>`
@@ -295,7 +295,7 @@ The hot loop body is analyzed in execution order. For each finding:
     `alpha_last * (&hist + &(β · R))` — ndarray expression templates
     that materialize a fresh `Array1<f64>` per term in the DIIS
     combination (≈ mm intermediate arrays of length n_grid).
-- **Sites (Broyden, [broyden.rs:108-213](../src/scf/mixing/broyden.rs)):**
+- **Sites (Broyden, [broyden.rs:108-213](../pwdft/pwdft-core/src/scf/mixing/broyden.rs)):**
   - Line 112: `raw_residual` `Vec<f64>` of length n_grid — allocated.
   - Line 115: `residual` = either preconditioned (3 allocations inside
     `precondition_residual`, same as Anderson) or `raw_residual` moved.
@@ -326,7 +326,7 @@ The hot loop body is analyzed in execution order. For each finding:
 
 #### F-12. FFT creation inside `compute_density`'s per-k-point closure
 
-- **Site:** [`scf/density.rs:57`](../src/scf/density.rs).
+- **Site:** [`scf/density.rs:57`](../pwdft/pwdft-core/src/scf/density.rs).
 - **What:** `let mut fft_local = FFT3D::new(dnx, dny, dnz);` inside the
   rayon `fold` init closure. The closure's init runs **once per worker
   thread** (rayon convention), not per k-point, so in steady state
@@ -360,7 +360,7 @@ spin-specific findings:
 
 #### F-13. CCMX basis change — six `Vec<f64>` allocations per iter
 
-- **Site:** [`driver_spin.rs:473-506`](../src/scf/driver_spin.rs).
+- **Site:** [`driver_spin.rs:473-506`](../pwdft/pwdft-core/src/scf/driver_spin.rs).
 - **What:** At the end of each iter, the CCMX mixer requires
   `(ρ↑, ρ↓) → (ρ_total, m) → mix → (ρ_total_new, m_new) → (ρ↑_new, ρ↓_new)`.
   This is expressed as six `.iter().zip().map().collect()` calls:
@@ -377,7 +377,7 @@ spin-specific findings:
 
 #### F-14. Spin driver: `rho_total_r`, `occ_all`, `rho_xc_total`, `rho_xc_total_in`
 
-- **Sites:** [`driver_spin.rs:137-138, 280-281, 297-298, 336`](../src/scf/driver_spin.rs).
+- **Sites:** [`driver_spin.rs:137-138, 280-281, 297-298, 336`](../pwdft/pwdft-core/src/scf/driver_spin.rs).
 - **What:**
   - `rho_total_r` (line 137): `rho_up_r + rho_down_r` — `Vec<f64>` of
     length n_grid.
@@ -402,7 +402,7 @@ spin-specific findings:
 
 #### F-15. Spin driver: per-spin V_eff_up, V_eff_down
 
-- **Site:** [`driver_spin.rs:154-155`](../src/scf/driver_spin.rs). Two
+- **Site:** [`driver_spin.rs:154-155`](../pwdft/pwdft-core/src/scf/driver_spin.rs). Two
   `assemble_v_eff` calls → **2×** the non-spin F-4.
 - **Fix:** Two workspace buffers.
 - **Est. saving:** already counted in F-4; spin factor 2×.
@@ -421,13 +421,13 @@ SCF entry (stored in `vnl_cache`) — out of scope.
 
 #### F-17. Double Hartree+XC evaluation for Harris-Foulkes
 
-- **Site:** [`driver.rs:266-285`](../src/scf/driver.rs).
+- **Site:** [`driver.rs:266-285`](../pwdft/pwdft-core/src/scf/driver.rs).
 - **What:** Every iter recomputes XC on the OUTPUT density
   (`xc::lda_xc_grid(&rho_new_for_xc)` → 2 fresh Vec<f64>) **and** calls
   `hartree_energy` a second time on `rho_g` (no allocations, just a
   scalar reduction). The spin driver has a similar structure but also
   re-computes `lda_xc_spin_grid` a second time
-  ([driver_spin.rs:309-310](../src/scf/driver_spin.rs)).
+  ([driver_spin.rs:309-310](../pwdft/pwdft-core/src/scf/driver_spin.rs)).
 - **Size:** 2 × `8 · n_grid` bytes (non-spin) / 3 × `8 · n_grid` bytes
   (spin) per iter in addition to the first XC call.
 - **Fix:** Already partially covered by F-2. The second XC call would

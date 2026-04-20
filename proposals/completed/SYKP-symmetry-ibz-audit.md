@@ -9,9 +9,9 @@ depends_on: []
 blocks: []
 ---
 
-# SYKP — Audit Si 4×4×4 IBZ reduction (10 vs 8 k-points)
+## SYKP — Audit Si 4×4×4 IBZ reduction (10 vs 8 k-points)
 
-## TL;DR
+### TL;DR
 
 The Si 4×4×4 "10 vs 8 IBZ points" discrepancy flagged in the 2026-04-16
 researcher logbook is **not a bug**. It is a **convention mismatch**
@@ -38,9 +38,9 @@ is compared.
 recommends two small documentation / ergonomics follow-ups so the next
 reader does not have to re-derive this.
 
-## Evidence
+### Evidence
 
-### pwdft-rs MP convention
+#### pwdft-rs MP convention
 
 `src/kpoints.rs:30-34` (`monkhorst_pack`), confirmed by
 `src/symmetry/kpoints.rs:80-85` (`mp_fractional`):
@@ -53,7 +53,7 @@ For N=4: `{-3/8, -1/8, 1/8, 3/8}` — no point at Γ, symmetric about Γ.
 This matches Monkhorst & Pack, *Phys. Rev. B* **13**, 5188 (1976),
 Eq. 4 (the "shifted" MP formula for even N).
 
-### QE MP convention
+#### QE MP convention
 
 `qe-7.5/PW/src/kpoint_grid.f90:67-78`:
 
@@ -65,12 +65,12 @@ For `nk1=4, k1=0` (our `si_scf.in`): `xkg ∈ {0, 1/4, 1/2, 3/4}` — Γ-centere
 has a point exactly at Γ. For `k1=1`: `xkg ∈ {1/8, 3/8, 5/8, 7/8}` which
 mod-1 equals `{1/8, 3/8, -3/8, -1/8}` — identical to our grid.
 
-### QE's Si reduction (from our own reference file)
+#### QE's Si reduction (from our own reference file)
 
 `qe_validation/si_scf.out:672-691` shows QE's 8 IBZ points in crystal
 coords:
 
-```
+```text
 k(1) = ( 0.000, 0.000, 0.000)   wk = 0.03125
 k(2) = ( 0.000, 0.000, 0.250)   wk = 0.25000
 k(3) = ( 0.000, 0.000,-0.500)   wk = 0.12500
@@ -86,7 +86,7 @@ pre-multiplied by spin degeneracy (`qe-7.5/PW/src/setup.f90:673`,
 `wk = wk * degspin` for LDA), so the printed sum is 2.0. The physical
 sum normalised to 1.0 is exactly the `w_i / 2` of each line above.
 
-### pwdft-rs' reduction of its own grid
+#### pwdft-rs' reduction of its own grid
 
 `src/symmetry/kpoints.rs:134-157` (`test_si_4x4x4_reduces_to_8`) asserts
 the result is in `[8, 10]`, and the current output is 10 with weights
@@ -95,7 +95,7 @@ summing to 1.0 (verified by the sibling `test_weight_sum_is_one`). All
 produce with `4 4 4 1 1 1`. No component hits a BZ boundary
 (`±1/2`) where tolerance issues could plausibly arise.
 
-### Why 10, not 8?
+#### Why 10, not 8?
 
 Intuitively, the unshifted grid has high-symmetry points (Γ, X, L and
 their neighbours) that lie on a BZ boundary or a special line and are
@@ -106,7 +106,7 @@ avoids all those high-symmetry loci, producing no Γ/X/L/W representatives
 and a more uniformly-weighted 10-point IBZ. Both are correct reductions
 of their respective grids.
 
-## Classification
+### Classification
 
 **(b) Different-but-equivalent convention.** Our IBZ reduction
 algorithm is correct; the symmetry detector (48 ops on Si Fd-3m,
@@ -124,7 +124,7 @@ Not (c) missing symmetry op: Si Fd-3m has 48 operations; we find all 48
 
 Not (d) extra op: group closure rules this out too.
 
-## Relation to the Si 13.4 eV gap
+### Relation to the Si 13.4 eV gap
 
 **Plausible cause?** No. Order-of-magnitude argument:
 
@@ -147,13 +147,13 @@ the VGCMP/SIMP/VERF-class issues, but it does mean the future
 the grids identical, or (ii) state in a comment that the small
 k-sampling delta is absorbed into the 0.1 eV tolerance.
 
-## Recommended follow-ups (documentation + ergonomics only)
+### Recommended follow-ups (documentation + ergonomics only)
 
 These are **not urgent** and are **not part of this audit PR**. They
 are captured here so a future Core Engineer / Technical Writer session
 can pick them up.
 
-### D1 — Clarify the MP convention in source docs
+#### D1 — Clarify the MP convention in source docs
 
 Current docstring on `monkhorst_pack` (`src/kpoints.rs:17-20`) says
 "produces `k_i = (2n_i - N_i - 1) / (2 N_i)`" without naming the
@@ -172,7 +172,7 @@ classification above; should be "10 because the shifted MP grid has a
 genuinely different orbit structure from the Γ-centered grid QE
 defaults to; both reductions are exact").
 
-### D2 — (Optional, deferred) Expose an MP shift parameter
+#### D2 — (Optional, deferred) Expose an MP shift parameter
 
 Add an optional `shift: [u32; 3]` or `kind: "shifted" | "gamma"` field
 to `KPointSettings::MonkhorstPack` in `src/settings.rs:113-117`, plus
@@ -185,7 +185,7 @@ This is a **scope expansion**, not a fix. File as a standalone
 proposal (suggested ID: `MPSH` — Monkhorst-Pack shift parameter) if
 prioritised.
 
-## Test plan
+### Test plan
 
 No new tests — existing ones are correct:
 
@@ -201,13 +201,13 @@ legitimate lower bound: in principle a future implementation that
 supports both conventions could tighten it to `== 10` for the shifted
 branch.
 
-## Status: documented
+### Status: documented
 
 Closing as **documented, no code change**. D1 captured here for a
 future docstring-fix sweep; D2 deferred as a separate proposal if
 needed.
 
-## References
+### References
 
 - Monkhorst, H. J.; Pack, J. D. *Special points for Brillouin-zone
   integrations.* **Phys. Rev. B 13, 5188 (1976).** Eq. 4 gives the
@@ -220,7 +220,7 @@ needed.
     via 48-op count and group closure tests listed above).
 - Our own reference run: `qe_validation/si_scf.out:672-691`.
 
-## 2026-04-17 — D1 done
+### 2026-04-17 — D1 done
 
 Docstrings updated in `src/kpoints.rs::monkhorst_pack` and
 `src/symmetry/kpoints.rs::{reduce_kpoints, mp_fractional}`, and the

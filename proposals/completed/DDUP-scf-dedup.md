@@ -80,6 +80,7 @@ let rho_core_half: Vec<f64> = ctx.rho_core_r.iter().map(|&c| c / 2.0).collect();
 ```
 
 Then replace lines 416-417:
+
 ```rust
 let rho_up_xc = add_core_density(&rho_up_r, &rho_core_half);
 let rho_down_xc = add_core_density(&rho_down_r, &rho_core_half);

@@ -11,11 +11,11 @@ author: Researcher
 date: 2026-04-18
 ---
 
-# MAUD — Mathematical accuracy audit of core physics modules
+## MAUD — Mathematical accuracy audit of core physics modules
 
-## §1 Scope and methodology
+### §1 Scope and methodology
 
-### §1.1 Motivation
+#### §1.1 Motivation
 
 MADOC Phase A (PR #87, commit `045b68d`) replaced the terse one-line
 docstrings in `src/scf/energy.rs`, `src/scf/driver.rs`, and
@@ -31,7 +31,7 @@ citations MADOC named.
 
 This is a **scoping + reporting pass**. No code is fixed here.
 
-### §1.2 Modules in scope
+#### §1.2 Modules in scope
 
 | Module | File | What was checked |
 |--------|------|------------------|
@@ -45,7 +45,7 @@ This is a **scoping + reporting pass**. No code is fixed here.
 | UPF boundary | `src/pseudopotential/upf/convert.rs` | Every Ry/Bohr → eV/Å conversion |
 | PCFX G-space sym | `src/symmetry/density/g_space.rs` | Phase convention, rotation transpose |
 
-### §1.3 Reference ground truth
+#### §1.3 Reference ground truth
 
 - **Docstring (post-MADOC):** treated as authoritative. If code and
   docstring disagree, one of them is wrong — this proposal flags which.
@@ -56,7 +56,7 @@ This is a **scoping + reporting pass**. No code is fixed here.
   specific convention is invoked (e.g., PZ constants as Ha vs Ry,
   V_local G=0 formula, density symmetrization phase).
 
-### §1.4 Finding categories
+#### §1.4 Finding categories
 
 - **A (bug):** code diverges from docstring or literature in a way
   that changes numerical results.
@@ -70,20 +70,20 @@ This is a **scoping + reporting pass**. No code is fixed here.
 
 ---
 
-## §2 Findings
+### §2 Findings
 
 Ordered by module. Within each module, findings are grouped by
 category. Code snippets quote the file on `origin/main` @
 `1f568be` (MAUD branch point).
 
-### §2.1 `src/scf/energy.rs`
+#### §2.1 `src/scf/energy.rs`
 
 Read the post-MADOC docstrings carefully; the full equation for every
 energy helper is now present. No **Category A** findings in this file:
 every formula in the code matches the MADOC docstring's stated
 equation.
 
-#### Category C (doc gap)
+##### Category C (doc gap)
 
 **C-ENG-1. `band_energy` docstring does not distinguish between
 nspin=1 and nspin=2 occupation conventions.**
@@ -139,7 +139,7 @@ amplitude at Si convergence is ~1e-16, and nothing goes wrong; but
 the MADOC docstring asserts O(Δρ²) stationarity without flagging
 that the clamp is a mild nonlinearity. *Doc-only.*
 
-### §2.2 `src/scf/driver.rs`
+#### §2.2 `src/scf/driver.rs`
 
 Module header now states the full Kohn-Sham equations and 8-step
 per-iteration pipeline (see `/tmp/maud_driver.rs:1-40` against
@@ -150,7 +150,7 @@ reviewers should check HEAD:src/scf/driver.rs).
 No **Category A** findings. Code matches the pipeline the module
 header declares, step for step.
 
-#### Category C (doc gap)
+##### Category C (doc gap)
 
 **C-DRV-1. Step 6 symmetrization happens BEFORE the output density is
 used in any energy term.**
@@ -186,7 +186,7 @@ which matches the HF definition — but the docstring on
 to the variable name in the driver. A reader navigating the driver
 may not immediately map `rho_g` → ρ_in. *Doc-only.*
 
-### §2.3 `src/scf/driver_spin.rs`
+#### §2.3 `src/scf/driver_spin.rs`
 
 Module header (post-MADOC) derives the LSDA + CCMX basis change in
 full. See `/tmp/maud_driver_spin.rs:1-57`.
@@ -195,7 +195,7 @@ No **Category A** findings; the docstring-vs-code match is clean for
 the CCMX basis inverse, NLCC ρ_core/2 per-channel split, and SPNC
 per-spin Δρ convergence scalar.
 
-#### Category C (doc gap)
+##### Category C (doc gap)
 
 **C-DRS-1. Initial split uses average magnetization, not per-atom.**
 
@@ -234,7 +234,7 @@ each carry half of ρ_core, and `Σ_σ (ρ_σ + ρ_core/2) = ρ_total +
 "ρ here is ρ_val + ρ_core", which is ambiguous about whether `ρ_val`
 refers to total valence (yes) or per-spin valence (no). *Doc-only.*
 
-### §2.4 `src/potential/xc.rs`
+#### §2.4 `src/potential/xc.rs`
 
 The core PZ/Slater formulas are unchanged by MADOC or GGAP Phase A;
 GGAP Phase A only added the `XcEvaluator` dispatch enum without
@@ -244,7 +244,8 @@ for ferromagnetic; A = 0.0311, B = −0.048, C = 0.0020, D = −0.0116
 for high-density paramagnetic; A = 0.01555, B = −0.0269, C = 0.0007,
 D = −0.0048 for high-density ferromagnetic) match PZ 1981 Table XII.
 
-#### Category A (bug — docstring only, but flagged because it will
+##### Category A (bug — docstring only, but flagged because it will
+
 mislead future maintainers)
 
 **A-XC-1. Spin exchange potential docstring has a spurious `2^{1/3}`
@@ -290,7 +291,7 @@ were wrong, as long as both ran the same (wrong) formula.
 **Cross-reference:** MADOC follow-up. Flagged in the MADOC
 completion note as a possible docstring-cleanup task.
 
-#### Category C (doc gap)
+##### Category C (doc gap)
 
 **C-XC-1. Spin correlation potential docstring uses ambiguous `(±1 - ζ)`.**
 
@@ -342,7 +343,7 @@ Both QE and pwdft-rs return −0.961 eV, matching the
 **Hartree, not Rydberg**, despite what many papers claim. This is
 non-obvious and worth a one-line docstring pin. *Doc-only.*
 
-#### Category B (convention pin, no bug)
+##### Category B (convention pin, no bug)
 
 **B-XC-1. LSDA interpolation is von Barth-Hedin, not
 Vosko-Wilk-Nusair.**
@@ -360,13 +361,13 @@ choice, so no discrepancy. PZ 1981 itself used VBH. Consistent.
 *Docstring should state this explicitly — the reader has no way to
 tell from the existing text that VWN was not used.*
 
-### §2.5 `src/potential/nonlocal.rs`
+#### §2.5 `src/potential/nonlocal.rs`
 
 KB assembly via expanded real-Y_lm channel basis, then single GEMM
 (VNLM, 2026-04-18). D_ij application is block-diagonal in
 (atom, l, m) (`nonlocal.rs:283-306`). No **Category A** findings.
 
-#### Category C (doc gap)
+##### Category C (doc gap)
 
 **C-NL-1. Docstring silent on phase factor `i^l` cancellation.**
 
@@ -394,12 +395,12 @@ is the specific defense against the "trace-equivalent-but-projector-
 wrong" failure mode called out in Researcher's agent definition. **Good
 as-is.** Noting here for audit completeness.
 
-### §2.6 `src/potential/local.rs` and `src/pseudopotential/mod.rs::v_local_of_g`
+#### §2.6 `src/potential/local.rs` and `src/pseudopotential/mod.rs::v_local_of_g`
 
 No **Category A** findings. VGCMP Phases 1-4 already pinned
 `V_local(G)` bit-for-bit vs. QE for Si to 1e-9 Ry.
 
-#### Category B (convention pin)
+##### Category B (convention pin)
 
 **B-VL-1. erf-subtraction Gaussian width is 1 Å in pwdft-rs vs.
 1 Bohr in QE.**
@@ -421,7 +422,7 @@ Bohr, but yields identical V_local(G) values because the decomposition
 is exact for any Gaussian width" (`pseudopotential/mod.rs:128-130`).
 Already well-documented.
 
-#### Category D (potential unit-boundary concern)
+##### Category D (potential unit-boundary concern)
 
 **D-VL-1. `v_local_of_g` at heavy atoms (Z > 14) — VGCMP assumed
 weak Z-dependence.**
@@ -442,9 +443,10 @@ right home for a numerical QE pin at Z ≥ 50. No new proposal needed;
 MAUD just annotates that the Z-dependence concern is real and
 motivates VGCH. Flagged as **cross-link** in §4 below.
 
-### §2.7 `src/ewald.rs`
+#### §2.7 `src/ewald.rs`
 
-#### Category A (borderline — behavior diverges under pathological
+##### Category A (borderline — behavior diverges under pathological
+
 cells, unused in production)
 
 **A-EW-1. Cutoff heuristic is fixed at `10η` regardless of truncation
@@ -484,7 +486,7 @@ thresholds (phonon calculations, stress tensor for slabs).
 
 **Fix category:** follow-up proposal candidate. Not MAUD-priority.
 
-#### Category C (doc gap)
+##### Category C (doc gap)
 
 **C-EW-1. No reference cited for the η = (Nπ/Ω)^{1/3} heuristic.**
 
@@ -503,9 +505,10 @@ Docstring shows `E_bg = -πe²(Σ Z_i)²/(2Ωη²)`. For neutral cells
 charged-cell (defect calculation) users will need to know
 exactly what E_bg does. *Doc-only.*
 
-### §2.8 `src/pseudopotential/upf/convert.rs`
+#### §2.8 `src/pseudopotential/upf/convert.rs`
 
-#### Category D (potential unit-boundary concern — no actual bug found,
+##### Category D (potential unit-boundary concern — no actual bug found
+
 but audit completeness worth a pin)
 
 **D-UPF-1. Every UPF block's conversion is covered; audit
@@ -538,12 +541,12 @@ asymmetry is the NCFX bug in reverse; NCFX caught it going the
 wrong way. The current code is correct and the NLCC ρ_core(G)
 pins at `convert.rs:303-411` (Si + Fe) regression-guard it. Good.
 
-### §2.9 `src/symmetry/density/g_space.rs`
+#### §2.9 `src/symmetry/density/g_space.rs`
 
 No **Category A** findings. Convention matches QE after the `S → S⁻¹`
 relabelling the docstring explains.
 
-#### Category B (convention pin — pwdft-rs direct vs. QE transpose)
+##### Category B (convention pin — pwdft-rs direct vs. QE transpose)
 
 **B-SYM-1. Rotation sign convention differs between pwdft-rs and QE.**
 
@@ -562,7 +565,7 @@ deprecated real-space form on a symmorphic grid. Already well-documented.
 
 **Pin:** see docstring at `g_space.rs:112-117`. Already annotated.
 
-#### Category C (doc gap)
+##### Category C (doc gap)
 
 **C-SYM-1. Band-limitation requirement only enforced informally.**
 
@@ -579,9 +582,9 @@ band-limited …" suggests a contract the code does not enforce.
 
 ---
 
-## §3 Recommended fix priority
+### §3 Recommended fix priority
 
-### §3.1 Category A findings (1)
+#### §3.1 Category A findings (1)
 
 Only one true A-level finding:
 
@@ -597,13 +600,13 @@ Only one true A-level finding:
   a separate follow-up proposal if/when validation tightens (phonon
   dispersions, slab-geometry total energies).**
 
-### §3.2 Category B findings (3): pin as doc-only cleanups
+#### §3.2 Category B findings (3): pin as doc-only cleanups
 
 - B-XC-1 (VBH vs VWN): add one line in `pz_correlation_spin`.
 - B-VL-1 (1 Å vs 1 Bohr Gaussian width): already well-documented.
 - B-SYM-1 (rotation direct vs QE transpose): already well-documented.
 
-### §3.3 Category C findings (9): roll up into a MADOC-B cleanup
+#### §3.3 Category C findings (9): roll up into a MADOC-B cleanup
 
 Most C findings are minor clarifications — 1 to 3 sentences per
 docstring. Recommend a single PR that sweeps all of them as
@@ -619,7 +622,7 @@ Priority subset if MADOC-B is deferred:
    stationarity.
 3. **C-XC-2** — pin "Hartree, not Rydberg" for PZ constants.
 
-### §3.4 Category D findings (2): VGCH and heavy-atom validation
+#### §3.4 Category D findings (2): VGCH and heavy-atom validation
 
 - **D-VL-1**: the `v_local_of_g` erf-subtracted form is pinned at
   Z = 14 (Si) and Z = 26 (Fe) but not above. The VGCMP Phase 1 comment
@@ -630,7 +633,7 @@ Priority subset if MADOC-B is deferred:
   conversion table (above) in a module docstring for
   `src/pseudopotential/upf/convert.rs`. One-time PR.
 
-### §3.5 Suggested landing order
+#### §3.5 Suggested landing order
 
 1. **No action required** on any Category A code path — SCF numerics
    are correct.
@@ -644,9 +647,9 @@ Priority subset if MADOC-B is deferred:
 
 ---
 
-## §4 Cross-links
+### §4 Cross-links
 
-### §4.1 MADOC follow-up (MADOC-B)
+#### §4.1 MADOC follow-up (MADOC-B)
 
 - **A-XC-1** (spin exchange docstring `2^{1/3}` spurious factor):
   docstring fix only; the code is correct. Add to MADOC's "Phase B
@@ -655,7 +658,7 @@ Priority subset if MADOC-B is deferred:
   C-XC-1, C-XC-2, B-XC-1, C-EW-1, C-EW-2, C-SYM-1**: all doc-only,
   roll up into a single "MADOC-B MAUD cleanup sweep" PR.
 
-### §4.2 VGCH cross-link (existing proposal)
+#### §4.2 VGCH cross-link (existing proposal)
 
 - **D-VL-1**: the existing **VGCH** proposal already owns the heavy-
   atom V_local validation. MAUD's D-VL-1 adds "Z-dependence of the
@@ -663,13 +666,13 @@ Priority subset if MADOC-B is deferred:
   VGCH to include at least one Z ≥ 50 PP (Cs, W, or Pt) in its test
   matrix.
 
-### §4.3 Ewald follow-up (low priority)
+#### §4.3 Ewald follow-up (low priority)
 
 - **A-EW-1**: if anyone wants tighter Ewald accuracy for slab or
   charged-defect calculations, port QE's iterative α-optimization
   (`ewald.f90:93-101`). Not MAUD-blocking.
 
-### §4.4 GGAP Phase B
+#### §4.4 GGAP Phase B
 
 - **A-XC-1** and **C-XC-2** should be revisited when GGAP Phase B
   ports the PBE potential formulas — those derivations reuse the
@@ -679,7 +682,7 @@ Priority subset if MADOC-B is deferred:
 
 ---
 
-## §5 Flagged for follow-up (out of scope for MAUD)
+### §5 Flagged for follow-up (out of scope for MAUD)
 
 - **src/scf/initial_density.rs:80** — uniform initial spin split from
   *average* `starting_magnetization` loses per-atom resolution for
@@ -700,7 +703,7 @@ through the TACC, QLNT, QLN2, and CAST passes.
 
 ---
 
-## §6 What MAUD explicitly does NOT cover
+### §6 What MAUD explicitly does NOT cover
 
 - GGAP Phase B (PBE exchange-correlation) — out of scope; MAUD is a
   cold read of current state only.
@@ -711,7 +714,7 @@ through the TACC, QLNT, QLN2, and CAST passes.
 
 ---
 
-## §7 Acceptance
+### §7 Acceptance
 
 This proposal is a *report*, not a code change. Acceptance = EM reads
 §2 findings, agrees on the §3 priority, and decides which (if any) of
@@ -719,6 +722,7 @@ the §4 follow-ups to file as standalone proposals. No implementation
 work falls directly out of MAUD itself.
 
 Expected downstream PRs:
+
 1. **MADOC-B cleanup sweep** (one PR, MADOC owner, bounds A-XC-1 + C-*)
 2. **VGCH heavy-atom validation** (separate proposal, Researcher)
 3. **(deferred)** Ewald iterative α (separate proposal if needed)

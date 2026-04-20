@@ -9,7 +9,8 @@ BCC Fe total energy is ~210 eV off QE. Diagnostic tests show every eigenvalue is
 ## Root Cause
 
 The Fe pseudopotential (`Fe.pz-n-nc.UPF`) has **nonlinear core correction (NLCC)** enabled:
-```
+
+```text
 nlcc=.true.
 core_correction="T"
 <PP_NLCC> ... 1191 radial values ... </PP_NLCC>
@@ -22,8 +23,9 @@ Si has `core_correction="F"` — no NLCC — which is why it works fine.
 ## Evidence
 
 Diagnostic test (`tests/fe_debug.rs`) shows:
+
 - Basis size matches QE (79 PWs) ✓
-- Kinetic eigenvalues correct ✓  
+- Kinetic eigenvalues correct ✓
 - V_NL Hermitian, D_ij correct ✓
 - Every eigenvalue shifted by ~15.2 eV (constant offset = V_local or XC error)
 - V_local(G=0) = 21.16 eV (matches manual calculation from PP data)
@@ -39,6 +41,7 @@ Add `core_charge: Vec<f64>` to `PseudopotentialData`. Parse `PP_NLCC` block (sam
 ### Step 2: Add core density to XC evaluation
 
 In the SCF loop, before computing XC:
+
 ```rust
 // Add core density for NLCC
 let rho_for_xc: Vec<f64> = if has_nlcc {
@@ -54,9 +57,11 @@ The core density needs to be computed on the FFT grid via Bessel transform, simi
 ### Step 3: Core energy correction
 
 The XC energy has a correction term:
-```
+
+```text
 E_xc[ρ_val + ρ_core] - E_xc[ρ_val]
 ```
+
 This is handled automatically by passing the augmented density to `lda_xc_grid`.
 
 ## Impact

@@ -50,6 +50,6 @@ Canonical papers and textbooks cited in this codebase.
 
 ## Online Resources
 
-- **ABINIT theory docs** — https://docs.abinit.org/theory/pseudopotentials/
-- **Theoretical Physics Reference** — https://www.theoretical-physics.com/dev/quantum/dft.html
-- **MAVENs DFT Notes** — https://mavens-group.github.io/dft-notes/08-SCF.html
+- **ABINIT theory docs** — <https://docs.abinit.org/theory/pseudopotentials/>
+- **Theoretical Physics Reference** — <https://www.theoretical-physics.com/dev/quantum/dft.html>
+- **MAVENs DFT Notes** — <https://mavens-group.github.io/dft-notes/08-SCF.html>

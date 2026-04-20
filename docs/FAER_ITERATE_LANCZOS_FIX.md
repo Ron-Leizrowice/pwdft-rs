@@ -107,11 +107,13 @@ The fix applied above is not in upstream faer. When the user is ready to
 submit it:
 
 1. Clone upstream fresh:
+
    ```bash
    git clone https://codeberg.org/sarah-quinones/faer.git /tmp/faer-upstream
    cd /tmp/faer-upstream
    git checkout v0.24.0    # or `main` if more recent upstream work landed
    ```
+
 2. Apply the diff at the end of this file. It applies cleanly on top of
    v0.24.0; for newer tags, inspect the context lines around
    `fn iterate_lanczos` first.
@@ -124,7 +126,7 @@ submit it:
 
 ## Original commit metadata
 
-```
+```text
 commit 6a5edcd5744a5291f4e65d19385f3a4551f9e694
 Author: RonLeizrowice-Pelanor <ron@pelanor.io>
 Date:   Sun Apr 19 10:55:03 2026 +0800

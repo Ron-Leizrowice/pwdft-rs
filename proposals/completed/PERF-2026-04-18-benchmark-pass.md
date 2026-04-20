@@ -8,9 +8,9 @@ risk: none
 depends_on: [FFTB, FMAD, XCPR, ITEV, VNLM, PRPL, CCMX, MXBA, MODR-A, MODR-B, MODR-C, MODR-D]
 ---
 
-# PERF-2026-04-18 — SCF benchmark pass after today's 13-PR wave
+## PERF-2026-04-18 — SCF benchmark pass after today's 13-PR wave
 
-## TL;DR
+### TL;DR
 
 **Si n_pw=725 per-SCF-iter hot path (eigensolve + V_NL apply) is 1.47x
 faster than the earliest comparable 2026-04-16 baseline** — from
@@ -25,7 +25,7 @@ speedup**. ITEV remains opt-in (upstream faer 0.24 Lanczos bug), so
 the faer dense path is still the per-iter eigensolve bottleneck and
 dominates the residual cost.
 
-## Environment
+### Environment
 
 - Apple M3 Max, macOS, machine lock held for 546 s
 - `origin/main @ a1bbac5` (FLUP seed of MXB1/MXB2/MXB3), post-MXBA
@@ -38,9 +38,9 @@ dominates the residual cost.
   XCPR, VNLM, PRPL, CCMX, MXBA, and the MODR refactor wave — it is the
   earliest comparable point that shares today's bench harness names.
 
-## Results
+### Results
 
-### Hamiltonian hot path
+#### Hamiltonian hot path
 
 | Bench                         | 2026-04-16 baseline | 2026-04-18 post-MXBA | Delta      | Notes |
 |-------------------------------|---------------------|----------------------|------------|-------|
@@ -54,7 +54,7 @@ dominates the residual cost.
 | `hamiltonian/kinetic_n259`    |  ~17 us             | 16.6 us              |  flat      | - |
 | `hamiltonian/kinetic_n725`    |  ~110 us            |  107 us              |  flat      | - |
 
-### Eigensolver (dense, faer)
+#### Eigensolver (dense, faer)
 
 | Bench                          | 2026-04-16 baseline | 2026-04-18 post-MXBA | Delta      | Notes |
 |--------------------------------|---------------------|----------------------|------------|-------|
@@ -68,7 +68,7 @@ concurrent load — the 85 ms baseline from the main checkout's criterion
 snapshot (captured under machine lock) and today's 71.6 ms reading are
 both in the same order of magnitude and are the ground truth.
 
-### FFT (per-iteration proxy workload)
+#### FFT (per-iteration proxy workload)
 
 | Bench                              | 2026-04-18 post-MXBA | Pre-FFTB reference |
 |------------------------------------|----------------------|--------------------|
@@ -92,7 +92,7 @@ FFTB removed a hidden 23-33% tax that the old benches never exposed.
 The `scf_iter_20x_*` series is the new bench that does expose it; no
 pre-FFTB baseline exists to quote here.
 
-### LDA XC grid (FMAD + XCPR territory)
+#### LDA XC grid (FMAD + XCPR territory)
 
 | Bench                              | 2026-04-18 post-MXBA | Pre-FMAD reference |
 |------------------------------------|----------------------|--------------------|
@@ -109,7 +109,7 @@ FMAD's 3-4% sequential gains are **preserved** through today's MODR
 refactor wave. XCPR's parallel gains at n >= 32k remain in place; the
 crossover below `XC_PARALLEL_THRESHOLD = 16384` is still guarded.
 
-### Basis construction (sanity check)
+#### Basis construction (sanity check)
 
 | Bench                     | 2026-04-18 post-MXBA | Notes |
 |---------------------------|----------------------|-------|
@@ -118,13 +118,13 @@ crossover below `XC_PARALLEL_THRESHOLD = 16384` is still guarded.
 | `basis/new_ecut_400`      | 29.9 us              | flat vs baseline |
 | `basis/new_ecut_600`      | 57.7 us              | flat vs baseline |
 
-## Headline speedup
+### Headline speedup
 
 Per k-point, per SCF iteration, `n_pw=725`, Si diamond Gamma-only,
 hot-path only (eigensolve + V_NL apply — the two dominating terms):
 
 - **2026-04-16 baseline:** 85.01 + 25.93 = 110.94 ms
-- **2026-04-18 post-MXBA:** 71.57 +  3.75 =  75.32 ms
+- **2026-04-18 post-MXBA:** 71.57 + 3.75 = 75.32 ms
 - **Speedup: 1.47x**, driven almost entirely by VNLM. The 15.8%
   eigensolver improvement is uncorroborated by any landing on today's
   PR list and is flagged as an anomaly below.
@@ -138,7 +138,7 @@ setup + 15 `vnl_apply` and 15 `faer_eigen` per iter):
   15 x 71.57 = 1073 ms, 1.19x
 - **Combined hot-path per k-point per SCF:** 1706 ms -> 1173 ms, **1.45x**
 
-## Current bottleneck landscape (post-VNLM)
+### Current bottleneck landscape (post-VNLM)
 
 At `n_pw=725`:
 
@@ -162,12 +162,12 @@ faer bug is fixed upstream and ITEV is enabled by default, V_NL build
 will become the likely #1 target for any k-point that runs only a few
 iters (e.g., non-SCF band calculations).
 
-## Anomalies flagged for FLUP
+### Anomalies flagged for FLUP
 
-### ANOM-1 — `faer_eigen_n259` regressed +36.4%
+#### ANOM-1 — `faer_eigen_n259` regressed +36.4%
 
 - **Baseline:** 7.36 ms (2026-04-16)
-- **Today:**   10.04 ms (2026-04-18)
+- **Today:** 10.04 ms (2026-04-18)
 - **Baseline confidence:** sub-0.1% std error (tight)
 - **Today confidence:** [8.75 ms, 11.61 ms] — **wider than usual** (±15%)
 
@@ -180,7 +180,7 @@ to confirm or refute. If confirmed, bisect across today's 13 PRs,
 starting with MODR-B (split of `src/scf/mod.rs`) and CAST (numeric
 lints).
 
-### ANOM-2 — `faer_eigen_n725` improved -15.8% without any landing claim
+#### ANOM-2 — `faer_eigen_n725` improved -15.8% without any landing claim
 
 - **Baseline:** 85.01 ms
 - **Today:**    71.57 ms
@@ -192,7 +192,7 @@ refactors, (c) background scheduler difference during the baseline
 run. Worth a 2-sample re-verification but not urgent (a "free"
 speedup).
 
-### ANOM-3 — `vnl_new_n725` did NOT sustain the VNLM-era 1.5x regression
+#### ANOM-3 — `vnl_new_n725` did NOT sustain the VNLM-era 1.5x regression
 
 - VNLM PR #49 reported `vnl_new_n725: 43.2 -> 78.5 ms`
 - Today's reading: 43.4 ms — matches the *pre-VNLM* baseline exactly.
@@ -211,7 +211,7 @@ re-bench `vnl_new_*` on a clean main to confirm regression reversal
 is real and lock in the win. If confirmed, update VNLM's completed
 proposal with the new number.
 
-## Verification against VNLM's claim (±20% band check)
+### Verification against VNLM's claim (±20% band check)
 
 VNLM PR #49 reported 4.1x / 4.1x / 5.2x at n_pw = 89 / 259 / 725.
 This session reproduces 5.8x / 6.6x / 6.9x — all **better** than the
@@ -223,7 +223,7 @@ was captured under slightly cleaner conditions than the PR's
 comparison bench. The VNLM implementation is sound; the reproduction
 passes cleanly.
 
-## Things NOT benched in this session (intentional)
+### Things NOT benched in this session (intentional)
 
 - End-to-end SCF wall-time (`cargo run --release -- --input ...`).
   The user explicitly asked for the bench harness. The per-iter
@@ -237,7 +237,7 @@ passes cleanly.
 - ITEV iterative eigensolver. Benches disabled (upstream Lanczos bug).
   Will reopen once faer fix lands.
 
-## Appendix — full criterion raw text
+### Appendix — full criterion raw text
 
 Saved under worktree `target/criterion/**/new/` for this session.
 Reproducible via `cargo bench --bench scf_benchmarks` on

@@ -2,14 +2,14 @@
 
 ## Kohn-Sham Total Energy Functional
 
-```
+```text
 E[ρ] = T_s[ρ] + E_H[ρ] + E_xc[ρ] + E_ext[ρ] + E_ion-ion
 ```
 
 In practice, using the band energy identity (post-TSEN, matches QE's
 `! total energy` which is the Mermin free energy `F = E − TS`):
 
-```
+```text
 E_total = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0) × N_el − TS
 ```
 
@@ -42,7 +42,7 @@ true XC energy, not the potential integral).
 
 With nonlinear core correction (Louie, Froyen, Cohen, PRB 26, 1738, 1982):
 
-```
+```text
 E_xc = ∫ ε_xc[ρ_val + ρ_core] × (ρ_val + ρ_core) dr
 E_vxc = ∫ V_xc[ρ_val + ρ_core] × ρ_val dr
 ```

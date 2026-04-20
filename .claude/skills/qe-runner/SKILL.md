@@ -53,6 +53,7 @@ On macOS, `timeout` is not built in. Install once: `brew install coreutils` (pro
 **Detect core count once per shell session.** Do NOT hardcode MPI rank or OMP thread counts — values that work on a 12-core laptop become oversubscription on an 8-core runner and vice versa. Always parameterize via `$NP` (or a caller-supplied override `NP=...`). On macOS: `NP=$(sysctl -n hw.ncpu)`. On Linux: `NP=$(nproc)`.
 
 For **small systems** (< 16 atoms), pure MPI is fastest (`ranks = cores, 1 thread each`):
+
 ```bash
 NP=${NP:-$(sysctl -n hw.ncpu)}
 export OMP_NUM_THREADS=1 LC_ALL=C LANG=C
@@ -63,6 +64,7 @@ ulimit -s unlimited
 ```
 
 For **larger systems** (16+ atoms), the installed optimized build may benefit from hybrid MPI+OMP. Split `$NP` into `RANKS × OMP` so the product stays close to `$NP` (e.g. on 12 cores: 6×2; on 8 cores: 4×2):
+
 ```bash
 NP=${NP:-$(sysctl -n hw.ncpu)}
 OMP=${OMP:-2}
@@ -150,10 +152,10 @@ If the UPF doesn't list a suggested cutoff, run a quick convergence sweep (e.g. 
 1. **Atom count** — ≤8 for routine validation; 16 absolute max.
 2. **Pseudopotential** — sourced from `pseudopotentials/` (never `qe-7.5/pseudo/` or elsewhere). XC functional matches `&SYSTEM`.
 3. **ecutwfc** — pulled from the UPF's suggested cutoff (see section above), not guessed. `ecutrho` matches the PP type.
-3. **k-grid** — smallest grid that still resolves the physics (4³ insulators, 6³ metals for validation).
-4. **max_seconds = 540** present in `&CONTROL`? External `gtimeout 600` in the launch command?
-5. **disk_io = 'low'** unless a later step needs the wavefunctions?
-6. **Estimated cost** — ballpark on 12 MPI ranks: 2-atom sp-bonded insulator, ecutwfc=30, 4³ k ≈ 1–3s; 8-atom cell, ecutwfc=40, 6³ k ≈ 20–60s. Heavier elements, d/f electrons, spin-polarized, magnetic, or metallic systems cost 3–10× more. If projected runtime exceeds 3 min, cut parameters further.
+4. **k-grid** — smallest grid that still resolves the physics (4³ insulators, 6³ metals for validation).
+5. **max_seconds = 540** present in `&CONTROL`? External `gtimeout 600` in the launch command?
+6. **disk_io = 'low'** unless a later step needs the wavefunctions?
+7. **Estimated cost** — ballpark on 12 MPI ranks: 2-atom sp-bonded insulator, ecutwfc=30, 4³ k ≈ 1–3s; 8-atom cell, ecutwfc=40, 6³ k ≈ 20–60s. Heavier elements, d/f electrons, spin-polarized, magnetic, or metallic systems cost 3–10× more. If projected runtime exceeds 3 min, cut parameters further.
 
 If any item fails, shrink the calculation before launching. When a run is killed by timeout, **do not re-run with a longer timeout** — diagnose why it was slow (too many k-points, SCF not converging, wrong smearing for a metal) and fix the input.
 
@@ -175,7 +177,7 @@ All pseudopotentials live in `pseudopotentials/` at the project root. Set `pseud
 
 ### Directory layout
 
-```
+```text
 pseudopotentials/
   nc/pbe/     — Norm-conserving, PBE (72 elements: H–Zr)
   nc/lda/     — Norm-conserving, LDA (74 elements, includes Fe_dalcorso, Ga_oncv, N_oncv, Si_hgh variants)
@@ -195,7 +197,7 @@ pseudopotentials/
 
 ### Example pseudo_dir in input files
 
-```
+```text
 pseudo_dir = '<project_root>/pseudopotentials/nc/pbe'
 ```
 
@@ -240,7 +242,8 @@ grep 'total   stress'          output.out   # stress tensor
 ```
 
 Eigenvalues appear per-k-point when `verbosity = 'high'`:
-```
+
+```text
           k = 0.0000 0.0000 0.0000 (   749 PWs)   bands (ev):
     -5.7032   6.2555   6.2555   6.2555
 ```
@@ -251,7 +254,7 @@ Eigenvalues appear per-k-point when `verbosity = 'high'`:
 
 ### Phonon output (ph.x)
 
-```
+```text
      freq (    1) =      15.298080 [THz] =     510.374390 [cm-1]
 ```
 

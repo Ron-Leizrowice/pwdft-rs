@@ -14,7 +14,7 @@ outcome: landed-as-cosmetic
 # VERF: V_local erf Coulomb Subtraction
 
 > **Completion note (2026-04-17):** Landed the erf-subtraction convention even though it is numerically equivalent to the previous bare-Coulomb form on the current log mesh. Rationale (engineer's call): (1) matches QE's convention exactly, which simplifies the upcoming VGCMP V_local(G) cross-check; (2) produces a bounded integrand near r=0, which will matter for future high-Z pseudopotentials where the bare-Coulomb integrand can reach very large values at the first radial grid points. A regression test at `tests/vloc_erf_consistency.rs` pins the mathematical equivalence for Si's first 20 |G| shells (< 1e-6 eV absolute) so any future deviation fires loudly. **This change does NOT close the 13.4 eV Si gap — see the new VGCMP proposal for that investigation.**
-
+>
 > **Prerequisite:** Implement Proposal 38 (Simpson's rule) first. This proposal is only needed if Simpson alone doesn't bring Si within 0.1 eV of QE.
 
 ## Problem
@@ -24,7 +24,8 @@ Our V_local(G) form factor computation subtracts the full Coulomb tail `Ze^2/r` 
 ### Current approach (`src/pseudopotential/mod.rs:115-132`)
 
 For G != 0:
-```
+
+```text
 integrand = r^2 × [V_local(r) + Z·e2/r] × sin(Gr)/(Gr)
 analytical_correction = -4π Z e2 / (Ω G^2)
 ```
@@ -34,16 +35,19 @@ The term `V_local(r) + Z·e2/r` diverges as `Z·e2/r` at r→0 because pseudopot
 ### QE approach (`qe-7.5/upflib/vloc_mod.f90:136-148`)
 
 For G != 0 (q > 0):
+
 ```fortran
 aux(ir) = (r*vloc(ir) + Zp*e2*erf(r)) * sin(q*r)/q
 ```
 
 Since `erf(r)/r → 2/√π` as r→0, the integrand is bounded:
-```
+
+```text
 integrand = [r·V_local(r) + Z·e2·erf(r)] × sin(qr)/q
 ```
 
 The analytical Coulomb correction becomes:
+
 ```fortran
 vloc(igl) = vloc(igl) - fpi*Zp*e2*exp(-gl*tpiba2*0.25d0)/gl * (1/omega)
 ```
@@ -56,12 +60,13 @@ For G=0, both approaches use the same formula (full Coulomb subtraction). See QE
 
 Both decompositions give the same V_local(G):
 
-```
+```text
 V_local(r) = [V_local(r) + Z·e2/r] - Z·e2/r        (ours)
 V_local(r) = [V_local(r) + Z·e2·erf/r] - Z·e2·erf/r (QE)
 ```
 
 The FT of the long-range parts differ:
+
 - Ours: FT[-Ze2/r] = -4πZe2/G^2
 - QE: FT[-Ze2·erf(r)/r] = -4πZe2[1-exp(-G^2/4)]/G^2
 
@@ -109,6 +114,7 @@ In `src/pseudopotential/mod.rs`, replace lines 115-132:
 ### Step 2: Keep G=0 unchanged
 
 The G=0 branch already uses the full Coulomb subtraction, matching QE's convention at `vloc_mod.f90:158-163`:
+
 ```fortran
 aux(ir) = r * (r*vloc(ir) + Zp*e2)
 ```
@@ -130,6 +136,7 @@ cargo clippy -q --all-targets
 **Key test:** Compare V_local(G) for the first 20 G-shells for Si against QE reference values. The two codes should now agree to ~1e-6 eV.
 
 **Success criteria:**
+
 - Si total energy within 0.1 eV of QE (-231.61 eV)
 - Fe total energy within 0.1 eV of QE (-3059.46 eV)
 - All eigenvalue degeneracies at Gamma exact to 1e-4 eV

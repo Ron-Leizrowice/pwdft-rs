@@ -13,7 +13,7 @@ archived_reason: Deferred since initial backlog (2026-04-16) with no user demand
 # HD5I: HDF5 Restart and Structured Output — ARCHIVED
 
 > **ARCHIVED 2026-04-19.** Deferred for 3 days with no user demand and no blocking dependency. Archived to keep the active backlog focused. Re-open as a fresh proposal (HDF5-rooted naming) when a real workflow needs restart or structured binary output — likely when MD or geometry-optimization lands.
-
+>
 > **Note:** Line numbers reference the pre-ScfContext codebase (src/scf/mod.rs was ~1127 lines, now ~709). Verify locations before implementing.
 
 ## Motivation
@@ -25,6 +25,7 @@ As calculations grow larger (more atoms, higher cutoffs, more k-points), two nee
 2. **Structured output:** Band structure data is written as TSV (via `src/bandstructure.rs`). Eigenvalues, densities, and potentials for post-processing (band plots, DOS, charge density visualization) are better served by a self-describing format.
 
 HDF5 is the standard binary format in computational physics. It provides:
+
 - Efficient storage of large multi-dimensional arrays (densities on 64^3+ grids)
 - Self-describing metadata (units, grid dimensions, crystal structure)
 - Portable across platforms and languages (Python h5py, Julia HDF5.jl, C/Fortran)
@@ -33,11 +34,13 @@ HDF5 is the standard binary format in computational physics. It provides:
 ## Dependencies
 
 Add:
+
 ```toml
 hdf5 = { version = ">=0.9", optional = true }
 ```
 
 Behind a feature flag since HDF5 requires the system library:
+
 ```toml
 [features]
 hdf5 = ["dep:hdf5"]
@@ -154,7 +157,7 @@ checkpoint_interval = 10        # save every N iterations
 
 ## HDF5 File Structure
 
-```
+```text
 pwdft_output.h5
 ├── crystal/
 │   ├── lattice          (3, 3) float64 — lattice vectors in Angstrom

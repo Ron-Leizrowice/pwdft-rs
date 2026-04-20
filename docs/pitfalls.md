@@ -66,6 +66,7 @@ degeneracies at high-symmetry points. Error scales with Z_valence
 (Si: 1.66 eV/el, Fe: 2.84 eV/el).
 
 **Cause:** Two compounding issues:
+
 1. Plain sum `integral += f * dr` (O(h^2)) vs QE's Simpson's rule (O(h^4))
 2. V_local Coulomb subtraction adds `Ze^2/r` which diverges at r=0, while
    QE uses `erf(r)/r` which stays finite

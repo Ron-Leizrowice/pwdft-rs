@@ -10,9 +10,9 @@ blocks: [VQEF]
 owner: researcher
 ---
 
-# VGCH-2 — Total-energy assembly for the heavy-atom residual
+## VGCH-2 — Total-energy assembly for the heavy-atom residual
 
-## Context
+### Context
 
 Both hypotheses under VGCH Phase 1 are now cleared:
 
@@ -32,7 +32,7 @@ Both hypotheses under VGCH Phase 1 are now cleared:
 The 7–34 eV residuals must therefore live in **one of two places**:
 
 1. **Total-energy assembly** — the `total_energy` + `with_g0_shift`
-   + `harris_foulkes_energy` closure in `src/scf/energy.rs`, or the
+   - `harris_foulkes_energy` closure in `src/scf/energy.rs`, or the
    interaction between the G=0 compensation (`v_local_g0 · n_electrons`)
    and the NLCC double-counting subtraction, or a subtle mis-pairing
    of input-vs-output densities in the double-counting terms for
@@ -57,7 +57,7 @@ Phase 1a's observation strongly points at (1):
   cleanly; C doesn't. That's a narrow fingerprint on the V_loc(G=0)
   compensation branch.
 
-## Scope
+### Scope
 
 **Part A — Isolate the mispairing (1 CE-day). COMPLETE 2026-04-19.**
 
@@ -76,7 +76,7 @@ density state at the moment each term is computed. Focus on:
   − E_vxc[ρ_in]) + E_ewald`. The driver uses `ρ_in` for the double
   counting; does it actually pass `ρ_in` and not `ρ_out`?
 
-### Part A findings (2026-04-19)
+#### Part A findings (2026-04-19)
 
 Artifacts:
 
@@ -266,7 +266,7 @@ V_loc(G=0) on-diagonal gauge merged via PR #166):
   when the eigenvalues themselves match. Smearing implementation
   or band-count-vs-k mismatch is the first-order suspect.
 
-### Verdict: H3 CLEARED
+#### Verdict: H3 CLEARED
 
 The transplant at iter 1 does NOT reproduce QE's per-term
 decomposition at the QE-converged density. Specifically:
@@ -300,7 +300,7 @@ decomposition at the QE-converged density. Specifically:
    and XC (+8.9 eV gap); their partial cancellation explains the
    linear-response signature that Phase 1a first observed.
 
-### What Part B rules out
+#### What Part B rules out
 
 - Mixer-basin effect (H3 cleared — 16.3 eV gap exists at the SAME
   density).
@@ -309,7 +309,7 @@ decomposition at the QE-converged density. Specifically:
 - Total-energy-assembly mispairing (Part A already cleared; Part B
   confirms on fresh data).
 
-### Where the bug IS (for Part C scope)
+#### Where the bug IS (for Part C scope)
 
 The 16.3 eV iter-1 E_HF residual and **1.8 eV of DOS-origin
 Fermi-level mis-gauge** at ρ_QE point at ρ-based physics that
@@ -350,13 +350,13 @@ post-SiEF-B1 signal:
 3. **Semicore projector magnitude (V_nl).** E_nl at iter-1 =
    −499.21 eV. QE's E_nl is not printed directly; backing it out
    from the QE one-electron breakdown requires separating kinetic
-   + local + nonlocal. Action: extend the Cu KB projector cross-
+   - local + nonlocal. Action: extend the Cu KB projector cross-
    check (Phase 1b H1) from `β_l(q)` to include the `D_ij · Σ_lm
    β·β` contraction on a Cu-sized wavefunction; if projector
    scaling differs between codes by an O(10%) factor, that could
    account for the 16 eV gap.
 
-### Scaling outlook
+#### Scaling outlook
 
 Cu's mechanism (semicore d + NLCC) is shared with Fe (semicore
 3s/3p, NLCC), GaAs (Ga 3d + As semicore), MgO (Mg 2s/2p semicore),
@@ -371,7 +371,7 @@ proposing a fix.
 
 **Part C — Diagnosis + fix (1–5 CE-days).**
 
-### Part C session-1 findings (2026-04-20, diagnostic-only) — H-C1 + H-C3 CLEARED
+#### Part C session-1 findings (2026-04-20, diagnostic-only) — H-C1 + H-C3 CLEARED
 
 Closed hypotheses this session:
 
@@ -411,7 +411,7 @@ but a naive reference that uses QE's `wk` + pwdft-rs's
   above E_F at Γ (14 bands reach 45 eV; E_F ≈ 19 eV). F-D tails at
   σ = 0.272 eV decay in ~10 σ = 2.7 eV — well within headroom.
 
-### Part C session-2 scope (next)
+#### Part C session-2 scope (next)
 
 - Extend `tests/vgch_per_component_heavy.rs` or add a new NLCC
   pin for Cu/GaAs/MgO ρ_core(G) at G=0 + first two shells. Parse
@@ -442,7 +442,7 @@ Once Part C lands, rerun all 5 heavy-atom `qe_validation.rs` tests.
 Drop `#[ignore]` on those that close below 50 meV/atom. Update test
 pins. Remaining cells filed as narrow follow-ups.
 
-## Deliverables
+### Deliverables
 
 - `scripts/validate/vgch_energy_assembly_heavy.py` — QE per-term
   parser (reads QE stdout `E_one_electron`, `E_hartree`, `E_xc`,
@@ -454,7 +454,7 @@ pins. Remaining cells filed as narrow follow-ups.
 - Fix on `src/scf/energy.rs` (most likely) or `src/scf/context.rs`.
 - 3–5 `#[ignore]` removals in `tests/qe_validation.rs`.
 
-## Acceptance
+### Acceptance
 
 Close VGCH-2 when:
 
@@ -467,7 +467,7 @@ Close VGCH-2 when:
 5. `tests/vgch_sad_heavy.rs` and `tests/vgch_beta_l_heavy.rs` remain
    green (no regression on the Phase 1b/1c bit-perfect baselines).
 
-## Cost
+### Cost
 
 1–2 CE-weeks, depending on whether Part A's trace pins the bug or
 Part B's transplant experiment is needed.
@@ -477,7 +477,7 @@ Part B's transplant experiment is needed.
 - Part C (fix + tests): 1–5 CE-days.
 - Part D (close matrix): 0.5 CE-day.
 
-## Non-goals
+### Non-goals
 
 - Fixing the SAD clamp (Phase 1c showed the clamp effect is O(1e-5
   eV) on the worst cell, GaAs). Can be a separate polish ticket.
@@ -488,7 +488,7 @@ Part B's transplant experiment is needed.
   the QE fixed point with no drift, ruling out assembly and pointing
   at mixer.
 
-## Related
+### Related
 
 - **VGCH** (parent) — Phase 1a diagnostic landed PR #139, Phase 1b
   H1 (β_l(q)) landed PR #148, Phase 1c H2 (SAD) in this PR.

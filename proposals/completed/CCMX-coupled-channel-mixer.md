@@ -8,6 +8,8 @@ depends_on: [SPNC]
 blocks: []
 ---
 
+# CCMX: Coupled-Channel Density Mixer
+
 ## Completion note (2026-04-18)
 
 Landed in `src/scf/mod.rs::run_scf_spin`. Two `Mixer` instances (`mixer_total`,
@@ -17,6 +19,7 @@ uses `ρ↑ = (ρ_total + m)/2`, `ρ↓ = (ρ_total − m)/2`. Kerker is disable
 `mixer_mag` (not a charge-response). Mixer internals untouched.
 
 **Fe BCC 4×4×4 regression test** (`tests/spin_polarization.rs::test_ccmx_fe_free_magnetization_converges`):
+
 - Pre-CCMX: Δρ locked at ≈0.254 for 200+ iters, |HF-KS| ≈ 13 eV.
 - Post-CCMX: **converges in 14 iters** with |HF-KS| = 1.06e-4 eV, M = 0 μB.
 
@@ -34,9 +37,9 @@ Also un-blocked: `tests/qe_validation.rs::test_fe_bcc_fm_vs_qe` 8×8×8 Kerker
 now converges to −3050.80 eV, but remains `#[ignore]` pending VGCMP
 (residual 9.5 eV heavy-atom V_local gap vs QE).
 
-# CCMX: Coupled-Channel Mixer for nspin=2
+## CCMX: Coupled-Channel Mixer for nspin=2
 
-## Problem
+### Problem
 
 After SPNC (2026-04-17) tightened the nspin=2 convergence criterion from
 total-density-only to per-spin max, Fe BCC fixed-mag=2 fails to converge.
@@ -70,7 +73,7 @@ See `.claude/logbooks/core-engineer.md` (2026-04-17 SPNC entry) for the
 empirical trace and `proposals/SPNC-spin-per-density-convergence.md` for
 the convergence-criterion change that surfaced this pathology.
 
-## Background: what QE does
+### Background: what QE does
 
 QE mixes in the `(ρ_total, m) = (ρ↑ + ρ↓, ρ↑ − ρ↓)` representation, not
 per-channel `(ρ↑, ρ↓)`. The conversion happens in `sum_band.f90` right
@@ -109,7 +112,7 @@ partially decouple, and the Anderson history across iterations accurately
 captures the slow magnetisation relaxation without being drowned out by
 the fast charge-neutrality enforcement.
 
-## Proposed change
+### Proposed change
 
 Apply the basis change at the start and end of each mixing step in
 `run_scf_spin`, leaving the `Mixer` internals untouched. The mixer
@@ -145,7 +148,7 @@ channel than for the charge channel (QE calls this `mix_beta_spin` and
 defaults it lower than the charge `mix_beta`). That is a follow-up —
 the first cut uses the same `beta` for both and sees how far it gets.
 
-### Scope
+#### Scope
 
 Only `src/scf/mod.rs::run_scf_spin` is touched. The `Mixer` module
 (`src/scf/mixing.rs`) is channel-agnostic and stays unchanged. Kerker
@@ -156,7 +159,7 @@ which is the charge-charge response, not the spin-spin response) — for
 the magnetisation mixer we disable Kerker or use plain mixing. This
 requires a small config tweak; see the Implementation sketch below.
 
-## Implementation sketch
+### Implementation sketch
 
 1. **`src/scf/mod.rs::run_scf_spin`, mixer setup (~line 498):** allocate
    `mixer_total` and `mixer_mag` instead of `mixer_up`/`mixer_down`.
@@ -176,7 +179,7 @@ requires a small config tweak; see the Implementation sketch below.
 3. **No changes to `Mixer` internals.** The mixer operates on
    channel-agnostic flat `Vec<f64>` of length `n_grid` either way.
 
-## Verification
+### Verification
 
 Primary: Fe BCC fixed-mag=2 at `conv=1e-6` should converge in under 100
 iterations with `|E_HF − E_KS| < 0.1 eV`. Specifically:
@@ -205,7 +208,7 @@ Secondary (regression guards):
   in the mixed density (integrate `ρ_total_mixed` → number of
   electrons) should match the input to floating-point precision.
 
-## Estimated effort
+### Estimated effort
 
 One session (~3–4 hours), mostly concentrated on:
 
@@ -216,7 +219,7 @@ One session (~3–4 hours), mostly concentrated on:
   `mixing_beta` if the first attempt doesn't converge (~1-2 hours).
 - Updating the regression test and logbook (~30 min).
 
-## References
+### References
 
 - `qe-7.5/PW/src/sum_band.f90:307` — QE applies the `(up,dw) → (tot,mag)`
   transformation before mixing.

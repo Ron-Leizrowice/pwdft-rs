@@ -43,6 +43,7 @@ maintainability and clarity refactor.
 2. When the user sets `symmetry.enabled = false`, construct an
    identity-only `SymmetryInfo` rather than returning `None` from
    `Settings::to_symmetry_info()`. Helper:
+
    ```rust
    pub fn identity(crystal: &Crystal) -> SymmetryInfo {
        SymmetryInfo {
@@ -52,12 +53,15 @@ maintainability and clarity refactor.
        }
    }
    ```
+
    Add this to `src/symmetry/mod.rs` alongside `from_crystal`.
 3. In `symmetrize_density` (`src/symmetry/density.rs`), short-circuit
    when `symmetry.ops.len() == 1 && symmetry.ops[0].is_identity()`:
+
    ```rust
    if symmetry.is_trivial() { return; }
    ```
+
    `is_trivial()` is the right cheap predicate — add it to
    `SymmetryInfo`. The check costs one comparison per call.
 4. Remove the `if let Some(symm) = ctx.symmetry` guards at
@@ -66,6 +70,7 @@ maintainability and clarity refactor.
 5. Update all callers in `src/main.rs`, `tests/`, and `benches/` to
    construct a real `SymmetryInfo` (either via `from_crystal` or the
    new `identity()` helper) instead of passing `None`. Audit:
+
    ```bash
    grep -rn "symmetry: None\|None,?\s*$" src/ tests/ benches/ | grep -i scf
    ```
@@ -93,6 +98,7 @@ maintainability and clarity refactor.
 ## Verification
 
 Mechanical:
+
 - `cargo test` — all 220+ tests pass with bit-identical results
   (modulo runtime variance).
 - `cargo clippy -q --all-targets` — clean.

@@ -19,6 +19,7 @@ New heuristic: `n_request` keeps pre-ITEV2 base + adds cluster-margin `max(n_ban
 **Defect 2 — WFRX warm-start on iterative path.** `diagonalize_dispatch` now threads caller-supplied `v_prev` to both backends. Iterative path extracts first column of `prev_eigvecs[ik]` and passes to faer as Arnoldi `v0`. Previously iterative unconditionally passed `v0 = None`, giving cold Arnoldi a different Krylov subspace per SCF iteration → different fixed point than Dense.
 
 **SCF fixed-point agreement:**
+
 - Si ecut=100, 2×2×2 MP (n_pw=89, Tier-1): Dense vs Iterative, **|ΔE| = 4.52e-12 eV** (gate 1e-8). Pre-ITEV2 gap was 0.77 eV.
 - Si ecut=200, 4×4×4 MP (n_pw=259, Tier-2): **|ΔE| = 1.75e-5 eV** (gate 1e-4), at the conv_threshold=1e-6 SCF noise floor.
 
@@ -39,6 +40,7 @@ Apple M3 Max, `cargo bench --features gpu --bench gpu_benchmarks -- --quick`, lo
 64³/128³ hartree + v_eff wins comfortably outside CI, reproducible across reruns. At 32³ pooled path is already dominated by ~1.3 ms wgpu submission floor, so allocation elimination barely shows. ~11 MB transient allocator traffic / iter at 64³ → zero.
 
 **F5/F6/F8 investigated and reverted.**
+
 - **F5 workgroup-size sweep:** all three tested sizes (64/128/256) showed no measurable improvement. The current 128 is fine — stale.
 - **F6 `vec2<f32>` storage:** naga's Metal backend already coalesces the two f32 loads. The hand-written vec2 hint was unnecessary. Stale.
 - **F8 `cbrt` Newton-Raphson in lda_xc.wgsl:** Metal is already lowering `pow(x, 1/3)` through its native `cbrt` intrinsic. No improvement. Stale.
@@ -110,10 +112,12 @@ Apple M3 Max, isolated-kernel bench (lock held):
 **Key takeaway:** faer 0.24's full Hermitian `self_adjoint_eigen` is already highly optimized. The Rayleigh-Ritz project + residual + rotate overhead (~5-10 ms at n=725) dominates the savings for all but production-scale runs. **Prior 25× claim is obsolete** for this faer configuration — the real number is ≤10% at n≥725, and negative at n<200.
 
 **Gotchas captured:**
+
 - Convergence test must use tight `conv_threshold` (1e-8) + good mixer (Broyden β=0.7) to hit 1e-8 eV agreement. At conv_threshold=1e-6 the SCF-level noise floor is ~1e-6 eV, which swallows the WFRX signal. Plain mixing at tight threshold won't converge in reasonable iterations.
 - Machine-lock bench contamination persists — 3 other agents ran `spin_polarization` / `vgc5` at 500-1500% CPU while I held the lock. First bench pass was unusable (n=89 full_dense at 40 ms instead of 1 ms). Had to wait ~15 min for load avg to drop from 49 → 29 before numbers stabilized.
 
 **Next-step lever for eigensolve reduction:**
+
 - Per ALOC F-5 projection, the eigensolver is still ~95% of iter cost at n=725. Only **ITEV** (blocked on faer 0.24 Lanczos upstream bug) moves the needle meaningfully here. WFRX Phase 2 (ITEV warm-start) becomes free once ITEV lands — the `prev_wavefunctions` plumbing is already in place.
 
 ## 2026-04-19 — ALOC: per-iteration allocation audit (PR #93)
@@ -134,6 +138,7 @@ Static read-only audit of the SCF iteration body. 17 findings (F-1 to F-17) acro
 **Gotcha for implementation:** F-5's Mat cache saves the allocator call, but still pays 8.4 MB of zero-writes per k per iter. Verify with a microbench that `fill(Complex64::zero()) + kinetic_fill` really beats `Mat::zeros() + kinetic_fill` — at 725² it might be a wash because the kinetic-fill already touches every slot. If the zero pass dominates, skip it and overwrite every entry unconditionally (kinetic already fills diagonal; V_eff off-diagonal loop fills the rest; VNLM GEMM is an additive pass).
 
 **Out-of-scope flags for next session:**
+
 - `NonlocalPotential::new` allocates heavily (audit shows `form_factor_by_atom` + `proj_l_by_atom` + 3 more per-atom Vecs are each cloned from the `type_ff` cache — O(n_atoms × n_proj × n_pw) total). All one-time at SCF entry → not ALOC's concern, but a separate optimization if Fe supercells come up.
 - `compute_density`'s final re-normalization loop (`density.rs:88-97`) mutates in place; no allocations. Fine.
 - `density_r_to_g` takes `&mut [Complex64]` and is already zero-alloc internally; caller-side staging was the allocator.
@@ -168,6 +173,7 @@ Best speedups (Apple M3 Max, lock held): 36³·48 ops **5.24×**, 72³·48 ops *
 VNLM reproduced above PR #49's claim (6.9× actual vs 5.2× reported). *=unexplained anomalies, logged to FLUP as ANOM-1/2.
 
 **Current bottleneck ranking at n_pw=725 (post-VNLM):**
+
 1. Eigensolve (dense faer) — 71.6 ms/iter, ~95% of per-iter cost. Only ITEV moves this; blocked on faer 0.24 Lanczos upstream bug.
 2. V_NL new — 43.4 ms one-time per k-point, amortizable.
 3. FFT — ~14 ms for 20 calls at 32³.
@@ -181,6 +187,7 @@ Wrapper + SCF dispatch + YAML switch + 8 correctness tests. Default still Dense.
 **BLOCKER: upstream faer 0.24 bug.** `operator/self_adjoint_eigen/iterate_lanczos` (lines 42-59) inner Gram-Schmidt loop spins indefinitely when a Krylov vector becomes numerically null. Reproduces non-deterministically on multi-iteration Si SCF at n_pw=89 — single calls are fine, SCF hangs after ~3-10 iters (stuck in `norm_l2_simd_pairwise_rows`). Cannot flip default to Iterative until upstream fixed.
 
 **Gotchas captured for next session:**
+
 - Degeneracy collapse needs `n_request = max(n_bands+4, 1.5*n_bands)`.
 - Shift strategy: tight per-row Gershgorin bound. Loose shifts cause Lanczos reorth hangs even on single calls.
 

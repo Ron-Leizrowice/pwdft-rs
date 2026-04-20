@@ -42,6 +42,7 @@ An audit of the codebase found ~60 hardcoded numeric values controlling algorith
 Several values are also **inconsistent** — `potential/xc.rs` uses `1e-30` as a density floor in 4 independent locations while `consts.rs` defines `RHO_FLOOR = 1e-20`.
 
 This proposal adds the settings structs and threads them through call sites. It depends on:
+
 - **Proposal 32** (YAML migration, completed) having established `Settings` in `settings.rs` as the canonical config path
 - **Proposal 33** (consolidate constants) to unify E2 and RHO_FLOOR into single canonical locations before we thread them — otherwise we'd be plumbing settings to duplicated definitions
 
@@ -273,9 +274,9 @@ Two sessions.
 
 ---
 
-# Re-scope — 2026-04-18
+## Re-scope — 2026-04-18
 
-## Section 6 — Fresh census (supersedes Section 2)
+### Section 6 — Fresh census (supersedes Section 2)
 
 A file-by-file walk of `src/` on `origin/main` @ `0be9290` (XCNI). Every
 entry is cited by `file:line` against the current tree. Only entries
@@ -286,7 +287,7 @@ or module-private `const`, not already a Settings field), and reasonably
 user-facing (advanced researcher would override, not an internal
 DIIS/LU pivot).
 
-### 6.1 — Strong candidates (user-facing knobs, high value)
+#### 6.1 — Strong candidates (user-facing knobs, high value)
 
 | # | file:line | current literal | purpose | proposed Settings field |
 |---|-----------|-----------------|---------|-------------------------|
@@ -299,9 +300,9 @@ DIIS/LU pivot).
 | 7 | `src/scf/initial_density.rs:28` | `DEFAULT_GAUSSIAN_SIGMA = 1.0` Å | SAD fallback Gaussian width when UPF has no PP_RHOATOM. `InitialDensityConfig.gaussian_sigma` is already a runtime `Option<f64>`, just unwired from Settings | `initial_density.gaussian_sigma: Option<f64>` (default `None` = 1.0 Å) |
 | 8 | `src/eigensolver/iterative.rs:67` | `DEFAULT_TOL = f64::EPSILON * 128.0` (≈2.8e-14) | Iterative eigensolver residual-norm convergence threshold. Loosening to 1e-10 would trade SCF convergence rate for per-iter speed | `scf.iterative_eigensolver.tol: f64` (default `DEFAULT_TOL`) |
 | 9 | `src/eigensolver/iterative.rs:74` | `DEFAULT_MAX_RESTARTS = 500` | Iterative eigensolver max Arnoldi restarts before falling back to Dense. Cheap failure case has this knob act as a "give up, use Dense" gate | `scf.iterative_eigensolver.max_restarts: usize` (default `500`) |
-| 10 | `src/scf/smearing.rs:225` | `30.0` | Fermi-Dirac entropy reduced-variable cutoff (|(ε−E_F)/σ| > 30 → s=0). Safe at default σ but a user doing very-cold smearing (σ = 1e-4 eV) might notice | `electrons.fermi_search.entropy_cutoff: f64` (default `30.0`) — low priority |
+| 10 | `src/scf/smearing.rs:225` | `30.0` | Fermi-Dirac entropy reduced-variable cutoff ( | (ε−E_F)/σ |
 
-### 6.2 — Medium candidates (borderline user-facing)
+#### 6.2 — Medium candidates (borderline user-facing)
 
 | # | file:line | current literal | purpose | proposed Settings field |
 |---|-----------|-----------------|---------|-------------------------|
@@ -313,7 +314,7 @@ DIIS/LU pivot).
 | 16 | `src/scf/density.rs:92` | `1e-15` | Normalization integrand safety check | **Do not expose** |
 | 17 | `src/pseudopotential/mod.rs:137` | `1e-12` | `|G|=0` check in `v_local_of_g`. Should use `G2_ZERO_THRESHOLD` const instead (or its sqrt) | **Code cleanup** — Code Reviewer; not a CFGN knob |
 
-### 6.3 — Non-candidates (keep hardcoded, with justification)
+#### 6.3 — Non-candidates (keep hardcoded, with justification)
 
 | file:line | literal | why keep as-is |
 |-----------|---------|----------------|
@@ -323,12 +324,12 @@ DIIS/LU pivot).
 | `src/potential/nonlocal.rs:290` | `1e-20` (D_ij skip threshold) | Guard against pure-zero D_ij entries polluting GEMM output with NaN. Not user-facing |
 | `src/potential/nonlocal.rs:377` | `1e-9` (`q-norm` threshold for Y_lm) | Branch between `Y_00=1/√(4π)` singular case and full Y_lm evaluation. Mathematical boundary, not tuning knob |
 | `src/potential/nonlocal.rs:494`, `src/scf/potentials.rs:119`, `src/scf/initial_density.rs:171` | `1e-10` (Bessel/j₀ small-x thresholds) | Taylor expansion branch points for `j_l(x)/x` at x→0. Mathematical, not tunable |
-| `src/ewald.rs:91`, `136` | `1e-12`, `1e-10` | Self-interaction and near-zero |G|² guards. Internal Ewald numerical safety |
+| `src/ewald.rs:91`, `136` | `1e-12`, `1e-10` | Self-interaction and near-zero |
 | `src/symmetry/detect.rs:105` | `+ 1.5` | Half-unit search-radius padding in lattice-vector candidate generation. Pure geometry; not a physics knob |
 | `src/symmetry/kpoints.rs:130` | `1e-6` | k-point grid snapping after symmetry rotation. Geometry-on-integer-grid threshold, closely tied to `SymmetrySettings::tolerance` but at a different scale |
 | `src/consts.rs:11` | `E2_COULOMB = 14.399_645_351_950_548` | Published CODATA physical constant |
 
-### 6.4 — Count
+#### 6.4 — Count
 
 - **Strong candidates:** 10 (entries #1–10 above)
 - **Medium candidates:** 2 that would actually be exposed (#11 RHO_FLOOR, #12 G2_ZERO_THRESHOLD); #13 bundles into #4–6
@@ -339,7 +340,7 @@ listed ~25 distinct knobs (sections A–H); the fresh census finds only
 10–12 that survive the "reasonably exposed" filter once we honor NCFX's
 unification, MODR's refactors, and CAST's documented invariants.
 
-## Section 7 — What CAST's audit implicitly documented
+### Section 7 — What CAST's audit implicitly documented
 
 CAST landed ~51 `#[allow(clippy::cast_*, reason = "...")]` reasons
 across 13 files. Each reason encodes an integer-range bound that the
@@ -349,7 +350,7 @@ want to override this?":
 | CAST reason-fragment (file:line) | implied bound | CFGN candidate? |
 |----------------------------------|---------------|-----------------|
 | `src/scf/grid.rs:111,137` + 4 call sites in `src/symmetry/density/{mod,real_space,g_space}.rs` | `MAX_FFT_DIM ≤ 1024` | **No.** Exposing this would force `check-cast-safety` reviews on every linked site. A user with an 8k³ grid has bigger problems than Settings plumbing |
-| `src/ewald.rs:68,73,78,110,115,120` | "n_i_max bounded by g_max = 10·eta" | **Yes.** But already captured by candidate #1 (`ewald.cutoff_multiplier`). If a user sets `cutoff_multiplier: 50.0`, the Ewald i32 casts still fit (g_max · |b_i| ≤ 50·η·|b_i| ≤ ~10⁵ for physical inputs) |
+| `src/ewald.rs:68,73,78,110,115,120` | "n_i_max bounded by g_max = 10·eta" | **Yes.** But already captured by candidate #1 (`ewald.cutoff_multiplier`). If a user sets `cutoff_multiplier: 50.0`, the Ewald i32 casts still fit (g_max · |
 | `src/basis.rs:37,42,47` | "n_i_max bounded by ecut; exceeding i32::MAX would require ecut > 10¹⁸ eV" | **No.** `basis.ecutwfc` already in Settings; no further knob needed |
 | `src/kpoints.rs:46,56,61,66`; `src/symmetry/kpoints.rs:107,135,142` | "MP mesh counts bounded by O(100)" | **No.** `kpoints.grid` already in Settings |
 | `src/scf/grid.rs:59` | "ecutrho_ratio is a small input integer (typically 4)" | **No.** Already exposed |
@@ -361,7 +362,7 @@ want to override this?":
 surface **zero new** CFGN candidates. The `MAX_FFT_DIM` question is
 explicitly a "don't touch, it's load-bearing across 20 sites" answer.
 
-## Section 8 — Stale references in Section 2 (original inventory)
+### Section 8 — Stale references in Section 2 (original inventory)
 
 Every file/symbol cited in the original Inventory (Section 2), verified
 against `origin/main` @ `0be9290`:
@@ -378,8 +379,8 @@ against `origin/main` @ `0be9290`:
 | `src/scf/mixing.rs:69-72, 231` | **File does not exist.** MODR split into `src/scf/mixing/{mod,anderson,broyden,kerker,linalg}.rs`. Original "Kerker q_tf:69-72" ≈ `src/scf/mixing/kerker.rs:47-55`. "DIIS pivot tolerance:231" ≈ `src/scf/mixing/linalg.rs:39` | Stale path |
 | `src/scf/initial_density.rs:28, 103, 166-167` | Lines **28 (DEFAULT_GAUSSIAN_SIGMA, unchanged), 107, 171** | Small drift |
 | `src/potential/nonlocal.rs:175-178, 187, 250` | Lines **~377 (q-norm 1e-9, not 1e-12!), 290 (1e-20, unchanged), 494** | **Bug in original proposal:** claimed "q-norm threshold 1e-12" — actual value is **`1e-9`**, and the branch is on `q.norm() < eps` (real-space Y_lm), not `cos(θ)` as original claimed. VNLM rewrote this section to use Y_lm addition theorem |
-| `src/symmetry/detect.rs:100` | Line **105**, factor `+ 1.5` unchanged |
-| `src/symmetry/kpoints.rs:100` | Line **130** |
+| `src/symmetry/detect.rs:100` | Line **105**, factor `+ 1.5` unchanged |  |
+| `src/symmetry/kpoints.rs:100` | Line **130** |  |
 | `src/gpu/mod.rs:65` (workgroup size) | Line **72** (`WORKGROUP_SIZE = 256`) | Unchanged |
 | `src/gpu/mod.rs:130` (complex buffer pool = 5) | Line **140** (`(0..5)`) | Still 5 |
 | `src/gpu/mod.rs:142` (real buffer pool = 3) | **GONE.** There is no separate real buffer pool in the current `BufferPool`; the struct has `complex_bufs` + `complex_staging` + `g_squared_buf` only. Original proposal described a structure that was later simplified | **Stale; do not port** |
@@ -395,7 +396,7 @@ the wrong quantity in the original proposal. One **phantom file**
 pool = 3") cited in the original are fabrications against the current
 codebase.
 
-## Section 9 — MXBA tunables decision
+### Section 9 — MXBA tunables decision
 
 MXBA's `AdaptiveBeta` carries four magic numbers seen at
 `src/scf/mixing/mod.rs:120-123`:
@@ -427,13 +428,13 @@ constructor (line 119).
 MXB2's scope stays "defaults or a new mixer variant" — not "add four
 Settings fields."
 
-## Section 10 — Implementation phasing (supersedes Section 3)
+### Section 10 — Implementation phasing (supersedes Section 3)
 
 With the census down from ~25 to ~12 knobs, a smaller two-PR split is
 more tractable than the original 7-step plan. Each phase is an
 independent PR that doesn't depend on the other.
 
-### Phase 1 — Smearing / eigensolver / initial-density (highest value)
+#### Phase 1 — Smearing / eigensolver / initial-density (highest value)
 
 Knobs #4, #5, #6, #7, #8, #9 from Section 6.1 — these are the
 user-facing ones a researcher doing a sensitivity study would actually
@@ -452,6 +453,7 @@ the drivers:
 
 Changes to `ScfParams` + `Settings::to_scf_params`. No code physics
 changes. Verification via:
+
 - Existing `qe_validation.rs` Tier 1+2 systems must produce bit-identical
   results when YAML omits the new fields (defaults match hardcoded
   values).
@@ -461,7 +463,7 @@ changes. Verification via:
 
 Estimated: ~150 lines across 6 files.
 
-### Phase 2 — Ewald / RHO_FLOOR / G2_ZERO_THRESHOLD (nice-to-have)
+#### Phase 2 — Ewald / RHO_FLOOR / G2_ZERO_THRESHOLD (nice-to-have)
 
 Knobs #1, #2, #3, #11, #12 from Section 6. These are stress-test knobs
 that advanced users wanting to debug a numerical residual would want,
@@ -477,7 +479,7 @@ asking for them today.
 
 Estimated: ~150 lines across 5 files.
 
-### Phase 3 — Deferred (not in scope this release)
+#### Phase 3 — Deferred (not in scope this release)
 
 - Knob #10 (entropy cutoff). Low physical impact; ignore until a user
   reports a cold-smearing regression.
@@ -485,7 +487,7 @@ Estimated: ~150 lines across 5 files.
   scope).
 - GPU workgroup / buffer-pool sizes (Section 6.3: not a physics knob).
 
-### Phase 1 → Phase 2 ordering
+#### Phase 1 → Phase 2 ordering
 
 Phase 1 lands first because its knobs are the ones production users hit
 in sensitivity studies. Phase 2 is a pure threading exercise over
@@ -493,7 +495,7 @@ already-cleaned constants and can slot in any time after Phase 1 merges.
 
 ---
 
-## Change-log (re-scope session)
+### Change-log (re-scope session)
 
 - **2026-04-19** — EM: re-scope pass 2 (post-CFGN1). See Section 11
   below for current state. Priority lowered from medium to low; the
@@ -511,9 +513,9 @@ already-cleaned constants and can slot in any time after Phase 1 merges.
 
 ---
 
-## Section 11 — Re-scope 2026-04-19 (supersedes Sections 6–10)
+### Section 11 — Re-scope 2026-04-19 (supersedes Sections 6–10)
 
-### What landed
+#### What landed
 
 - **CFGN1 — `initial_density.gaussian_sigma`** (PR #114, 2026-04-19).
   Knob #7 from Section 6.1. Proved the pattern: sub-struct under
@@ -522,7 +524,7 @@ already-cleaned constants and can slot in any time after Phase 1 merges.
   non-positive/non-finite, bit-identical when omitted from YAML.
   Four unit tests in `src/settings.rs`.
 
-### What adjacent proposals cover (NOT CFGN's scope)
+#### What adjacent proposals cover (NOT CFGN's scope)
 
 - **ECUT** — per-PP recommended `ecutwfc` from a PseudoDojo `.standard`
   table. ECUT is about **replacing** the hardcoded 204.09 eV default
@@ -537,13 +539,14 @@ already-cleaned constants and can slot in any time after Phase 1 merges.
 These two adjacent proposals re-tune defaults for *already-exposed*
 settings; CFGN's remaining work is genuinely about exposing new knobs.
 
-### What's actually left in CFGN's scope
+#### What's actually left in CFGN's scope
 
 Ten knobs, unchanged from Section 6 except for #7 (landed). Originally
 split into two phases; post-CFGN1 they are better landed as individual
 proposals when a user asks for one, because they're independent:
 
 **Phase-1 territory (Fermi + iterative eigensolver; 5 knobs):**
+
 - #4 `electrons.fermi_search.bounds_factor` (default 10.0)
 - #5 `electrons.fermi_search.max_iter` (default 200)
 - #6 `electrons.fermi_search.tol` (default 1e-14)
@@ -551,12 +554,14 @@ proposals when a user asks for one, because they're independent:
 - #9 `scf.iterative_eigensolver.max_restarts` (default 500)
 
 **Phase-2 territory (Ewald + numerics floors; 5 knobs):**
+
 - #1/#2 `ewald.cutoff_multiplier` (default 10.0)
 - #3 `ewald.eta: Option<f64>` (default None = auto)
 - #11 `electrons.xc.rho_floor` (default RHO_FLOOR = 1e-30)
 - #12 `electrons.g2_zero_threshold` (default G2_ZERO_THRESHOLD = 1e-12)
 
 **Out of scope** (moved from old Phase 3 into a firm "no"):
+
 - MXBA `AdaptiveBeta` internals — Section 9 decision stands; algorithmic
   contract, not a user knob.
 - GPU workgroup / buffer-pool sizes — Section 6.3; WGSL-constant
@@ -564,7 +569,7 @@ proposals when a user asks for one, because they're independent:
 - Knob #10 (`entropy_cutoff`) — low physical impact; defer until a user
   reports a cold-smearing regression.
 
-### Recommendation
+#### Recommendation
 
 Keep CFGN open as an umbrella, priority **low**. Each remaining knob is
 small enough (≤ ~40 lines) to land as a standalone proposal when a real
@@ -573,7 +578,7 @@ surface gets bloated with defaults nobody overrides. The CFGN1 pattern
 is the template: one knob per PR, validator-enforced, bit-identical
 when omitted.
 
-### Status of the original Phase plan (Section 10)
+#### Status of the original Phase plan (Section 10)
 
 Sections 6–10 remain accurate as a census. The phasing in Section 10 is
 now a **menu**, not a sequence: `Phase 1 → Phase 2` ordering no longer

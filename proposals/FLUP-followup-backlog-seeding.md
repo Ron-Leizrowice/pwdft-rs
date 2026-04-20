@@ -9,7 +9,7 @@ depends_on: []
 blocks: []
 ---
 
-# FLUP — Follow-up backlog from 2026-04-18
+## FLUP — Follow-up backlog from 2026-04-18
 
 Follow-up items surfaced during 2026-04-18's 13-PR merge wave (and the
 2026-04-19 follow-on reviews) but were deliberately not fixed inline —
@@ -24,7 +24,7 @@ an entry, it gets promoted to a standalone `proposals/<ID>-<slug>.md`
 and the FLUP entry is struck through (not deleted — history of what was
 seeded when).
 
-## Status summary (post-2026-04-19 sweep)
+### Status summary (post-2026-04-19 sweep)
 
 - **Landed:** G0SH, GLUS, SYMP, FDLT, VNMT, RDOC, UPFV, FGRD, MXB1, MXB3, VNLT, VNLB (struck by VNLT), DWGT, DFLT, G2ZT (PR #153).
 - **Still live (drive-by):** none.
@@ -33,9 +33,9 @@ seeded when).
 - **Added 2026-04-19:** TYPE-AX (5 `try_from` expect sites flagged by ERR2 P0 report).
 - **Added 2026-04-18 (TRV2-F3 wake):** FLP3 (NLCC ρ_core(G) parametric expansion — 60 unpinned PPs; defensive, ~1 day).
 
-## Entries
+### Entries
 
-### ~~G0SH — DRY the V_local(G=0) shift expression~~
+#### ~~G0SH — DRY the V_local(G=0) shift expression~~
 
 - **Role:** Core Engineer
 - **Priority:** low, **Complexity:** small, **Risk:** low
@@ -55,7 +55,7 @@ from all four sites.
 all existing tests still pass bit-identical. No changes to `EnergyComponents`
 semantics.
 
-### ~~GLUS — Replace hand-rolled Gauss-elim with `faer` LU~~ (landed)
+#### ~~GLUS — Replace hand-rolled Gauss-elim with `faer` LU~~ (landed)
 
 ~~- **Role:** Performance Engineer~~
 ~~- **Priority:** low, **Complexity:** small, **Risk:** low~~
@@ -84,7 +84,7 @@ two sites. All 39 `scf::mixing` tests pass bit-identical, full release
 test suite green (225 lib + integration), both clippy invocations clean,
 `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` clean. See PR GLUS.
 
-### ~~VNLB — Block-wise `D·B^H` construction in V_NL assembly~~ (struck 2026-04-19 by VNLT)
+#### ~~VNLB — Block-wise `D·B^H` construction in V_NL assembly~~ (struck 2026-04-19 by VNLT)
 
 - **Role:** Performance Engineer
 - **Priority:** medium, **Complexity:** small, **Risk:** low
@@ -139,12 +139,12 @@ stays serial → bit-identical result, all 10 PCFX tests pass. On a
 scaling holds at 36³ (ops=48: 5.2×). Crossover below 18³·8 (1.1×),
 above which every tested config clears 2×. See PR SYMP.
 
-### ~~FDLT — Expose `ScfResult.final_delta`~~ (landed)
+#### ~~FDLT — Expose `ScfResult.final_delta`~~ (landed)
 
 ~~- **Role:** Core Engineer~~
 ~~- **Priority:** low, **Complexity:** small, **Risk:** low~~
 ~~- **Source:** CCMX code review, PR #43 nit 1 + TACC finding (silent~~
-~~  regression risk).~~
+~~ regression risk).~~
 
 ~~Add `pub final_delta: f64` (the last Δρ the SCF saw before convergence~~
 ~~or `max_iter`) to `ScfResult` in `src/scf/mod.rs`. Compute it in both~~
@@ -171,12 +171,12 @@ pre-CCMX Δρ was pinned at ≈0.254; post-CCMX observed 5.7e-4 at iter
 and Broyden Si SCF runs produce `final_delta < 1e-4` (two orders below
 the `conv_threshold=1e-6`, empirical ≤ 1e-7). See PR FDLT.
 
-### ~~VNMT — m-isolation defense-in-depth test for V_NL~~ (landed)
+#### ~~VNMT — m-isolation defense-in-depth test for V_NL~~ (landed)
 
 ~~- **Role:** Core Engineer~~
 ~~- **Priority:** low, **Complexity:** small, **Risk:** low~~
 ~~- **Source:** VNLM code review, Step 2 of the VNLM proposal's validation~~
-~~  plan that never landed.~~
+~~ plan that never landed.~~
 
 ~~Add an integration or unit test that pins a single-(l, m)-channel V_NL~~
 ~~matrix element: build a test `NonlocalPotential` with `D_ij = 0` except~~
@@ -198,7 +198,7 @@ synthesizing a non-physical projector). Manual-break sanity check
 (multiply `Y_{2,+2}` by √2) triggered a 3.5e-7 residual vs 1e-10
 tolerance, confirming detectability. See PR VNMT.
 
-### ITVF — Flip ITEV default to `Iterative` post-faer-upstream-fix
+#### ITVF — Flip ITEV default to `Iterative` post-faer-upstream-fix
 
 - **Role:** Core Engineer (blocked on external faer fix)
 - **Priority:** medium (when unblocked), **Complexity:** small, **Risk:** low
@@ -206,6 +206,7 @@ tolerance, confirming detectability. See PR VNMT.
 
 Tracker proposal for the day faer upstream fixes the `iterate_lanczos`
 Gram-Schmidt infinite-loop bug. When that lands:
+
 1. Un-`#[ignore]` `tests/itev_iterative_eigensolver.rs::itev_iterative_matches_dense_si_total_energy` and remove the `FIXME(faer-upstream)` markers.
 2. Add a proper `iterative_cold_n{89,259,725}` bench in `benches/scf_benchmarks.rs` (the current bench has only the dead-code `let _ = &iterative::DEFAULT_TOL;` import-retention hack).
 3. Benchmark Dense vs Iterative SCF wall-time at production `n_pw` (ITEV proposal projected 2.5-4× speedup).
@@ -222,7 +223,7 @@ already has (Si Γ-only at n_pw=89) and paste the issue URL into the
 `tests/itev_iterative_eigensolver.rs`. One-PR action, not worth a
 proposal — just do it.
 
-### ~~RDOC — Clean up 15 pre-existing rustdoc warnings~~ (done)
+#### ~~RDOC — Clean up 15 pre-existing rustdoc warnings~~ (done)
 
 - **Role:** Technical Writer
 - **Priority:** low, **Complexity:** small, **Risk:** low
@@ -230,6 +231,7 @@ proposal — just do it.
 
 `cargo doc --no-deps` emits 15 warnings on main today, all pre-dating
 the DOCS sweep. Three clusters:
+
 - `src/pseudopotential/upf/mod.rs:7-9` — rustdoc links `[xml]` and
   `[convert]` point at private sub-modules; two warnings.
 - `src/settings.rs:70` — lattice docstring `[[ax,ay,az], ...]` trips
@@ -242,7 +244,7 @@ would-be-links to private items. No text rewrites, just mechanical fixes.
 
 **Acceptance criterion:** `cargo doc --no-deps` emits zero warnings.
 
-### ~~UPFV — Parse-time validation for UPF `angular_momentum`~~ (landed)
+#### ~~UPFV — Parse-time validation for UPF `angular_momentum`~~ (landed)
 
 ~~- **Role:** Researcher or Core Engineer~~
 ~~- **Priority:** low, **Complexity:** small, **Risk:** low~~
@@ -275,7 +277,7 @@ defense-in-depth. Regression tests
 rejection and the end-to-end UPF path (Si ONCV file with
 `angular_momentum="0"` → `angular_momentum="-1"` substitution).
 
-### ~~FGRD — Explicit FFT-grid upper-bound check~~ (landed)
+#### ~~FGRD — Explicit FFT-grid upper-bound check~~ (landed)
 
 ~~- **Role:** Core Engineer~~
 ~~- **Priority:** low, **Complexity:** trivial, **Risk:** low~~
@@ -302,7 +304,7 @@ and a runtime `assert!` at `src/scf/grid.rs::FftGrid::new`. The seven
 "asserted <= MAX_FFT_DIM (1024) at `scf::grid::FftGrid::new`"
 instead of "<= ~512 per axis in practice". See PR FGRD.
 
-### ~~G2ZT — Hoist bare `1e-12` `|G|=0` threshold into `consts`~~ (PR #153)
+#### ~~G2ZT — Hoist bare `1e-12` `|G|=0` threshold into `consts`~~ (PR #153)
 
 ~~- **Role:** Code Reviewer~~
 ~~- **Priority:** trivial, **Complexity:** trivial, **Risk:** low~~
@@ -324,7 +326,7 @@ in `src/consts.rs` with a docstring flagging the distinction between
 `if g_norm < G_ZERO_THRESHOLD`. Zero behavior change (bit-identical
 Tier-1 pass at 330 tests, clippy unchanged at 18/24, rustdoc clean).
 
-### ~~DFLT — Document density-skip/normalization thresholds in `scf/density.rs`~~ (landed)
+#### ~~DFLT — Document density-skip/normalization thresholds in `scf/density.rs`~~ (landed)
 
 ~~- **Role:** Code Reviewer~~
 ~~- **Priority:** trivial, **Complexity:** trivial, **Risk:** low~~
@@ -345,7 +347,7 @@ from bands below eigensolver round-off) and `NORMALIZATION_INTEGRAL_FLOOR`
 (guards the final ρ-rescale against a vanishing integral). Both sit at
 `1e-15` — bit-identical SCF convergence preserved.
 
-### FLP3 — NLCC ρ_core(G) regression: parameterize over all 64 NLCC-active PPs
+#### FLP3 — NLCC ρ_core(G) regression: parameterize over all 64 NLCC-active PPs
 
 - **Role:** Code Reviewer (refactor) + Researcher (reference-value generation)
 - **Priority:** medium (defensive — no known regression), **Complexity:** small, **Risk:** low
@@ -412,7 +414,7 @@ deterministic).
 mechanical, and closes a coverage gap from a just-landed PR rather than
 introducing new physics. FLUP is the right home.
 
-### ~~MXB1 — Verify Eyert §3.3 vs §5 threshold constants~~ (struck 2026-04-18)
+#### ~~MXB1 — Verify Eyert §3.3 vs §5 threshold constants~~ (struck 2026-04-18)
 
 - **Role:** Researcher
 - **Priority:** low, **Complexity:** small, **Risk:** low
@@ -428,7 +430,7 @@ accessible, so the exact equation number within §3.3 remains unverified
 (noted in the amendment). The constants appear empirically tuned; a
 sweep script is recommended as part of MXB2, not MXB1.
 
-### MXB2 — Re-diagnose MXBA Fe failure + retune
+#### MXB2 — Re-diagnose MXBA Fe failure + retune
 
 - **Role:** Core Engineer
 - **Priority:** medium (blocks default-on), **Complexity:** small-medium, **Risk:** low
@@ -452,7 +454,7 @@ converges with adaptive=on or remains `#[ignore]`'d with an updated
 reason explaining which tuning was tried and why it didn't work. If a
 tuning makes Fe converge, flip `adaptive_beta` default to `true`.
 
-### ~~MXB3 — Direct `AdaptiveBeta::update` Fe-trajectory unit test~~ (landed 2026-04-18)
+#### ~~MXB3 — Direct `AdaptiveBeta::update` Fe-trajectory unit test~~ (landed 2026-04-18)
 
 - **Role:** Code Reviewer (or Core Engineer)
 - **Priority:** low, **Complexity:** trivial, **Risk:** low
@@ -477,7 +479,7 @@ through iter 80. When MXB2 lands a fix, this test updates with it —
 either asserts β recovers or gains an `#[ignore]` marker matching the
 integration test.
 
-### ~~VNLT — Investigate non-reproducing VNLM `vnl_new` regression~~ (done 2026-04-19)
+#### ~~VNLT — Investigate non-reproducing VNLM `vnl_new` regression~~ (done 2026-04-19)
 
 - **Role:** Performance Engineer
 - **Priority:** medium (may retire VNLB), **Complexity:** small, **Risk:** low
@@ -519,7 +521,7 @@ across 3 bench runs → strike VNLB from FLUP and amend VNLM notes, or
 (b) reproduce the 78 ms regression → keep VNLB and add a note to this
 entry explaining what toggled it.
 
-### EIGV — Investigate `faer_eigen_n259` +36% regression anomaly
+#### EIGV — Investigate `faer_eigen_n259` +36% regression anomaly
 
 - **Role:** Performance Engineer
 - **Priority:** low (may be pure noise), **Complexity:** small, **Risk:** low
@@ -537,7 +539,7 @@ measurement → mark as noise, strike entry, or (b) regression confirmed
 within ±5% CI → open a proposal to bisect the cause (likely a single
 cargo update commit from this week).
 
-### EIGW — Investigate `faer_eigen_n725` unclaimed −16% win
+#### EIGW — Investigate `faer_eigen_n725` unclaimed −16% win
 
 - **Role:** Performance Engineer
 - **Priority:** low (free win but needs understanding), **Complexity:** trivial, **Risk:** low
@@ -555,7 +557,7 @@ investigation with EIGV — same tool, same worktree, same afternoon.
 measurement → mark as noise, or (b) win confirmed → git bisect across
 the week's landings to attribute and document.
 
-### ~~DWGT — Add `cargo doc` to the quality gate~~ (landed 2026-04-18, commit `5456c80`)
+#### ~~DWGT — Add `cargo doc` to the quality gate~~ (landed 2026-04-18, commit `5456c80`)
 
 ~~- **Role:** Technical Writer~~
 ~~- **Priority:** low, **Complexity:** trivial, **Risk:** low~~
@@ -582,7 +584,7 @@ DWGT as mandatory and forbids `#[allow]` on rustdoc warnings. ERR2 P0
 recipe to the env-var form; current cargo rejects `-D warnings` passed
 after `--`.)
 
-### ~~TYPE-AX — Decide on TYPE-A narrowing `expect` sites~~ (folded into TYPB, 2026-04-19)
+#### ~~TYPE-AX — Decide on TYPE-A narrowing `expect` sites~~ (folded into TYPB, 2026-04-19)
 
 Consolidated into `proposals/TYPB-narrow-int-audit.md` as Part C (the four
 `i8` rotation-entry sites gain `reason = "..."` citing the crystallographic
@@ -625,7 +627,7 @@ enclosing function returns `Result<_, PwdftError>`. No bare `expect`
 remains in the narrowing path. Does not need its own proposal — fold
 into ERR2 P1 when that starts.~~
 
-## What this is NOT
+### What this is NOT
 
 - **Not an implementation plan.** Each entry needs to be promoted to
   its own proposal before coding starts (except the "file-it-now" ITEV
@@ -639,9 +641,10 @@ into ERR2 P1 when that starts.~~
   self-resolve under longer `--measurement-time` and just get struck as
   noise on the next bench pass.
 
-## Proposal-file etiquette when activating
+### Proposal-file etiquette when activating
 
 When the EM activates an entry:
+
 1. Create `proposals/<ID>-<slug>.md` with proper frontmatter.
 2. Copy the FLUP entry's body into the new proposal's **Motivation**
    and **Acceptance criterion** sections; expand into full Implementation

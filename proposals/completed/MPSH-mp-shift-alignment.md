@@ -10,9 +10,9 @@ blocks: [VQEF]
 owner: core-engineer
 ---
 
-# MPSH — Monkhorst-Pack shift alignment with QE convention
+## MPSH — Monkhorst-Pack shift alignment with QE convention
 
-## TL;DR
+### TL;DR
 
 `src/kpoints.rs::monkhorst_pack` hard-codes the **shifted** MP-1976
 convention (`f_j = (2·i_j − N_j + 1)/(2·N_j)`). Our QE reference
@@ -31,7 +31,7 @@ SYKP (completed 2026-04-17) documented the mismatch and clarified
 docstrings but deliberately deferred the code fix to a follow-up
 proposal. This is that follow-up.
 
-## Motivation
+### Motivation
 
 After NCFX closed the 13.43 eV Si gap to ~0.26 eV (see
 `proposals/completed/NCFX-nlcc-core-density-fix.md`), the remaining
@@ -54,9 +54,9 @@ the **same** physical k-points, we cannot close this residual below the
   prerequisite for cleanly diagnosing VGCH because the two residuals
   currently sum.
 
-## Problem
+### Problem
 
-### The convention asymmetry
+#### The convention asymmetry
 
 Monkhorst & Pack (PRB **13**, 5188 (1976)) give two distinct formulas
 for a uniform k-grid:
@@ -85,7 +85,7 @@ cyclic permutation. For even N they are genuinely distinct meshes:
   initial sample to reach the same SCF tolerance on the shifted grid.
   This is why C diamond stalls.
 
-### QE's convention
+#### QE's convention
 
 `qe-7.5/PW/src/kpoint_grid.f90:67-78` (QE 7.5 source):
 
@@ -109,7 +109,7 @@ QE's formula is `xkg(α,n) = (i_α − 1)/N_α + k_α/(2·N_α)`, where
 Γ-centered grid. For `k1=k2=k3=1` it matches pwdft-rs' shifted grid
 modulo a cyclic reshuffle of the index ordering.
 
-### What pwdft-rs currently does
+#### What pwdft-rs currently does
 
 `src/kpoints.rs:37-80` (pwdft-rs):
 
@@ -124,7 +124,7 @@ configurable shift. `src/symmetry/kpoints.rs:109-115` (`mp_fractional`)
 uses the same formula so the IBZ reduction is consistent; but both
 sides of the identity are equally non-QE.
 
-### Why SYKP deferred the fix
+#### Why SYKP deferred the fix
 
 SYKP (completed 2026-04-17) established that the convention mismatch
 is real, the two IBZ reductions (10 vs 8 on Si 4×4×4) are both correct
@@ -139,9 +139,9 @@ and 73 meV Al residual are now the **dominant** remaining signal on
 light-atom systems, so MPSH is promoted from "documentation-only" to
 a real code change.
 
-## References
+### References
 
-### Primary literature
+#### Primary literature
 
 - Monkhorst, H. J.; Pack, J. D. *Special points for Brillouin-zone
   integrations.* **Phys. Rev. B 13, 5188 (1976).** Eq. 4 is the
@@ -152,7 +152,7 @@ a real code change.
   Clarifies that the Γ-centered grid is preferable when symmetry
   points lie on special lines in the BZ.
 
-### QE source
+#### QE source
 
 - `qe-7.5/PW/src/kpoint_grid.f90:47-78` — the `kpoint_grid` subroutine;
   lines 67-78 contain the grid formula reproduced above.
@@ -162,7 +162,7 @@ a real code change.
   weights (post-reduction); unrelated to shift but worth noting when
   comparing printed weight sums.
 
-### pwdft-rs source
+#### pwdft-rs source
 
 - `src/kpoints.rs:37-80` — `monkhorst_pack` (the target of this fix).
 - `src/symmetry/kpoints.rs:109-115` — `mp_fractional` (the grid-index
@@ -173,7 +173,7 @@ a real code change.
 - `src/main.rs` — wire through YAML `shift` into the call to
   `monkhorst_pack`.
 
-### Related proposals
+#### Related proposals
 
 - `proposals/completed/SYKP-symmetry-ibz-audit.md` — documented the
   mismatch, deferred the fix (§D2).
@@ -182,12 +182,12 @@ a real code change.
 - `proposals/VQEF-*` (in flight) — will cite this proposal as a
   dependency for its full-matrix acceptance.
 
-## Implementation
+### Implementation
 
 Pure prose; no code diff in this proposal. The fix is mechanical and
 should fit in 1-2 CE-days.
 
-### Method (high-level)
+#### Method (high-level)
 
 1. **Add a `KGridShift` enum** with variants `Gamma`, `MP1976`, and
    `Custom([u32; 3])` (where the u32 shift components are 0 or 1, per
@@ -219,12 +219,14 @@ should fit in 1-2 CE-days.
 
 4. **Add `KPointSettings::MonkhorstPack { grid, shift }`** in
    `src/settings.rs`. YAML syntax:
+
    ```yaml
    kpoints:
      type: monkhorst_pack
      grid: [4, 4, 4]
      shift: gamma       # or mp1976, or [k1, k2, k3]
    ```
+
    Default the field via `#[serde(default = "...")]` to `gamma`.
 5. **Update `mp_fractional`** in `src/symmetry/kpoints.rs` to accept
    the same `shift` parameter (or embed it in the grid state), so
@@ -235,7 +237,7 @@ should fit in 1-2 CE-days.
    currently inherit this residual). The 5 heavy-atom tests will
    **still** be `#[ignore]` pending VGCH.
 
-### Risks
+#### Risks
 
 - **Pin churn.** Every integration test that asserts on k-point counts
   or on total energies computed from a specific MP grid will need its
@@ -252,7 +254,7 @@ should fit in 1-2 CE-days.
   which is already what `reduce_kpoints` computes. Unit-test the
   4×4×4 Si case expecting 8 irreducible points (to match QE).
 
-### What NOT to do
+#### What NOT to do
 
 - Do **not** silently change the default under user YAML files that
   don't specify a `shift` field. If the decision is (a) Γ-centered
@@ -264,7 +266,7 @@ should fit in 1-2 CE-days.
   `monkhorst_pack` is updated the reducer will silently mis-index
   Γ-centered grids.
 
-## Acceptance
+### Acceptance
 
 Ship MPSH when **all** of the following hold:
 
@@ -291,7 +293,7 @@ Pass-criterion tolerance rationale: 10 meV Γ-eigenvalue is the rough
 floor set by the ONCV LDA PP's internal interpolation precision; 50 meV
 total-energy is the VQEF matrix target for light-atom systems.
 
-## Cost
+### Cost
 
 ~2 CE-days, broken down roughly:
 
@@ -306,7 +308,7 @@ total-energy is the VQEF matrix target for light-atom systems.
 No new physics; no new dependencies; pure plumbing plus a careful
 choice of default. Risk is low.
 
-## Non-goals
+### Non-goals
 
 - **Shifted grid removal.** The shifted convention remains useful for
   Γ-phonon calculations and some response calculations; the enum
@@ -319,7 +321,7 @@ choice of default. Risk is low.
   require any change to the reducer's core algorithm, only to the
   grid generator it consumes.
 
-## Related
+### Related
 
 - SYKP (completed) — documented the mismatch; deferred the fix.
 - VGCH (draft, sibling proposal) — the heavy-atom V_local residual

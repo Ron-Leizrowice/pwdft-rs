@@ -11,9 +11,9 @@ author: Researcher
 date: 2026-04-18
 ---
 
-# VQEF — Full LDA+PBE QE validation matrix
+## VQEF — Full LDA+PBE QE validation matrix
 
-## Problem
+### Problem
 
 The QEVL suite (landed 2026-04-17) generated QE 7.5 reference data for
 8 systems (Si, C, Al, Fe, GaAs, Cu, NaCl, MgO) at a single functional
@@ -45,9 +45,9 @@ Scope caveat:
   other system — the fixes live in the blocker proposals; VQEF tracks
   the consequences.
 
-## 1. Current-state inventory
+### 1. Current-state inventory
 
-### Table: 8 systems × 2 functionals
+#### Table: 8 systems × 2 functionals
 
 Status legend:
 
@@ -82,7 +82,7 @@ arm was only GREEN because of a VQEF-QC split — its Fermi arm remains
 YELLOW under V_loc(G=0) convention (VGCH Phase 1b). Net movement: one
 GREEN rotated from LDA → PBE, 8 RED cells promoted to YELLOW.
 
-### Physics findings from GGAP Phase F-light
+#### Physics findings from GGAP Phase F-light
 
 - **Al is functional-insensitive.** Al PBE (108 meV) is *worse* than
   Al LDA (75 meV). This rules out the Al VGCH light-atom class being
@@ -109,11 +109,11 @@ Non-gating defensive tests that **do** run green today in the same file:
 These are not part of the 8 × 2 matrix; they protect specific code paths
 against regression and should stay in place.
 
-## 2. LDA blockers (close-the-known-residuals track)
+### 2. LDA blockers (close-the-known-residuals track)
 
 There are exactly two LDA blockers across the eight systems:
 
-### 2a. SYKP / MPSH — Monkhorst-Pack grid convention (Si, C, Al)
+#### 2a. SYKP / MPSH — Monkhorst-Pack grid convention (Si, C, Al)
 
 **Scope inheritance.** Si (Z=14), C (Z=6), and Al (Z=13) are all light-
 to-intermediate-Z; none has VGCMP heavy-atom V_local issues. Their
@@ -159,7 +159,7 @@ VQEF test-arm update: trivially ~1 hour after MPSH lands (add `shift:
 [0, 0, 0]` to 3 configs, drop 3 `#[ignore]` markers, tighten tolerances
 from 50 meV to 10 meV).
 
-### 2b. VGCMP Phase 5 — heavy-atom V_local(G) residual (Fe, GaAs, Cu, NaCl, MgO)
+#### 2b. VGCMP Phase 5 — heavy-atom V_local(G) residual (Fe, GaAs, Cu, NaCl, MgO)
 
 **Scope inheritance.** Residuals range from ~7.7 eV (NaCl, Cl Z=17) to
 ~33.6 eV (GaAs, Ga Z=31 + As Z=33). Fe's 9.5 eV gap carries over; Cu's
@@ -194,7 +194,7 @@ NCFX's shape (which turned out to be ~150 LoC once located). VQEF test-
 arm updates: ~1 CE-hour for 5 systems after VGCMP Phase 5 lands
 (drop 5 `#[ignore]`s, tighten tolerances from 0.1 eV to ≤10 meV).
 
-### 2c. No other known LDA blockers
+#### 2c. No other known LDA blockers
 
 Double-check against the file: `grep '#\[ignore' tests/qe_validation.rs`
 returns exactly 7 matches (all accounted for above, plus the Fe nspin=2
@@ -204,7 +204,7 @@ because it is the nspin=2 version of Fe; same root-cause). `cargo test
 defensive guards and the `compile` probes in the helpers), not 8
 out of 16 production assertions.
 
-## 3. Fe ferromagnetism
+### 3. Fe ferromagnetism
 
 **Current state.** Under PseudoDojo NC/LDA at ecut = 15 Ry, Fe BCC a=2.87 Å
 **collapses to non-magnetic** in both QE and pwdft-rs. The
@@ -217,7 +217,7 @@ Experimentally Fe BCC is ferromagnetic with M ≈ 2.22 μB. LDA
 systematically under-binds the FM state vs NM; PBE corrects this. The
 choice of PP makes a large difference too.
 
-### Three possible paths
+#### Three possible paths
 
 **Path A — Higher ecut with same PP.** Rerun both codes at ecut ∈
 {30, 40, 60} Ry; see whether the NM collapse lifts. Based on general
@@ -249,7 +249,7 @@ Fe PBE test validates FM physics. Both tests co-exist under the "Fe (FM)"
 row of the matrix. Cost: absorbed into GGAP Phase D + VQEF integration;
 no extra work beyond §4 for the PBE leg.
 
-### Fe LDA test's eventual acceptance criterion
+#### Fe LDA test's eventual acceptance criterion
 
 Even under Path C, the Fe LDA test should eventually drop `#[ignore]`
 once VGCMP Phase 5 closes the 9.5 eV V_local gap. At that point:
@@ -262,9 +262,9 @@ once VGCMP Phase 5 closes the 9.5 eV V_local gap. At that point:
   on a system where the LDA PP drives NM collapse. The FM physics test
   is `test_fe_bcc_pbe_fm_vs_qe`."
 
-## 4. PBE expansion track
+### 4. PBE expansion track
 
-### Dependency on GGAP
+#### Dependency on GGAP
 
 GGAP Phase A (in flight on PR `GGAP/phase-a-dispatcher`) is dispatcher
 refactor only — it routes `XcFunctional::Pbe` to a `NotImplemented`
@@ -274,13 +274,13 @@ PBE validation; it is purely scaffolding to keep HYBR compatibility.
 PBE validation requires:
 
 - Phase B (PBE exchange non-spin) + Phase C (PBE correlation non-spin
-  + PW92) — enables Si, C, Al, GaAs, NaCl, MgO, Cu PBE validation.
+  - PW92) — enables Si, C, Al, GaAs, NaCl, MgO, Cu PBE validation.
 - Phase D (spin-polarized PBE) — enables Fe PBE FM validation.
 - Phase F (QE validation suite expansion) — explicitly in GGAP's plan,
   lists Si + Al + Fe as reference arms. **VQEF extends this to all 8
   systems.**
 
-### Pseudopotential library
+#### Pseudopotential library
 
 `pseudopotentials/nc/pbe/` **exists and contains all 8 target elements**
 (verified at proposal time: `{Al, As, C, Cl, Cu, Fe, Ga, Mg, Na, O, Si}.upf`
@@ -293,7 +293,7 @@ at `pseudopotentials/nc/pbe/` so QE inputs can reference
 The LDA `qe_validation/pseudo/` symlink (pointing at the LDA library)
 stays.
 
-### Per-system PBE reference generation
+#### Per-system PBE reference generation
 
 For each of the 8 systems, once GGAP Phase B+C (or Phase D for Fe FM)
 lands, the VQEF task is to:
@@ -306,18 +306,20 @@ lands, the VQEF task is to:
 3. Extract total energy (Ry), Fermi energy (eV), magnetization (if
    nspin=2), Γ-eigenvalues.
 4. Append a section to `data/qe/reference_data.toml`:
-   ```
+
+   ```text
    [si_diamond_pbe]
    input_file        = "pbe/si_pbe.in"
    ecutwfc_ry        = 30.0
    ...
    ```
+
 5. Add `test_<system>_pbe_vs_qe` to `tests/qe_validation.rs` with a
    matching assertion harness. If the same crystal builder is reused,
    only the pseudo path, `ecut_ry`, `XcFunctional` setting, and the
    toml key differ.
 
-### Per-system PBE table
+#### Per-system PBE table
 
 Suggested ecuts follow PseudoDojo PBE recommendations and PBE PP
 convergence norms (generally +5 Ry over LDA for the same element).
@@ -335,7 +337,7 @@ gradient-sensitive behavior near transition-metal d-bands.
 | NaCl    | 25            | 35            | 4×4×4  | 1     | —            | YES (ionic)               | VGCMP Phase 5                        |
 | MgO     | 30            | 40            | 4×4×4  | 1     | —            | YES (ionic wide-gap)      | VGCMP Phase 5                        |
 
-### Cost estimate
+#### Cost estimate
 
 - QE reference generation: **~0.5 researcher-day** per system (includes
   input file, pw.x run under machine lock, extraction, toml commit,
@@ -353,7 +355,7 @@ gradient-sensitive behavior near transition-metal d-bands.
 **Total PBE expansion cost: ~6 researcher-days + 4 CE-hours.** This is
 dwarfed by GGAP's ~9–13 CE-days for the physics.
 
-## 5. Machine-lock policy (dependency, not owned here)
+### 5. Machine-lock policy (dependency, not owned here)
 
 VQEF's QE runs require the shared machine lock per `CLAUDE.md` (§
 "Machine Coordination" and pending proposal **QELK** — QE machine lock
@@ -374,7 +376,7 @@ explicitly that:
 **No VQEF code change is required for QELK.** This is a coordination
 note.
 
-## 5a. Band-sum identity gate (BSUM, 2026-04-19)
+### 5a. Band-sum identity gate (BSUM, 2026-04-19)
 
 VQEF's scalar-level gate (E_total + E_F) is a **global** agreement check:
 E_total sums over kinetic + local + non-local + Hartree + XC + Ewald,
@@ -407,6 +409,7 @@ disagreement lives in Hartree/XC/Ewald (functional or NLCC or Ewald
 bug), not in the converged density.
 
 **Implementation.**
+
 - Helper `assert_band_sum_matches_qe(label, result, qe_one_electron_ry,
   tolerance_ev)` in `tests/qe_validation.rs` compares
   `e_kinetic + e_local + e_local_g0_shift + e_nonlocal` (pwdft-rs) vs
@@ -426,6 +429,7 @@ bug), not in the converged density.
   `run_qe_comparison`.
 
 **Tolerance policy.**
+
 - GREEN cells (Si LDA/PBE, Al LDA/PBE): tolerance in the 40–120 meV
   band, chosen as ~2×|observed ΔE_1e| + margin so the gate catches
   real regressions (2× observed) while not being so tight it fires on
@@ -472,11 +476,11 @@ not a Hamiltonian assembly bug). Conversely, ratios close to 1 (Fe LDA
 at 0.99, light-atom cells) indicate the two codes converge to similar
 densities and differ mostly on the accounting side.
 
-## 6. Acceptance criteria
+### 6. Acceptance criteria
 
 VQEF is complete when **all** of the following hold on `main`:
 
-### 6a. LDA track (8 systems, non-ignored)
+#### 6a. LDA track (8 systems, non-ignored)
 
 - `cargo test --test qe_validation` with no `--ignored` flag runs
   exactly **8 LDA `test_<system>_vs_qe`** tests (plus the existing
@@ -489,7 +493,7 @@ VQEF is complete when **all** of the following hold on `main`:
 - Each test reports the per-component breakdown on `eprintln!` (VGC5
   style) so a CI diff against `reference_data.toml` is human-readable.
 
-### 6b. PBE track (8 systems, non-ignored where each can converge)
+#### 6b. PBE track (8 systems, non-ignored where each can converge)
 
 - `cargo test --test qe_validation` runs exactly **8 PBE
   `test_<system>_pbe_vs_qe`** tests.
@@ -506,7 +510,7 @@ VQEF is complete when **all** of the following hold on `main`:
   `M = 2.22 μB ± 0.05 μB` (sets the user's "Fe (FM)" directive clearly
   under the PBE leg).
 
-### 6c. Reference data hygiene
+#### 6c. Reference data hygiene
 
 - `data/qe/reference_data.toml` contains 16 named sections
   (8 LDA + 8 PBE), each with provenance (`generated_date`,
@@ -519,7 +523,7 @@ VQEF is complete when **all** of the following hold on `main`:
 - `qe_validation/README.md` updated to describe the 16-cell matrix
   and which systems use which PP family.
 
-### 6d. What is explicitly NOT a VQEF acceptance criterion
+#### 6d. What is explicitly NOT a VQEF acceptance criterion
 
 - Bit-exact (sub-meV) agreement. The Γ-centered MP grid and QE's
   internal FFT-grid rounding introduce sub-meV residuals that VQEF
@@ -531,9 +535,9 @@ VQEF is complete when **all** of the following hold on `main`:
 - Non-LDA/non-PBE functionals (PBEsol, SCAN, hybrids). Those go in
   their own proposals (HYBR for hybrids, FLUP for PBEsol/revPBE).
 
-## 7. Phase ordering and cost estimate
+### 7. Phase ordering and cost estimate
 
-### Critical path
+#### Critical path
 
 The critical path is governed by two hard dependencies:
 
@@ -547,7 +551,7 @@ Since MPSH is small (~1 CE-day) and VGCMP Phase 5 is the only
 physics-diagnosis step currently blocking 5 of 8 LDA cells, the
 critical path is:
 
-```
+```text
    ┌── MPSH ────────────────────────────┐
    │   (1 CE-day; code change)           │
    │                                     ▼
@@ -574,7 +578,7 @@ GGAP Phase A (in flight) ──── Phase B (1d) ── Phase C (2-3d) ── 
                                                   *** PBE GATE GREEN *** (8/8 PBE cells)
 ```
 
-### Recommended phase order
+#### Recommended phase order
 
 Phase ordering is written to **maximize the earliest moment the matrix
 goes half-green** (all 8 LDA cells), because that is the highest-value
@@ -616,7 +620,7 @@ agents work in parallel (one on MPSH/VGCMP Phase 5, one on GGAP Phases
 B→D) with VQEF test-arm work absorbed at the tail of each track, this
 compresses to ~3 calendar weeks.
 
-### Why this order
+#### Why this order
 
 - **MPSH before VGCMP Phase 5:** MPSH is 1 day and unblocks 3 of 8
   LDA cells. Even if VGCMP Phase 5 takes a month, the matrix visibly
@@ -639,7 +643,7 @@ compresses to ~3 calendar weeks.
   tuning). Saving it for last means every other input knob is pinned
   when we debug it.
 
-### Risk registry
+#### Risk registry
 
 | Risk                                                                          | Impact                                                                   | Mitigation                                                                                                                                                                |
 |-------------------------------------------------------------------------------|--------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -649,7 +653,7 @@ compresses to ~3 calendar weeks.
 | Fe FM under PBE still collapses to NM at ecut=50                              | VQEF §3 Path C fails; user directive unmet                               | Fall back to PseudoDojo PBE Fe_sv (semicore-valence) PP if available; failing that, document NM collapse under PBE too and file a separate investigation proposal.         |
 | QE 7.5 Γ-centered + nk odd introduces edge-case IBZ reductions we haven't hit | Reference data generation fails for one system                           | Pin reference sub-cases individually; don't regenerate the 8-system table in one batch.                                                                                   |
 
-## 8. Deliverables summary
+### 8. Deliverables summary
 
 VQEF delivers, across P2/P5/P8/P10:
 
@@ -665,7 +669,7 @@ VQEF delivers, across P2/P5/P8/P10:
   Si PBE, Fe LDA, Fe PBE (4 component audits) to catch future PP/XC
   regressions.
 
-## References
+### References
 
 - `proposals/completed/QEVL-qe-validation-test-suite.md` — original
   QEVL proposal that landed the Tier-1+2 LDA reference data.

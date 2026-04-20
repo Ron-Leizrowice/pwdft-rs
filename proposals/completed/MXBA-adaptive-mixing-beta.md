@@ -22,6 +22,7 @@ the SCF iteration line in both `run_scf` and `run_scf_spin` now prints
 β (and `(tot, mag)` for nspin=2).
 
 **Defaults chosen:**
+
 - `growth_threshold = 1.2`, `damp_factor = 0.7`
 - `restore_threshold = 0.5`, `restore_window = 3`
 - `β_min = max(0.05·β_start, 0.01)`, clamp ceiling = β_start
@@ -39,6 +40,7 @@ fixes this case will fire loudly). The user opt-in path leaves the
 existing integration test suite byte-identical.
 
 **Followup ideas (not in this PR):**
+
 - Tune growth_threshold and restore_threshold on a metallic test case
   where β adaptation actually helps (e.g. C diamond 30 Ry plain mixing,
   per the proposal's original motivation — blocked on that system
@@ -251,6 +253,7 @@ invariant.
 ## Estimated effort
 
 4–6 hours:
+
 - 1 h — `AdaptiveBeta` struct + unit tests.
 - 1 h — wire into `Mixer::new`, `AndersonMixer::mix`, `BroydenMixer::mix`.
 - 1 h — settings plumbing (`settings.rs`, `ScfParams`, `ScfContext`).

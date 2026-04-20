@@ -21,10 +21,12 @@ QLN2 itself fixed the live offender. CIGP closes the process gap so future GPU-o
 Two paths (pick the cheaper):
 
 1. **Documentation only.** Update `CLAUDE.md § Code Quality` to require both:
+
    ```bash
    cargo clippy -q --all-targets
    cargo clippy -q --all-targets --features gpu
    ```
+
    before declaring clippy clean. Costs nothing but relies on agents reading the doc.
 
 2. **Hook enforcement.** Add a small wrapper script `.claude/bin/clippy-check.sh` that runs both invocations and exits non-zero on any warning. Make agent definitions reference it instead of the bare `cargo clippy` command. Stronger guarantee, slightly more infrastructure.

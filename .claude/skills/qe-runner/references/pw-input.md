@@ -4,7 +4,7 @@ pw.x is the main program for self-consistent calculations, structural optimizati
 
 ## Input file structure
 
-```
+```text
 &CONTROL
   ... control parameters ...
 /
@@ -148,12 +148,14 @@ CELL_PARAMETERS   (required if ibrav = 0)
 
 ### ATOMIC_SPECIES
 
-```
+```text
 ATOMIC_SPECIES
   Symbol  Mass  PseudopotentialFile
 ```
+
 Example:
-```
+
+```text
 ATOMIC_SPECIES
   Si  28.086  Si_r.upf
   C   12.011  C.UPF
@@ -161,7 +163,7 @@ ATOMIC_SPECIES
 
 ### ATOMIC_POSITIONS
 
-```
+```text
 ATOMIC_POSITIONS {units}
   Symbol  x  y  z  [if_pos(1) if_pos(2) if_pos(3)]
 ```
@@ -172,11 +174,12 @@ Optional `if_pos` flags (0 or 1) control which directions are relaxed.
 
 ### K_POINTS
 
-```
+```text
 K_POINTS {type}
 ```
 
 Types:
+
 - **`{automatic}`**: `nk1 nk2 nk3 sk1 sk2 sk3` — Monkhorst-Pack grid with shift
 - **`{gamma}`**: Gamma point only (optimized)
 - **`{crystal}`**: Explicit list in crystal coordinates. First line = number of k-points. Each line: `kx ky kz weight`
@@ -187,7 +190,8 @@ Types:
 ### CELL_PARAMETERS
 
 Required when `ibrav = 0`:
-```
+
+```text
 CELL_PARAMETERS {units}
   v1x  v1y  v1z
   v2x  v2y  v2z
@@ -313,8 +317,10 @@ K_POINTS {automatic}
 ### No symmetry (for validation without symmetry reduction)
 
 Add to &SYSTEM:
+
 ```fortran
   nosym  = .true.
   noinv  = .true.
 ```
+
 And specify the full k-point grid. With `K_POINTS {automatic}` and nosym, QE will use all nk1×nk2×nk3 k-points without reduction.

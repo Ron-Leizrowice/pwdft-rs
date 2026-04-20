@@ -102,7 +102,7 @@ NCFX closed the NLCC unit/radial-weight bug universally in
 
 Every LDA PP with `core_correction="T"` is now blind-tested:
 
-```
+```text
 pseudopotentials/nc/lda/{Al, Co, Cr, Cu, Fe, Mn, Ni, Ti}.upf  all have NLCC
 ```
 
@@ -192,7 +192,7 @@ and D, bit-exact match. ~40 LOC.
 
 #### 3.1 Hardcoded `fft_grid: Some([16, 16, 16])` in 6 test sites
 
-```
+```text
 tests/parallel_consistency.rs:140 (test_scf_serial_vs_parallel)
 tests/parallel_consistency.rs:288 (test_scf_kerker_serial_vs_parallel)
 tests/spin_polarization.rs:70      (test_si_nspin2_matches_nspin1)
@@ -232,7 +232,7 @@ PR-Cs landed; no new TRV2 work needed.
 
 #### 4.1 `si_crystal()` in 12 sites; `fe_bcc()` in 3
 
-```
+```text
 src/potential/local.rs:87              src/symmetry/kpoints.rs:158
 src/symmetry/detect.rs:224             src/symmetry/density/real_space.rs:130
 src/symmetry/density/g_space.rs:291    src/scf/initial_density.rs:195
@@ -262,6 +262,7 @@ of the mixer API + tests live.
 #### 5.1 `eigensolver` benches cap at ecut=400; production is ecut≈600 (n≈1363)
 
 `benches/scf_benchmarks.rs:70`:
+
 ```rust
 for &ecut in &[100.0, 200.0, 400.0] {
 ```

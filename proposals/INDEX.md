@@ -35,7 +35,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 |----|-------|-----------|------|------------|--------|
 | GGAP | GGA/PBE functional — **Phases A+A.1+B+C+D+F-light all landed** (#85, #155, #145, #151, #158, #161). Si PBE 12 meV GREEN, Al PBE 8 meV GREEN, Fe PBE retains M=2.16 μB (VGCH-class residual). **Only Phase E remains** (GPU PBE shader, 2–3 CE-days, deferred until CPU path validates fully) | medium | medium | — | HYBR |
 | HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP-E | — |
-| ITEV | Iterative Eigensolver — faer Lanczos fix vendored (#129); both correctness defects closed (ITEV2 #140, Si ecut=100 Dense↔Iterative |ΔE|=4.52e-12 eV). **Only Phase-5 step-4 remains**: end-to-end SCF wall-time bench with WFRX active → decide default flip | small | low | — | — |
+| ITEV | Iterative Eigensolver — faer Lanczos fix vendored (#129); both correctness defects closed (ITEV2 #140, Si ecut=100 Dense↔Iterative | ΔE | =4.52e-12 eV). **Only Phase-5 step-4 remains**: end-to-end SCF wall-time bench with WFRX active → decide default flip | small | low |
 | GOPT | GPU audit — PR-B #106 + PR-A #138 landed (128³ hartree −34%, v_eff −40%); F5/F6/F8 empirically tested, no measurable gain; remaining lever is F1+F2 chain fusion (blocked on `src/scf/driver.rs` quiescence) | medium | low-medium | — | — |
 | ALOC | Per-iteration allocation audit — F-5 landed (16.8 GB → 0 per SCF); F-7 (psi_g in band loop, 200-1000 µs/iter) + F-12 (FFT3D twiddle rebuild, 100-500 µs/iter) remain | medium | low | — | — |
 | ERR2 | Panic-free production — P0 #86, ERR2-AX #111, P1.a #152 (variants), P1.b #159 (CRYSTAL 3), P1.c #163 (PARAM 9) all landed. **Only P1.d remains** (ELEMENT + UPF, 2 sites, mechanical ~30 min) | small | low | — | — |
@@ -109,7 +109,7 @@ Proposals moved out of the active/deferred backlog after a stale-scope review. F
 | VGCMP | V_local(G) + KB Projector Cross-Check vs QE 7.5 (Phases 1–4; root cause moved to NCFX/NLCC chain, heavy-atom follow-up tracked in VGCH) |
 | ERRH | Error Handling Cleanup |
 | VERF | V_local erf Coulomb Subtraction (landed as QE convention; regression test only) |
-| SPXC | Fix Spin-Polarized E_xc Density Consistency (|HF-KS| 22→13 eV on Fe) |
+| SPXC | Fix Spin-Polarized E_xc Density Consistency ( |
 | QEDX | Systematic Energy Discrepancy vs QE (superseded by VGCMP) |
 | QEVL | QE Validation Test Suite (Tier 1+2) |
 | MUST | `must_use_candidate` Annotations (70 of 80 sites) |
@@ -170,7 +170,7 @@ Proposals moved out of the active/deferred backlog after a stale-scope review. F
 | DFLT | Hoist two `1e-15` density threshold literals into named `const`s with physics docstrings (FLUP entry; PR #137) |
 | GOPT-A | BufferPool scratch `Vec<f32>` for CPU→GPU uploads; 128³ hartree −33.9%, v_eff −39.9%; 64³ hartree −28.6%, v_eff −20.4% (PR #138) |
 | VGCH Phase 1a | Heavy-atom per-component diagnostic — rules out V_local(G=0) Z-scaling and Ewald; residual lives in one-electron/Hartree partial cancellation, not form factors. Phase 1b needs β_q / initial density / mixer basin investigation (PR #139; diagnostic-only, no src/ changes) |
-| ITEV2 | Close ITEV defects 1+2 — adaptive `krylov_max_dim` scales with basis (Lehoucq & Sorensen §3.2); WFRX warm-start wired on Iterative path. Si ecut=100 Dense↔Iterative |ΔE|=4.52e-12 eV (pre-fix 0.77 eV); all 4 single-shot tests pass at 1e-10 eV on Si/Fe/Cu. Default-flip blocked on Phase-5 step-4 end-to-end SCF wall bench (PR #140) |
+| ITEV2 | Close ITEV defects 1+2 — adaptive `krylov_max_dim` scales with basis (Lehoucq & Sorensen §3.2); WFRX warm-start wired on Iterative path. Si ecut=100 Dense↔Iterative |
 | GRM6 | Consolidate TYPB + TYPE-AX into one integer-type cleanup; archive merged CLSS + HKIN (PR #125) |
 | GRM7 | Fold ITEVF findings into ITEV; fix CLAUDE.md perf claim + DEAD drive-by (PR #128) |
 | GRM8 | Vendor faer v0.24.0 + MAX_REORTH `iterate_lanczos` fix; wire `[patch.crates-io]` at `./faer/` (PR #129) |
@@ -188,7 +188,7 @@ Proposals moved out of the active/deferred backlog after a stale-scope review. F
 | TSPL | Bifurcate test suite — Tier-1 fast default (12s) + Tier-2 `#[ignore]` opt-in (58s); 8× speedup on default `cargo test` (PR #150) |
 | GGAP Phase C | PBE correlation + PW92 helper; wire end-to-end (scaffolded, needs A.1 to run; PR #151) |
 | ERR2 P1.a | Add InvalidCrystal / InvalidParam / UnknownElement / InvalidPseudopotential variants (PR #152) |
-| FLUP G2ZT | Hoist `1e-12` |G|=0 threshold to `consts::G_ZERO_THRESHOLD` (distinct from `G2_ZERO_THRESHOLD` |G|² — avoided silent 10⁶ rescaling; PR #153) |
+| FLUP G2ZT | Hoist `1e-12` |
 | GGAP F-pre | QE PBE reference data for all 8 VQEF systems (PR #154) |
 | GGAP Phase A.1 | Driver-side density gradient FFT + semilocal V_xc assembly — **Si PBE end-to-end 12.4 meV** (PR #155) |
 | VGCH Phase 1c | SAD initial density bit-correct vs QE (H2 CLEARED; PR #156) |

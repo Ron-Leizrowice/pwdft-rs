@@ -22,7 +22,7 @@ blocks: []
 
 The `PwdftError` enum (`src/error.rs`) has eight variants today:
 
-```
+```text
 Io, ConvergenceFailure, InvalidInput, MissingPseudopotential,
 Parse, Eigensolver, Gpu
 ```
@@ -69,6 +69,7 @@ driver split), 0 regressions to `unwrap()` or `panic!()`.
 
 All 15 production `expect` calls are **legitimate invariants** — none would
 benefit from `Result` propagation because:
+
 - FFT `as_slice()` calls are guaranteed by row-major `Array3` layout
 - GPU buffer channels are closed exactly once after `device.poll()`
 - PP-lookup `expect`s are preceded by `ScfContext::new` validation
@@ -411,6 +412,7 @@ a cluster will migrate in the same PR and map to the same new variant.
 | 15 | `src/pseudopotential/upf/xml.rs:46` | `angular_momentum < 0` in PP_BETA | **UPF** | `InvalidPseudopotential { source: String, reason: String }` — see discussion below |
 
 **Total**: 15 production sites. Proposed outcome:
+
 - **PARAM cluster** (8 sites): `InvalidParam { name: &'static str, reason: String }`
 - **CRYSTAL cluster** (3 sites): `InvalidCrystal { reason: &'static str }`
 - **ELEMENT cluster** (1 site): `UnknownElement { symbol: String }`
@@ -548,6 +550,7 @@ each `PwdftError::InvalidInput("...".into())` to
 `PwdftError::InvalidCrystal { reason: "..." }`.
 
 **Test changes:**
+
 - The integration test at `tests/` currently has no direct match on the
   empty-atoms error (grep confirmed: `PwdftError::InvalidInput` returns
   zero hits in `tests/`). So no test breakage from the migration.
@@ -609,6 +612,7 @@ updates.
 #### P1.d — Migrate ELEMENT + UPF clusters (2 call sites) + drop `InvalidInput` usage
 
 **Scope:**
+
 - Site #12 in `src/settings.rs:539` → `UnknownElement { symbol }`.
 - Site #15 in `src/pseudopotential/upf/xml.rs:46` →
   `InvalidPseudopotential { source: tag.to_string(), reason: format!("angular_momentum must be non-negative (got {l})") }`.
@@ -616,6 +620,7 @@ updates.
   CLI catch-all.
 
 **Test changes required:**
+
 - `src/pseudopotential/upf/convert.rs:555,561,596,602` — four test
   match arms currently expect `PwdftError::InvalidInput(msg)` →
   update to `PwdftError::InvalidPseudopotential { source, reason }`
@@ -624,6 +629,7 @@ updates.
   path (pattern-match on `PwdftError::UnknownElement { symbol }`).
 
 **Acceptance:**
+
 - `grep 'PwdftError::InvalidInput' src/` returns exactly 1 site
   (`src/main.rs:47`) — down from 15.
 - CLAUDE.md § Code Quality (or equivalent) grows a one-line note:
@@ -652,6 +658,7 @@ Minimum coverage per new variant:
   of the split.
 
 Total new test count across P1.a–d: approximately
+
 - P1.a: 4 formatting tests (unit)
 - P1.b: 1 integration or unit test
 - P1.c: 3 test updates + 1 new test

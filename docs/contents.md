@@ -29,6 +29,7 @@ audit status, and known issues.
 ## How to Use These Docs
 
 When auditing or modifying a component, read the relevant doc first to understand:
+
 1. The mathematical formula being implemented
 2. Our convention choices (units, normalization, sign)
 3. The code location (file and line range)

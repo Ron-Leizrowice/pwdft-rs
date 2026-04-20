@@ -104,6 +104,7 @@ shortcuts), but revise the baseline expectation downward:
 magnitude.
 
 ### Updated acceptance gate for the default flip (supersedes Phase 5
+
 below)
 
 The default flip now requires, in order:
@@ -134,7 +135,7 @@ Profiling (Apple M3 Max, Si SCF, `si_scf_converged.yaml`, ecut=200 Ry, 4×4×4 M
 k-grid → 10 irr. k-points, n_pw=259) pins the eigensolver at roughly
 **85-90% of user-code CPU time** in the SCF hot path:
 
-```
+```text
 === sample-based profile, Si ecut=200, 5×SCF runs, 4 s sampling ===
 Total samples: 31 197
   Idle (cond_wait / yield / spin):  39.7%
@@ -217,6 +218,7 @@ faer::matrix_free::eigen::partial_self_adjoint_eigen(
 ```
 
 Supporting evidence this is production-quality:
+
 - Matrix-free via `faer::operator::LinOp`: only `H · v` is required, not a
   dense `H`. Aligns with the long-term sparse/matrix-free story (SPRS).
 - Used inside faer for its own partial SVD and sparse eigen paths.
@@ -226,6 +228,7 @@ Supporting evidence this is production-quality:
   required).
 
 This eliminates the bulk of the DVSN implementation burden:
+
 - no hand-rolled Davidson / LOBPCG kernel,
 - no hand-rolled Gram-Schmidt / restart logic,
 - no hand-rolled preconditioner-safety plumbing,
@@ -323,6 +326,7 @@ but the absolute gain is smaller (SCF is already subsecond).
 
 Conservative projected speedups at the n_pw = 259 baseline (ecut = 200,
 converged yaml, 9 iter, 10 k-points):
+
 - Current wall: 1.13 s (2.96 s CPU, 2.6× parallel)
 - Projected with ITEV cold: 0.45 s (0.40× wall, 2.5× speedup)
 - Projected with ITEV+WFRX warm: 0.30 s (0.27× wall, 3.8× speedup)
@@ -366,7 +370,7 @@ keeping WFRX relevant.
 4. Add `ScfParams::eigensolver: EigensolverKind { Dense, Iterative }`
    (default `Dense`) with YAML wiring.
 5. In `src/scf/mod.rs`, branch on the kind at the two call sites (non-spin
-   + spin).
+   - spin).
 6. Validate QE-match regression tests pass with `Iterative`.
 
 ### Phase 3: bench + tune

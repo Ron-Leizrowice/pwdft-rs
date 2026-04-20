@@ -20,6 +20,7 @@ let mut b = Array3::zeros((nx, ny, nz));                                   // ze
 ```
 
 For a 32^3 grid (32,768 Complex64 = 512 KB per array), each FFT call allocates ~1 MB. FFTs are called many times per SCF iteration:
+
 - `density_r_to_g` (density → G-space)
 - `real_to_g_space` (V_xc → G-space)
 - `fft.inverse` in `compute_density` (per band, per k-point)

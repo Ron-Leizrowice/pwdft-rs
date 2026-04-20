@@ -27,7 +27,8 @@ Background: during the workspace restructure (2026-04-20) the root
 `Cargo.toml` briefly switched to `lto = "fat"` before being reverted
 to `"thin"` pending data. `fat` LTO does whole-program optimization
 across the entire crate graph (pwdft-core + faer + gemm + ndrustfft
-+ nalgebra + …) in a single unit, so hot paths that cross crate
+
+- nalgebra + …) in a single unit, so hot paths that cross crate
 boundaries — especially `faer::…` calls inlined into SCF eigensolve
 and V_NL assembly — can see additional vectorization and dead-code
 elimination beyond what `thin` achieves.

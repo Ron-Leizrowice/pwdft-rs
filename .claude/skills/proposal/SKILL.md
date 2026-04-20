@@ -95,6 +95,7 @@ Order steps by dependency (what must happen first) or by risk (highest-impact fi
 ## Verification
 
 How to confirm the implementation is correct. This could include:
+
 - Specific tests to write or run
 - Cargo commands to validate (clippy, test, bench)
 - Quantum ESPRESSO comparisons for physics changes

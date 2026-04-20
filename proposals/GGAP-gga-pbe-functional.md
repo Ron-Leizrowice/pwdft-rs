@@ -11,9 +11,9 @@ author: Researcher
 date: 2026-04-18
 ---
 
-# GGAP — GGA/PBE exchange-correlation functional
+## GGAP — GGA/PBE exchange-correlation functional
 
-## Problem
+### Problem
 
 pwdft-rs currently ships a **single XC functional**: Perdew-Zunger 81 LDA
 (`src/potential/xc.rs`, `lda_xc_grid` / `lda_xc_spin_grid`). Every modern
@@ -45,7 +45,7 @@ This proposal phases in PBE support across six focused sub-PRs, each
 independently reviewable but coordinated under one umbrella so the
 reviewer can see the whole shape before Phase A starts.
 
-## Scope
+### Scope
 
 **In scope:** PBE (Perdew-Burke-Ernzerhof 1996, `iflag=1` in QE's family
 of GGA variants) for non-spin-polarized (`nspin=1`) and spin-polarized
@@ -63,7 +63,7 @@ Pseudopotential functional-tag consistency check at load time.
   very large separate proposal.
 - libxc C library integration. See §"Build vs buy" below.
 
-## Physics
+### Physics
 
 All equations below cross-reference the **paper** (Perdew-Burke-Ernzerhof,
 *Phys. Rev. Lett.* **77**, 3865 (1996); erratum *PRL* **78**, 1396
@@ -71,7 +71,7 @@ All equations below cross-reference the **paper** (Perdew-Burke-Ernzerhof,
 QE's Fortran is canonical, the paper is a reference). Both point to the
 same numbers — matching both is our definition of "correct".
 
-### PBE exchange (non-spin)
+#### PBE exchange (non-spin)
 
 **Enhancement-factor form (PBE §III, eq. 14):**
 
@@ -96,7 +96,7 @@ line 160 and `mu(1) = 0.2195149727645171_DP` at line 162 match our
 paper numbers to machine precision. QE returns three outputs per
 grid point:
 
-- `sx`  = ρ · (ε_x^PBE − ε_x^LDA), i.e., the *gradient correction* to
+- `sx` = ρ · (ε_x^PBE − ε_x^LDA), i.e., the *gradient correction* to
   the exchange energy density (the LDA slater part is added elsewhere).
 - `v1x` = ∂(ρ·ε_x^PBE) / ∂ρ        (Ry/Å³ → eV/Å³ after our unit conv.)
 - `v2x` = ∂(ρ·ε_x^PBE) / ∂(|∇ρ|²)  (eV·Å² per density unit)
@@ -105,7 +105,7 @@ This two-potential shape (`v1x`, `v2x`) is the standard GGA interface
 and matches libxc's `vrho` / `vsigma` outputs. The total semilocal
 potential is assembled by eq. (XX) below.
 
-### PBE correlation (non-spin)
+#### PBE correlation (non-spin)
 
 **Form (PBE §IV, eq. 7):**
 
@@ -133,7 +133,7 @@ ec, vc)` (line 229) for the LDA correlation — **we must use the same
 PW92 correlation, not PZ**, for PBE consistency (see "Hidden PZ-vs-PW92
 issue" below).
 
-### Spin-polarized PBE (`nspin=2`, collinear)
+#### Spin-polarized PBE (`nspin=2`, collinear)
 
 **Exchange (spin scaling — exactly Perdew-Wang 1988):**
 
@@ -177,7 +177,7 @@ rho_tot = ρ↑ + ρ↓). Output `v1c_up` and `v1c_dw` differ because the
 Our implementation should mirror this: four buffers during the spin
 path, pass only the needed ones into each sub-function.
 
-### The semilocal V_xc (the footgun)
+#### The semilocal V_xc (the footgun)
 
 For a GGA functional ε_xc(ρ, ∇ρ), the XC potential is:
 
@@ -211,7 +211,7 @@ V_eff assembly). Cost increase: ~7× FFT work for the XC step alone.
 On production grids (48³ = 110k points) this is ~O(few ms) per iter
 — negligible vs. eigensolve.
 
-### NLCC + GGA
+#### NLCC + GGA
 
 Non-linear core correction (NCFX, landed): the XC functional sees
 ρ_total + ρ_core, not just valence. For PBE, the gradient must also
@@ -223,7 +223,7 @@ alongside `ScfContext.rho_core_r` as `rho_core_grad_r: [Vec<f64>; 3]`.
 For `nspin=2`: ρ_core is split equally (half to each spin channel)
 per NCFX. Gradient inherits the same split.
 
-### ε_c^LDA inside PBE (hidden PZ-vs-PW92 issue)
+#### ε_c^LDA inside PBE (hidden PZ-vs-PW92 issue)
 
 **This is a subtle correctness trap.** PBE correlation uses the
 **Perdew-Wang 1992** (PW92) parametrization of the Ceperley-Alder
@@ -245,9 +245,9 @@ The effect on PBE total energies of swapping PZ for PW92 is
 the first time. The VGC5-style per-component validation is unforgiving
 on this scale.
 
-## Numerics
+### Numerics
 
-### Density gradients via FFT
+#### Density gradients via FFT
 
 `∇ρ(r) = iG · ρ(G)` is five lines of code reusing `src/fft.rs`:
 
@@ -275,7 +275,7 @@ pub fn density_gradient(
 Not a library. Do not propose one. (Explicit scope caveat from the
 researcher brief.)
 
-### Divergence (the back-leg)
+#### Divergence (the back-leg)
 
 Symmetric: `∇·h(r) = Σ_α ∂h_α/∂r_α`, and `∂h_α/∂r_α (G) = iG_α · h_α(G)`,
 so one forward FFT per component + a sum in G-space + one IFFT. Same
@@ -283,7 +283,7 @@ code path as the gradient, other direction. **Sign check**:
 computing ∇·(∇ρ) of a Gaussian test density should recover −|G|²·ρ(G)
 in G-space, i.e., the Laplacian; unit test on Phase A.
 
-### Density floor
+#### Density floor
 
 PBE numerics are singular as ρ → 0 (k_F → 0, r_s → ∞, F_x(s) → κ+1 with
 s → ∞ when |∇ρ|/ρ^{4/3} is finite but ρ is tiny). The LDA floor
@@ -298,15 +298,15 @@ check) is:
 Mirror this exactly. Phase B includes the tests (`s=0`, `s=10`,
 `ρ=1e-12`).
 
-### Simpson vs trapezoidal (reminder)
+#### Simpson vs trapezoidal (reminder)
 
 SIMP already replaced trapezoidal with Simpson for the radial
 quadrature (pseudopotential Bessel transforms). PBE does not add any
 radial integrals — all our work is grid FFTs. No quadrature concerns.
 
-## API shape
+### API shape
 
-### HYBR compatibility note (EM-applied 2026-04-18)
+#### HYBR compatibility note (EM-applied 2026-04-18)
 
 Phase A's `XcFunctional` dispatch must remain a **data** enum (variants
 hold parameters, not closures or trait objects). The hybrid-functional
@@ -320,7 +320,7 @@ from HYBR's Fock integrator (the closure only sees ρ, never ψ). Keep
 trait objects, and must not move the functional into `Fn`-typed fields.
 See HYBR §3 for the three specific architectural traps to avoid.
 
-### The dispatcher
+#### The dispatcher
 
 We follow the **enum-dispatch pattern** (matches `MixingMode`/`Mixer`
 from MODR-A and `SmearingScheme`). Single public module method per
@@ -398,7 +398,7 @@ For LDA, `needs_gradient()` is false, `v2_r` is `None`, and
 `assemble_semilocal_vxc` short-circuits to `v1_r` with zero FFT work —
 **exact regression safety** for the LDA path.
 
-### Alternatives considered and rejected
+#### Alternatives considered and rejected
 
 - **Two sibling functions** (`lda_xc_grid` + `pbe_xc_grid`, driver
   matches): duplicates the driver dispatch in every call site. The
@@ -410,7 +410,7 @@ For LDA, `needs_gradient()` is false, `v2_r` is `None`, and
 - **Trait-object dispatch**: functionally equivalent to enum, adds
   virtual call overhead on every grid point. Enum wins.
 
-## Phasing
+### Phasing
 
 | Phase | Scope | Est. time | PR size | Dep | Risk |
 |-------|-------|-----------|---------|-----|------|
@@ -432,9 +432,9 @@ reviewer prefers (both are non-spin, small, tightly coupled); I'd split
 them because C drags in PW92. Phase D is its own PR. Phase E is
 standalone. Phase F is standalone.
 
-## Tests
+### Tests
 
-### Unit tests (Phase B, C, D)
+#### Unit tests (Phase B, C, D)
 
 Each added to `src/potential/xc.rs`'s `mod tests`:
 
@@ -464,7 +464,7 @@ Each added to `src/potential/xc.rs`'s `mod tests`:
    `ρ(r) = exp(-r²/2σ²)`, check ∇·(∇ρ) matches the analytic
    `(r²/σ⁴ − 3/σ²)·ρ(r)` inside the grid, off-edge to avoid BC artifacts.
 
-### Integration tests (Phase C/D/F)
+#### Integration tests (Phase C/D/F)
 
 1. **Si diamond PBE** (non-spin, Phase C): ecut = 30 Ry, 4×4×4
    shifted MP, ONCVPSP PBE Si.upf. Pin total energy vs QE PBE
@@ -489,14 +489,14 @@ Each added to `src/potential/xc.rs`'s `mod tests`:
    through the new dispatcher, confirm zero change in energies
    (bit-for-bit on Si, sub-meV on Fe).
 
-### GPU consistency (Phase E)
+#### GPU consistency (Phase E)
 
 Add `tests/gpu_consistency.rs::test_pbe_xc_gpu_vs_cpu` — same shape
 as the existing LDA version. f32 tolerance: 1e-4 eV/electron on
 E_xc (vs LDA 1e-5; GGA has one more multiply-with-possible-cancellation
 inside F_x(s)).
 
-## Validation (Phase F)
+### Validation (Phase F)
 
 Runs via the `qe-runner` skill. Inputs at `qe_validation/pbe/`:
 
@@ -513,7 +513,7 @@ schema as `vgc5_qe_si_components.csv`. Python reference port at
 `scripts/validate/pbe_reference.py` (ports QE's `pbex`/`pbec` to
 Python + NumPy for per-point analytic cross-checks).
 
-## GPU path (Phase E)
+### GPU path (Phase E)
 
 CPU PBE lands in Phases A-D. Phase E is optional — CPU PBE is not
 gated on it.
@@ -532,9 +532,9 @@ step alone (smaller than LDA's 2-3× because the xc step is no longer
 the per-grid-point bottleneck — the FFTs are). Worth it on large
 grids (96³+) only. Flag for benchmark-driven re-evaluation.
 
-## Pseudopotentials
+### Pseudopotentials
 
-### Functional-tag consistency check
+#### Functional-tag consistency check
 
 **Current state (audited):** `src/pseudopotential/upf/convert.rs` parses
 the UPF header but **does not read `functional=` at all.** The field
@@ -564,7 +564,7 @@ PW92 + PBE-exchange-gradient + PBE-correlation-gradient. See
 Accept both the compact form (`PBE`) that ONCVPSP generates and the
 QE 4-token form (`SLA PW PBX PBC`) that older GBRV/SSSP PPs use.
 
-### PP files
+#### PP files
 
 Already present in the tree at `pseudopotentials/nc/pbe/` (71
 elements, checked Phase F's three test systems — Si, Al, Fe — are all
@@ -572,14 +572,15 @@ there). No external downloads needed. **This is a pleasant surprise
 vs. the researcher brief, which flagged "test suite needs new PP files
 added".**
 
-## Build vs buy — libxc
+### Build vs buy — libxc
 
-**libxc** (https://tddft.org/programs/libxc/) is the C library that
+**libxc** (<https://tddft.org/programs/libxc/>) is the C library that
 QE, VASP, ABINIT, and most every other DFT code use for functionals.
 ~600 functionals, single integration. FFI from Rust is mature
 (libxc-sys on crates.io).
 
 **Cost of libxc integration:**
+
 - Native dependency (C library) — conflicts with "zero system deps"
   goal in CLAUDE.md.
 - FFI boundary for every grid point (or chunk). Inversion of control
@@ -590,6 +591,7 @@ QE, VASP, ABINIT, and most every other DFT code use for functionals.
   third-party license to manage.
 
 **Cost of from-scratch:**
+
 - PBE implementation is ~400 LoC total (pbex + pbec + pbec_spin).
   QE port is mechanical transcription. We have the ground-truth source
   on disk.
@@ -605,11 +607,11 @@ the effort to integrate libxc". PBE alone is well below that bar.
 the enum-dispatch layer. `XcEvaluator::Pbe` today, `XcEvaluator::Libxc(id)`
 in the future. No call-site changes.
 
-## Risks and mitigations
+### Risks and mitigations
 
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
-| Sign error on ∇·h term (the semilocal potential footgun) | E_total right at convergence, but O(Δρ) error spoils quadratic |E_HF−E_KS| convergence; false "density converged, energy not" warnings | **High** — this is *the* historical GGA pitfall | Phase B test: pin V_xc ≡ ∂(ρ·ε)/∂ρ − ∇·h against QE's output at 3 test points before any SCF run. Phase C: Si |E_HF−E_KS| < 1e-4 eV at convergence, same tolerance as LDA |
+| Sign error on ∇·h term (the semilocal potential footgun) | E_total right at convergence, but O(Δρ) error spoils quadratic | E_HF−E_KS | convergence; false "density converged, energy not" warnings |
 | PZ-vs-PW92 mix-up inside PBE correlation | E_total wrong by ~1-10 meV/electron; all our validation thresholds blown | **Medium** — easy to miss if Phase C reuses `perdew_zunger_correlation` | Phase C adds PW92 as a *new* helper; unit test pins PW92 against QE's `pw` subroutine output directly (not via PBE). PBE path calls PW92 only |
 | NLCC gradient integration mistake (forget ∇ρ_core, or double-count) | E_xc wrong on every Si/Fe/any-PP-with-NLCC run; Si-PBE validation fails | Medium | Phase A unit test: compute ∇(ρ + ρ_core) two ways (direct vs. ∇ρ + ∇ρ_core), assert equal. Phase C Si test fails hard if this regresses (NLCC contributes ~0.5 eV to Si E_xc) |
 | Spin correlation uses ∇ρ_σ instead of ∇ρ_total (common misread of PBE paper) | Fe BCC E_xc wrong by ~10-100 meV | Medium | Phase D test: unpolarized limit (ζ=0) must match Phase C non-spin to 1e-10 eV — any slip from ∇ρ_σ vs ∇ρ_total shows up as a ζ=0 discrepancy because the two forms are only identical at ζ=0 |
@@ -620,7 +622,7 @@ GGA bug in every textbook appendix ever written. Phase B's very first
 test pins V_xc at three grid points with known (ρ, ∇ρ) against QE —
 this catches the sign on day one, before any SCF runs.
 
-## Out-of-scope follow-ups
+### Out-of-scope follow-ups
 
 Capture these as FLUP-family proposals:
 
@@ -637,7 +639,7 @@ Capture these as FLUP-family proposals:
   `pbec_spin`, `semilocal_vxc_assembly`. Do not modify MADOC in this
   proposal; MADOC owner folds in when PBE lands.
 
-## Acceptance criteria
+### Acceptance criteria
 
 - Phase A: LDA regression tests pass (bit-exact); Laplacian-of-Gaussian
   unit test passes; `XcFunctional::Pbe` returns `NotImplemented` from
@@ -654,7 +656,7 @@ Capture these as FLUP-family proposals:
 - Phase F: three QE reference calcs cached at `scripts/validate/`;
   Python reference port matches QE to machine precision.
 
-## References
+### References
 
 - Perdew, Burke, Ernzerhof, "Generalized Gradient Approximation Made
   Simple", *Phys. Rev. Lett.* **77**, 3865-3868 (1996). Erratum

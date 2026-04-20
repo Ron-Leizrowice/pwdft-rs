@@ -4,7 +4,7 @@ Reference: Kleinman & Bylander, Phys. Rev. Lett. 48, 1425 (1982)
 
 ## The KB Separable Form
 
-```
+```text
 V̂_NL = Σ_atom Σ_{i,j} |β_i⟩ D_{ij} ⟨β_j| × S_atom
 ```
 
@@ -13,7 +13,7 @@ coupling matrix (eV), and S_atom is the structure factor.
 
 ## Matrix Elements in PW Basis
 
-```
+```text
 V_NL(G,G') = (1/Ω) Σ_atom S(G-G') × Σ_{i,j, l_i=l_j} F_i(|k+G|) D_{ij} F_j(|k+G'|)
              × (2l+1)/(4π) P_l(cos θ)
 ```
@@ -33,7 +33,7 @@ The phase factors `i^l` from bra and `(i*)^l` from ket give `|i|^{2l} = 1` (canc
 
 ## Form Factor (Bessel Transform)
 
-```
+```text
 F_i(q) = 4π ∫₀^∞ [r·β_i(r)] × j_l(qr) × r × dr
 ```
 
@@ -41,7 +41,7 @@ UPF files store `χ(r) = r·β(r)` in Bohr^{-1/2}, converted to Å^{-1/2} at
 parse time. The extra `× r` in the integrand comes from the 3D Fourier
 transform of a function with angular structure `f(r) Y_lm(r̂)`:
 
-```
+```text
 f̃(q) = 4π (-i)^l Y_lm(q̂) ∫₀^∞ r² f(r) j_l(qr) dr
 ```
 
@@ -51,6 +51,7 @@ With `f(r) = β(r)` and UPF storing `r·β(r)`, the integral becomes
 **Code:** `src/potential/nonlocal.rs:217-238`
 
 **QE match:** Confirmed identical to `qe-7.5/upflib/beta_mod.f90:112-113`:
+
 ```fortran
 aux(ir) = upf(nt)%beta(ir,nb) * besr(ir) * rgrid(nt)%r(ir)
 ```
@@ -59,7 +60,7 @@ aux(ir) = upf(nt)%beta(ir,nb) * besr(ir) * rgrid(nt)%r(ir)
 
 Explicit formulas for l=0,1, upward recurrence for l≥2:
 
-```
+```text
 j_0(x) = sin(x)/x
 j_1(x) = sin(x)/x² - cos(x)/x
 j_{l+1}(x) = (2l+1)/x × j_l(x) - j_{l-1}(x)
@@ -89,7 +90,7 @@ For norm-conserving pseudopotentials, D_ij is stored in PP_DIJ block of UPF
 
 ## Dimensional Analysis
 
-```
+```text
 F_i: [Å^{-1/2}] × [Å] × [Å] = [Å^{3/2}]
 D_ij: [eV]
 F_i × D × F_j: [Å³] × [eV] = [eV·Å³]
@@ -103,7 +104,7 @@ V_NL: [eV] ✓
 |------|--------|-----------------|
 | KB matrix element formula | CORRECT | Standard, QE init_us_2 |
 | Form factor integrand (r·χ·j_l·r) | CORRECT | QE beta_mod.f90:112-113 |
-| Phase i^l cancellation | CORRECT | |i|^{2l} = 1 |
+| Phase i^l cancellation | CORRECT |  |
 | Angular factor (2l+1)/(4π) P_l | CORRECT | Addition theorem |
 | Structure factor S(G-G') | CORRECT | exp(-iG·τ)×conj(exp(-iG'·τ)) |
 | Bessel function j_l(x) | CORRECT | Tested to 1e-10 |

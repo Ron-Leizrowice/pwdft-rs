@@ -4,7 +4,7 @@
 
 For any system with finite smearing (sigma > 0), the DFT total energy depends on sigma with an O(sigma^2) error:
 
-```
+```text
 E(sigma) = E(0) + gamma * sigma^2 + O(sigma^3)
 ```
 

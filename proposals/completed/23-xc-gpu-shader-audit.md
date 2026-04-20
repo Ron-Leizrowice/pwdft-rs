@@ -9,12 +9,14 @@ The LDA XC GPU shader (`src/gpu/shaders/lda_xc.wgsl`) runs in f32 while the CPU 
 ### 1. Slater exchange formula
 
 CPU (`xc.rs:90-91`):
+
 ```rust
 let cbrt = (3.0 * rho_bohr / PI).powf(1.0 / 3.0);
 let ex_ha = -0.75 * cbrt;
 ```
 
 GPU (`lda_xc.wgsl:50-51`):
+
 ```wgsl
 let cbrt_arg = pow(3.0 * rho_bohr / PI, 1.0 / 3.0);
 let ex_ha = -0.75 * cbrt_arg;
@@ -25,6 +27,7 @@ Both use `ε_x = -0.75 × (3ρ/π)^{1/3}` which is the Slater exchange formula. 
 ### 2. BOHR3 constant precision
 
 GPU (`lda_xc.wgsl:16`):
+
 ```wgsl
 const BOHR3: f32 = 0.14818471;
 ```

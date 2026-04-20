@@ -18,19 +18,19 @@ The standard Kohn-Sham total energy uses the output density for double-counting 
 
 The Harris-Foulkes (HF) energy uses the **input** density for all double-counting corrections but the **output** eigenvalues from the diagonalization:
 
-```
+```text
 E^HF = sum_i f_i epsilon_i(V[rho_in]) + E_H[rho_in] + E_xc[rho_in] - int V_eff[rho_in] rho_in dr + E_Ewald
 ```
 
 Equivalently, using the same double-counting correction structure:
 
-```
+```text
 E^HF = E_band[rho_out] - E_H[rho_in] + E_xc[rho_in] - int V_xc[rho_in] rho_in dr + E_Ewald
 ```
 
 This is **stationary** at self-consistency: first-order density errors cancel, so E^HF converges to E^KS from above with quadratic error. It provides a better energy estimate during early SCF iterations and serves as a convergence quality indicator:
 
-```
+```text
 |E^HF - E^KS| -> 0   as   rho_in -> rho_out
 ```
 
@@ -115,6 +115,7 @@ pub struct ScfResult {
 ## Cost
 
 Zero extra computation. E^HF reuses:
+
 - `e_band` from the eigenvalue sum (already computed for E^KS or will be with Proposal 10)
 - `e_hartree_in` from the Hartree potential step (one extra reduction over `rho_g`)
 - `e_xc_in`, `e_vxc_in` from the XC step (already evaluated on `rho_r`)

@@ -9,10 +9,12 @@ Added `assert_band_sum_matches_qe` helper in `tests/qe_validation.rs` comparing 
 **Terminology gotcha — brief was imprecise.** Brief wrote `E_1e = Σ w_k f ε` but explicitly mapped it to QE's "one-electron contribution". Those are different: QE's label is `eband + deband = <T + V_ion>`, not `eband` alone. I went with `<T + V_ion>` because (1) it's what QE prints as a scalar, (2) it's **invariant** to the V_loc(G=0) rigid shift (VGCH Phase 1b territory) while the literal `eband` is **dominated** by it (~10 eV on heavy-atom cells), and (3) it's a density-drift indicator orthogonal to Hartree/XC/Ewald on the cancellation axis. Kept the `assert_band_sum_matches_qe` name from the brief but the docstring explicitly walks through why it's the shift-compensated form.
 
 **Heavy-atom ratio pattern.** 16-cell `|ΔE_1e|/|ΔE_total|` landed in:
+
 - Light atoms (Si/Al/C, both functionals): 0.1–5.3× (order-of-magnitude agreement; C at 1.19× the VGCH baseline).
 - Heavy atoms (Fe/Cu/GaAs/NaCl/MgO, both functionals): **1.5–3.3×**. Every Z>14 cell has `|ΔE_1e|` > `|ΔE_total|`, directly quantifying the VGCH partial-cancellation signature that VGCH-2B's transplant experiment hypothesizes. Fe PBE at 3.25× is the most extreme; Fe LDA at 0.99× is the only heavy-atom exception (different diagnostic path — E_1e and E_total move together on Fe LDA).
 
 **Per-test tolerances.** Asserted on 6 owned cells:
+
 - GREEN: Si-E 80 meV (obs 17), Si-PBE 40 meV (obs 13), Al-LDA 120 meV (obs 3), Al-PBE 40 meV (obs 0.8).
 - YELLOW: C-LDA 2.0 eV (obs 1.72), C-PBE 0.6 eV (obs 0.37). Per BSUM-YELLOW policy from brief: `|ΔE_total| + 100 meV`, don't tighten beyond E_total.
 
@@ -37,6 +39,7 @@ Shipped `fft::compute_density_gradient(ρ_r, fft, G)` and `potential::xc::assemb
 **NLCC + GGA pattern.** When both are active (Fe PBE with core correction), XC functional sees ρ_val + ρ_core as its input density *and* gradient (∇ρ_val + ∇ρ_core). ∇ρ_core computed once at SCF entry (geometry-frozen, ~1 MB cache on 32³). Avoids 3 FFTs/iter when NLCC is active.
 
 **Flagged for follow-up:**
+
 - Phase D (spin-polarized PBE): `XcEvaluator::Pbe::eval_spin` still returns `NotImplemented { what: "pbe_correlation" }`. Spin-channel gradients already threaded into `driver_spin.rs`, so Phase D just fills evaluator body (port `pbex` spin wrapper + `pbec_spin` from QE). Fe BCC FM PBE is the validation target.
 - Phase F (remaining QE PBE validations): Al/C/Fe/Cu/GaAs/MgO/NaCl PBE refs all in `qe_validation/*_pbe.{in,out}` (GGAP-F-pre, PR #154); no test binds them yet.
 - `ScfContext::rho_core_grad_r` cache wired but droppable in favour of FFT-on-the-sum if 1 MB becomes a memory concern.
@@ -68,6 +71,7 @@ Ported QE 7.5 `pbex` CASE DEFAULT (iflag=1) into private `pbe_exchange(rho, |∇
 **Gate (worktree):** 262 unit + 20 integration bins; clippy default 18, gpu 24 (baseline unchanged); rustdoc clean; tier-2 ignored identical to baseline (8 pre-existing failures across Al / C / Cu / Fe / GaAs / MgO / NaCl / Si-diamond fermi).
 
 **Flagged for follow-up (Phase C dependencies):**
+
 - PW92 LDA correlation needs a new helper (not `perdew_zunger_correlation` — PBE's gradient was fitted against PW92, ~0.1 meV/electron difference matters for QE validation). Source: `qe-7.5/XClib/qe_funct_corr_lda.f90::pw`.
 - Phase C will remove the defensive smoke call in the Pbe arm and replace with a proper `par_iter` over (ρ, ∇ρ) grids.
 
@@ -112,6 +116,7 @@ Four bugs in `.claude/bin/{machine-lock,check-cargo-lock.sh}` flagged by WFRX #9
 **Quality gate numbers:** cargo test+clippy+clippy-gpu+doc via the new `machine-lock run` took ~28 min wall (doc was quick; the WFRX subspace tests dominate at 118s). Two pre-existing `clippy::expect_used` warnings in `src/symmetry/operations.rs` landed with ALOC-F5 (PR #100), unrelated to MLFX — flagged to EM for separate cleanup.
 
 **Flagged for follow-up:**
+
 - `src/symmetry/operations.rs:120,151` — two `i8::try_from(v).expect(...)` sites trip the new ERR2 `clippy::expect_used` lint. Code Reviewer / Researcher to convert to fallible with a tighter input-domain assertion.
 
 ## 2026-04-18 — MXB3: AdaptiveBeta::update Fe-trajectory unit test (PR #71)
@@ -145,6 +150,7 @@ Documented failure pinned by `tests/mxba_adaptive_beta_fe.rs` (`#[ignore]`). RCA
 **New helper: `KerkerSetup<'a>`** bundle struct — the 3 Kerker params kept mixer constructors inside `too_many_arguments` limit. Useful pattern for future mixer variants.
 
 **Flagged for follow-up:**
+
 - DIIS warm-up window (suppress monitor for first `max_history` iters) may be a quick fix — if it lands, adaptive could become default.
 - Tune Eyert thresholds on a metallic case where adaptive β *helps* (blocked on C diamond @ 30 Ry plain converging first).
 
@@ -184,6 +190,7 @@ Four pure-move refactors, each ≤1 PR, no behavior changes:
 Moved density symmetrization from real-space (rounding-sensitive on non-symmorphic grids) to G-space (exact via phase factors). Fixes the PCRS 1.204 eV plateau.
 
 **Convention (verified against QE line-by-line — worth pinning):**
+
 - `SpaceGroupOp::rotation` is the fractional-direct-space rotation `R`: atoms transform as `r' = R·r + τ`.
 - Under the pullback `(S·ρ)(r) = ρ(S⁻¹ r)`, Miller indices rotate as `n → R^T · n` (NOT `R⁻¹`, NOT `R^{-T}`).
 - Phase: `exp(-i·2π·n_dst·τ_S)` using DESTINATION Miller.
@@ -198,6 +205,7 @@ Moved density symmetrization from real-space (rounding-sensitive on non-symmorph
 Replaced `mixer_up`/`mixer_down` with `mixer_total`/`mixer_mag` in `run_scf_spin`. Forward basis change `(ρ↑, ρ↓) → (ρ_total, m)` before mix; inverse after. Matches QE `rhoz_or_updw` (`scf_mod.f90:1360-1414`). Kerker disabled on `mixer_mag`.
 
 **Fe BCC 4×4×4 nspin=2 free-mag, Kerker:**
+
 - Pre-CCMX: Δρ limit cycle at 0.254 for 200+ iters, |HF-KS| ≈ 13 eV.
 - Post-CCMX: **14 iters**, Δρ=5.7e-4, |HF-KS|=1.06e-4 eV, M=0 μB.
 
@@ -208,12 +216,14 @@ Replaced `mixer_up`/`mixer_down` with `mixer_total`/`mixer_mag` in `run_scf_spin
 ## 2026-04-18 — NCFX landed — Si 13.43 → 0.26 eV
 
 Two compounding NLCC bugs fixed (diagnosed in VGC5):
+
 1. `pseudopotential/upf.rs` PP_NLCC conversion: `/BOHR_TO_ANG` → `/BOHR3_TO_ANG3`.
 2. `scf/potentials.rs::compute_core_density` integrand now has r² weight + 4π prefactor (QE `init_tab_rhc`).
 
 **Si residual 0.26 eV** attributed to MP-shifted-vs-Γ-centered grid (SYKP): QE uses `4 4 4 0 0 0` (Γ-centered), pwdft-rs hard-codes shifted MP-1976. Γ eigenvalues differ by ~1 eV consistent with different k-meshes. `test_si_diamond_vs_qe` stays `#[ignore]` pointing at SYKP/MPSH.
 
 **Flagged (residual work after NCFX):**
+
 - Si VGC5 self-check `Σ − E_total = 1.18 eV` pre-existing (→ PCRS → PCFX).
 - `test_fe_bcc_fm_vs_qe` (nspin=2 Kerker 8×8×8) no longer converges in 80 iters post-NCFX — pre-NCFX it "passed" via accidental XC cancellation. Needs CCMX to converge cleanly post-NCFX.
 
@@ -240,12 +250,14 @@ Recompute `lda_xc_spin_grid` from OUTPUT spin densities for E_KS; keep INPUT-der
 **PR A:** 5 silent-pass `match`/`if let` patterns → `.expect()` + convergence guards. No bugs unmasked — pure hygiene debt.
 
 **PR D — real finding.** Un-ignored `test_vloc_comparison_with_qe`; it FAILED post-VERF:
+
 - V_local(G=0): ours +1.343 eV vs QE −1.003 eV (sign flip, diff 2.35 eV)
 - |V_local(G=(1,0,0))|: ours 5.468 vs QE 6.968 (diff 1.50 eV)
 
 Re-ignored with specific numbers + pointer to VGCMP Phase 1. Did NOT open new proposal (duplicate of VGCMP).
 
 **Empirical margins for PR B/C/D/E tolerances** (replaced wish-at-write-time numbers):
+
 - Si nspin=1 vs nspin=2 E diff ~0 → 1e-5 eV (was 0.5)
 - GPU Si E_F: **6.969 eV** (not 5.97 as first guessed — all 4 bands occupied, E_F sits ~1 eV above HOMO) → `|E_F−6.969|<0.1` (was `∈[-5,10]`)
 - GPU Si E: −198.8926 → `|E−(−198.8926)|<0.1` (was `∈[-300,-100]`)

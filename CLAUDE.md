@@ -167,6 +167,7 @@ each the simplest tool for one job.
 ## Code Quality
 
 After finishing a batch of work, always run:
+
 ```bash
 cargo clippy -q --fix --allow-dirty --allow-staged --all-targets
 cargo clippy -q --all-targets                  # default-feature warnings
@@ -174,6 +175,7 @@ cargo clippy -q --all-targets --features gpu   # GPU feature warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps # rustdoc is error-clean
 cargo test                                     # verify nothing broke
 ```
+
 Both clippy invocations are required: without `--features gpu`, the `gpu/` source tree and the GPU-only test binaries are not linted, so warnings accumulate silently. Fix auto-fixable warnings, address remaining ones. Do not suppress codesmell warnings like `too_many_arguments` — refactor the code instead.
 
 `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` is now part of the gate (RDOC 2026-04-18). Any new docstring that breaks an intra-doc link, leaves a bracket unescaped, or links at a private item will fail the gate — either fix the prose or drop the link. Do not `#[allow]` rustdoc warnings. (Note: `cargo doc --no-deps -- -D warnings` is rejected by current cargo — the `-D warnings` flag must travel through the `RUSTDOCFLAGS` env var.)
@@ -183,6 +185,7 @@ Both clippy invocations are required: without `--features gpu`, the `gpu/` sourc
 **Entry point:** `pwdft/pwdft-core/src/main.rs` parses CLI args and YAML input (`pwdft/pwdft-core/src/settings.rs`), then either computes a free-electron band structure or runs SCF.
 
 **SCF loop** (`scf::run_scf` in `pwdft/pwdft-core/src/scf/mod.rs` — a thin dispatcher that validates inputs and hands off to `scf::driver::run_scf_unpolarized` in `pwdft/pwdft-core/src/scf/driver.rs` for `nspin=1` or `scf::driver_spin::run_scf_spin` in `pwdft/pwdft-core/src/scf/driver_spin.rs` for `nspin=2`). The central computation pipeline:
+
 1. Build local pseudopotential V_local on FFT grid (spherical Bessel transform). If any PP has NLCC (`core_correction="T"`), also build ρ_core(r) on the grid (same Bessel transform; see `scf::potentials::compute_core_density`).
 2. Initialize density via SAD (superposition of atomic densities).
 3. Each iteration: Hartree potential (valence density only) → LDA XC (on ρ_val + ρ_core if NLCC — Louie, Froyen, Cohen, PRB 26, 1738 (1982)) → assemble V_eff → build Hamiltonian (kinetic + V_eff + KB non-local) → diagonalize (faer, `EigensolverKind::Dense` by default or `Iterative` when opted in) → Fermi-Dirac occupations → reconstruct density → symmetrize (G-space phase factors, PCFX) → check convergence → density mixing. Available mixers: Anderson/Pulay (DIIS), modified Broyden (BROY), and Periodic Pulay (PRPL); any mixer can be combined with Kerker preconditioning. The spin driver uses the coupled-channel (ρ_total, m) basis (CCMX) rather than independent (ρ↑, ρ↓), so both channels share residual history.
@@ -261,6 +264,7 @@ Multiple agents share this machine. The machine lock exists for **benchmark inte
 **General principle:** any CPU-bound job that could contaminate a benchmark measurement must hold the lock while it runs. That includes all `cargo` subcommands *and* all Quantum ESPRESSO invocations.
 
 **What requires the lock:**
+
 - `cargo test`, `cargo bench`, `cargo build`, `cargo clippy` — any cargo command that compiles or runs code.
 - **Any Quantum ESPRESSO run:** `pw.x`, `mpirun pw.x`, `ph.x`, `pp.x`, `bands.x`, `projwfc.x`, `q2r.x`, `matdyn.x`, `dos.x` — whether it's a one-off reference calculation, a validation against `data/qe/`, or regeneration of reference data. QE is multi-threaded/multi-process and saturates the CPU; running it during a benchmark window corrupts the numbers.
 - Any other long-running CPU-bound job (`pwdft-validate` sub-commands that spin up BLAS, etc.).

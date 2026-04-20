@@ -29,6 +29,7 @@ The `to_scf_params` method has a 20-line match block translating between equival
 Add `#[derive(Serialize, Deserialize)]` and `#[serde(rename_all = "snake_case")]` to `SmearingScheme` and `MixingMode` in the SCF modules. Then use them directly in `ElectronSettings`.
 
 **Changes in `src/scf/smearing.rs`:**
+
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -41,6 +42,7 @@ pub enum SmearingScheme {
 ```
 
 **Changes in `src/scf/mixing.rs`:**
+
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -54,6 +56,7 @@ pub enum MixingMode {
 The `Kerker` variant has internal state (`q_tf`), so it needs a custom deserializer that maps the YAML string `"kerker"` to `Kerker { q_tf: None }`. Alternatively, keep `MixingModeType` as the serde type and convert only `MixingMode` (2 lines).
 
 **Changes in `src/settings.rs`:**
+
 - Remove `SmearingType` enum entirely
 - Use `crate::scf::smearing::SmearingScheme` in `ElectronSettings`
 - Either remove `MixingModeType` or keep it as a thin serde adapter for `MixingMode`

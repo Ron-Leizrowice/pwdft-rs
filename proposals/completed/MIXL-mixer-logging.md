@@ -72,7 +72,7 @@ Add a method on `Mixer` (in `src/scf/mixing/mod.rs`) that emits a single
 `scf::driver::run_scf_unpolarized` and `scf::driver_spin::run_scf_spin`
 after the mixer is constructed. Target output (one line):
 
-```
+```text
 Mixer: Anderson + Kerker  β=0.300  history=8  adaptive_β=off  kerker=on (q_TF=auto, est. 1.42 Å⁻¹)
 ```
 

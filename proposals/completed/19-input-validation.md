@@ -98,6 +98,7 @@ pub fn volume(&self) -> f64 {
 ```
 
 This ensures positive `omega` regardless of lattice vector handedness. The `reciprocal()` method (line 46) computes `2π / volume()`, which requires a signed triple product to get the correct reciprocal vector directions. So either:
+
 - Keep `volume()` signed and add a separate `volume_abs()`, or
 - Use the signed triple product directly inside `reciprocal()`:
 

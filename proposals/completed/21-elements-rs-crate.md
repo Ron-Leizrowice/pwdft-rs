@@ -27,7 +27,7 @@ Properties we don't currently use but would benefit from in future proposals:
 ## References
 
 - Crate: [elements_rs on crates.io](https://crates.io/crates/elements_rs) (v0.2.1, published 2026-04-05)
-- Repository: https://github.com/earth-metabolome-initiative/elements-rs
+- Repository: <https://github.com/earth-metabolome-initiative/elements-rs>
 - License: GPL-3.0 per Cargo.toml (verify compatibility with project license)
 
 ## Implementation
@@ -66,6 +66,7 @@ impl ElementExt for Element {
 There are 6 call sites outside `atoms.rs`:
 
 **`src/input.rs:124`** — element lookup from TOML symbol:
+
 ```rust
 // Before:
 let elem = crate::atoms::Element::from_symbol(&ai.symbol)
@@ -81,6 +82,7 @@ Atom::new(u8::from(elem) as u32, ai.position)
 **`src/settings.rs:343`** — same pattern as input.rs.
 
 **`src/pseudopotential/mod.rs:94-95`** — match element by symbol and Z:
+
 ```rust
 // Before:
 crate::atoms::Element::from_symbol(&pp.element)
@@ -92,6 +94,7 @@ pp.element.parse::<Element>().ok()
 ```
 
 **`src/pseudopotential/psp8.rs:148-149`** — derive symbol from Z:
+
 ```rust
 // Before:
 let element = crate::atoms::Element::from_z(z_int)
@@ -140,7 +143,7 @@ The current `from_z` uses `unsafe { std::mem::transmute }`. With `elements_rs`, 
 ## Acceptance Criteria
 
 1. **All existing tests pass:** Element lookups by symbol and Z produce identical results for Z=1-92.
-3. **`unsafe` removed:** No `transmute` in the codebase for element conversion.
-4. **`atoms.rs` simplified:** The file is either deleted or reduced to a re-export + extension trait.
-5. **Extended range:** Elements Z=93-118 are now recognized (no panic on Np, Pu, etc.).
-6. **No behavior change:** SCF results identical — this is a pure refactor of element lookup code.
+2. **`unsafe` removed:** No `transmute` in the codebase for element conversion.
+3. **`atoms.rs` simplified:** The file is either deleted or reduced to a re-export + extension trait.
+4. **Extended range:** Elements Z=93-118 are now recognized (no panic on Np, Pu, etc.).
+5. **No behavior change:** SCF results identical — this is a pure refactor of element lookup code.

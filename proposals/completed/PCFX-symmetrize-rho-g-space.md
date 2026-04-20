@@ -83,7 +83,7 @@ validation.
 
 The exact reciprocal-space symmetrization formula is
 
-```
+```text
 ρ_sym(G) = (1 / N_ops) Σ_S  exp(i G · τ_S) · ρ(R_S^{-1} G)
 ```
 

@@ -2,13 +2,13 @@
 
 ## Four-Term Decomposition
 
-```
+```text
 E_ewald = E_recip + E_real + E_self + E_bg
 ```
 
 ### Reciprocal space
 
-```
+```text
 E_recip = (2πe²/Ω) Σ_{G≠0} |S(G)|² exp(-|G|²/(4η²)) / |G|²
 ```
 
@@ -19,7 +19,7 @@ Cutoff: `g_max = 10η`
 
 ### Real space
 
-```
+```text
 E_real = (e²/2) Σ_T Σ'_{i,j} Z_i Z_j erfc(η|r_ij + T|) / |r_ij + T|
 ```
 
@@ -30,7 +30,7 @@ Cutoff: `r_max = 10/η`. Self-interaction excluded via `r_norm < 1e-10`.
 
 ### Self-energy correction
 
-```
+```text
 E_self = -(η/√π) e² Σ_i Z_i²
 ```
 
@@ -38,7 +38,7 @@ E_self = -(η/√π) e² Σ_i Z_i²
 
 ### Background charge
 
-```
+```text
 E_bg = -πe² (Σ_i Z_i)² / (2Ωη²)
 ```
 
@@ -48,7 +48,7 @@ Neutralizes the divergent G=0 term. Nonzero even for neutral cells.
 
 ## Screening Parameter
 
-```
+```text
 η = (N_atoms × π / Ω)^{1/3}
 ```
 

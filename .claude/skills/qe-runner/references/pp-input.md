@@ -4,7 +4,7 @@ pp.x extracts and processes data from a prior pw.x calculation — charge densit
 
 ## Input file structure
 
-```
+```text
 &INPUTPP
   ... what to extract ...
 /
@@ -38,7 +38,7 @@ pp.x extracts and processes data from a prior pw.x calculation — charge densit
 | 4 | Local density of electronic entropy | |
 | 5 | Spin polarization ρ↑-ρ↓ | nspin=2 only |
 | 6 | Spin polarization (absolute) | nspin=2 only |
-| 7 | |ψ(r)|² for specific k,band | Specify kpoint, kband |
+| 7 |  | ψ(r) |
 | 8 | Electron localization function (ELF) | |
 | 9 | Charge density minus superposition of atomic densities | Δρ |
 | 10 | ILDOS (integrated local DOS) in energy range | Specify emin, emax |
@@ -76,7 +76,8 @@ pp.x extracts and processes data from a prior pw.x calculation — charge densit
 | 7 | gnuplot 1D (spherical avg) | 0 | |
 
 For 3D data (iflag=3), also specify grid dimensions:
-```
+
+```text
 &PLOT
   iflag         = 3
   output_format = 6
@@ -93,7 +94,7 @@ If `nx, ny, nz` are omitted, pp.x uses the FFT grid dimensions.
 
 ### Total charge density (Gaussian Cube)
 
-```
+```text
 &INPUTPP
   prefix   = 'si'
   outdir   = './tmp'
@@ -109,7 +110,7 @@ If `nx, ny, nz` are omitted, pp.x uses the FFT grid dimensions.
 
 ### Total potential
 
-```
+```text
 &INPUTPP
   prefix   = 'si'
   outdir   = './tmp'
@@ -125,7 +126,7 @@ If `nx, ny, nz` are omitted, pp.x uses the FFT grid dimensions.
 
 ### Wavefunction |ψ|² at k=1, band=4
 
-```
+```text
 &INPUTPP
   prefix    = 'si'
   outdir    = './tmp'
@@ -143,7 +144,7 @@ If `nx, ny, nz` are omitted, pp.x uses the FFT grid dimensions.
 
 ### XC potential
 
-```
+```text
 &INPUTPP
   prefix   = 'si'
   outdir   = './tmp'
@@ -163,7 +164,7 @@ If `nx, ny, nz` are omitted, pp.x uses the FFT grid dimensions.
 
 The Cube format is the easiest to parse programmatically for validation:
 
-```
+```text
 Comment line 1
 Comment line 2
 N_atoms  origin_x  origin_y  origin_z          (Bohr)

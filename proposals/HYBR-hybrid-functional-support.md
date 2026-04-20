@@ -11,9 +11,9 @@ author: Researcher
 date: 2026-04-18
 ---
 
-# HYBR — Hybrid functional support (PBE0, HSE06)
+## HYBR — Hybrid functional support (PBE0, HSE06)
 
-## Problem
+### Problem
 
 Hybrid functionals systematically close the DFT band-gap problem.
 For Si, LDA ~0.5 eV, PBE ~0.6 eV, experiment 1.17 eV, HSE06 ~1.17 eV.
@@ -29,7 +29,7 @@ those two enum variants into working SCF operators.
 This is scoping only. No code. No GGAP edits. The EM decides
 activation after GGAP Phase A lands.
 
-## Why hybrids are architecturally different
+### Why hybrids are architecturally different
 
 LDA and GGA are *density* functionals: `V_xc(r) = f(ρ(r), ∇ρ(r))`. The
 XC contribution to H is a grid quantity folded into V_eff once per
@@ -51,7 +51,7 @@ Production codes use **ACE** (Lin Lin, *J. Chem. Theory Comput.* **12**,
 2242 (2016)) to reduce wall-time by O(100). QE's implementation is
 `qe-7.5/PW/src/exx.f90` (~5000 lines; `use_ace` flag at line 63).
 
-## 1. Physics scope
+### 1. Physics scope
 
 **PBE0** (Perdew-Burke-Ernzerhof, *J. Chem. Phys.* **105**, 9982 (1996)):
 
@@ -80,7 +80,7 @@ Both functionals add `V_x^Fock` to H; they differ only in `w(G)`. The
 architecture must treat PBE0 as "HSE06 with ω=0" (unscreened) — one
 `ExxOperator` with a kernel parameter, not two.
 
-## 2. Architectural decision — extending SCF dispatch
+### 2. Architectural decision — extending SCF dispatch
 
 GGAP Phase A threads `params.xc_functional` through the driver and
 dispatches semilocal XC (LDA | PBE). HYBR needs a second axis: "does
@@ -117,7 +117,7 @@ ill-formed states. Fall back to B if A's enum resists extension.
 The crucial requirement either way: GGAP's enum stays a *data* enum
 (match-dispatched), not a trait object or closure. See §3.
 
-## 3. GGAP amendment (propose; do not apply here)
+### 3. GGAP amendment (propose; do not apply here)
 
 Amendment text for the EM to add to GGAP post-approval:
 
@@ -133,7 +133,7 @@ Amendment text for the EM to add to GGAP post-approval:
 
 Do not edit GGAP in this PR — advisory text only.
 
-## 4. Phasing (rough; hybrids are large)
+### 4. Phasing (rough; hybrids are large)
 
 | Phase | Scope | CE-days | Risk |
 |-------|-------|---------|------|
@@ -148,7 +148,7 @@ Do not edit GGAP in this PR — advisory text only.
 **Total: ~35-55 CE-days (≈7-11 CE-weeks).** Phase 3 (ACE) is both the
 dominant line item and the dominant risk.
 
-## 5. Anti-scope
+### 5. Anti-scope
 
 Each requires its own proposal:
 
@@ -160,7 +160,7 @@ Each requires its own proposal:
 - **USPP / PAW hybrids.** Norm-conserving only. See `us_exx.f90`,
   `paw_exx.f90`.
 
-## 6. Open questions
+### 6. Open questions
 
 1. **Is ACE the right compression?** Alternatives: linear-scaling
    exchange (Wu/Selloni/Car 2009), tablewise EXX. ACE is the
@@ -178,7 +178,7 @@ Each requires its own proposal:
    Martyna-Tuckerman (1999) (`exx_base.f90:820-830`). Pick one. HSE06
    dodges by screening.
 
-## Risks
+### Risks
 
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
@@ -191,7 +191,7 @@ Each requires its own proposal:
 scale.** Phase 3 gates whether HYBR becomes useful or stays a demo.
 k-point EXX parallelization (Phase 4) is a close second.
 
-## Acceptance
+### Acceptance
 
 - **0:** GGAP Phase A landed, data-dispatched.
 - **1:** Si 2-atom HSE06 SCF converges; |E − QE (use_ace=.F.)| < 50 meV.
@@ -201,7 +201,7 @@ k-point EXX parallelization (Phase 4) is a close second.
 - **5:** Fe BCC HSE06 FM converges; M within 0.05 μB.
 - **6:** Si HSE06 1.17 ± 0.05 eV; C diamond 5.40 ± 0.1 eV.
 
-## Surprises worth noting
+### Surprises worth noting
 
 - **HSE06 is architecturally simpler than PBE0.** Screening kills the
   G=0 divergence (eq. 5 has finite limit π/ω²); no Gygi-Baldereschi /
@@ -212,7 +212,7 @@ k-point EXX parallelization (Phase 4) is a close second.
   Phase 1 validation. Slow (minutes/iter) but exists and is correct.
   No need to invent a Phase 1 reference.
 
-## References
+### References
 
 - Perdew, Burke, Ernzerhof, *J. Chem. Phys.* **105**, 9982 (1996) —
   PBE0.

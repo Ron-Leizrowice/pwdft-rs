@@ -39,6 +39,7 @@ Regularly sweep the codebase for:
 ### Proposing improvements
 
 Write proposals for quality improvements. Use `/proposal create <topic>`. Include:
+
 - Exact counts (e.g., "14 unwrap() calls in src/gpu/mod.rs")
 - File paths and line numbers
 - Before/after code examples
@@ -47,6 +48,7 @@ Write proposals for quality improvements. Use `/proposal create <topic>`. Includ
 ### PR review (quality lens)
 
 When asked to review a PR:
+
 - Does it follow Rust idioms?
 - Are new functions documented?
 - Are error cases handled, not panicked?
@@ -77,6 +79,7 @@ The PR body says "what the author thinks landed" — it is a hypothesis, not a d
 ### Implementation
 
 When implementing approved quality proposals:
+
 - **Follow the Worktree Isolation Protocol below.** Branch from `origin/main`; rebase before PR.
 - Branch + PR workflow: `<ID>/<slug>`, `<ID>: <description>`
 - **Acquire the machine lock** before running `cargo test`, `cargo clippy`, or `cargo build` (see CLAUDE.md "Machine Coordination").
@@ -90,13 +93,16 @@ When implementing approved quality proposals:
 When spawned with `isolation: "worktree"` (the default for sub-agents):
 
 1. **Verify location at session start:**
+
    ```bash
    pwd                    # MUST resolve to .claude/worktrees/agent-*
    git worktree list
    ```
+
    If `pwd` is the main checkout, STOP and report a harness failure.
 
 2. **Branch from current `origin/main`:**
+
    ```bash
    git -C "$(pwd)" fetch origin
    git -C "$(pwd)" checkout -b <PROPOSAL-ID>/<slug> origin/main
@@ -107,6 +113,7 @@ When spawned with `isolation: "worktree"` (the default for sub-agents):
 4. **Use `git -C "$(pwd)"` for all git commands** — don't rely on cwd.
 
 5. **Pull from `origin/main` BEFORE submitting your PR:**
+
    ```bash
    git -C "$(pwd)" fetch origin
    git -C "$(pwd)" rebase origin/main      # resolve conflicts
@@ -130,7 +137,7 @@ If during your session you spot work outside the Code Reviewer role (a physics c
 
 In your final return summary, add a **Flagged for follow-up** section listing each finding:
 
-```
+```text
 ## Flagged for follow-up
 - src/potential/xc.rs:54 — formula matches Perdew-Zunger but no doc reference; Researcher should add citation.
 - src/scf/density.rs:88 — par_iter could be tightened; Performance Engineer.

@@ -17,6 +17,7 @@ rotation/reflection and τ is a fractional translation.
 ### Group verification
 
 `verify_group_closure()` confirms the found operations satisfy:
+
 - Closure: composition of any two operations is in the set
 - Inverse: every operation has an inverse in the set
 - Tolerance: 1e-5 for fractional coordinate matching
@@ -36,7 +37,7 @@ Reduces the full Monkhorst-Pack grid to the irreducible Brillouin zone.
 
 ### Monkhorst-Pack formula
 
-```
+```text
 k_j = (2i_j - N_j + 1) / (2N_j)    for i_j ∈ [0, N_j)
 ```
 
@@ -70,13 +71,14 @@ correct energies.
 
 Enforces crystal symmetry on the real-space density:
 
-```
+```text
 ρ_sym(r) = (1/N_ops) Σ_S ρ(S^{-1} r)
 ```
 
 ### Algorithm
 
 For each symmetry operation S = {R|τ}:
+
 1. Compute inverse: `S^{-1} = {R^{-1} | -R^{-1}τ}`
 2. Map each FFT grid point: `f' = R^{-1}·f + τ_inv` (mod 1)
 3. Accumulate: `ρ_sym(r) += ρ(mapped_point)`
