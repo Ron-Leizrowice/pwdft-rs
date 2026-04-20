@@ -47,6 +47,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
+| URES | Replace 82 `#[must_use]` annotations with `unused_results` lint — unconditional coverage without per-function annotation | small | low | — | — |
 | CUCL | CubeCL GPU Kernels (deferred — explicit trigger conditions in proposal) | large | high | — | — |
 | FLUP | Follow-up backlog — remaining unpromoted items: MXB2 (Fe CCMX retune), EIGV/EIGW (bench-noise triage), FLP3 (NLCC 60-element regression parametric expansion), TYPE-AX (folded into TYPB) | small | low | — | — |
 
