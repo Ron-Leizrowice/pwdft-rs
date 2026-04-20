@@ -535,7 +535,8 @@ mod tests {
     // The runtime `assert!(proj.l >= 0)` in that constructor (landed with
     // CAST, PR #56) stays as defense-in-depth; these regression tests
     // guard the parser-level early exit with a clearer
-    // `PwdftError::InvalidInput` message.
+    // `PwdftError::InvalidPseudopotential` message (ERR2 P1.d migrated
+    // this path from the catch-all `InvalidInput`).
     //
     // Positive integers (0, 1, 2, 3, …) are unaffected — `test_parse_header`
     // and `test_dij_matrix_size` above already exercise that path.
@@ -552,13 +553,16 @@ mod tests {
         let err = extract_beta_angular_momentum(content, "PP_BETA.1")
             .expect_err("negative angular_momentum must be rejected");
         match err {
-            PwdftError::InvalidInput(msg) => {
+            PwdftError::InvalidPseudopotential { file, reason } => {
+                assert_eq!(file, "PP_BETA.1");
                 assert!(
-                    msg.contains("angular_momentum") && msg.contains("-1"),
-                    "expected message to mention angular_momentum and -1, got: {msg}"
+                    reason.contains("angular_momentum") && reason.contains("-1"),
+                    "expected reason to mention angular_momentum and -1, got: {reason}"
                 );
             }
-            other => panic!("expected PwdftError::InvalidInput, got {other:?}"),
+            other => panic!(
+                "expected PwdftError::InvalidPseudopotential, got {other:?}"
+            ),
         }
     }
 
@@ -577,8 +581,8 @@ mod tests {
 
     /// End-to-end regression: a malformed UPF (a real Si ONCV file with
     /// the PP_BETA.1 angular_momentum flipped from 0 to −1) must fail
-    /// `parse_body` with `PwdftError::InvalidInput`, not a later internal
-    /// error from unit conversion or the D_ij block.
+    /// `parse_body` with `PwdftError::InvalidPseudopotential`, not a
+    /// later internal error from unit conversion or the D_ij block.
     #[test]
     fn test_parse_rejects_negative_angular_momentum_in_upf() {
         let raw = si_content();
@@ -593,13 +597,19 @@ mod tests {
         );
         let err = parse(&corrupted).expect_err("corrupted UPF must fail to parse");
         match err {
-            PwdftError::InvalidInput(msg) => {
+            PwdftError::InvalidPseudopotential { file, reason } => {
                 assert!(
-                    msg.contains("angular_momentum"),
-                    "expected InvalidInput mentioning angular_momentum, got: {msg}"
+                    file.starts_with("PP_BETA"),
+                    "expected file context to name a PP_BETA tag, got: {file}"
+                );
+                assert!(
+                    reason.contains("angular_momentum"),
+                    "expected reason mentioning angular_momentum, got: {reason}"
                 );
             }
-            other => panic!("expected PwdftError::InvalidInput, got {other:?}"),
+            other => panic!(
+                "expected PwdftError::InvalidPseudopotential, got {other:?}"
+            ),
         }
     }
 }

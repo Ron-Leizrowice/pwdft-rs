@@ -519,7 +519,7 @@ impl Settings {
     /// Build a `Crystal` from the system settings.
     ///
     /// # Errors
-    /// Returns `PwdftError::InvalidInput` if any atom has an unrecognized element symbol.
+    /// Returns `PwdftError::UnknownElement` if any atom has an unrecognized element symbol.
     pub fn to_crystal(&self) -> Result<Crystal> {
         let [a, b, c] = self.system.lattice;
         let lattice = Lattice::new(
@@ -535,8 +535,8 @@ impl Settings {
             .map(|ai| {
                 let elem = crate::atoms::Element::iter()
                     .find(|e| e.symbol() == ai.symbol)
-                    .ok_or_else(|| {
-                        PwdftError::InvalidInput(format!("unknown element: {}", ai.symbol))
+                    .ok_or_else(|| PwdftError::UnknownElement {
+                        symbol: ai.symbol.clone(),
                     })?;
                 Ok(Atom::new(elem.atomic_number(), ai.position))
             })
@@ -1625,5 +1625,36 @@ kpoints:
             (resolved - expected).abs() < 1e-9,
             "C default ecutwfc {resolved} != expected {expected}"
         );
+    }
+
+    #[test]
+    fn to_crystal_rejects_unknown_element_symbol() {
+        // ERR2 P1.d: an atom symbol not in `crate::atoms::Element` must
+        // return `PwdftError::UnknownElement { symbol }` rather than the
+        // catch-all `InvalidInput`. The YAML parser itself happily
+        // accepts any string — the validity check lives in `to_crystal`.
+        let yaml = r#"
+system:
+  lattice:
+    - [5.43, 0.0, 0.0]
+    - [0.0, 5.43, 0.0]
+    - [0.0, 0.0, 5.43]
+  atoms:
+    - symbol: Xz
+      position: [0.0, 0.0, 0.0]
+kpoints:
+  type: monkhorst_pack
+  grid: [1, 1, 1]
+"#;
+        let s = Settings::from_yaml_str(yaml).unwrap();
+        let err = s
+            .to_crystal()
+            .expect_err("unknown element symbol must be rejected");
+        match err {
+            PwdftError::UnknownElement { symbol } => {
+                assert_eq!(symbol, "Xz");
+            }
+            other => panic!("expected PwdftError::UnknownElement, got {other:?}"),
+        }
     }
 }
