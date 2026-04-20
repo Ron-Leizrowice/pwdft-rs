@@ -29,7 +29,6 @@ impl SymmetryInfo {
     ///
     /// `tolerance`: maximum distance (in fractional coordinates) for atoms
     /// to be considered equivalent under a symmetry operation. Typical: 1e-5.
-    #[must_use]
     pub fn from_crystal(crystal: &Crystal, tolerance: f64) -> Self {
         let ops = detect::find_symmetry_operations(crystal, tolerance);
         let n_ops = ops.len();
@@ -64,7 +63,6 @@ impl SymmetryInfo {
     ///
     /// The resulting behavior is bit-identical to the legacy path that
     /// skipped symmetrization via `Option::None`.
-    #[must_use]
     pub fn identity_only() -> Self {
         Self {
             operations: vec![SpaceGroupOp::identity()],
@@ -90,7 +88,6 @@ impl SymmetryInfo {
     /// weaker check (e.g. "is this the spatial-symmetry identity?") should
     /// inspect `n_ops` and `operations` directly rather than generalize
     /// this predicate.
-    #[must_use]
     pub fn is_trivial(&self) -> bool {
         self.n_ops == 1
             && self.operations.len() == 1

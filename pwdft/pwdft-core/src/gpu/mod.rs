@@ -433,7 +433,7 @@ impl GpuAccelerator {
                 0,
                 byte_size,
             );
-            self.queue.submit(std::iter::once(encoder.finish()));
+            let _submission = self.queue.submit(std::iter::once(encoder.finish())); // SubmissionIndex intentionally discarded; synchronization via device.poll()
 
             let result_f32 = self.read_staging_buffer(&pool.complex_staging, complex_f32_len);
             return f32_pairs_to_complex(&result_f32);
@@ -468,7 +468,7 @@ impl GpuAccelerator {
         }
         let byte_size = (rho_f32.len() * std::mem::size_of::<f32>()) as u64;
         encoder.copy_buffer_to_buffer(&out_buf, 0, &staging_buf, 0, byte_size);
-        self.queue.submit(std::iter::once(encoder.finish()));
+        let _submission = self.queue.submit(std::iter::once(encoder.finish())); // SubmissionIndex intentionally discarded; synchronization via device.poll()
 
         let result_f32 = self.read_staging_buffer(&staging_buf, rho_f32.len());
         f32_pairs_to_complex(&result_f32)
@@ -549,7 +549,7 @@ impl GpuAccelerator {
                 0,
                 (complex_f32_len * std::mem::size_of::<f32>()) as u64,
             );
-            self.queue.submit(std::iter::once(encoder.finish()));
+            let _submission = self.queue.submit(std::iter::once(encoder.finish())); // SubmissionIndex intentionally discarded; synchronization via device.poll()
 
             let result_f32 = self.read_staging_buffer(&pool.complex_staging, complex_f32_len);
             return f32_pairs_to_complex(&result_f32);
@@ -590,7 +590,7 @@ impl GpuAccelerator {
             &staging_buf, 0,
             (vl_f32.len() * std::mem::size_of::<f32>()) as u64,
         );
-        self.queue.submit(std::iter::once(encoder.finish()));
+        let _submission = self.queue.submit(std::iter::once(encoder.finish())); // SubmissionIndex intentionally discarded; synchronization via device.poll()
 
         let result_f32 = self.read_staging_buffer(&staging_buf, vl_f32.len());
         f32_pairs_to_complex(&result_f32)
@@ -652,7 +652,7 @@ impl GpuAccelerator {
             let byte_size = (n_grid * std::mem::size_of::<f32>()) as u64;
             encoder.copy_buffer_to_buffer(&pool.exc_buf, 0, &pool.exc_staging, 0, byte_size);
             encoder.copy_buffer_to_buffer(&pool.vxc_buf, 0, &pool.vxc_staging, 0, byte_size);
-            self.queue.submit(std::iter::once(encoder.finish()));
+            let _submission = self.queue.submit(std::iter::once(encoder.finish())); // SubmissionIndex intentionally discarded; synchronization via device.poll()
 
             let exc_f32 = self.read_staging_buffer(&pool.exc_staging, n_grid);
             let vxc_f32 = self.read_staging_buffer(&pool.vxc_staging, n_grid);
@@ -692,7 +692,7 @@ impl GpuAccelerator {
         let byte_size = (n_grid * std::mem::size_of::<f32>()) as u64;
         encoder.copy_buffer_to_buffer(&exc_buf, 0, &exc_staging, 0, byte_size);
         encoder.copy_buffer_to_buffer(&vxc_buf, 0, &vxc_staging, 0, byte_size);
-        self.queue.submit(std::iter::once(encoder.finish()));
+        let _submission = self.queue.submit(std::iter::once(encoder.finish())); // SubmissionIndex intentionally discarded; synchronization via device.poll()
 
         let exc_f32 = self.read_staging_buffer(&exc_staging, n_grid);
         let vxc_f32 = self.read_staging_buffer(&vxc_staging, n_grid);

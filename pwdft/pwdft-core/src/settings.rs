@@ -350,7 +350,6 @@ pub enum MixingModeType {
 impl MixingModeType {
     /// Convert to the runtime `MixingMode`, supplying `pulay_period` for the
     /// Periodic Pulay variants (ignored for others).
-    #[must_use]
     pub fn to_scf_mode(self, pulay_period: usize) -> crate::scf::mixing::MixingMode {
         use crate::scf::mixing::MixingMode;
         match self {
@@ -588,7 +587,6 @@ impl Settings {
     /// and [`ElectronsPhysics`] (system physics) is flattened here into
     /// the internal [`ScfParams`] struct; callers that depend on
     /// `ScfParams` do not need to know where each field lived in YAML.
-    #[must_use]
     pub fn to_scf_params(&self, n_bands_fallback: usize) -> ScfParams {
         ScfParams {
             n_bands: self.scf.n_bands.unwrap_or(n_bands_fallback),
@@ -666,7 +664,6 @@ impl Settings {
     }
 
     /// Extract the Monkhorst-Pack grid dimensions, if configured.
-    #[must_use]
     pub fn mp_grid(&self) -> Option<[u32; 3]> {
         match &self.kpoints {
             KPointSettings::MonkhorstPack { grid, .. } => Some(*grid),
@@ -675,7 +672,6 @@ impl Settings {
     }
 
     /// Extract the Monkhorst-Pack shift convention, if configured.
-    #[must_use]
     pub fn mp_shift(&self) -> Option<KGridShift> {
         match &self.kpoints {
             KPointSettings::MonkhorstPack { shift, .. } => Some(*shift),
@@ -684,7 +680,6 @@ impl Settings {
     }
 
     /// Extract the high-symmetry path for band-structure calculations.
-    #[must_use]
     pub fn to_high_sym_path(&self) -> Option<Vec<HighSymPoint>> {
         match &self.kpoints {
             KPointSettings::BandPath { path, .. } => Some(
@@ -700,7 +695,6 @@ impl Settings {
     }
 
     /// Number of k-points per band-path segment (if band_path mode).
-    #[must_use]
     pub fn band_path_npoints(&self) -> Option<usize> {
         match &self.kpoints {
             KPointSettings::BandPath { npoints, .. } => Some(*npoints),
@@ -715,7 +709,6 @@ impl Settings {
     /// [`crate::symmetry::SymmetryInfo::identity_only`] rather than `None`.
     /// Downstream code treats that as "no symmetrization to apply",
     /// bit-identically to the legacy `Option::None` path.
-    #[must_use]
     pub fn to_symmetry_info(
         &self,
         crystal: &Crystal,
@@ -730,7 +723,6 @@ impl Settings {
     }
 
     /// Return the pseudopotential file path for a given element symbol.
-    #[must_use]
     pub fn pseudopotential_path(&self, symbol: &str) -> Option<&str> {
         self.pseudopotentials.files.get(symbol).map(|s| s.as_str())
     }

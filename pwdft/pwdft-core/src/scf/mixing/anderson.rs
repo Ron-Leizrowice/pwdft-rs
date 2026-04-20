@@ -64,7 +64,6 @@ pub(super) struct KerkerQtf {
 impl AndersonMixer {
     /// Create a new mixer. For Kerker mode, `kerker_setup.g_squared` must be
     /// supplied. `adaptive_beta` toggles the Eyert residual-norm monitor.
-    #[must_use]
     pub(super) fn new(
         beta: f64,
         max_history: usize,
@@ -139,7 +138,6 @@ impl AndersonMixer {
     }
 
     /// Current effective β (after any adaptive update applied so far).
-    #[must_use]
     pub(super) fn current_beta(&self) -> f64 {
         self.beta
     }
@@ -198,8 +196,8 @@ impl AndersonMixer {
                 "DIIS history at capacity (max_history={max}); dropping oldest residual",
                 max = self.max_history,
             );
-            self.history_in.remove(0);
-            self.history_res.remove(0);
+            let _evicted_in = self.history_in.remove(0); // oldest entry evicted to stay within max_history
+            let _evicted_res = self.history_res.remove(0); // oldest residual evicted to stay within max_history
         }
     }
 
@@ -265,7 +263,6 @@ impl AndersonMixer {
     }
 
     /// Number of history entries currently accumulated.
-    #[must_use]
     pub(super) fn history_len(&self) -> usize {
         self.history_in.len()
     }
@@ -310,7 +307,6 @@ impl PeriodicPulayMixer {
     /// `kerker` enables Kerker preconditioning on the residual (applied to both
     /// the linear-step residual and the DIIS step, sharing the Anderson inner
     /// mixer's preconditioner weights).
-    #[must_use]
     pub(super) fn new(
         beta: f64,
         max_history: usize,
@@ -338,13 +334,11 @@ impl PeriodicPulayMixer {
     }
 
     /// Current effective β on the inner Anderson mixer.
-    #[must_use]
     pub(super) fn current_beta(&self) -> f64 {
         self.anderson.current_beta()
     }
 
     /// Forward the inner Anderson mixer's q_TF record (for `Mixer::log_init`).
-    #[must_use]
     pub(super) fn kerker_q_tf(&self) -> Option<KerkerQtf> {
         self.anderson.kerker_q_tf
     }

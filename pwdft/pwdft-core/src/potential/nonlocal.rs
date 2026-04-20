@@ -289,12 +289,12 @@ impl NonlocalPotential {
                     }
                     ff.push(fi);
                 }
-                e.insert(TypeCache {
+                let _entry = e.insert(TypeCache {
                     form_factors: ff,
                     ls,
                     dij: pp.dij.clone(),
                     n_proj: pp.n_projectors(),
-                });
+                }); // prior value intentionally discarded: vacant entry by construction
             }
             let entry = &type_ff[&z];
             form_factor_by_atom.push(entry.form_factors.clone());

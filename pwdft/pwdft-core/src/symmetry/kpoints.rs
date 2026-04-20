@@ -30,7 +30,6 @@ use super::{SymmOp, SymmetryInfo};
 ///
 /// Both reductions are exact for their respective grids — this is a
 /// convention choice, not a bug.
-#[must_use]
 pub fn reduce_kpoints(
     full_kpoints: &[KPoint],
     grid: [u32; 3],

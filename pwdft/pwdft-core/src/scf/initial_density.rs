@@ -49,7 +49,6 @@ pub struct InitialDensityConfig {
 
 impl InitialDensityConfig {
     /// Non-magnetic default: all moments zero.
-    #[must_use]
     pub fn non_magnetic(n_atoms: usize) -> Self {
         Self {
             magnetic_moments: vec![0.0; n_atoms],
@@ -76,7 +75,6 @@ impl InitialDensityConfig {
 /// [`InitialDensityConfig`]. Pass `explicit_dims = Some([nx, ny, nz])` to
 /// force a specific grid; the wrapper then constructs the same internal
 /// grid state the SCF driver would use for that size.
-#[must_use]
 pub fn build_sad_density_for_diagnostic(
     crystal: &Crystal,
     pseudopotentials: &[&PseudopotentialData],
@@ -131,7 +129,6 @@ pub struct SadDiagnosticStats {
 /// Panics if any atom in `crystal` does not have a matching
 /// pseudopotential in `pseudopotentials` — the caller is expected to
 /// pre-validate, mirroring the production path through the SCF driver.
-#[must_use]
 pub fn build_sad_density_for_diagnostic_verbose(
     crystal: &Crystal,
     pseudopotentials: &[&PseudopotentialData],
@@ -346,7 +343,7 @@ fn add_atomic_density_from_pp(
 mod tests {
     use super::*;
     use crate::crystal::{Atom, Crystal, Lattice};
-    
+
     use approx::relative_eq;
     use nalgebra::Vector3;
 

@@ -108,7 +108,6 @@ pub fn diagonalize_lowest(h: &faer::Mat<Complex64>, n_bands: usize) -> Result<Ei
 /// the caller's responsibility to ensure that `eigenvalues.len() ==
 /// eigenvectors.ncols()`; any trailing eigenvalues beyond that column
 /// count are silently ignored.
-#[must_use]
 pub fn eigenvalue_residuals(
     h: &faer::Mat<Complex64>,
     eigenvalues: &[f64],

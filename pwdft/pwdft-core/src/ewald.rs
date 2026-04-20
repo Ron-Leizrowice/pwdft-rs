@@ -38,7 +38,6 @@ use crate::{
 /// map is validated up-front by `ScfContext::new`, so this panic indicates
 /// a programming error (context bypassed or misconfigured), not bad user
 /// input.
-#[must_use]
 pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]) -> f64 {
     let omega = crystal.lattice.volume();
 

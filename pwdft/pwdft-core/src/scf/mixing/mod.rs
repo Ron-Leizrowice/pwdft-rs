@@ -110,7 +110,6 @@ pub(super) struct AdaptiveBeta {
 
 impl AdaptiveBeta {
     /// Construct a monitor. Use `enabled = false` to disable (β never changes).
-    #[must_use]
     pub(super) fn new(enabled: bool, beta_start: f64) -> Self {
         Self {
             enabled,
@@ -246,7 +245,6 @@ impl Mixer {
     /// `adaptive_beta` enables the Eyert residual-norm monitor (see module
     /// docs). When `false`, β stays fixed at the supplied value for the
     /// whole run.
-    #[must_use]
     pub(crate) fn new(
         beta: f64,
         max_history: usize,
@@ -305,7 +303,6 @@ impl Mixer {
     /// to [`Mixer::new`]); with adaptive β enabled it reflects the most
     /// recent update from the residual-norm monitor. Useful for logging
     /// at each SCF iteration.
-    #[must_use]
     pub(crate) fn current_beta(&self) -> f64 {
         match self {
             Mixer::Anderson(m) => m.current_beta(),

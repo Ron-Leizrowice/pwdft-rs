@@ -19,7 +19,6 @@ use super::operations::{frac_distance, wrap_to_unit_cell, SpaceGroupOp, SymmOp};
 /// Panics if the returned operation set does not contain the identity.
 /// The identity is always metric-preserving for any crystal; a missing
 /// identity is a bug in the enumerator, not bad input.
-#[must_use]
 pub fn find_symmetry_operations(crystal: &Crystal, tolerance: f64) -> Vec<SpaceGroupOp> {
     let lattice_matrix = crystal.lattice.matrix();
     let metric = lattice_matrix.transpose() * lattice_matrix;
