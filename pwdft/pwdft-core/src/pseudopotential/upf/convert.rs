@@ -547,7 +547,7 @@ mod tests {
 
     fn ga_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
                 .join("pseudopotentials/nc/lda/Ga.upf"),
         )
         .unwrap()
@@ -604,7 +604,7 @@ mod tests {
 
     fn as_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
                 .join("pseudopotentials/nc/lda/As.upf"),
         )
         .unwrap()
@@ -655,7 +655,7 @@ mod tests {
 
     fn o_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
                 .join("pseudopotentials/nc/lda/O.upf"),
         )
         .unwrap()
@@ -711,7 +711,7 @@ mod tests {
 
     fn cl_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
                 .join("pseudopotentials/nc/lda/Cl.upf"),
         )
         .unwrap()
