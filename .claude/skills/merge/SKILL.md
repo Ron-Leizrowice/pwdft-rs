@@ -14,6 +14,10 @@ Run the squash-merge + worktree cleanup + local branch delete + main rebase sequ
 - The PR has been reviewed and approved against the § PR review checklist in `.claude/agents/engineering-manager.md`.
 - You know the absolute path of the main checkout (call it `MAIN_CHECKOUT`). This is typically `/Users/<user>/…/pwdft-rs` — the path without any `.claude/worktrees/agent-*` segment. If you're running inside a worktree, it's the worktree's parent-of-parent-of-parent.
 
+## Step 0 — cd to MAIN_CHECKOUT
+
+Before anything else, `cd "$MAIN_CHECKOUT"`. The `check-worktree.sh` PreToolUse hook uses the shell's cwd to decide if you're a sub-agent; if your cwd silently drifted into a worktree during prior introspection (a common failure mode — see FLUP/CWDL), later `Edit`/`Write` calls will be denied with "worktree isolation violation." Starting the trilogy from an explicit `cd` prevents that surprise.
+
 ## Why this order matters
 
 GitHub's `gh pr merge --delete-branch` tries to delete the local branch right after merging. If the sub-agent's worktree still has that branch checked out, the local delete fails with "cannot delete branch used by worktree". So the correct order is: merge-remote first, then remove the worktree, then delete the local branch. The repo has `deleteBranchOnMerge: true`, so the **remote** branch auto-deletes regardless of whether we pass `--delete-branch` — we drop the flag and handle the local side ourselves.

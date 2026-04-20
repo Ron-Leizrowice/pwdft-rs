@@ -2,7 +2,7 @@
 
 Rolling record of shipped proposals and load-bearing notes that carry over beyond completion. Authoritative file bodies live in `proposals/completed/`; this is the skimmable roll-up. Grouped thematically, not chronologically — `git log proposals/` is the dated source of truth.
 
-Cumulative landings through **2026-04-20**: **73 PRs**.
+Cumulative landings through **2026-04-21**: **75 PRs**.
 
 ## Physics validation — CLOSED
 
@@ -31,12 +31,13 @@ Cumulative landings through **2026-04-20**: **73 PRs**.
 
 - **Error handling** (ERRH, ERR2 P0/AX/P1.a/b/c/d) — Phase 1 closed; only P1.e 2-site `transplant.rs` mop-up remains
 - **Module refactor** (MODR) — god-modules split, 4 phases
-- **Type audit** (TYPE, TYPB, CAST) — i8 rotations, i16 Miller, ~148-site cast triage
+- **Type audit** (TYPE, TYPB, CAST, ROTI) — i8 rotations, i16 Miller, ~148-site cast triage; ROTI reverted SpaceGroupOp rotation i8 → i32 (+48/−151 LOC) — the isolated cache-density win was unmeasured and the complexity it added outweighed it
 - **Machine lock** (MLFX, QELK) — owner-scoped acquire, QE-aware policy, 17-case shell test suite
 - **Observability** (PROF, MIXL, LOGH, LOGH-2) — samply canonical; `log::info!` on SCF summary
 - **Doc hygiene** (MADOC-A/B/C, MOAD, MOAD-2, DCLN, CLSS, DWGT, RDOC) — module headers, `# Errors`/`# Panics`, rustdoc `-D warnings` gate
 - **CI** (CICI, CINM, TDBG) — clippy `-D warnings` on default + gpu; Tier-1 on `--profile=dev` (−28% test step, −51% full job; 330 s budget guardrail)
 - **Conventions** (UNTS, DOCX, DOCLEAN) — eV/Å internal units, `RUSTDOCFLAGS` recipe, Rust-vs-Python rounding + QE `wk` × `degspin` gotchas
+- **Settings schema hardening** (ESPL) — split `ElectronSettings` into `ElectronsPhysics` (physics: `spin_polarized: bool`, magnetization, occupations) + `ScfSettings`-absorbed convergence knobs (mixing/smearing); `nspin: usize` → `spin_polarized: bool`; default `scf.max_iter` 100 → 50; `#[serde(deny_unknown_fields)]` on every settings struct — pre-ESPL YAML is a hard parse error per no-backcompat policy
 
 ## Audits + grooming
 

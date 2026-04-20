@@ -32,14 +32,15 @@ Proposals use 4/5-letter IDs (e.g., `SIMP` or `UTRU4`) to avoid numbering confli
 | MAUD | Mathematical accuracy audit — MAUD-AC addressed top 2; 7 C-level items remain | small | low | MADOC | — |
 | TRV2 | Fresh test-suite review — F1+F3 landed; 10 Categories 2–5 findings remain | medium | low | — | — |
 | CFGN | Numerics knobs — CFGN1/DFLT/G2ZT landed; 10 knobs remain across Fermi-search / iterative-eigensolver / Ewald / floors | medium | low | — | — |
-| ESPL | Split `ElectronSettings` — system physics vs convergence knobs; drop `scf.max_iter` default 100 → 50 | small | low | — | — |
-| STYS | Settings type-sharpening audit — replace `String`-typed enum fields + `[usize;3]` flag-triples on `Settings` with their proper typed variants; surface serde errors for invalid values | medium | low | ESPL | — |
+| STYS | Settings type-sharpening audit — replace `String`-typed enum fields + `[usize;3]` flag-triples on `Settings` with their proper typed variants; surface serde errors for invalid values | medium | low | — | — |
+| MLRW | Reader-writer machine lock in `pwdft_validation.lock` — exclusive (bench/profile/QE) vs shared (test/clippy/build/doc); Python library primitive, bash shim + hook; plug `cargo doc` + QE hook drift | medium | medium | — | MLDX |
+| SKPL | `/test --tier2` auto-applies the authoritative skip list via `SKIP-TIER2` markers on `#[ignore]` reasons; drops cold-cache agent Tier-2 from ~19 min to ~8–10 min | small | low | — | — |
 
 ### Low / Deferred
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
-| ROTI | Revert `SpaceGroupOp`/`SymmOp` rotation `[[i8;3];3]` → `[[i32;3];3]`; removes 4 `#[expect]` blocks + 27 `try_from` calls (~−80 LOC) | small | low | — | — |
+| MLDX | FastAPI daemon for lock coordination (MLDX-1) + heavy-command dispatch with bench-history (MLDX-2). Library fallback when daemon down | large | medium-high | MLRW | — |
 | URES | Replace 82 `#[must_use]` annotations with `unused_results` lint | small | low | — | — |
 | CUCL | CubeCL GPU kernels (deferred — explicit trigger conditions in proposal) | large | high | — | — |
 | FLUP | Follow-up backlog — remaining unpromoted items: MXB2, EIGV/EIGW, FLP3, ITVF tracker | small | low | — | — |

@@ -627,6 +627,99 @@ enclosing function returns `Result<_, PwdftError>`. No bare `expect`
 remains in the narrowing path. Does not need its own proposal — fold
 into ERR2 P1 when that starts.~~
 
+#### CIDO — CI rustdoc gate + scope harmonization with `/quality-gate`
+
+- **Role:** Technical Writer or Core Engineer
+- **Priority:** low, **Complexity:** small, **Risk:** low
+- **Source:** ROTI recovery (PR #184, 2026-04-21). The vendored-faer
+  rustdoc break at `pwdft/faer/faer/src/mat/mod.rs:135` rode on
+  `origin/main` for ≥1 merge cycle because CI doesn't run rustdoc;
+  ROTI's agent had to fix it incidentally to make `/quality-gate`
+  pass.
+
+Two related drifts:
+
+1. `.github/workflows/rust.yml` runs `cargo clippy -p pwdft-core` and
+   `cargo test`, but no `cargo doc` step — rustdoc regressions are
+   invisible to CI.
+2. `/quality-gate`'s rustdoc step is unscoped
+   (`RUSTDOCFLAGS='-D warnings' cargo doc --no-deps`), which covers
+   every workspace member including `pwdft/faer/`. This means a benign
+   pwdft-core-only PR can be blocked on vendored-faer prose.
+
+**Acceptance criterion:** pick one of two harmonization options:
+
+- **(a)** Scope `/quality-gate` rustdoc to `-p pwdft-core` (matches CI
+  clippy scope). Vendored-faer prose is never a PR blocker; incidental
+  fixes go through a separate flow.
+- **(b)** Widen CI: add `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
+  -p pwdft-core` to `rust.yml` so rustdoc regressions are caught at PR
+  time, matching the local gate.
+
+(a) is minimum-churn; (b) is the safer long-term posture. Recommend
+(b) — we care more about catching regressions than reducing local-gate
+surface.
+
+#### SYMC — `symmetry/` docstring layout-claim sweep
+
+- **Role:** Technical Writer
+- **Priority:** low, **Complexity:** small, **Risk:** low
+- **Source:** ROTI recovery (PR #184, 2026-04-21). The ROTI diff
+  found one layout-claim comment in
+  `pwdft/pwdft-core/src/symmetry/operations.rs` ("packs all 48 ops of
+  Fd-3m into ~2 cache lines") was off by ~15× (actual: 30 cache lines
+  for the i8 layout, 48 for i32). That comment was authored during
+  TYPE Phase A and never re-checked.
+
+Other layout/alignment/"cache-line" claims likely exist in
+`symmetry/`, `basis.rs`, and the density-mixing modules. Low-signal
+drift but embarrassing when it shows up in review.
+
+**Acceptance criterion:** `rg -n "cache line|bytes per|aligned" pwdft/pwdft-core/src/`
+surfaced claims each verified or deleted. Write up deltas in a session
+logbook so we know which ones were inspected.
+
+#### CWDL — EM session cwd sanity check against worktree drift
+
+- **Role:** Engineering Manager (infra / agent def) or Core Engineer
+- **Priority:** low, **Complexity:** trivial, **Risk:** low
+- **Source:** 2026-04-21 EM session — an Edit on
+  `proposals/FLUP-followup-backlog-seeding.md` was denied by the
+  `check-worktree.sh` PreToolUse hook because the EM shell's cwd had
+  silently drifted into `.claude/worktrees/agent-a8f56f3c` (the ROTI
+  recovery worktree). The hook correctly treated the EM as if it were
+  a sub-agent escaping its worktree and denied the cross-scope write.
+  Cwd drift is invisible when all Bash calls use absolute paths — only
+  the Edit/Write hook sniffs cwd — so the failure is delayed and
+  surprising.
+
+This is a cousin of the 2026-04-20 memory-path drift incident noted at
+the top of `.claude/agents/engineering-manager.md`: both are rooted in
+"harness caches cwd across Bash tool calls" + "worktrees mark
+themselves by `.git`-as-a-file," but they surface at different layers
+(memory write vs. Edit hook).
+
+**Acceptance criterion:** pick one of:
+
+- **(a)** Add a `pwd`-assertion to the EM session-start checklist in
+  `.claude/agents/engineering-manager.md`: if cwd's `git rev-parse
+  --show-toplevel` returns a worktree root (detected via `.git` being
+  a file), `cd` back to the main checkout absolute path before any
+  other work. One line of session-start housekeeping.
+- **(b)** Bake an explicit `cd "$MAIN_REPO"` into the `/merge`,
+  `/pr-review`, and any other EM-only skill that runs introspection
+  commands referencing worktrees. More surgical, less reliant on the
+  EM remembering.
+- **(c)** Both — session-start assertion as a belt, per-skill `cd` as
+  suspenders.
+
+Recommend **(c)**. Session-start is cheap and catches the next
+incident; per-skill `cd` closes the specific known trigger.
+
+**Non-goal:** changing `check-worktree.sh`. The hook's "deny on cwd
+mismatch" is the correct default for protecting sub-agent isolation;
+the fix belongs on the EM side.
+
 ### What this is NOT
 
 - **Not an implementation plan.** Each entry needs to be promoted to

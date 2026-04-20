@@ -34,6 +34,8 @@ Pick the role hint that matches your agent.
 
 Warm-cache, M3 Max: Tier-1 ≈ 12 s wall, Tier-2 ≈ 58 s wall (excluding the designed-to-fail ignores above).
 
+**Cold-cache cost, especially after a rebase.** If you just ran `git reset --hard` + `git rebase origin/main`, the worktree's `target/` is invalidated and the first Tier-2 invocation will pay the full workspace re-compile (~5–10 min on M3 Max) *before* the ~58 s of actual test wall lands. Plan for 15–20 min total on a rebased worktree; don't dispatch Tier-2 + wait-in-a-poll-loop as if it's a 1 min task. Run one Tier-1 first to warm the compile cache if you plan to invoke cargo many times in the same session — each cargo call amortizes the previous one's compile work.
+
 ## On failure
 
 Report the failing test(s) and their output. Do not re-run automatically.
