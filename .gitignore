@@ -16,7 +16,8 @@ pwdft/faer/compile_commands.json
 .claude/locks/*.lock
 .claude/locks/*.lock.d/
 
-# Scratch QE build tree, browser partials, archives.
+# QE 7.5 tree — either a local build or a symlink to ~/Applications/qe-7.5.
+qe-7.5
 qe-7.5/
 *.tar.gz
 *.tgz
