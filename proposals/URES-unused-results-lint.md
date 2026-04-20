@@ -136,15 +136,3 @@ There are a handful of genuinely-fine cases that the decision tree above covers:
 
 These are documented exceptions, not the default. Production code review should
 flag any new bare `let _ = ...` that isn't in one of these patterns.
-
-## Verification
-
-```bash
-cargo build                                     # zero unused_results warnings
-cargo clippy -q --all-targets                   # zero must_use_candidate warnings
-cargo clippy -q --all-targets --features gpu
-cargo test
-```
-
-After the change, discarding any non-`()` return value anywhere in `src/` produces a
-warning without the author needing to remember to add `#[must_use]`.

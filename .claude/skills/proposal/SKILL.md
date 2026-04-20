@@ -9,7 +9,7 @@ Proposals are the project's decision and planning records — a cross between Ji
 
 ## ID System
 
-Proposals use **4-letter uppercase IDs** (e.g., `SIMP`, `CBRT`, `ERRH`) instead of sequential numbers. This avoids numbering conflicts when multiple agents work concurrently. IDs should be mnemonic — easy to remember and clearly related to the topic.
+Proposals use **4-5 letter uppercase IDs** (e.g., `SIMP`, `CBRT`, `ERRHA`) instead of sequential numbers. This avoids numbering conflicts when multiple agents work concurrently. IDs should be mnemonic — easy to remember and clearly related to the topic.
 
 Files are named `XXXX-slug.md` (e.g., `SIMP-simpson-radial-quadrature.md`).
 
@@ -39,15 +39,15 @@ If the argument is ambiguous, assume `create`.
 - If there is overlap with an existing active proposal, **do not create a new one**. Instead, report the overlap and ask whether to extend the existing proposal or proceed anyway.
 - If the topic was previously completed, flag it and ask whether it needs reopening.
 
-### 2. Choose a 4-letter ID
+### 2. Choose an ID
 
-Pick a mnemonic 4-letter uppercase ID. Verify it doesn't collide with any existing ID in `proposals/INDEX.md` (both active and completed sections). Good IDs are abbreviations of the core concept: `SIMP` for Simpson's rule, `CBRT` for cbrt optimization, `ERRH` for error handling.
+Pick a mnemonic 4-5 letter uppercase ID. Verify it doesn't collide with any existing ID in `proposals/INDEX.md` (both active and completed sections). Good IDs are abbreviations of the core concept: `SIMP` for Simpson's rule, `CBRT` for cbrt optimization, `ERRHA` for error handling.
 
 ### 3. Research before writing
 
 This is critical. Proposals must be grounded in the actual codebase, not speculation. Before writing a single line of the proposal:
 
-- **Read the relevant source files.** If proposing a change to mixing, read `src/scf/mixing.rs`. If proposing a new lint, run `cargo clippy` and count real warnings.
+- **Read the relevant source files.** For example, if proposing a change to mixing, read `src/scf/mixing.rs`.
 - **Quantify the problem.** Use grep/glob to count occurrences, measure actual impact, find all affected locations. Put real numbers in the proposal (e.g., "25 unwrap() calls remain" not "many unwrap() calls").
 - **Validate feasibility.** If the proposal depends on a crate or API, verify it exists and works. If it claims a function signature needs changing, read the function and confirm.
 
@@ -97,7 +97,6 @@ Order steps by dependency (what must happen first) or by risk (highest-impact fi
 How to confirm the implementation is correct. This could include:
 
 - Specific tests to write or run
-- Cargo commands to validate (clippy, test, bench)
 - Quantum ESPRESSO comparisons for physics changes
 - Before/after measurements for performance changes
 ```
@@ -143,26 +142,26 @@ If the index seems stale (files exist that aren't listed, or listed files don't 
 
 Archive a proposal after implementation is done and verified.
 
-### 1. Verify tests pass
+### 1. Verify tests+clippy pass
 
-Run `cargo test` (or `cargo test --features gpu` if the proposal touches GPU code). Do NOT proceed if tests fail — report the failures and stop.
+Run `cargo test` (or `cargo test --features gpu` if the proposal touches GPU code). Do NOT proceed if tests fail, fix the tests first before submitting the PR.
 
-### 2. Run clippy
+### 2. Submitting your PR
 
-Run `cargo clippy -q --all-targets`. Report any new warnings introduced by the implementation.
+Open a PR with the implementation changes. In the description, reference the proposal file and summarize how the implementation addresses the problem.
 
-### 3. Move the file
+If you encountered unexpected issues, noticed out-of-scope bugs or improvements, or had potentially useful insights, document them in the PR message. The engineering-manager will choose whether to submit new proposals, update existing ones, or close pre-existing proposals based on this information.
+
+### 3. (Engineering Managers Only) - Review and merge the PR
+
+Review the implementation, ensure it satisfied the proposal, if appropriate: new tests have been added and documentation has been updated. Once satisfied, merge the PR. If there are any issues with the implementation, request changes and do NOT proceed until they are resolved.
+
+### 4. (Engineering Managers Only) - Archive the proposal
 
 Move `proposals/XXXX-*.md` to `proposals/completed/XXXX-*.md`.
 
-### 4. Update the index
-
 Move the proposal's row from the Active section of `proposals/INDEX.md` to the Completed section. Update `status` in the file's frontmatter to `completed`.
 
-### 5. Update dependents
+### 5. (Engineering Managers Only) - Update dependents
 
 Check if any other active proposals had this ID in their `depends_on` list. If so, remove it (the dependency is now satisfied). Note any proposals that are now unblocked.
-
-### 6. Confirm
-
-Report that the proposal has been archived, with a summary of what was implemented, that tests passed, and which proposals (if any) are now unblocked.

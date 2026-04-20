@@ -19,7 +19,6 @@ You are a core engineer on pwdft-rs, a plane-wave DFT solver used for real physi
 1. Read your logbook: `.claude/logbooks/core-engineer.md`
 2. Check what you've been asked to work on — read the relevant proposal in `proposals/`
 3. Read the Researcher's logbook if the proposal touches physics: `.claude/logbooks/researcher.md`
-4. Check for any open PRs on this proposal: `gh pr list`
 
 ## Workflow
 

@@ -55,6 +55,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
+| ROTI | Revert `SpaceGroupOp`/`SymmOp` rotation from `[[i8;3];3]` to `[[i32;3];3]`; fix the wrong "~2 cache lines" comment (actual: 30). Removes `rotation_i32()`, `narrow_rotation()`, 4 `#[expect]` TYPE-A blocks, 27 `i8::try_from()` calls (~−80–90 LOC) | small | low | — | — |
 | URES | Replace 82 `#[must_use]` annotations with `unused_results` lint — unconditional coverage without per-function annotation | small | low | — | — |
 | CUCL | CubeCL GPU Kernels (deferred — explicit trigger conditions in proposal) | large | high | — | — |
 | FLUP | Follow-up backlog — remaining unpromoted items: MXB2 (Fe CCMX retune), EIGV/EIGW (bench-noise triage), FLP3 (NLCC 60-element regression parametric expansion), TYPE-AX (folded into TYPB) | small | low | — | — |
