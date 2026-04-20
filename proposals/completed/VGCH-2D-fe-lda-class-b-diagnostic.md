@@ -1,7 +1,7 @@
 ---
 id: VGCH-2D
 title: VGCH-2D — Fe LDA Class B diagnostic (PZ vs PW92 vs spin-driver bias)
-status: active
+status: completed
 priority: high
 complexity: small
 risk: low

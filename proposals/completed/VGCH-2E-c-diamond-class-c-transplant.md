@@ -1,7 +1,7 @@
 ---
 id: VGCH-2E
 title: VGCH-2E — C diamond Class C transplant diagnostic (mechanism localization)
-status: active
+status: completed
 priority: high
 complexity: small
 risk: low

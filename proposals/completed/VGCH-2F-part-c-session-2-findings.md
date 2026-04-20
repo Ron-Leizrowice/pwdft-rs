@@ -1,7 +1,7 @@
 ---
 id: VGCH-2F
 title: VGCH-2 Part C session-2 — H-C4 ρ_core pins + H-C5 V_NL cross-check
-status: active
+status: completed
 priority: high
 complexity: small
 risk: low
@@ -49,7 +49,7 @@ flagged Cu/GaAs/MgO as the unpinned heavy-element surface.
 
 #### Evidence
 
-Extended `scripts/validate/rho_core_g_reference.py` from 4 elements (Si, Fe, Cu, Mn)
+Extended the NLCC reference script (originally `scripts/validate/rho_core_g_reference.py`; since migrated to `pwdft/pwdft-validation/pwdft_validation/reference/nlcc.py`) from 4 elements (Si, Fe, Cu, Mn)
 to 8, adding every NLCC-active PP in a Class A QE reference cell that was still
 unpinned: **Ga, As (GaAs zinc-blende), O (MgO rocksalt), Cl (NaCl rocksalt).**
 Mg and Na have `core_correction="F"` in their UPFs — no PP_NLCC block, nothing
@@ -216,8 +216,8 @@ closed this session.
 
 ### Files
 
-- `scripts/validate/rho_core_g_reference.py` — extended from 4 to 8 elements (Ga, As, O, Cl added)
-- `scripts/validate/rho_core_g_reference.csv` — regenerated (48 rows)
+- `scripts/validate/rho_core_g_reference.py` at landing time — extended from 4 to 8 elements (Ga, As, O, Cl added). Since migrated to `pwdft/pwdft-validation/pwdft_validation/reference/nlcc.py`.
+- `scripts/validate/rho_core_g_reference.csv` — regenerated (48 rows). Since migrated under the validation package.
 - `src/pseudopotential/upf/convert.rs` — 8 new `#[test]` fns (A.9–A.16)
 
 ### Test plan
@@ -226,5 +226,5 @@ closed this session.
 - [x] `cargo clippy -q --all-targets` — baseline warnings only.
 - [x] `cargo clippy -q --all-targets --features gpu` — baseline warnings only.
 - [x] `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` — clean.
-- [x] `uv run python scripts/validate/rho_core_g_reference.py` — CSV reproduces bit-identically.
+- [x] `uv run python scripts/validate/rho_core_g_reference.py` at landing time (since migrated to `uv run pwdft-validate reference nlcc`) — CSV reproduces bit-identically.
 - [ ] Tier-2 — not run (diagnostic-only; no changes to SCF hot path).
