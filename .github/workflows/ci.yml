@@ -23,13 +23,13 @@ jobs:
       # (faer, faer-traits, faer-macros, faer-ffi) is upstream code —
       # we track it for local patches, not to gate on its lints.
       - name: clippy (default features)
-        run: cargo clippy -q -p pwdft-core --all-targets
+        run: cargo clippy -p pwdft-core --all-targets
 
       - name: clippy (gpu feature)
-        run: cargo clippy -q -p pwdft-core --all-targets --features gpu
+        run: cargo clippy -p pwdft-core --all-targets --features gpu
 
       - name: cargo test (tier 1)
-        run: cargo test -q -p pwdft-core
+        run: cargo test -p pwdft-core
 
       - name: rustdoc (warnings deny)
         run: cargo doc --no-deps -p pwdft-core
