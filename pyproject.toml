@@ -1,36 +1,39 @@
 [build-system]
-requires = ["uv_build>=0.11,<0.12"]
 build-backend = "uv_build"
-
-[tool.uv.build-backend]
-module-root = "pwdft/pwdft-validation"
+requires = [ "uv-build>=0.11,<0.12" ]
 
 [project]
 name = "pwdft-validation"
 version = "0.1.0"
 description = "Quantum ESPRESSO cross-checks and reference-data generators for pwdft-rs"
 readme = "README.md"
-requires-python = ">=3.14"
 license = "MIT"
+requires-python = ">=3.14"
 dependencies = [
-    "anyio>=4.13.0",
-    "cyclopts>=4",
-    "numpy>=2",
-    "pyprojroot>=0.3",
-    "scipy>=1",
+  "anyio>=4.13",
+  "cyclopts>=4",
+  "numpy>=2",
+  "pyprojroot>=0.3",
+  "scipy>=1",
 ]
-[dependency-groups]
-dev = [
-    "pyproject-fmt>=2.21.1",
-    "pytest>=9",
-    "ruff>=0.15",
-    "ty>=0.0.31",
-]
-
 [project.scripts]
 pwdft-validate = "pwdft_validation.cli:main"
 pwdft-density-parse = "pwdft_validation.density:_standalone_parse"
 pwdft-residual-scan = "pwdft_validation.diagnostics.residual_scan:_standalone_run"
+
+[dependency-groups]
+dev = [
+  "deptry>=0.25.1",
+  "prek>=0.3.9",
+  "pyproject-fmt>=2.21.1",
+  "pytest>=9",
+  "ruff>=0.15",
+  "rumdl>=0.1.76",
+  "ty>=0.0.31",
+]
+
+[tool.uv.build-backend]
+module-root = "pwdft/pwdft-validation"
 
 # NOTE: reference/ (CSV pins + QE outputs) is deliberately NOT shipped in the
 # wheel. It's consumed by Rust tests from the workspace source tree via
@@ -38,55 +41,54 @@ pwdft-residual-scan = "pwdft_validation.diagnostics.residual_scan:_standalone_ru
 # pwdft_validation.CSV_REF_DIR / QE_REF_DIR, which also resolve against the
 # source tree. Shipping the symlinks (reference/qe/pseudo → ../../pseudopotentials)
 # in a wheel would break install anyway.
-
 # ------------------------------------------------------------------
 # ruff — lint + format. Matches pwdft-core's taste: warn on casts and
 # panicky idioms, forbid unused/shadowed imports, enforce import order.
 # ------------------------------------------------------------------
 [tool.ruff]
-line-length = 120
 target-version = "py314"
+line-length = 120
 cache-dir = ".cache/ruff"
-
 [tool.ruff.lint]
 select = [
-    "ANN", # type annotations
-    "ASYNC", # async
-    "E",   # errors
-    "W",   # warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "B",   # bugbear
-    "UP",  # pyupgrade
-    "SIM", # simplify
-    "TID", # tidy-imports
-    "RUF", # ruff-native
-    "N",   # pep8-naming
-    "PERF", # performance
-    "PTH", # pathlib
-    "FURB", # refurb
-    "NPY", # numpy
-    "PLC", # pylint
+  "ANN",   # type annotations
+  "ASYNC", # async
+  "E",     # errors
+  "W",     # warnings
+  "F",     # pyflakes
+  "I",     # isort
+  "B",     # bugbear
+  "UP",    # pyupgrade
+  "SIM",   # simplify
+  "TID",   # tidy-imports
+  "RUF",   # ruff-native
+  "N",     # pep8-naming
+  "PERF",  # performance
+  "PTH",   # pathlib
+  "FURB",  # refurb
+  "NPY",   # numpy
+  "PLC",   # pylint
 ]
 ignore = [
-    "E501",   # line length — soft-limit; formatter handles it
-    "E741",   # ambiguous variable name — physics uses single-letter names (k, n, etc.)
-    "N806",   # local var lowercase — scripts use mathematical names (E_XC, V_NL)
-    "N802",   # function name lowercase — physics conventions (V_local_of_G, etc.)
-    "N803",   # arg name lowercase — same reason
-    "RUF001", # ambiguous string char — physics uses Greek + ×, ·, °
-    "RUF002", # ambiguous docstring char — same
-    "RUF003", # ambiguous comment char — same (π, ≠, ∫, ρ, ψ, …)
+  "E501",   # line length — soft-limit; formatter handles it
+  "E741",   # ambiguous variable name — physics uses single-letter names (k, n, etc.)
+  "N806",   # local var lowercase — scripts use mathematical names (E_XC, V_NL)
+  "N802",   # function name lowercase — physics conventions (V_local_of_G, etc.)
+  "N803",   # arg name lowercase — same reason
+  "RUF001", # ambiguous string char — physics uses Greek + ×, ·, °
+  "RUF002", # ambiguous docstring char — same
+  "RUF003", # ambiguous comment char — same (π, ≠, ∫, ρ, ψ, …)
 ]
 
 # ------------------------------------------------------------------
-# pytest
+# pyproject-fmt
 # ------------------------------------------------------------------
-[tool.pytest.ini_options]
-testpaths = ["pwdft/pwdft-validation/tests"]
-pythonpath = ["pwdft/pwdft-validation"]
-addopts = "-ra --strict-markers"
-cache_dir = ".cache/pytest"
+[tool.pyproject-fmt]
+column_width = 120
+indent = 2
+keep_full_version = false
+generate_python_version_classifiers = false
+table_format = "long"
 
 # ------------------------------------------------------------------
 # ty
@@ -96,3 +98,12 @@ possibly-missing-import = "warn"
 possibly-unresolved-reference = "warn"
 possibly-missing-attribute = "warn"
 division-by-zero = "error"
+
+# ------------------------------------------------------------------
+# pytest
+# ------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = [ "pwdft/pwdft-validation/tests" ]
+pythonpath = [ "pwdft/pwdft-validation" ]
+addopts = "-ra --strict-markers"
+cache_dir = ".cache/pytest"
