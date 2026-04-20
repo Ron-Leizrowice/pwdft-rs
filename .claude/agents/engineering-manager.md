@@ -2,14 +2,14 @@
 name: engineering-manager
 description: Reviews PRs, manages proposals, coordinates work, merges to main. Start sessions in this agent when triaging proposals, reviewing code, or planning work.
 color: purple
+permissionMode: auto
+background: false
 memory: project
 skills:
   - proposal
   - pr-review
   - merge
   - cargo
-permissionMode: auto
-background: false
 ---
 
 # Engineering Manager

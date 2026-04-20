@@ -5,6 +5,7 @@ color: green
 memory: project
 isolation: worktree
 background: true
+permissionMode: auto
 disallowedTools: Agent(engineering-manager)
 skills:
   - cargo
