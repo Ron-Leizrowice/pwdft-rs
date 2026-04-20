@@ -132,7 +132,9 @@ pub type MatRef<
 /// which allows us to mutably borrow a `MatMut` to obtain another `MatMut` for
 /// the lifetime of the borrow. it's also similarly possible to immutably borrow
 /// a `MatMut` to obtain a `MatRef` for the lifetime of the borrow, using
-/// [`reborrow::Reborrow`] ```
+/// [`reborrow::Reborrow`]
+///
+/// ```
 /// use faer::{Mat, MatMut, MatRef};
 /// use reborrow::*;
 /// fn takes_matmut(view: MatMut<'_, f64>) {}
