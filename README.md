@@ -40,7 +40,7 @@ cargo build --release --features gpu
 ### Run an SCF calculation
 
 ```bash
-cargo run --release -- --input examples/si_scf.yaml
+cargo run --release -- --input inputs/si_scf.yaml
 ```
 
 Output (printed to stderr):
@@ -54,7 +54,7 @@ Fermi energy: 6.422810 eV
 ### Compute a band structure
 
 ```bash
-cargo run --release -- --input examples/si_free_electron.yaml -o bands.tsv
+cargo run --release -- --input inputs/si_free_electron.yaml -o bands.tsv
 ```
 
 This writes a tab-separated file with columns `k_distance` and one column per band, suitable for plotting with gnuplot, matplotlib, or any TSV-aware tool.
@@ -69,7 +69,7 @@ pwdft-rs --input <path>     Path to YAML input file (required)
 Logging is controlled via the `RUST_LOG` environment variable:
 
 ```bash
-RUST_LOG=info cargo run --release -- --input examples/si_scf.yaml
+RUST_LOG=info cargo run --release -- --input inputs/si_scf.yaml
 ```
 
 ## Input Format

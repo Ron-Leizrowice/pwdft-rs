@@ -47,7 +47,7 @@ Pick a mnemonic 4-5 letter uppercase ID. Verify it doesn't collide with any exis
 
 This is critical. Proposals must be grounded in the actual codebase, not speculation. Before writing a single line of the proposal:
 
-- **Read the relevant source files.** For example, if proposing a change to mixing, read `src/scf/mixing.rs`.
+- **Read the relevant source files.** For example, if proposing a change to mixing, read `pwdft/pwdft-core/src/scf/mixing/`.
 - **Quantify the problem.** Use grep/glob to count occurrences, measure actual impact, find all affected locations. Put real numbers in the proposal (e.g., "25 unwrap() calls remain" not "many unwrap() calls").
 - **Validate feasibility.** If the proposal depends on a crate or API, verify it exists and works. If it claims a function signature needs changing, read the function and confirm.
 
