@@ -54,6 +54,8 @@ The suite is split into two tiers via Rust's `#[ignore]` attribute with a `TSPL 
 
 **Tier-2 PR policy.** Any PR that touches `pwdft/pwdft-core/src/{scf,potential,symmetry,pseudopotential,eigensolver,gpu}/`, `basis.rs`, `fft.rs`, `ewald.rs`, `crystal.rs`, `kpoints.rs`, or bumps a numerics dep (faer / ndrustfft / nalgebra / ndarray) must run `/test --tier2` and report the outcome in the PR body. Doc-only, proposal-only, and lint-only PRs skip Tier 2. `/test --tier2` hits the pre-TSPL physics-blocker ignores (VGCH heavy-atom cells, Al ecut, C mixer, MXBA) that fail by design — the authoritative skip list is in the `#[ignore]` reason strings in `pwdft/pwdft-core/tests/qe_validation.rs` and `pwdft/pwdft-core/tests/mxba_adaptive_beta_fe.rs`.
 
+**Profile split: local vs. CI.** Local `cargo test` uses the O3 `[profile.test]` from `Cargo.toml` (per TPRF) — warm-cache M3 Max is runtime-bound, and `opt-level=3` keeps the few hot-path unit tests fast (12 s warm Tier-1). CI is the other axis: cold-cache Ubuntu runners are compile-bound, so `.github/workflows/rust.yml` overrides Tier-1 to `cargo test --profile=dev -p pwdft-core` (per TDBG). Baseline on run `24663826105` was 343 s for the test step; the debug-profile override targets the 4-minute (240 s) budget enforced inline in the workflow. Tier-2 stays on the O3 profile everywhere — those SCF-loop tests would be glacial at `opt-level=0`.
+
 ## Observability stack
 
 Three layers, three tools, no overlap:
