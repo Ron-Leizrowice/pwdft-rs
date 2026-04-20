@@ -36,6 +36,7 @@ use crate::{
 /// emits "unknown field" naming the migrated key. No deprecation shim,
 /// no alias. See `.claude/agents/shared/no-backcompat.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Settings {
     /// Crystal structure: lattice vectors and atomic positions.
     pub system: SystemSettings,
@@ -87,6 +88,7 @@ pub struct Settings {
 
 /// Crystal structure definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SystemSettings {
     /// Lattice vectors in Angstroms: `[[ax,ay,az],[bx,by,bz],[cx,cy,cz]]`.
     pub lattice: [[f64; 3]; 3],
@@ -98,6 +100,7 @@ pub struct SystemSettings {
 
 /// A single atom: element symbol and fractional position.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AtomSetting {
     pub symbol: String,
     pub position: [f64; 3],
@@ -105,7 +108,7 @@ pub struct AtomSetting {
 
 /// Plane-wave basis set parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct BasisSettings {
     /// Wavefunction kinetic-energy cutoff in eV.
     ///
@@ -134,7 +137,7 @@ impl Default for BasisSettings {
 
 /// k-point sampling configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub enum KPointSettings {
     /// Monkhorst-Pack uniform grid.
     #[serde(rename = "monkhorst_pack")]
@@ -165,6 +168,7 @@ pub enum KPointSettings {
 
 /// A high-symmetry point on a band path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PathPointSetting {
     /// Label (e.g. "G", "X", "L").
     pub label: String,
@@ -178,7 +182,7 @@ pub struct PathPointSetting {
 /// migration). The separate [`ElectronsPhysics`] block carries the
 /// *what system are we solving* knobs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ScfSettings {
     /// Maximum number of SCF iterations.
     ///
@@ -287,8 +291,8 @@ impl From<EigensolverType> for crate::eigensolver::EigensolverKind {
 /// a resurrection of integer `nspin`. The integer `nspin` still lives
 /// internally on [`ScfParams`] as plumbing, derived from this bool in
 /// [`Settings::to_scf_params`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ElectronsPhysics {
     /// Spin-polarization flag. `false` = unpolarized (single channel,
     /// no magnetization); `true` = collinear spin-polarized (up/down
@@ -302,17 +306,6 @@ pub struct ElectronsPhysics {
     pub tot_magnetization: Option<f64>,
     /// Occupation scheme.
     pub occupations: OccupationType,
-}
-
-impl Default for ElectronsPhysics {
-    fn default() -> Self {
-        Self {
-            spin_polarized: false,
-            starting_magnetization: HashMap::new(),
-            tot_magnetization: None,
-            occupations: OccupationType::default(),
-        }
-    }
 }
 
 /// How occupation numbers are determined.
@@ -391,7 +384,7 @@ impl From<MixingModeType> for crate::scf::mixing::MixingMode {
 
 /// Exchange-correlation functional specification.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct XcSettings {
     /// Functional name. Currently implemented: `"pz"` (Perdew-Zunger LDA).
     /// The YAML parser also accepts `"pbe"`, `"pbe0"`, `"hse06"`, but these
@@ -428,7 +421,7 @@ pub enum XcFunctional {
 
 /// Crystal symmetry settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SymmetrySettings {
     /// Whether to detect and exploit crystal symmetry.
     pub enabled: bool,
@@ -468,7 +461,7 @@ pub enum Verbosity {
 
 /// Output and I/O settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct OutputSettings {
     /// Verbosity level.
     pub verbosity: Verbosity,
@@ -498,7 +491,7 @@ impl Default for OutputSettings {
 /// Default is the canonical constant
 /// `scf::initial_density::DEFAULT_GAUSSIAN_SIGMA` (1.0 Å).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct InitialDensitySettings {
     /// Gaussian model-charge width in Å.
     ///
