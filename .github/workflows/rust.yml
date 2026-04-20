@@ -72,11 +72,13 @@ jobs:
       # override to the debug profile here. Local `cargo test` stays on
       # the O3 `[profile.test]` from Cargo.toml (see TPRF).
       #
-      # Budget: post-TDBG warm-cache steady state is ~281s (measured on
-      # PR #183 run 24673310982). Ceiling set to 330s — below the 343s
-      # pre-TDBG baseline on main (run 24663826105) so a regression past
-      # the prior profile still fails the step. Tighten once a second
-      # round of measurements comes in.
+      # Budget: post-TDBG warm-cache steady state is ~246s (measured on
+      # PR #183 run 24673773561, 3rd run once cache is fully warm).
+      # Ceiling set to 330s — below the 343s pre-TDBG baseline on main
+      # (run 24663826105) so a regression past the prior profile still
+      # fails the step. ~84s of headroom above the measured floor is
+      # intentional — faer / wgpu dep churn can push compile cost up by
+      # 30-60s per toolchain bump.
       - name: cargo test (tier 1, debug build)
         run: |
           start=$(date +%s)

@@ -18,20 +18,22 @@ Explicit non-goal: **TPRF's completed proposal was not prepended with a "Superse
 
 Pre-TDBG baseline: run [24663826105](https://github.com/Ron-Leizrowice/pwdft-rs/actions/runs/24663826105), last push of #180 to main.
 Post-TDBG cold cache (1st PR run, new `shared-key`): run [24672643544](https://github.com/Ron-Leizrowice/pwdft-rs/actions/runs/24672643544).
-Post-TDBG warm cache (2nd PR run, `shared-key` populated by run 1): run [24673310982](https://github.com/Ron-Leizrowice/pwdft-rs/actions/runs/24673310982).
+Post-TDBG warming (2nd PR run): run [24673310982](https://github.com/Ron-Leizrowice/pwdft-rs/actions/runs/24673310982).
+Post-TDBG warm cache (3rd PR run, steady state): run [24673773561](https://github.com/Ron-Leizrowice/pwdft-rs/actions/runs/24673773561).
 
-| Run                 | Cache | clippy default | clippy gpu | cargo test | Total job |
-|---------------------|-------|---------------:|-----------:|-----------:|----------:|
-| Baseline (#180)     | warm  | 191 s          | 75 s       | 343 s      | 643 s     |
-| TDBG cold (1st run) | cold  | 173 s          | 72 s       | 450 s      | 725 s     |
-| TDBG warm (2nd run) | warm  | 24 s           | 23 s       | 281 s      | 352 s     |
+| Run                  | Cache | clippy default | clippy gpu | cargo test | Total job |
+|----------------------|-------|---------------:|-----------:|-----------:|----------:|
+| Baseline (#180)      | warm  | 191 s          | 75 s       | 343 s      | 643 s     |
+| TDBG cold (1st run)  | cold  | 173 s          | 72 s       | 450 s      | 725 s     |
+| TDBG warming (2nd)   | mid   | 24 s           | 23 s       | 281 s      | 352 s     |
+| TDBG warm (3rd run)  | warm  | 20 s           | 20 s       | 246 s      | 315 s     |
 
-**Bottom line (warm-vs-warm, apples-to-apples):**
+**Bottom line (warm-vs-warm, run 3 is the honest steady state):**
 
-- Test step alone: 343 → 281 s = **−18 %** (61 s saved).
-- Full CI job wall: 643 → 352 s = **−45 %** (291 s saved).
+- Test step alone: 343 → 246 s = **−28 %** (97 s saved).
+- Full CI job wall: 643 → 315 s = **−51 %** (328 s saved).
 
-The test-step-only number (18 %) is below the 30 % threshold the proposal's "if the number doesn't pan out" clause cites as a cue to promote to option C (scope `profile.test.package.pwdft-core` to `opt-level=0`, keep deps at O3). The full-job number (45 %) comfortably beats the proposal's ≥50 % cold-build projection if you count cold builds, and hits 45 % on warm builds. Both numbers are honestly in the PR body.
+The test-step-only number (28 %) is just below the 30 % threshold the proposal's "if the number doesn't pan out" clause cites as a cue to promote to option C. Close enough that option C (scope `profile.test.package.pwdft-core` to `opt-level=0`, keep deps at O3) is still worth pursuing, but not dire — TDBG on its own already hits the proposal's ≥ 50 % full-job target. Flagging to EM as a near-threshold, non-blocking follow-up.
 
 **Budget set to 330 s, not 240 s.** The proposal quoted 240 s as a projection, not a measurement; real warm-cache steady state is 281 s, so 240 s would reject every subsequent run. 330 s keeps the ceiling below the 343 s pre-TDBG baseline so a regression past the prior profile still fails.
 
