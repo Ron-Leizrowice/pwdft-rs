@@ -38,18 +38,6 @@ docs/                      Topic notes on physics + numerics
 .claude/                   Agent prompts, skills, and logbooks (agent-driven workflow)
 ```
 
-## Quick start (Rust)
-
-Requirements: Rust 2024 edition (1.85+). No system dependencies for the default CPU-only build; GPU build needs a Metal- or Vulkan-capable GPU.
-
-```bash
-cargo build --release                   # CPU only
-cargo build --release --features gpu    # + Metal / Vulkan via wgpu
-
-cargo run --release -- --input inputs/si_scf.yaml
-cargo run --release -- --input inputs/si_free_electron.yaml -o bands.tsv
-```
-
 CLI:
 
 ```text
@@ -125,20 +113,4 @@ See `CLAUDE.md` § Architecture for the full module tree and the `docs/` folder 
 
 ### Units
 
-pwdft-rs uses **eV / Å / e·Å⁻³** internally. Ry / Bohr appear only at the UPF boundary in `pwdft/pwdft-core/src/pseudopotential/upf/convert.rs`. QE uses Ry / Bohr everywhere; cross-comparison requires conversion.
-
-## Development workflow
-
-Work on pwdft-rs is driven by specialist agents (Engineering Manager, Core Engineer, Performance Engineer, Researcher, Code Reviewer, Technical Writer) coordinating through a branch-and-PR workflow. Agents operate in isolated git worktrees; each PR ships with a per-session logbook entry.
-
-Key entry points:
-
-- `CLAUDE.md` — project conventions, architecture, workflow
-- `proposals/INDEX.md` — backlog of engineering proposals
-- `.claude/agents/*.md` — per-role prompts and shared protocols
-- `.claude/skills/*/SKILL.md` — invocable workflow skills (`/quality-gate`, `/test`, `/bench`, `/profile`, `/lint`, `/pr-submit`, `/merge`, `/proposal`, `/qe-runner`, `/worktree-start`, `/pr-review`, `/cargo`)
-- `.claude/logbooks/<role>/` — session handoff notes
-
-## License
-
-No license file is currently committed; contact the maintainers before redistribution.
+pwdft-rs uses **eV / Å / e·Å⁻³** internally. Ry / Bohr appear only at the UPF boundary in `pwdft/pwdft-core/src/pseudopotential/upf/convert.rs`.

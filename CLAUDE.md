@@ -107,23 +107,22 @@ All source paths below are relative to `pwdft/pwdft-core/src/`.
 
 Branch-and-PR workflow with isolated worktrees and multiple concurrent agents. **Agents should read the shared protocols in `.claude/agents/shared/` at session start** — those files are the authoritative source for worktree, machine-lock, quality-gate, FLUP, and session-end rules. This section is a pointer, not a duplicate.
 
-- **Always use a worktree.** Never modify the main checkout. Spawn sub-agents with `isolation: "worktree"`; hook-enforced via `.claude/bin/check-worktree.sh` PreToolUse.
 - **Branch from `origin/main`** (local `main` can lag). Branch name: `<PROPOSAL-ID>/<slug>`.
-- **Rebase on `origin/main` before opening the PR.** Prevents DIRTY/CONFLICTING states.
+- **Rebase on `origin/main` before opening the PR.**
 - **Never commit directly to main** — all work goes through PR.
 - **One proposal per branch.** PR title: `<PROPOSAL-ID>: <description>`; commit messages the same. PR body must include Summary + Test Plan.
 - **Quality gate before PR** — see § Code quality gate above; also in `.claude/agents/shared/quality-gate.md`.
 - **Proposals drive work.** See `proposals/INDEX.md`. Each proposal has a 4-letter ID, frontmatter (priority/complexity/risk/dependencies), and an implementation plan. Propose first, implement after EM approval.
 - **Logbooks** at `.claude/logbooks/<role>/` — one file per session, named `YYYY-MM-DD-<slug>.md`. Sub-agents write their entry inside their worktree and the file lands as part of their PR. See `.claude/logbooks/README.md` and `.claude/agents/shared/session-end.md`. Search (`rg <topic> .claude/logbooks/`) at session start before re-investigating a known area.
 
-**Agent roles** (see `.claude/agents/*.md` for full prompts):
+**Agent roles** (see `.claude/agents/*.md` for full prompts; ):
 
-- **Engineering Manager** — reviews PRs, manages proposals, merges to main. Never writes code.
-- **Core Engineer** — implements proposals. Scientist-developer mindset.
-- **Performance Engineer** — benchmarks, profiles, optimizes. Measure first.
-- **Researcher** — owns physics / math correctness. Proposes features, validates against QE.
-- **Code Reviewer** — owns code quality. Hunts dead code, enforces idioms, improves tests.
-- **Technical Writer** — owns documentation. README, CLAUDE.md, docstrings, comments.
+- **`engineering-manager`** — reviews PRs, manages proposals, merges to main. Never writes code. Runs on the main checkout. Specialists never spawn this agent; delegation flows one-way (see `.claude/agents/shared/flup.md`).
+- **`core-engineer`** — implements proposals. Scientist-developer mindset.
+- **`performance-engineer`** — benchmarks, profiles, optimizes. Measure first.
+- **`researcher`** — owns physics / math correctness. Proposes features, validates against QE.
+- **`code-reviewer`** — owns code quality. Hunts dead code, enforces idioms, improves tests.
+- **`technical-writer`** — owns documentation. README, CLAUDE.md, docstrings, comments.
 
 ## Machine coordination
 

@@ -1,6 +1,17 @@
 ---
-name: Technical Writer
+name: technical-writer
 description: Owns documentation quality — README, CLAUDE.md, docstrings, code comments, proposals. Ensures the project is understandable to newcomers and maintainable long-term. Start sessions in this agent when reviewing or improving documentation.
+color: cyan
+model: claude-sonnet-4-6
+memory: project
+isolation: worktree
+disallowedTools: Agent(engineering-manager)
+skills:
+  - cargo
+  - proposal
+  - pr-submit
+  - quality-gate
+  - lint
 ---
 
 # Technical Writer
@@ -13,6 +24,7 @@ Shared protocols (read once, apply everywhere):
 - `.claude/agents/shared/machine-lock.md`
 - `.claude/agents/shared/quality-gate.md`
 - `.claude/agents/shared/flup.md`
+- `.claude/agents/shared/docs-drift.md`
 - `.claude/agents/shared/session-end.md`
 
 ## Mindset

@@ -1,6 +1,17 @@
 ---
-name: Code Reviewer
+name: code-reviewer
 description: Owns code quality — linting, idioms, dead code, logging, maintainability. Aggressively improves the codebase. Start sessions in this agent when auditing code quality or reviewing PRs for style.
+color: red
+memory: project
+isolation: worktree
+disallowedTools: Agent(engineering-manager)
+skills:
+  - cargo
+  - test
+  - lint
+  - quality-gate
+  - pr-submit
+  - proposal
 ---
 
 # Code Reviewer
@@ -13,6 +24,7 @@ Shared protocols (read once, apply everywhere):
 - `.claude/agents/shared/machine-lock.md`
 - `.claude/agents/shared/quality-gate.md`
 - `.claude/agents/shared/flup.md`
+- `.claude/agents/shared/docs-drift.md`
 - `.claude/agents/shared/session-end.md`
 
 ## Mindset

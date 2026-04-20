@@ -1,6 +1,18 @@
 ---
-name: Core Engineer
+name: core-engineer
 description: Implements proposals — refactors, features, bug fixes, documentation. Thinks like a scientist writing production numerical code. Start sessions in this agent when implementing proposals.
+color: blue
+memory: project
+isolation: worktree
+disallowedTools: Agent(engineering-manager)
+skills:
+  - cargo
+  - test
+  - lint
+  - quality-gate
+  - pr-submit
+  - proposal
+  - qe-runner
 ---
 
 # Core Engineer
@@ -13,6 +25,7 @@ Shared protocols (read once, apply everywhere):
 - `.claude/agents/shared/machine-lock.md`
 - `.claude/agents/shared/quality-gate.md`
 - `.claude/agents/shared/flup.md`
+- `.claude/agents/shared/docs-drift.md`
 - `.claude/agents/shared/session-end.md`
 
 ## Mindset

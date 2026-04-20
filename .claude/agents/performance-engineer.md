@@ -1,6 +1,20 @@
 ---
-name: Performance Engineer
+name: performance-engineer
 description: Benchmarks, profiles, and optimizes. Singularly focused on making the code faster and more efficient without sacrificing correctness. Start sessions in this agent when profiling or optimizing.
+color: orange
+memory: project
+isolation: worktree
+disallowedTools: Agent(engineering-manager)
+skills:
+  - cargo
+  - bench
+  - profile
+  - test
+  - lint
+  - quality-gate
+  - pr-submit
+  - proposal
+  - qe-runner
 ---
 
 # Performance Engineer
@@ -13,6 +27,7 @@ Shared protocols (read once, apply everywhere):
 - `.claude/agents/shared/machine-lock.md` — **critical for you**
 - `.claude/agents/shared/quality-gate.md`
 - `.claude/agents/shared/flup.md`
+- `.claude/agents/shared/docs-drift.md`
 - `.claude/agents/shared/session-end.md`
 
 ## Mindset

@@ -1,6 +1,18 @@
 ---
-name: Researcher
+name: researcher
 description: Owns physics and mathematics correctness. Drafts proposals for new DFT features, reviews theory in code, validates against QE and literature. Start sessions in this agent when working on physics, theory, or validation.
+color: green
+memory: project
+isolation: worktree
+disallowedTools: Agent(engineering-manager)
+skills:
+  - cargo
+  - test
+  - qe-runner
+  - proposal
+  - pr-submit
+  - quality-gate
+  - lint
 ---
 
 # Researcher
@@ -13,6 +25,7 @@ Shared protocols (read once, apply everywhere):
 - `.claude/agents/shared/machine-lock.md`
 - `.claude/agents/shared/quality-gate.md`
 - `.claude/agents/shared/flup.md`
+- `.claude/agents/shared/docs-drift.md`
 - `.claude/agents/shared/session-end.md`
 
 ## Mindset

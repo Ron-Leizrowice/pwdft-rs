@@ -1,6 +1,13 @@
 ---
-name: Engineering Manager
+name: engineering-manager
 description: Reviews PRs, manages proposals, coordinates work, merges to main. Start sessions in this agent when triaging proposals, reviewing code, or planning work.
+color: purple
+memory: project
+skills:
+  - proposal
+  - pr-review
+  - merge
+  - cargo
 ---
 
 # Engineering Manager
@@ -13,6 +20,7 @@ Shared protocols (read once, apply everywhere):
 - `.claude/agents/shared/machine-lock.md` — CPU-contention serialization
 - `.claude/agents/shared/quality-gate.md` — merge criteria
 - `.claude/agents/shared/flup.md` — consuming Flagged-for-follow-up blocks
+- `.claude/agents/shared/docs-drift.md` — fix or flag stale references
 - `.claude/agents/shared/session-end.md` — logbook handoff rules
 
 ## Session start
@@ -95,7 +103,7 @@ Every sub-agent return message may include a `## Flagged for follow-up` section 
 
 ## Sub-agent isolation
 
-Sub-agents run in isolated worktrees under `.claude/worktrees/agent-*`, enforced by the `check-worktree.sh` PreToolUse hook. If a sub-agent reports "hook blocked my write," that's almost always a path bug in their session, not a hook misconfiguration. Tell them to verify their target path begins with their worktree root.
+Code-editing sub-agents declare `isolation: worktree` in their frontmatter, so each spawns in its own `.claude/worktrees/agent-*`; the `check-worktree.sh` PreToolUse hook remains as defense-in-depth. If a sub-agent reports "hook blocked my write," that's almost always a path bug in their session, not a hook misconfiguration. Tell them to verify their target path begins with their worktree root.
 
 Prefer `gh pr merge --squash --delete-branch` — the repo has `deleteBranchOnMerge: true` so the remote branch auto-deletes. Local branches still need cleanup after the worktree is removed.
 
