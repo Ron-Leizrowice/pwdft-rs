@@ -169,6 +169,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(non_snake_case)]
 #![warn(rustdoc::broken_intra_doc_links)]
+#![allow(clippy::pedantic)]
 extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
