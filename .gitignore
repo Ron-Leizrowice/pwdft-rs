@@ -1,17 +1,13 @@
-/target
+target/
 
-# Vendored faer (see docs/FAER_ITERATE_LANCZOS_FIX.md). Track source only;
-# build artifacts and upstream-CI dotfiles stay local.
-pwdft/faer/target/
+# Vendored faer (see CLAUDE.md § Vendored dependencies). Source tracked - upstream-CI / build byproducts stay local.
 pwdft/faer/.git/
 pwdft/faer/.claude/
 pwdft/faer/*.out
 pwdft/faer/*.pdf
 pwdft/faer/compile_commands.json
 
-# Override global gitignore for project-specific .claude config
-!.claude/
-!.claude/**
+# Claude Code project config — everything under .claude/ is tracked by default; these are the only carve-outs.
 .claude/settings.local.json
 .claude/locks/*.lock
 .claude/locks/*.lock.d/
@@ -22,11 +18,6 @@ qe-7.5/
 
 # Machine-local config consumed by setup.sh. Template is .env.example.
 .env
-*.tar.gz
-*.tgz
-Unconfirmed*
-*.crdownload
-*.part
 
 # outputs/ is a scratch dir for SCF runs; keep the dir (via .gitkeep) but
 # ignore everything else.
@@ -36,4 +27,4 @@ outputs/*
 # Python tooling (uv / hatchling) for validation package.
 __pycache__/
 .venv/
-cache-dir = "~/.cache/ruff"
+.cache/
