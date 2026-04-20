@@ -37,6 +37,8 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
+| PMTL | Split GPU backend (`src/gpu/*`, 980 LOC + 140 WGSL) out of `pwdft-core` into new workspace crate `pwdft-metal`; define `GridAccelerator` trait in core; delete 11 `#[cfg(feature="gpu")]` branches in `scf/driver.rs`; binary picks backend at build time. Unblocks CUCL clean second-backend | medium | medium | — | CUCL |
+| TDBG | Switch CI Tier-1 to `cargo test --profile=dev` (`opt-level=0`); local `cargo test` stays on TPRF's O3 profile. Tier-1 is structurally compile-bound in CI (no SCF loops post-TSPL); projected ≥50% wall reduction on cold-build PR runs. Tier-2 + benches unchanged. Adds a 4-min Tier-1 budget guardrail | small | low | — | — |
 | GGAP | GGA/PBE functional — **Phases A+A.1+B+C+D+F-light all landed** (#85, #155, #145, #151, #158, #161). Si PBE 12 meV GREEN, Al PBE 8 meV GREEN, Fe PBE retains M=2.16 μB (VGCH-class residual). **Only Phase E remains** (GPU PBE shader, 2–3 CE-days, deferred until CPU path validates fully) | medium | medium | — | HYBR |
 | HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP-E | — |
 | ITEV | Iterative Eigensolver — faer Lanczos fix vendored (#129); both correctness defects closed (ITEV2 #140, Si ecut=100 Dense↔Iterative | ΔE | =4.52e-12 eV). **Only Phase-5 step-4 remains**: end-to-end SCF wall-time bench with WFRX active → decide default flip | small | low |
