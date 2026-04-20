@@ -1,9 +1,4 @@
-"""pwdft-rs validation helpers — QE cross-checks, reference-data generators.
-
-Submodules:
-    scripts/    — numbered validation scripts (one per investigation).
-    _paths      — shared filesystem layout constants.
-"""
+"""pwdft-rs validation helpers — QE cross-checks, reference-data generators."""
 
 from pwdft_validation.paths import (
     CSV_REF_DIR,
@@ -14,6 +9,9 @@ from pwdft_validation.paths import (
     QE_REF_DIR,
 )
 
+# Alias so scripts that import REPO_ROOT still work.
+REPO_ROOT = PROJECT_ROOT
+
 __all__ = [
     "CSV_REF_DIR",
     "DATA_DIR",
@@ -21,4 +19,5 @@ __all__ = [
     "PROJECT_ROOT",
     "PSEUDO_DIR",
     "QE_REF_DIR",
+    "REPO_ROOT",
 ]
