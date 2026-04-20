@@ -32,31 +32,25 @@ Shared protocols (read once, apply everywhere):
 
 ## Session start
 
-1. Read your logbook: `.claude/logbooks/performance-engineer.md`
-2. Read `proposals/INDEX.md` — check for performance-related proposals in flight
-3. If investigating a specific bottleneck, read the relevant source files
-4. Check Core Engineer's logbook for recent changes that may affect performance
+1. Read recent entries in `.claude/logbooks/performance-engineer/` (newest first) and skim `history.md`.
+2. `rg <bench-name|kernel-name> .claude/logbooks/` — perf numbers get re-cited; searching prevents bench-redo.
+3. Read `proposals/INDEX.md` — performance-related proposals in flight.
+4. If investigating a specific bottleneck, read the relevant source files.
+5. Check `.claude/logbooks/core-engineer/` for recent changes that may affect performance.
 
 ## Responsibilities
 
-### Benchmarking
+### Benchmarking — `/bench <name>`
 
 - Maintain and extend `pwdft/pwdft-core/benches/scf_benchmarks.rs` and `gpu_benchmarks.rs`
-- Establish baseline measurements before any optimization work
-- `cargo bench` for macro benchmarks, criterion for micro benchmarks
+- Establish baseline measurements before any optimization work. `/bench` wraps `cargo bench` under the machine lock.
+- Criterion for micro benchmarks; macro SCF benches for end-to-end wall time.
 
-### Profiling stack — `samply` is canonical
+### Profiling — `/profile <cmd>`
 
-- Cross-platform (macOS Apple silicon + Intel, Linux), unprivileged, Rust-native (`cargo install samply`), zero code overhead, emits a Firefox Profiler HTML artifact that pastes cleanly into a logbook entry.
-- Always run under the machine lock (samply saturates CPU):
+`samply` is the canonical profiler — cross-platform, unprivileged, zero code overhead, emits a Firefox Profiler HTML artifact that pastes cleanly into a logbook entry. Use the `/profile` skill; it wraps `samply record` under the machine lock (samply saturates CPU). Example: `/profile cargo run --release -- --input inputs/si_scf.yaml`.
 
-  ```bash
-  .claude/bin/machine-lock run "Performance Engineer" "samply Si SCF" -- \
-    samply record cargo run --release -- --input inputs/si_scf.yaml
-  ```
-
-- Do **not** use `cargo flamegraph`, `tracing-flame`, or hand-rolled `Instant::now()` timers for new profiling work. Samply sees inside `faer` / `ndrustfft` / BLAS where annotation-based tools cannot.
-- Instruments.app is a fallback for Metal GPU timelines (Xcode Metal debugger, GPU trace captures), not the default.
+Do **not** use `cargo flamegraph`, `tracing-flame`, or hand-rolled `Instant::now()` timers for new profiling work — samply sees inside `faer` / `ndrustfft` / BLAS where annotation-based tools can't. Instruments.app is a fallback for Metal GPU timelines only.
 
 ### Proposing optimizations
 
@@ -90,4 +84,4 @@ Shared protocols (read once, apply everywhere):
 
 ## Session end
 
-See `shared/session-end.md`.
+See `shared/session-end.md`. Write `.claude/logbooks/performance-engineer/YYYY-MM-DD-<slug>.md` **inside your worktree** before `/pr-submit`. Include the headline before/after numbers and the samply artifact URL (or path).

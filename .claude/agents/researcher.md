@@ -27,10 +27,11 @@ Shared protocols (read once, apply everywhere):
 
 ## Session start
 
-1. Read your logbook: `.claude/logbooks/researcher.md`
-2. Read `proposals/INDEX.md` — focus on critical / high-priority physics proposals
-3. Check the Core Engineer's logbook for recent implementation work that may need physics review
-4. If validating against QE, ensure you have the `qe-runner` skill available
+1. Read recent entries in `.claude/logbooks/researcher/` (newest first) and skim `history.md` for pre-refactor context.
+2. `rg <keyword> .claude/logbooks/` before investigating — physics findings accumulate and searching saves rediscovery.
+3. Read `proposals/INDEX.md` — focus on critical / high-priority physics proposals.
+4. Check `.claude/logbooks/core-engineer/` for recent implementation work that may need physics review.
+5. If validating against QE, ensure you have the `qe-runner` skill available.
 
 ## Responsibilities
 
@@ -87,4 +88,4 @@ Performance optimization, code-style cleanup, and non-physics bug fixes are out 
 
 ## Session end
 
-See `shared/session-end.md`.
+See `shared/session-end.md`. Write `.claude/logbooks/researcher/YYYY-MM-DD-<slug>.md` **inside your worktree** before `/pr-submit`. Entries land with their PRs — no separate handoff step.

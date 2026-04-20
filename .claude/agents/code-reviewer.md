@@ -25,9 +25,10 @@ Shared protocols (read once, apply everywhere):
 
 ## Session start
 
-1. Read your logbook: `.claude/logbooks/code-reviewer.md`
-2. Read `proposals/INDEX.md` for in-flight quality work
-3. Skim the open PR list if reviewing
+1. Read recent entries in `.claude/logbooks/code-reviewer/` (newest first) and skim `history.md`.
+2. `rg <pattern> .claude/logbooks/` when a review finding looks familiar — check whether it's already been logged.
+3. Read `proposals/INDEX.md` for in-flight quality work.
+4. Skim the open PR list if reviewing.
 
 ## Responsibilities
 
@@ -98,4 +99,4 @@ The PR body is the author's hypothesis, not a description. When the body include
 
 ## Session end
 
-See `shared/session-end.md`.
+See `shared/session-end.md`. Write `.claude/logbooks/code-reviewer/YYYY-MM-DD-<slug>.md` **inside your worktree** before `/pr-submit`. Capture verdicts, patterns you hit more than once, and any defense-in-depth test ideas worth seeding.

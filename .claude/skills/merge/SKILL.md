@@ -47,7 +47,7 @@ Run the squash-merge + branch delete + worktree cleanup + main fast-forward sequ
 
 5. **Update INDEX.md** if the proposal is now complete. Move the proposal row from Active to Completed; archive the proposal file to `proposals/completed/`. The `/proposal complete <ID>` skill wraps this.
 
-6. **Append a logbook entry** to `.claude/logbooks/engineering-manager.md` noting the merge, any INDEX updates, and any FLUP seeds captured from the PR.
+6. **Write a merge logbook entry** at `.claude/logbooks/engineering-manager/YYYY-MM-DD-<pr-slug>.md` noting the merge, any INDEX updates, and any FLUP seeds captured from the PR.
 
 7. **Report** the merged SHA, INDEX changes, and any new stub proposals to the user.
 

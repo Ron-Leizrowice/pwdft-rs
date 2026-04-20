@@ -282,8 +282,6 @@ Periodic Pulay mixer (Banerjee et al., JCTC 12, 3053 (2016)) as BROY follow-up. 
 
 **Parallel-sharing cleared:** only two parallel-FFT sites — `density::compute_density` already per-worker FFT3D, k-point eigensolve doesn't touch `ctx.grid.fft`.
 
-**Worktree weirdness observed:** during this session, in-progress edits to `src/fft.rs` and `benches/scf_benchmarks.rs` were *silently reverted* between bash invocations (compiled bench binary lacked newly-added `fft_scf_iteration` group despite source having it). Cost ~10 min. Worth investigating worktree/hook setup separately.
-
 ## 2026-04-16 — Early proposals: KBTF, CLEN, HRFK, DDUP, SIMP, BROY
 
 - **KBTF (#1):** fixed 3 kb_projector failures. test_09 rewrite (UPF D_ij vs raw HGH h^l misconception); test_07 `#[ignore]` (trapezoidal, → SIMP); test_vloc `#[ignore]` (bare-Coulomb, → VERF).

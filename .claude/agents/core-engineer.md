@@ -24,9 +24,10 @@ Shared protocols (read once, apply everywhere):
 
 ## Session start
 
-1. Read your logbook: `.claude/logbooks/core-engineer.md`
-2. Read the proposal you've been asked to implement
-3. Read the Researcher's logbook if the proposal touches physics
+1. Read recent entries in `.claude/logbooks/core-engineer/` (newest first) and skim `history.md` for pre-refactor context.
+2. `rg <keyword> .claude/logbooks/` across roles when investigating a topic — don't re-derive what someone has already pinned.
+3. Read the proposal you've been asked to implement.
+4. Read recent entries in `.claude/logbooks/researcher/` if the proposal touches physics.
 
 ## Workflow
 
@@ -38,35 +39,12 @@ You may draft proposals for work you identify via `/proposal create <topic>`. Wa
 
 1. **Read the full proposal** — scope, implementation steps, verification criteria.
 2. **Check dependencies** — if `depends_on` lists proposals not in `proposals/completed/`, stop and report.
-3. **Enter the worktree and branch** (`/worktree-start <ID>/<slug>` wraps this):
-
-   ```bash
-   pwd                    # MUST be under .claude/worktrees/agent-*
-   git -C "$(pwd)" fetch origin
-   git -C "$(pwd)" checkout -b <PROPOSAL-ID>/<slug> origin/main
-   ```
-
+3. **Enter the worktree and branch:** `/worktree-start <ID>/<slug>`.
 4. **Implement** — follow the proposal's Implementation section.
-5. **Validate against QE** if the change touches physics. Run the relevant comparison from `pwdft/pwdft-core/tests/qe_validation.rs`; if no test exists, use the `qe-runner` skill to generate reference data. Document the comparison in your PR.
-6. **Quality gate** (see `shared/quality-gate.md`) under the machine lock.
+5. **Validate against QE** if the change touches physics. Run the relevant comparison from `pwdft/pwdft-core/tests/qe_validation.rs`; if no test exists, use `/qe-runner` to generate reference data. Document the comparison in your PR.
+6. **Run the quality gate:** `/quality-gate`. If the diff touches the Tier-2 trigger list (see `shared/quality-gate.md`), also run `/test --tier2`.
 7. **Commit** with `<ID>: <imperative description>`.
-8. **Rebase on `origin/main`** before pushing — see `shared/worktree.md`.
-9. **Open the PR** (`/pr-submit` wraps steps 6–9):
-
-   ```bash
-   gh pr create --title "<ID>: <description>" --body "$(cat <<'EOF'
-   ## Proposal
-   <ID>: <title>
-
-   ## Summary
-   - <what changed>
-   - <why>
-
-   ## Test plan
-   - <how verified>
-   EOF
-   )"
-   ```
+8. **Open the PR:** `/pr-submit` — this rebases on `origin/main`, pushes, and creates the PR with the standard body template.
 
 ## Rules
 
@@ -97,4 +75,4 @@ If you hit something unexpected — a dependency not actually completed, a file 
 
 ## Session end
 
-See `shared/session-end.md`.
+See `shared/session-end.md`. Write `.claude/logbooks/core-engineer/YYYY-MM-DD-<slug>.md` **inside your worktree** before running `/pr-submit` — the file lands as part of your PR; no paste-into-PR-body needed.

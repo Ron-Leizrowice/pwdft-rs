@@ -10,7 +10,7 @@ blocks: [VQEF]
 author: Researcher (2026-04-20)
 ---
 
-# VGCH-2F — Part C session-2 findings
+## VGCH-2F — Part C session-2 findings
 
 > **Scope**. Diagnostic session targeting the two UNRESOLVED suspects from
 > session-1 (PR #174) of the +16.34 eV Cu shared-density transplant gap:
@@ -20,7 +20,7 @@ author: Researcher (2026-04-20)
 > H-C4 regression-guard pins (all pass) and file a targeted Cu two-radial-d
 > follow-up for H-C5 closure.
 
-## TL;DR
+### TL;DR
 
 | ID   | Verdict        | Action                                                              |
 |------|----------------|---------------------------------------------------------------------|
@@ -33,9 +33,9 @@ Cu shared-density gap before/after this PR: **+16.34 eV → +16.34 eV** (diagnos
 
 ---
 
-## H-C4 — ρ_core(G) heavy-element regression coverage
+### H-C4 — ρ_core(G) heavy-element regression coverage
 
-### Hypothesis (recap from session-1)
+#### Hypothesis (recap from session-1)
 
 The shared-density Cu transplant shows ΔE_xc = +8.87 eV against QE while
 valence density is pinned to ρ_QE. NLCC-active systems have `ρ_xc = ρ_val + ρ_core`
@@ -47,7 +47,7 @@ quadrature slip — would be bounded in magnitude by the integrated core charge
 Fe is already pinned via `test_fe_bcc_xc_nlcc_regression_guard`; session-1
 flagged Cu/GaAs/MgO as the unpinned heavy-element surface.
 
-### Evidence
+#### Evidence
 
 Extended `scripts/validate/rho_core_g_reference.py` from 4 elements (Si, Fe, Cu, Mn)
 to 8, adding every NLCC-active PP in a Class A QE reference cell that was still
@@ -68,6 +68,7 @@ Python via Simpson quadrature of the UPF PP_NLCC radial table, following QE's
 `upflib/rhoc_mod.f90:107-115` Bessel transform convention.
 
 8 new Rust tests (VGCH-2F A.9 – A.16) pin:
+
 - ρ_core(G = 0): `(4π/Ω) ∫ ρ_core(r) r² dr`
 - ρ_core at first non-zero FCC shell |G|² = 3·(2π/a)² (the {111} family)
 
@@ -75,7 +76,7 @@ Python via Simpson quadrature of the UPF PP_NLCC radial table, following QE's
 1e-5 e/Å³ for O/Cl (smaller cores, Si-magnitude). Both generous — all
 pins pass with sub-10⁻⁵ residual against the Python reference.
 
-### Reference values (ρ_core in e/Å³)
+#### Reference values (ρ_core in e/Å³)
 
 | Element | G=0                | First FCC shell    |
 |---------|--------------------|--------------------|
@@ -84,7 +85,7 @@ pins pass with sub-10⁻⁵ residual against the Python reference.
 | O       | 3.0760542725e-02   | 2.9521130484e-02   |
 | Cl      | 4.2341213379e-02   | 3.9423292394e-02   |
 
-### Verdict: REFUTED
+#### Verdict: REFUTED
 
 The Rust Bessel transform in `pseudopotential/upf/convert.rs` (PP_NLCC path,
 e/Bohr³ → e/Å³ via `/BOHR3_TO_ANG3`) agrees with Python-Simpson to < 10⁻⁵ e/Å³
@@ -95,7 +96,7 @@ the Cu transplant **cannot** originate in ρ_core(G).
 TRV2 Finding #3. The actual gap closed this session is Ga/As/O/Cl. The
 conclusion (H-C4 refuted) stands.
 
-### Residual E_xc budget at shared density (Cu FCC transplant, iter 1)
+#### Residual E_xc budget at shared density (Cu FCC transplant, iter 1)
 
 - ΔE_xc (pwdft − QE) at shared ρ_QE = **+8.87 eV**
 - ρ_core(G) pin residual on Cu: ≤ 10⁻⁵ e/Å³ at each of 6 G-shells; bounded contribution to E_xc via Q_core · ε_xc scaling ≤ 1 meV.
@@ -105,9 +106,9 @@ H-C4 contributes ≤ 10⁻³ of the observed gap. Refuted.
 
 ---
 
-## H-C5 — V_NL `D_ij · Σ_lm β_i · β_j` contraction on Cu d-projectors
+### H-C5 — V_NL `D_ij · Σ_lm β_i · β_j` contraction on Cu d-projectors
 
-### Hypothesis (recap from session-1)
+#### Hypothesis (recap from session-1)
 
 VGCH-1b pinned β_l(q) bit-perfectly per element to 3·10⁻¹² Bohr^{3/2}, but the
 full KB assembly `⟨G| V_NL |G'⟩ = Σ_{i,j} ⟨G|β_i⟩ D_ij ⟨β_j|G'⟩` (with
@@ -119,7 +120,7 @@ VNMT's Si-based l=2 m-isolation test pins the Σ_m Y_lm Y*_lm angular sum via
 the addition theorem for a **single** radial projector; Cu's two radial d
 channels entering the same Σ_m sum is structurally new.
 
-### Evidence
+#### Evidence
 
 Extracted both Si.upf and Cu.upf `PP_DIJ` and `PP_BETA` structure via Python:
 
@@ -143,7 +144,7 @@ in the addition-theorem sum (VNMT's own "trace-equivalent-but-projector-wrong"
 warning applies). A sum-over-ν bug would show only as a mismatch in the
 ν-weighted radial magnitude on individual m-channels.
 
-### Scope decision
+#### Scope decision
 
 A full Python cross-check of `⟨G| V_NL |G'⟩` against the Rust assembly needs
 a bit-precise wavefunction seed, structure factors at every atom, and a per-m
@@ -154,7 +155,7 @@ the five m ∈ {−2, −1, 0, 1, 2} d-channel contributions to V_NL ψ against 
 hand-computed `D_00 · β_{2,0}(q) + D_11 · β_{2,1}(q)` reference. This
 isolates the two-radial-ν sum question from every other code path.
 
-### Verdict: PARTIALLY CLOSED BY ANALYSIS
+#### Verdict: PARTIALLY CLOSED BY ANALYSIS
 
 H-C5 cannot be declared refuted — the two-ν radial sum on a diagonal-D, l=2
 dense-projector element (Cu) is a structurally distinct test from Si single-ν.
@@ -164,7 +165,7 @@ be proposed separately at Medium priority, 1 CE-day.
 
 ---
 
-## Cu shared-density transplant — updated per-term decomposition
+### Cu shared-density transplant — updated per-term decomposition
 
 Regenerated this session under machine lock (`tests/vgch_transplant_cu.rs`).
 Numbers consistent with PR #174 to sub-meV; included here for the full
@@ -194,32 +195,32 @@ effect. Γ eigenvalue offset = +0.26 eV/band (pre-session level).
 
 ---
 
-## Scoreboard delta
+### Scoreboard delta
 
 No cells flipped. Class A still has 8 YELLOW cells. H-C4 and H-C3 and H-C1 are
 now closed. H-C5 is scope-narrowed to the two-radial-d sum. H-C2 remains
 lower priority than H-C5.
 
-## Remaining Class A cells unaccounted for
+### Remaining Class A cells unaccounted for
 
 All 8 — Cu LDA+PBE, GaAs LDA+PBE, NaCl LDA+PBE, MgO LDA+PBE, Fe PBE. None
 closed this session.
 
 ---
 
-## Follow-up proposals to file
+### Follow-up proposals to file
 
 - **VNLM-CUD** (Medium priority, 1 CE-day, diagnostic). Cu Γ-point per-m
   d-projector pin for the two-radial-ν sum. If it passes, H-C5 fully refuted;
   if it fails, we have a localized KB assembly bug.
 
-## Files
+### Files
 
 - `scripts/validate/rho_core_g_reference.py` — extended from 4 to 8 elements (Ga, As, O, Cl added)
 - `scripts/validate/rho_core_g_reference.csv` — regenerated (48 rows)
 - `src/pseudopotential/upf/convert.rs` — 8 new `#[test]` fns (A.9–A.16)
 
-## Test plan
+### Test plan
 
 - [x] `cargo test` Tier-1 — 8 new NLCC pins pass; existing suite green.
 - [x] `cargo clippy -q --all-targets` — baseline warnings only.

@@ -17,10 +17,10 @@ Shared protocols (read once, apply everywhere):
 
 ## Session start
 
-1. Read your logbook: `.claude/logbooks/engineering-manager.md`
-2. Read `proposals/INDEX.md` for the backlog state
-3. `gh pr list` for open PRs
-4. Skim other roles' logbooks if recently updated
+1. Read recent entries in your logbook directory: `ls -t .claude/logbooks/engineering-manager/ | head -5` then open each. `history.md` is the pre-refactor archive.
+2. Read `proposals/INDEX.md` for the backlog state.
+3. `gh pr list` for open PRs.
+4. Skim other roles' logbook dirs if they've been recently updated; `rg <topic> .claude/logbooks/<role>/` when investigating a cross-cutting question.
 
 ## Responsibilities
 
@@ -91,6 +91,7 @@ Every sub-agent return message may include a `## Flagged for follow-up` section 
 - [ ] Physics changes have verification (QE comparison, numerical test with known values)
 - [ ] PR body has Summary + Test Plan sections
 - [ ] Commits follow `<ID>: <description>` format
+- [ ] **Session logbook entry is in the diff** — `.claude/logbooks/<role>/YYYY-MM-DD-<slug>.md`. Missing logbook = REQUEST-CHANGES; sub-agents must submit their handoff notes with the PR.
 
 ## Sub-agent isolation
 
@@ -107,4 +108,4 @@ Prefer `gh pr merge --squash --delete-branch` — the repo has `deleteBranchOnMe
 
 ## Session end
 
-See `shared/session-end.md`. Append a concise handoff note to `.claude/logbooks/engineering-manager.md` before ending.
+See `shared/session-end.md`. Write a single new file at `.claude/logbooks/engineering-manager/YYYY-MM-DD-<slug>.md` before ending.

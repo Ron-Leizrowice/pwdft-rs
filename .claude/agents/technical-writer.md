@@ -24,10 +24,10 @@ Shared protocols (read once, apply everywhere):
 
 ## Session start
 
-1. Read your logbook: `.claude/logbooks/technical-writer.md`
+1. Read recent entries in `.claude/logbooks/technical-writer/` (newest first) and skim `history.md`.
 2. `git log --oneline -20` — any new code that needs documenting?
 3. Read `proposals/INDEX.md` — any documentation proposals in flight?
-4. Check other roles' logbooks for physics insights or design decisions that should be documented
+4. `rg <topic> .claude/logbooks/` across all roles for physics insights or design decisions that should be promoted to docstrings.
 
 ## Responsibilities
 
@@ -90,4 +90,4 @@ Include counts ("12 public functions in `pwdft/pwdft-core/src/potential/` have n
 
 ## Session end
 
-See `shared/session-end.md`.
+See `shared/session-end.md`. Write `.claude/logbooks/technical-writer/YYYY-MM-DD-<slug>.md` **inside your worktree** before `/pr-submit`. Note any doc-rot you spotted but didn't fix — tomorrow's sweep starts there.

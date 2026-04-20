@@ -12,7 +12,9 @@ Finalize an implementation branch and open the PR. The argument is optional; if 
 
 1. **Verify worktree + branch.** `pwd` must be under `.claude/worktrees/agent-*`; current branch must be `<PROPOSAL-ID>/<slug>`. Abort if on `main` or a stale branch.
 
-2. **Run the quality gate** under the machine lock. All five checks must pass:
+2. **Confirm the logbook entry exists.** Check that a file `.claude/logbooks/<your-role>/YYYY-MM-DD-<slug>.md` has been created inside your worktree (see `.claude/agents/shared/session-end.md`). If missing, stop and tell the caller to write it — the entry must land with the PR, not be deferred.
+
+3. **Run the quality gate** under the machine lock. All five checks must pass:
 
    ```bash
    .claude/bin/machine-lock run "<role>" "pr-submit quality gate" -- bash -c '
@@ -25,30 +27,24 @@ Finalize an implementation branch and open the PR. The argument is optional; if 
 
    Replace `<role>` with your agent role. If any check fails, stop and report — do not push.
 
-3. **Tier-2 check.** If the diff touches `pwdft/pwdft-core/src/{scf,potential,symmetry,pseudopotential,eigensolver,gpu}/`, `basis.rs`, `fft.rs`, `ewald.rs`, `crystal.rs`, `kpoints.rs`, or bumps a numerics dep, also run:
+4. **Tier-2 check.** If the diff touches `pwdft/pwdft-core/src/{scf,potential,symmetry,pseudopotential,eigensolver,gpu}/`, `basis.rs`, `fft.rs`, `ewald.rs`, `crystal.rs`, `kpoints.rs`, or bumps a numerics dep, also run `/test --tier2`. Capture the outcome — it must appear in the PR body's Test Plan.
 
-   ```bash
-   .claude/bin/machine-lock run "<role>" "tier-2" -- cargo test -- --ignored
-   ```
-
-   Capture the outcome — it must appear in the PR body's Test Plan.
-
-4. **Rebase on `origin/main`.** Conflicts get resolved in the worktree:
+5. **Rebase on `origin/main`.** Conflicts get resolved in the worktree:
 
    ```bash
    git -C "$(pwd)" fetch origin
    git -C "$(pwd)" rebase origin/main
    ```
 
-5. **Push** (force-with-lease is safe after a rebase):
+6. **Push** (force-with-lease is safe after a rebase):
 
    ```bash
    git -C "$(pwd)" push --force-with-lease -u origin "$(git -C "$(pwd)" branch --show-current)"
    ```
 
-6. **Read the proposal file** so you can cite it in the PR body. Extract the `<ID>` and title from `proposals/<ID>-*.md`.
+7. **Read the proposal file** so you can cite it in the PR body. Extract the `<ID>` and title from `proposals/<ID>-*.md`.
 
-7. **Open the PR** with the standard body:
+8. **Open the PR** with the standard body:
 
    ```bash
    gh pr create --title "<ID>: <description>" --body "$(cat <<'EOF'
@@ -72,7 +68,7 @@ Finalize an implementation branch and open the PR. The argument is optional; if 
    )"
    ```
 
-8. **Report** the PR URL, number, and branch to the user.
+9. **Report** the PR URL, number, branch, and the logbook filename to the user.
 
 ## Errors
 

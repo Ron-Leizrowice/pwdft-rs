@@ -26,57 +26,43 @@ cargo run --release -- --input inputs/si_scf.yaml
 cargo run --release -- --input inputs/si_free_electron.yaml -o bands.tsv
 ```
 
-## Tests & benchmarks
+## Workflow skills
 
-```bash
-cargo test                                    # Tier 1 (default-fast)
-cargo test --features gpu                     # with GPU tests
-cargo test -- --ignored                       # Tier 2 heavy SCF suites
-cargo test -- --include-ignored               # both tiers
+All common cargo / profiling / review operations are wrapped in skills under `.claude/skills/`. Prefer skills over raw bash — they handle the machine lock, arg parsing, and feature-flag invariants for you:
 
-cargo bench --bench scf_benchmarks
-cargo bench --bench gpu_benchmarks --features gpu
-```
+- `/quality-gate` — the full merge-criterion gate (fix clippy + default clippy + gpu clippy + rustdoc `-D warnings` + Tier-1 tests).
+- `/test [args]` — tier-aware `cargo test`. Default Tier-1; `--tier2` runs `--ignored`; `--all` runs `--include-ignored`; anything else passes through.
+- `/bench <bench-name>` — `cargo bench` under the lock.
+- `/profile <cmd>` — `samply record <cmd>` under the lock.
+- `/lint` — both clippy invocations (auto-fix + default + `--features gpu`).
+- `/cargo <args>` — escape hatch: any cargo command, lock-wrapped.
+- `/worktree-start PROP/slug` — fetch + branch from `origin/main` boilerplate.
+- `/pr-submit` — quality gate + rebase + `gh pr create`.
+- `/pr-review <N>` — EM review helper: metadata + diff + checklist.
+- `/merge <N>` — EM merge trilogy.
+- `/proposal {create,list,complete}` — proposal lifecycle.
+- `/qe-runner` — Quantum ESPRESSO invocation recipes.
 
-Integration tests live in `pwdft/pwdft-core/tests/`: free-electron band validation (Si, C diamond, BCC Fe), KB projector validation, non-local symmetry, parallel consistency, GPU vs CPU consistency, VGC5 per-component energies + MADOC band-sum identity, QE validation (8-system reference set), spin polarization, WFRX subspace consistency, ITEV eigensolver cross-checks.
+## Tests & tiers
 
-### Tier policy
+Integration tests live in `pwdft/pwdft-core/tests/`: free-electron bands (Si, C diamond, BCC Fe), KB projector, non-local symmetry, parallel consistency, GPU vs CPU consistency, VGC5 per-component energies + MADOC band-sum identity, QE validation (8-system reference set), spin polarization, WFRX subspace consistency, ITEV eigensolver cross-checks.
 
-The suite is split into two tiers via Rust's `#[ignore]` attribute with a `TSPL Tier-2: ...` reason string on each heavy case. Default `cargo test` runs Tier 1 only; opt into Tier 2 via `--ignored`.
+The suite is split into two tiers via Rust's `#[ignore]` attribute with a `TSPL Tier-2: ...` reason string on each heavy case:
 
-- **Tier 1 — `cargo test`.** Unit tests + lightweight integration. Every test is either a pure unit check or a single-shot operation on a small matrix. Target ≤ 2 min wall on M3 Max; currently ~12 s warm-cache.
-- **Tier 2 — `cargo test -- --ignored`.** Every case that runs a production-scale SCF loop (> 20 iters at `n_pw ≥ 100`, or two SCFs back-to-back). Target 5–10 min wall; currently ~58 s warm-cache.
+- **Tier 1** (default via `/test`) — unit tests + lightweight integration; every test is a pure unit check or a single-shot small-matrix operation. Target ≤ 2 min wall; currently ~12 s warm-cache on M3 Max.
+- **Tier 2** (`/test --tier2`) — every case that runs a production-scale SCF loop (> 20 iters at `n_pw ≥ 100`, or two SCFs back-to-back). Target 5–10 min wall; currently ~58 s warm-cache.
 
-**Tier-2 PR policy.** Any PR that touches `pwdft/pwdft-core/src/{scf,potential,symmetry,pseudopotential,eigensolver,gpu}/`, `basis.rs`, `fft.rs`, `ewald.rs`, `crystal.rs`, `kpoints.rs`, or bumps a numerics dep (faer / ndrustfft / nalgebra / ndarray) must run `cargo test -- --ignored` and report the outcome in the PR body. Doc-only, proposal-only, and lint-only PRs skip Tier 2.
+**Tier-2 PR policy.** Any PR that touches `pwdft/pwdft-core/src/{scf,potential,symmetry,pseudopotential,eigensolver,gpu}/`, `basis.rs`, `fft.rs`, `ewald.rs`, `crystal.rs`, `kpoints.rs`, or bumps a numerics dep (faer / ndrustfft / nalgebra / ndarray) must run `/test --tier2` and report the outcome in the PR body. Doc-only, proposal-only, and lint-only PRs skip Tier 2. `/test --tier2` hits the pre-TSPL physics-blocker ignores (VGCH heavy-atom cells, Al ecut, C mixer, MXBA) that fail by design — the authoritative skip list is in the `#[ignore]` reason strings in `pwdft/pwdft-core/tests/qe_validation.rs` and `pwdft/pwdft-core/tests/mxba_adaptive_beta_fe.rs`.
 
-`cargo test -- --ignored` also hits the pre-TSPL physics-blocker ignores (VGCH heavy-atom cells, Al ecut, C mixer, MXBA) which fail by design. The authoritative skip list is in the `#[ignore]` reason strings in `pwdft/pwdft-core/tests/qe_validation.rs` and `pwdft/pwdft-core/tests/mxba_adaptive_beta_fe.rs`.
-
-## Observability, profiling, benchmarking
+## Observability stack
 
 Three layers, three tools, no overlap:
 
-- **Observability** — "what is the SCF doing right now?" → `log` crate (`info!` / `warn!` / `error!`) via `env_logger`, plus `indicatif` progress bars. Always-on, human-readable, low overhead.
-- **Profiling** — "where does wall-time go?" → `samply` (canonical). Cross-platform, unprivileged, zero code overhead, emits a Firefox Profiler HTML artifact. Install once: `cargo install samply`. Always run under the machine lock — samply saturates CPU like `cargo bench`.
-- **Benchmarks** — "did this change regress function X?" → `criterion` via `cargo bench`. Benches in `pwdft/pwdft-core/benches/`.
+- **Observability** ("what is the SCF doing right now?") → `log` + `env_logger` + `indicatif`. Always-on, human-readable.
+- **Profiling** ("where does wall-time go?") → `samply` via `/profile`. Zero code overhead; emits a Firefox Profiler HTML artifact.
+- **Benchmarks** ("did this change regress function X?") → `criterion` via `/bench`. Benches in `pwdft/pwdft-core/benches/`.
 
-Do **not** use `cargo flamegraph`, `tracing-flame`, or hand-rolled `Instant::now()` timers for new profiling work. Samply sees inside `faer` / `ndrustfft` / BLAS where annotation-based tools cannot. Instruments.app is a fallback for Metal GPU timelines only (Xcode Metal debugger, GPU trace captures).
-
-The `tracing` ecosystem is deliberately out of the stack. Reopen the question only if (a) async code enters the codebase, (b) structured per-span post-mortem analysis becomes necessary (regression watcher parsing SCF events as records), or (c) distributed tracing across a multi-process calculation becomes a requirement.
-
-## Code quality gate
-
-Run after finishing a batch of work — this is the merge criterion:
-
-```bash
-.claude/bin/machine-lock run "<role>" "quality gate" -- bash -c '
-  cargo clippy -q --fix --allow-dirty --allow-staged --all-targets &&
-  cargo clippy -q --all-targets &&
-  cargo clippy -q --all-targets --features gpu &&
-  RUSTDOCFLAGS="-D warnings" cargo doc --no-deps &&
-  cargo test'
-```
-
-Both clippy invocations are required — without `--features gpu`, the `pwdft/pwdft-core/src/gpu/` tree and GPU-only test binaries are not linted. Rustdoc's `-D warnings` must travel through the `RUSTDOCFLAGS` env var; current cargo rejects it after `--`. Do not suppress clippy warnings like `too_many_arguments` — refactor instead. Do not `#[allow]` rustdoc warnings — fix the prose.
+Do **not** reach for `cargo flamegraph`, `tracing-flame`, or hand-rolled `Instant::now()` timers — samply sees inside `faer` / `ndrustfft` / BLAS where annotation-based tools can't. Instruments.app is the fallback for Metal GPU timelines only. The `tracing` ecosystem stays out of the stack until (a) async code enters the codebase, (b) structured per-span post-mortem parsing becomes necessary, or (c) distributed tracing across a multi-process calculation is required.
 
 ## Architecture
 
@@ -128,7 +114,7 @@ Branch-and-PR workflow with isolated worktrees and multiple concurrent agents. *
 - **One proposal per branch.** PR title: `<PROPOSAL-ID>: <description>`; commit messages the same. PR body must include Summary + Test Plan.
 - **Quality gate before PR** — see § Code quality gate above; also in `.claude/agents/shared/quality-gate.md`.
 - **Proposals drive work.** See `proposals/INDEX.md`. Each proposal has a 4-letter ID, frontmatter (priority/complexity/risk/dependencies), and an implementation plan. Propose first, implement after EM approval.
-- **Logbooks** at `.claude/logbooks/<role>.md`. Read at session start, append at session end. Sub-agents in worktrees paste handoff text into the PR body (the hook blocks writes to the main checkout's logbook); the EM merges logbook entries on merge.
+- **Logbooks** at `.claude/logbooks/<role>/` — one file per session, named `YYYY-MM-DD-<slug>.md`. Sub-agents write their entry inside their worktree and the file lands as part of their PR. See `.claude/logbooks/README.md` and `.claude/agents/shared/session-end.md`. Search (`rg <topic> .claude/logbooks/`) at session start before re-investigating a known area.
 
 **Agent roles** (see `.claude/agents/*.md` for full prompts):
 

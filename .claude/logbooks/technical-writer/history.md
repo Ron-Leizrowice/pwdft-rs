@@ -9,6 +9,4 @@ Docstring conventions established: `///` with formula + parameter units in paren
 Well-documented: xc.rs, nonlocal.rs, ewald.rs, smearing.rs, pseudopotential/mod.rs.
 Bare: density.rs, initial_density.rs, potentials.rs, grid.rs, context.rs, basis.rs, fft.rs, hartree.rs, local.rs, gpu/mod.rs, kpoints.rs, symmetry/*.
 
-No README.md exists — largest documentation gap.
-
 Open doc follow-ups from MSTR: reciprocal() docstring, Anderson constraint explanation, auto_q_tf citation, total_energy V_G0 correction. Spin exchange equivalence at xc.rs:249 needs documenting (Researcher confirmed correctness).
