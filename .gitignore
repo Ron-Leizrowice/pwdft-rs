@@ -16,9 +16,12 @@ pwdft/faer/compile_commands.json
 .claude/locks/*.lock
 .claude/locks/*.lock.d/
 
-# QE 7.5 tree — either a local build or a symlink to ~/Applications/qe-7.5.
+# QE 7.5 tree — either a local build or a symlink created by setup.sh.
 qe-7.5
 qe-7.5/
+
+# Machine-local config consumed by setup.sh. Template is .env.example.
+.env
 *.tar.gz
 *.tgz
 Unconfirmed*
