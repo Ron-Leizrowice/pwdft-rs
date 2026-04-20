@@ -17,13 +17,13 @@ pub(super) fn extract_attr<'a>(content: &'a str, attr_name: &str) -> Option<&'a 
 
 /// Extract `angular_momentum` from a PP_BETA tag.
 ///
-/// Returns `Err(PwdftError::InvalidInput)` when the value parses as a
-/// negative integer (physically meaningless; would later propagate as an
-/// out-of-bounds index into the spherical-harmonic tables inside
-/// `NonlocalPotential::new`), and `Err(PwdftError::Parse)` when the tag
-/// or attribute is missing or the integer is unparseable. Rejecting at
-/// load time keeps the failure mode "bad UPF file" rather than an
-/// internal assertion deep in the solver.
+/// Returns `Err(PwdftError::InvalidPseudopotential)` when the value
+/// parses as a negative integer (physically meaningless; would later
+/// propagate as an out-of-bounds index into the spherical-harmonic
+/// tables inside `NonlocalPotential::new`), and `Err(PwdftError::Parse)`
+/// when the tag or attribute is missing or the integer is unparseable.
+/// Rejecting at load time keeps the failure mode "bad UPF file" rather
+/// than an internal assertion deep in the solver.
 ///
 /// Zero (s-channel) and positive integers parse unchanged.
 pub(super) fn extract_beta_angular_momentum(content: &str, tag: &str) -> Result<i32> {
@@ -43,9 +43,10 @@ pub(super) fn extract_beta_angular_momentum(content: &str, tag: &str) -> Result<
         .parse()
         .map_err(|e| PwdftError::Parse(format!("angular_momentum parse error in {tag}: {e}")))?;
     if l < 0 {
-        return Err(PwdftError::InvalidInput(format!(
-            "{tag}: angular_momentum must be non-negative (got {l})"
-        )));
+        return Err(PwdftError::InvalidPseudopotential {
+            file: tag.to_string(),
+            reason: format!("angular_momentum must be non-negative (got {l})"),
+        });
     }
     Ok(l)
 }
