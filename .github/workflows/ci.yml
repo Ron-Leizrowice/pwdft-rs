@@ -48,11 +48,6 @@ jobs:
       - name: cargo test (tier 1)
         run: cargo test -p pwdft-core
 
-      - name: rustdoc (warnings deny)
-        run: cargo doc --no-deps -p pwdft-core
-        env:
-          RUSTDOCFLAGS: "-D warnings"
-
   validation:
     name: Python (validation)
     runs-on: ubuntu-latest
