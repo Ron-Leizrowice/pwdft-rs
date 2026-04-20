@@ -4,7 +4,7 @@ Norm-conserving pseudopotentials for plane-wave DFT calculations.
 
 ## Directory Layout
 
-```
+```text
 pseudopotentials/
 ├── nc/                         # Norm-conserving
 │   ├── lda/                    # LDA exchange-correlation (PZ parametrization)
@@ -40,7 +40,7 @@ scalar-relativistic, standard accuracy.
 > pseudopotential table",
 > *Computer Physics Communications* **226**, 39-54 (2018).
 > DOI: [10.1016/j.cpc.2018.01.012](https://doi.org/10.1016/j.cpc.2018.01.012)
-
+>
 > D.R. Hamann,
 > "Optimized norm-conserving Vanderbilt pseudopotentials",
 > *Physical Review B* **88**, 085117 (2013).

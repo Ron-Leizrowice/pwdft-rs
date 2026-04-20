@@ -207,6 +207,7 @@ scf:
 ## Estimated effort
 
 3–4 hours:
+
 - 0.5 h — refactor `AndersonMixer::mix` into two methods.
 - 1 h — `PeriodicPulayMixer` struct + dispatch.
 - 0.5 h — unit tests.

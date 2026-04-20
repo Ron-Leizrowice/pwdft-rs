@@ -81,9 +81,10 @@ For Si's nc LDA UPF, D_ij is diagonal (l=0 and l=1 channels don't mix). Just pri
 ### Phase 4: Assembled Hamiltonian element at a single k-point (half day)
 
 At the Γ point, pick a pair of G-vectors and manually compute:
-  - Kinetic: `|k+G|² · ħ²/(2m)`  (independent)
-  - Local: `V_local(G−G') · S(G−G')`  (uses Phase 1)
-  - Non-local: KB sum over projectors  (uses Phase 2 + Phase 3)
+
+- Kinetic: `|k+G|² · ħ²/(2m)`  (independent)
+- Local: `V_local(G−G') · S(G−G')` (uses Phase 1)
+- Non-local: KB sum over projectors (uses Phase 2 + Phase 3)
 
 Evaluate `H_{GG'}` and compare with our internal matrix element. A single assembled Hamiltonian entry matching to 1e-4 eV is strong evidence the per-term agreement propagates correctly.
 

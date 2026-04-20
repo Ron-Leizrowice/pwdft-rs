@@ -16,6 +16,7 @@ The remaining phases (XC grid ops, Hartree, density symmetrization) were deferre
 ## Multi-material test suite (added alongside)
 
 Free-electron band tests extended beyond Si to:
+
 - **Diamond C** (FCC, a=3.567 Å): Γ shell degeneracies, X-point analytic match
 - **BCC Fe** (a=2.87 Å): Γ eigenvalues, band continuity along Γ→N
 - Fe.UPF and C.UPF pseudopotentials added from QE 7.5 distribution

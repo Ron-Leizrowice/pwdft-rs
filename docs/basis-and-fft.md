@@ -4,7 +4,7 @@
 
 Wavefunctions are expanded in plane waves:
 
-```
+```text
 ψ_{n,k}(r) = (1/√Ω) Σ_G c_{n,k}(G) e^{i(k+G)·r}
 ```
 
@@ -14,7 +14,7 @@ where G are reciprocal lattice vectors `G = n₁b₁ + n₂b₂ + n₃b₃`.
 
 Include all G-vectors satisfying:
 
-```
+```text
 (ℏ²/2m) |k+G|² ≤ E_cut
 ```
 
@@ -30,7 +30,7 @@ Stored in a Vec with HashMap index for O(1) lookup by Miller indices `(n1, n2, n
 
 ## Reciprocal Lattice
 
-```
+```text
 b₁ = 2π(a₂ × a₃) / Ω
 b₂ = 2π(a₃ × a₁) / Ω
 b₃ = 2π(a₁ × a₂) / Ω
@@ -43,7 +43,7 @@ reciprocal vector orientation. Volume function returns `|Ω|` (unsigned).
 
 ## Kohn-Sham Hamiltonian
 
-```
+```text
 H_{G,G'}(k) = T_{G,G'}(k) + V_eff(G-G')
 ```
 
@@ -61,13 +61,14 @@ to FFT grid indices using modular wrapping.
 
 ## FFT Convention
 
-```
+```text
 Forward:   f̃(G) = Σ_r f(r) e^{-iG·r}        (unnormalized)
 Inverse:   f(r) = Σ_G f̃(G) e^{+iG·r}        (unnormalized)
 Normalized: f̃(G) = (1/N) × Forward[f(r)]     (divide by N_grid)
 ```
 
 The 1/N normalization on the forward FFT means:
+
 - `ρ̃(G=0) = (1/N) Σ_r ρ(r) = ⟨ρ⟩` (spatial average)
 - `V(G-G') = (1/N) Σ_r V(r) e^{-i(G-G')·r}` (Fourier coefficient in eV)
 
@@ -78,7 +79,7 @@ With this convention, V_eff(G-G') in the Hamiltonian has the correct units
 
 ### Grid size selection
 
-```
+```text
 n ≥ 2·n_max + 1
 ```
 

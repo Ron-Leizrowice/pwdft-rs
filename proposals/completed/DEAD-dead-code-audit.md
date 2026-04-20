@@ -8,12 +8,15 @@ depends_on: []
 blocks: []
 ---
 
+# DEAD: Dead Code Audit
+
 > **2026-04-18 — Status.** This audit is archived. The three highest-value
 > findings (items 1, 2, 6 under "Recommended cleanups") landed as a single PR
 > titled `DEAD: remove hartree.rs, v_local_matrix_element, unused BufferPool
 > buffers`:
+>
 > - Deleted `src/potential/hartree.rs` (`hartree_potential`, `hartree_energy`)
->   + its `pub mod hartree;` declaration.
+>   - its `pub mod hartree;` declaration.
 > - Deleted `src/potential/local.rs::v_local_matrix_element`.
 > - Removed `BufferPool::{real_bufs, real_staging}` and the
 >   `#[allow(dead_code)]` attribute in `src/gpu/mod.rs`.
@@ -26,9 +29,9 @@ blocks: []
 > is documented as intentional keep. Item 10 (HD5I doc pointer) is owned by
 > Technical Writer when HD5I unblocks.
 
-# DEAD: Dead-Code Audit (post MODR / NCFX / PCFX / ITEV)
+## DEAD: Dead-Code Audit (post MODR / NCFX / PCFX / ITEV)
 
-## Motivation
+### Motivation
 
 Ten PRs merged on 2026-04-18 (NCFX, PCFX, CCMX, PRPL, ITEV, MODR-A/C/D,
 NLCC audit, DBGC). Aggressive physics refactoring + three rounds of module
@@ -41,9 +44,9 @@ at roughly 10 small atomic PRs totalling ~150 LOC of removals + a handful
 of `pub → pub(crate)` tightenings. None change behaviour; `cargo test` is
 the only quality gate.
 
-## Findings
+### Findings
 
-### 1. Unused / over-scoped `pub` items
+#### 1. Unused / over-scoped `pub` items
 
 | Path:line | Symbol | Current vis | Suggested | External callers | Notes |
 |---|---|---|---|---|---|
@@ -61,33 +64,33 @@ the only quality gate.
 
 **Aggregate:** 5 deletable functions (~140 LOC with tests), 4 `pub → pub(crate)` tightenings.
 
-### 2. Narrowest-scope candidates
+#### 2. Narrowest-scope candidates
 
 Focused on the big offenders only, per scope:
 
 - `src/symmetry/density/real_space.rs::symmetrize_density` is `pub` → re-exported by facade. All non-test callers were removed by PCFX. `#[deprecated]` is correct and retained for test pinning (see §5). No action beyond that.
 - `src/eigensolver/iterative.rs:67,74` — `DEFAULT_TOL` / `DEFAULT_MAX_RESTARTS` are `pub const`; callers are only the module's own tests. Could be `pub(crate)`.
 
-### 3. `#[allow(dead_code)]` / `#[allow(unused)]`
+#### 3. `#[allow(dead_code)]` / `#[allow(unused)]`
 
 Exactly one hit crate-wide:
 
 - `src/gpu/mod.rs:45` — `#[allow(dead_code)]` on `BufferPool { real_bufs, real_staging, … }`. The fields are **allocated but never read** (verified: `real_bufs` / `real_staging` appear only in `BufferPool::new` and in the struct declaration — no getter, no consumer). The comment says "reserved for LDA XC pooled path" but LDA XC on GPU uses ephemeral buffers (`src/gpu/mod.rs` line ~600 and the bench). **Smell, not legit.** Either wire the pool into `lda_xc_grid` on GPU (separate PR) or drop the fields + the allocation sites (simpler, -~40 LOC incl. alloc scaffold).
 
-### 4. Orphan / stale module references
+#### 4. Orphan / stale module references
 
 - None. All `pub mod` declarations in `src/lib.rs`, `src/scf/mod.rs`, `src/symmetry/mod.rs`, `src/potential/mod.rs` resolve to live files. The MODR-A/C/D splits are clean.
 - **Doc-side orphan:** `proposals/HD5I-hdf5-io.md:141` still references `src/input.rs`, deleted by YAML migration (legacy #32). `INDEX.md:110` already flags this; HD5I body should be updated when the proposal unblocks, not now. Listed here for traceability only.
 
-### 5. `#[deprecated]` items
+#### 5. `#[deprecated]` items
 
 - `src/symmetry/density/real_space.rs:39` — `symmetrize_density`. **Legitimate.** All live callers are under `#[cfg(test)]` (see `real_space.rs:113` `#[allow(deprecated)]`) and `g_space.rs:417,473` cross-check tests. Pins the short-circuit + symmorphic (τ=0) behaviour the G-space form must match. Keep.
 
-### 6. Commented-out code
+#### 6. Commented-out code
 
 Grep for `^\s*//\s*(fn|pub fn|match|if let|for|let|use)\s` returns 5 hits, all descriptive prose (English sentences that happen to start with "for " or "let "). **No action.**
 
-### 7. TODO / FIXME ages
+#### 7. TODO / FIXME ages
 
 | Location | Tag | Age | Verdict |
 |---|---|---|---|
@@ -95,15 +98,15 @@ Grep for `^\s*//\s*(fn|pub fn|match|if let|for|let|use)\s` returns 5 hits, all d
 
 No other `TODO(`/`FIXME(`/`XXX`/`HACK` in `src/` or `tests/`. Prior backlog fully drained.
 
-### 8. Duplicated expressions flagged in MODR follow-up
+#### 8. Duplicated expressions flagged in MODR follow-up
 
 `ctx.v_local_g0 * ctx.n_electrons` appears 6 times in `src/scf/mod.rs` (lines 503, 512, 572, 944, 962, 1028). Originally MODR flagged 4 sites at lines 415/418/808/820; line numbers shifted post-PCFX. Small helper (`ctx.local_g0_shift()`) would collapse to a single expression. **Low priority** — pure stylistic consolidation.
 
-### 9. Config-gated dead code
+#### 9. Config-gated dead code
 
 `#[cfg(feature = "gpu")]` audit: every gated item has a non-gpu counterpart (CPU fallback path in `scf::mod` and `gpu::mod`'s `try_new() -> Option`). Clean.
 
-### 10. Unused `pub use` re-exports
+#### 10. Unused `pub use` re-exports
 
 All five crate-level `pub use` statements have external callers:
 
@@ -112,11 +115,11 @@ All five crate-level `pub use` statements have external callers:
 - `src/symmetry/mod.rs:8` `pub use operations::{SpaceGroupOp, SymmOp}` — used by `detect.rs`, `kpoints.rs`
 - `src/symmetry/density/mod.rs:30,32` — live facade
 
-### 11. Hand-rolled linear solver
+#### 11. Hand-rolled linear solver
 
 `src/scf/mixing/linalg.rs::solve_linear_system` (66 LOC Gauss-elim w/ partial pivoting). **Not dead** — 2 callers (`anderson.rs`, `broyden.rs`). Flagged in file docstring as "future swap" for `faer::linalg::solvers::PartialPivLu`. For 2–8 × 2–8 systems the cost is negligible, so this is taste/hygiene, not dead code. **Out of DEAD scope.**
 
-## Recommended cleanups (atomic, prioritised)
+### Recommended cleanups (atomic, prioritised)
 
 1. **Delete `v_local_matrix_element`** (`src/potential/local.rs:93-120` + its test). Zero callers; obsoleted by grid path.
    Impact: -~30 LOC, public surface -1. Risk: **low**.
@@ -148,7 +151,7 @@ All five crate-level `pub use` statements have external callers:
 
 Items 1–5 can ship as one PR ("delete 5 dead items, tighten 4 visibilities"); 6–8 are independent follow-ups.
 
-## What this is NOT
+### What this is NOT
 
 - **Not removing `#[deprecated] symmetrize_density`.** Test-pinning use is legitimate and documented in-file.
 - **Not triaging old TODOs into proposals.** None are stale; the only `FIXME` is fresh (1 day).
@@ -156,12 +159,12 @@ Items 1–5 can ship as one PR ("delete 5 dead items, tighten 4 visibilities"); 
 - **Not touching `src/scf/mixing/linalg.rs`.** Not dead; faer-LU swap is a separate (future) decision.
 - **Not rewriting HD5I** or other doc orphans — flagged for the owning role.
 
-## Open questions (for EM)
+### Open questions (for EM)
 
 1. **`BufferPool::{real_bufs, real_staging}`** — was the GPU LDA XC pooled path intentionally deferred, or is this a planning artefact? If deferred-with-intent, keep the allocation + add a tracking proposal; if forgotten, delete.
 2. **`fcc_high_sym_points`** — any intent to keep as a library convenience for downstream users building band paths programmatically? If yes, document + add a test; if no, delete.
 
-## Flagged for follow-up
+### Flagged for follow-up
 
 - `proposals/HD5I-hdf5-io.md:141` references `src/input.rs` (deleted). **Technical Writer** should retarget to YAML `Settings` when HD5I is picked up.
 - `src/scf/mixing/linalg.rs::solve_linear_system` — 66-LOC hand-rolled Gauss elim with a "swap to faer LU" note. **Core Engineer / Performance Engineer** call: at 2–8×2–8 sizes the swap is probably wash, but worth measuring before/after once MXBA / BROY iterations land.

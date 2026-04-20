@@ -31,7 +31,7 @@ Contribution per state: `S_n = σ × s(x)`.
 
 ## Free Energy and σ→0 Extrapolation
 
-```
+```text
 T×S = σ × spin_factor × Σ_{n,k} w_k × s(x_{n,k})
 F = E - T×S                    (Mermin functional, variational at finite σ)
 E₀ = (E + F) / 2 = E - T×S/2  (best estimate of T=0 energy)

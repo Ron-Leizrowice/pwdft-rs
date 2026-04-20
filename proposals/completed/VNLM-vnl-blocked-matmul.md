@@ -11,9 +11,9 @@ author: Performance Engineer
 date: 2026-04-18
 ---
 
-# VNLM — V_NL Hamiltonian assembly via single GEMM
+## VNLM — V_NL Hamiltonian assembly via single GEMM
 
-## Problem
+### Problem
 
 `NonlocalPotential::add_to_hamiltonian` (`src/potential/nonlocal.rs:118-208`) is
 the #2 SCF per-iteration cost after the dense eigensolve (post-FFTB/FMAD
@@ -29,7 +29,7 @@ At n_pw = 725 this is ~29 ms per k-point per SCF iteration, i.e. ~3 % of the
 eigensolve itself (836 ms) but the #2 line item. On Si/ecut = 200 with
 n_kpt = 10 and ~15 SCF iterations, this is ~4 s of wall time — worth claiming.
 
-## Root cause
+### Root cause
 
 The current implementation expands V_NL using the compact KB identity
 `Σ_m Y_lm(q̂) Y*_lm(q̂') = (2l+1)/(4π) P_l(cos θ)`, which folds the angular
@@ -37,7 +37,7 @@ dependence into a Legendre polynomial of `cos θ_{G,G'}`. This makes the inner
 summand *non-separable* in `(G, G')`, forcing a doubly-nested O(n_pw²) loop
 with an O(n_proj²) kernel body:
 
-```
+```text
 for ig in 0..n_pw {
     for jg in 0..n_pw {
         // O(n_proj²) projector sum with P_l(q̂_i · q̂_j)
@@ -47,19 +47,19 @@ for ig in 0..n_pw {
 }
 ```
 
-## Fix
+### Fix
 
 Restore the factorized form that QE uses
 (`qe-7.5/upflib/ylmr2_gpu.f90` and `init_us_2_acc.f90`). Define the KB
 projector matrix indexed by an expanded channel `(atom, radial_projector, m)`:
 
-```
+```text
 B[G, α] = (1/√Ω) · exp(−iG·τ_α) · F_{i_α}(|k+G|) · Y_{l_α m_α}(q̂_{k+G})
 ```
 
 Then
 
-```
+```text
 H_NL = B · D · B^H
 ```
 
@@ -90,7 +90,7 @@ arithmetic; in f64 it matches to ~1e-14, far below every existing tolerance
 (V_NL hermiticity 1e-10, diagonal shell degeneracy 1e-8, V_NL cross-check
 against Python reference 1e-6).
 
-## Baseline (Apple M3 Max, machine-locked, commit origin/main@9a5e9e9)
+### Baseline (Apple M3 Max, machine-locked, commit origin/main@9a5e9e9)
 
 criterion `hamiltonian/vnl_apply_*` on Si FCC:
 
@@ -100,15 +100,16 @@ criterion `hamiltonian/vnl_apply_*` on Si FCC:
 | 259  | 3.18 ms |
 | 725  | 27.4 ms |
 
-## Projected speedup
+### Projected speedup
 
 GEMM-vs-scalar-loop speedups on Apple M3 Max (NEON via faer/gemm):
+
 - ~5-10× at n_pw = 89 (GEMM setup overhead limits the low end);
 - ~10-20× at n_pw = 725 (loop cost fully dominates).
 
 Target: n_pw = 725: 27 ms → ~3 ms.
 
-## Measured result (Apple M3 Max, machine-locked, branch `VNLM/blocked-matmul`)
+### Measured result (Apple M3 Max, machine-locked, branch `VNLM/blocked-matmul`)
 
 | n_pw | vnl_apply before | vnl_apply after | speedup | vnl_new before | vnl_new after |
 |------|------------------|-----------------|---------|----------------|---------------|
@@ -127,7 +128,7 @@ Net V_NL cost per k-point over 15 SCF iterations at n_pw = 725:
 - After : `78 + 15 × 5.24 = 157 ms`
 - **Overall: 2.9× faster**
 
-## Note 2026-04-19 — `vnl_new` regression was bench noise (VNLT)
+### Note 2026-04-19 — `vnl_new` regression was bench noise (VNLT)
 
 The 1.4–1.8× `vnl_new` regression reported in the table above did NOT
 reproduce on any post-VNLM measurement. Investigated under FLUP entry VNLT
@@ -176,7 +177,7 @@ drop `vnl_new_n725` below 55 ms) was motivated by the apparent 78 → 43 ms
 gap. Because no regression exists, VNLB is struck from FLUP — see the
 VNLB entry in `proposals/FLUP-followup-backlog-seeding.md`.
 
-## Validation plan
+### Validation plan
 
 1. All existing tests pass with original `relative_eq!` tolerances. Critical
    ones: `tests/nonlocal_symmetry.rs` (hermiticity ≤ 1e-10, shell degeneracy
@@ -187,7 +188,7 @@ VNLB entry in `proposals/FLUP-followup-backlog-seeding.md`.
 3. `cargo test` on both feature flags; both `cargo clippy` invocations.
 4. `cargo bench --bench scf_benchmarks -- hamiltonian/vnl_` before + after.
 
-## Scope
+### Scope
 
 - `src/potential/nonlocal.rs` only. Adds a small `ylmr.rs` helper submodule
   or inlined real-spherical-harmonic routine (QE-style recurrence).
@@ -196,7 +197,7 @@ VNLB entry in `proposals/FLUP-followup-backlog-seeding.md`.
 - Does NOT touch `scf/mod.rs`, mixing modules, or symmetry (concurrent MODR
   / MXBA work).
 
-## Risks & mitigations
+### Risks & mitigations
 
 - **Numerical drift in pinned tests.** Mitigation: the addition theorem
   is exact; f64 errors from `sin/cos/sqrt` stay at ULP. If any pinned

@@ -10,9 +10,9 @@ blocks: [VQEF]
 owner: researcher
 ---
 
-# VGCH-2D — Fe LDA Class B diagnostic
+## VGCH-2D — Fe LDA Class B diagnostic
 
-## Context
+### Context
 
 VGCH-MECH (PR #168) fractured the heavy-atom residual into three
 mechanism classes. **Class B is a one-cell class**: Fe LDA, singled
@@ -48,7 +48,7 @@ Two suspects under VGCH-MECH § Class B:
 This proposal designs a single diagnostic that separates the two. It
 is diagnostic-only, ~1 CE-day, no code changes required.
 
-## Key additional facts from validation data
+### Key additional facts from validation data
 
 - **QE Fe LDA collapses to M = 0** (verified:
   `qe_validation/fe_bcc_fm_scf.out`, last iteration
@@ -73,9 +73,9 @@ is diagnostic-only, ~1 CE-day, no code changes required.
   disagreement is +11.5 eV — either PZ↔PW92 is anomalously large on
   transition metals, or it's riding on top of a spin-driver bug.
 
-## Hypotheses
+### Hypotheses
 
-### H-2D-A: PZ-vs-PW92 is the dominant driver.
+#### H-2D-A: PZ-vs-PW92 is the dominant driver
 
 **Prediction if true.** Running pwdft-rs Fe with a PW92 LDA
 correlation (replacing PZ) closes Fe LDA to a residual comparable to
@@ -104,7 +104,7 @@ move to ΔE_xc at shared density:
 meV and the Δone-e + ΔE_H + ΔE_NL residual is > 2 eV, PZ-vs-PW92 is
 not the dominant driver.
 
-### H-2D-B: Spin-driver (CCMX / driver_spin.rs) introduces a Hamiltonian-side bias on nspin=2.
+#### H-2D-B: Spin-driver (CCMX / driver_spin.rs) introduces a Hamiltonian-side bias on nspin=2
 
 **Prediction if true.** Running pwdft-rs Fe with nspin=1 (forced
 non-magnetic) produces a residual much smaller than nspin=2. The nspin=1
@@ -126,7 +126,7 @@ magnetization 0 (CCMX still active, but at ζ=0 throughout).
 within ≤ 500 meV of each other, the spin driver is NOT the dominant
 driver.
 
-### H-2D-C (null): Neither — escalate.
+#### H-2D-C (null): Neither — escalate
 
 **Prediction if true.** All four (PZ, PW92) × (nspin=1, nspin=2)
 runs give the same Fe LDA residual (±500 meV). Fe LDA's 11 eV
@@ -135,6 +135,7 @@ spin-driver bug; it's a deeper Hamiltonian-construction issue shared
 with the Class A cells but with a different fingerprint.
 
 In that case, escalate to:
+
 - Extending the Cu G=G' `D_ij · Σ β·β` cross-check (Class A H-C5) to
   Fe's d-projectors at shared density;
 - Auditing the Fe PP's `PP_RHOATOM` SAD seed for consistency with
@@ -145,7 +146,7 @@ In that case, escalate to:
   `test_fe_bcc_xc_nlcc_regression_guard` on the PZ path; the new
   pin would have to re-run that guard on PW92.
 
-## Experimental design
+### Experimental design
 
 Reuse the VGCH-2B transplant infrastructure on Fe with a small
 scope extension to cover all four PZ/PW92 × nspin combinations.
@@ -161,7 +162,7 @@ Path (b) is strictly smaller and is what I propose for session 1.
 If session 1 yields the H-2D-A 11 eV drop, we're done. If it yields
 a ≤ 2 eV drop, session 2 lands path (a) and runs the nspin=2 leg.
 
-### Matrix
+#### Matrix
 
 Run all four configurations and parse per-term energies:
 
@@ -198,7 +199,7 @@ Both pieces are small (<200 LOC) and self-contained to the
 diagnostic surface. Gate both behind `#[doc(hidden)]` so production
 users never see them.
 
-### Measured quantities (per configuration)
+#### Measured quantities (per configuration)
 
 For each of the four runs, record at iter 1 transplanted from ρ_QE:
 
@@ -213,7 +214,7 @@ For each of the four runs, record at iter 1 transplanted from ρ_QE:
 - Fermi level, entropy `TS`, per-k Γ-point eigenvalue table.
 - `Δρ(in, out) RMS` on the FFT grid.
 
-### Expected outcome interpretation table
+#### Expected outcome interpretation table
 
 | Measurement                       | H-2D-A dominant  | H-2D-B dominant      | Null    |
 |-----------------------------------|------------------|----------------------|---------|
@@ -235,6 +236,7 @@ scope: ~100 LOC rewire in `XcEvaluator::Pz` + sibling
 
 If the **nspin=1 − nspin=2 gap at fixed XC is > 5 eV**, H-2D-B is
 confirmed → escalate fix to a spin-driver audit:
+
 - CCMX basis-change rounding error on ρ_up ↔ (ρ_total + m)/2 and
   back;
 - `assemble_v_eff_spin` vs `assemble_v_eff` dispatch — do they route
@@ -245,7 +247,7 @@ If the **null row holds** (all four configurations give ≈ 11 eV), Fe
 LDA is not a correlation-functional or spin-driver issue. Escalate
 to deeper Hamiltonian-side audit — see H-2D-C.
 
-## Falsifiable predictions (summary for the logbook)
+### Falsifiable predictions (summary for the logbook)
 
 1. PW92 nspin=1 Fe iter-1 transplanted E_HF residual **< 2 eV**
    ⇒ H-2D-A confirmed.
@@ -257,7 +259,7 @@ to deeper Hamiltonian-side audit — see H-2D-C.
 4. All four configurations residual **≈ 11 eV** within 1 eV
    ⇒ null; escalate to H-2D-C investigation.
 
-## Deliverables
+### Deliverables
 
 - Extend `src/scf/transplant.rs` with
   `run_scf_iter1_from_rho_g_fft_spin` (nspin=2 variant) — gated
@@ -279,7 +281,7 @@ to deeper Hamiltonian-side audit — see H-2D-C.
   sub-cases. Prints per-term deltas; does not assert (diagnostic-
   only, like `tests/vgch_transplant_cu.rs`).
 
-## Acceptance
+### Acceptance
 
 Close VGCH-2D when:
 
@@ -291,7 +293,7 @@ Close VGCH-2D when:
    has been drafted with an explicit scope, based on the branch
    confirmed.
 
-## Cost
+### Cost
 
 - **Diagnostic run + analysis:** ~1 CE-day.
 - **Follow-up fix (conditional on H-2D-A):** ~1 CE-day — rewire
@@ -309,7 +311,7 @@ Close VGCH-2D when:
 - **Follow-up (conditional on H-2D-C null):** open as a new proposal;
   scope 3–5 CE-days.
 
-## Non-goals
+### Non-goals
 
 - Does NOT fix Fe LDA in this proposal. Diagnostic-only.
 - Does NOT modify the production `XcEvaluator::Pz` variant or the
@@ -320,7 +322,7 @@ Close VGCH-2D when:
 - Does NOT touch the other Class B candidates (none exist today;
   Fe LDA is the sole Class B cell per BSUM).
 
-## Risks
+### Risks
 
 - **PW92 spin-polarized helpers already exist but aren't tested at
   the Fe LSDA density regime.** `pw92_correlation_spin_au` lives in
@@ -349,7 +351,7 @@ Close VGCH-2D when:
   `#[doc(hidden)]` + Code Reviewer sign-off before the follow-up
   proposal lands.
 
-## Provenance
+### Provenance
 
 - VGCH-MECH Class B hypothesis (proposals/VGCH-MECH-mechanism-
   taxonomy.md:152–170).

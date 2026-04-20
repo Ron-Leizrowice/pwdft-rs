@@ -31,12 +31,14 @@ User directive (2026-04-19): "we should definitely bifurcate the test suite betw
 Split the test suite into two tiers, enforced by the `#[ignore]` attribute with a clear reason string:
 
 **Tier 1 — routine (`cargo test`):**
+
 - All in-`src/` unit tests.
 - Lightweight integration tests: free-electron bands, KB projector, parallel consistency, ScfParams validation, symmetry detection.
 - Any SCF-containing test that runs under ~5 s wall post-TPRF.
 - Target budget: **under 60 s wall for the full tier**.
 
 **Tier 2 — heavy (`cargo test -- --ignored`):**
+
 - Full SCF validation against QE (`tests/qe_validation.rs`).
 - `vgc5` per-component + MADOC band-sum identity on Si and Fe (SCF-heavy, conv≤1e-8).
 - Fe spin-polarization integration tests with tight convergence.

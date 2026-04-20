@@ -46,6 +46,7 @@ this test by >49×.
 ### Part C — docs
 
 Updated:
+
 - `src/scf/energy.rs` module docstring: added an NLCC section citing
   Louie-Froyen-Cohen PRB 26, 1738 (1982) and describing the
   Hartree/electron-count/LSDA-split invariants.
@@ -123,6 +124,7 @@ E_{xc} - E_{\text{dc}} = E_{xc}[\rho_{\text{val}} + \rho_{\text{core}}]
 $$
 
 Key invariants the implementation must preserve:
+
 1. $\rho_{\text{core}}$ is **not** added to the Hartree source (core is
    assumed not to contribute to $V_H$ at the NLCC approximation level).
 2. $\rho_{\text{core}}$ is **not** added to the valence electron count
@@ -269,6 +271,7 @@ Additionally:
 ## Estimated effort
 
 4 hours total:
+
 - Part A (unit tests): 1 h.
 - Part B (integration test + Fe PP setup): 2 h.
 - Part C (docs): 1 h.

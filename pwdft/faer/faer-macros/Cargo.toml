@@ -1,0 +1,28 @@
+[package]
+name = "faer-macros"
+version = "0.22.1"
+edition = "2021"
+authors = ["sarah quiñones <sarah@veganb.tw>"]
+description = "linear algebra library"
+readme = "../README.md"
+repository = "https://codeberg.org/sarah-quinones/faer"
+license = "MIT"
+keywords = ["math", "linear-algebra"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.103"
+quote = "1.0.42"
+syn = { version = "2.0.111", features = ["extra-traits", "printing", "visit", "visit-mut", "full"] }
+
+# Vendored upstream code. Opt out of pwdft-rs's lint policy — we track faer
+# for local patches (MAX_REORTH fix, see docs/FAER_ITERATE_LANCZOS_FIX.md),
+# not to gate on its internal style. Without this, workspace-member status
+# exposes faer to our CI's `-D warnings`, which would block every PR.
+[lints.rust]
+warnings = "allow"
+
+[lints.clippy]
+all = { level = "allow", priority = -1 }

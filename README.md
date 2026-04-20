@@ -45,7 +45,7 @@ cargo run --release -- --input examples/si_scf.yaml
 
 Output (printed to stderr):
 
-```
+```text
 SCF converged in 18 iterations
 Total energy: -215.583201 eV
 Fermi energy: 6.422810 eV
@@ -61,7 +61,7 @@ This writes a tab-separated file with columns `k_distance` and one column per ba
 
 ### CLI reference
 
-```
+```text
 pwdft-rs --input <path>     Path to YAML input file (required)
          --output <path>    Output file for band structure TSV (default: stdout)
 ```
@@ -171,7 +171,7 @@ kpoints:
 
 ### Source tree
 
-```
+```text
 src/
   main.rs               CLI entry point (clap). Dispatches to band structure or SCF.
   lib.rs                Public module exports.
@@ -248,7 +248,7 @@ src/
 
 `scf::run_scf` in `src/scf/mod.rs` is a thin validation-and-dispatch layer. The actual hot loop lives in `src/scf/driver.rs` (`run_scf_unpolarized`, `nspin=1`) and `src/scf/driver_spin.rs` (`run_scf_spin`, `nspin=2`). Both implement the standard Kohn-Sham DFT algorithm:
 
-```
+```text
 1. Build V_local on FFT grid (spherical Bessel transform of pseudopotential)
    If any PP has NLCC, also build rho_core(r) on the grid (enters XC only)
 2. Initialize electron density via SAD (superposition of atomic densities)

@@ -13,7 +13,7 @@ archived_reason: Superseded by ITEV (faer's native partial_self_adjoint_eigen). 
 # DVSN: Iterative Eigensolver (Davidson / LOBPCG) — ARCHIVED
 
 > **ARCHIVED 2026-04-19.** Superseded by ITEV. `faer::partial_self_adjoint_eigen` (Arnoldi / Krylov-Schur) handles the same problem with no custom code — see `proposals/ITEV-faer-partial-eigen.md` for the active path. Keep this file for historical context only.
-
+>
 > **Note:** Line numbers reference the pre-ScfContext codebase. Proposal 01 (faer) is now completed. Verify locations before implementing.
 
 ## Problem
@@ -168,7 +168,7 @@ fn precondition_residual(
 
 LOBPCG is block-based (all n_bands vectors updated simultaneously) and has better parallel scaling than Davidson. It's the default in ABINIT and GPAW. The core iteration is:
 
-```
+```text
 X_{k+1} = argmin(Rayleigh quotient) over span(X_k, W_k, P_k)
 where W_k = preconditioned residuals, P_k = previous search directions
 ```

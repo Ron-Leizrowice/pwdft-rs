@@ -1,0 +1,37 @@
+&CONTROL
+  calculation = 'scf'
+  prefix = 'c_pbe'
+  outdir = './tmp_pbe'
+  pseudo_dir = '../../../pseudopotentials/nc/pbe'
+  verbosity = 'high'
+  disk_io = 'low'
+  max_seconds = 540
+/
+&SYSTEM
+  ibrav = 2
+  celldm(1) = 6.7409
+  nat = 2
+  ntyp = 1
+  ecutwfc = 36.0
+  ecutrho = 144.0
+  input_dft = 'pbe'
+  occupations = 'smearing'
+  smearing = 'fermi-dirac'
+  degauss = 0.01
+  nspin = 1
+/
+&ELECTRONS
+  conv_thr = 1.0d-8
+  mixing_beta = 0.3
+  electron_maxstep = 60
+  diagonalization = 'david'
+/
+ATOMIC_SPECIES
+  C  12.011  C.upf
+
+ATOMIC_POSITIONS crystal
+  C 0.00 0.00 0.00
+  C 0.25 0.25 0.25
+
+K_POINTS automatic
+  4 4 4  0 0 0

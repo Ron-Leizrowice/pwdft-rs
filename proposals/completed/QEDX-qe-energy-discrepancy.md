@@ -8,26 +8,28 @@ depends_on: [SIMP, VERF]
 blocks: [QEVL]
 ---
 
+# QEDX: QE Energy Discrepancy
+
 ## Completion note
 
 **Superseded 2026-04-17 by VGCMP.** SIMP closed the Fe gap; VERF
 cosmetic; VGCMP Phases 1+2 ruled out V_local(G) and β_l(q). Remaining
 Si gap continues under VGCMP Phase 3+4.
 
-# QEDX: Systematic Energy Discrepancy vs QE
+## QEDX: Systematic Energy Discrepancy vs QE
 
-## Problem
+### Problem
 
 pwdft-rs SCF total energies differ from QE 7.5 by 13–45 eV depending on the material, using the same pseudopotentials (PseudoDojo ONCV LDA), same ecut (15 Ry), same k-grid (4×4×4), and same smearing (Fermi-Dirac σ=0.01 Ry). Eigenvalue degeneracies that should be exact by symmetry are broken.
 
-### Reproduction
+#### Reproduction
 
 ```bash
 # Run QE references (results already in qe-7.5/runs/{si,c,fe}_pseudodojo/)
 cargo test --release --test qe_validation -- --nocapture
 ```
 
-### Measured discrepancies
+#### Measured discrepancies
 
 | System | Atoms | Z_val | QE energy (eV) | Our energy (eV) | ΔE (eV) | ΔE/el (eV) | Status |
 |--------|-------|-------|-----------------|------------------|---------|-------------|--------|
@@ -35,15 +37,15 @@ cargo test --release --test qe_validation -- --nocapture
 | C diamond | 2 | 4 | -312.51 | — | — | — | Does not converge |
 | Fe BCC | 1 | 16 | -3059.46 | -3104.83 | 45.4 | 2.84 | Converges (16 iter) |
 
-### Eigenvalue degeneracy breaking
+#### Eigenvalue degeneracy breaking
 
 In Si (FCC) at Gamma, bands 2-4 should be triply degenerate. QE gives 6.080, 6.080, 6.080 eV. We give -1.04, 3.75, 3.76 eV — completely wrong pattern and magnitude.
 
 In Fe (BCC) at Gamma, bands 2-4 (3p semicore) should be triply degenerate. QE gives -46.50, -46.50, -46.50 eV. We give -44.86, -44.86, -38.56 eV — one state is split by 6 eV.
 
-## Research: What's validated, what's suspect
+### Research: What's validated, what's suspect
 
-### Root cause identified (April 2026 audit)
+#### Root cause identified (April 2026 audit)
 
 A comprehensive line-by-line comparison against QE 7.5 source code verified all 18 core formulas, unit conversions, and conventions as correct. The discrepancy is traced to **radial quadrature quality** — see Proposals 38 and 39 for the fix:
 
@@ -53,7 +55,7 @@ A comprehensive line-by-line comparison against QE 7.5 source code verified all 
 
 The per-electron error scaling with Z (Si 1.66 eV/el vs Fe 2.84 eV/el) is consistent: the near-origin singularity grows with Z_valence.
 
-### Validated components (expanded in April 2026 audit)
+#### Validated components (expanded in April 2026 audit)
 
 | Component | Test | Status |
 |-----------|------|--------|
@@ -71,7 +73,7 @@ The per-electron error scaling with Z (Si 1.66 eV/el vs Fe 2.84 eV/el) is consis
 | **Slater exchange + PZ correlation** | All parameters, derivatives, unit chain | **Correct** |
 | **Spin-polarized LSDA** | f(zeta), exchange, correlation interpolation | **Correct** |
 
-### Original suspect components (pre-audit)
+#### Original suspect components (pre-audit)
 
 **1. V_local Fourier transform — CONFIRMED: QUADRATURE QUALITY ISSUE**
 
@@ -93,14 +95,14 @@ FFT convention is consistent. Hamiltonian assembly via Miller index lookup is co
 
 Matches QE exactly.
 
-## Implementation: Fix Plan
+### Implementation: Fix Plan
 
 The root cause is identified. Fix via Proposals 38 and 39:
 
 1. **Proposal 38: Simpson's rule** — Replace O(h^2) sum with O(h^4) Simpson in all 4 radial integral sites. Highest impact, lowest risk. ~1-2 hours.
 2. **Proposal 39: erf subtraction** — Adopt QE's erf/r decomposition for V_local(G!=0). Only needed if Proposal 38 alone is insufficient. ~1-2 hours.
 
-### Remaining diagnostics (if Proposals 38+39 are insufficient)
+#### Remaining diagnostics (if Proposals 38+39 are insufficient)
 
 These steps from the original investigation remain valid as fallback diagnostics:
 
@@ -108,7 +110,7 @@ These steps from the original investigation remain valid as fallback diagnostics
 - **V_local(G) point-by-point comparison:** Extract QE V_local(G) via pp.x and compare.
 - **Per-component energy printout:** Log E_band, E_H, E_xc, E_vxc, E_ewald individually.
 
-## Verification
+### Verification
 
 1. Si total energy within 0.1 eV of QE (-231.61 eV)
 2. C diamond converges and matches QE within 0.1 eV
@@ -116,6 +118,6 @@ These steps from the original investigation remain valid as fallback diagnostics
 4. All eigenvalue degeneracies exact to 1e-4 eV at Gamma
 5. `cargo test --release --test qe_validation` passes with all assertions < 0.5 eV
 
-## Estimated Effort
+### Estimated Effort
 
 2-4 hours total via Proposals 38 and 39. The root cause is understood; implementation is mechanical.

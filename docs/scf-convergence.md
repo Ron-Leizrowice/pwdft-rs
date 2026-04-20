@@ -16,7 +16,7 @@ Dual criterion — **both** must be satisfied:
 
 ## Linear Mixing
 
-```
+```text
 ρ_in^{n+1} = ρ_in^n + α R^n
 ```
 
@@ -26,7 +26,7 @@ where `R^n = ρ_out^n - ρ_in^n` and `α = mixing_beta`.
 
 Construct optimal linear combination of history:
 
-```
+```text
 ρ̄_in = Σ_i c_i ρ_in^{n-m+i},   Σ c_i = 1
 ```
 
@@ -37,7 +37,7 @@ Minimize `|R̄|² = Σ_{ij} c_i c_j ⟨R^i|R^j⟩` subject to the constraint.
 The constraint `Σ c_i = 1` is embedded by eliminating the last coefficient:
 `α_last = 1 - Σ α_prev`. The system solves for m-1 coefficients via:
 
-```
+```text
 A[i,j] = ΔR_i · ΔR_j     (where ΔR_i = R_i - R_last)
 b[i] = -ΔR_i · R_last
 ```
@@ -59,7 +59,7 @@ failing.
 Alternative to DIIS. Builds an approximate inverse Jacobian `J^{-1}` from the
 history of density residuals and applies Newton-style updates:
 
-```
+```text
 ρ_in^{n+1} = ρ_in^n - β J_n^{-1} R^n
 ```
 
@@ -90,7 +90,7 @@ by `pulay_period` (default 3).
 
 Damps long-wavelength charge sloshing:
 
-```
+```text
 R̃(G) = [|G|² / (|G|² + q_TF²)] × R(G)
 ```
 

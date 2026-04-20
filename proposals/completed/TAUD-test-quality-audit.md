@@ -53,6 +53,7 @@ exactly the bug that hid the Fe BCC false convergence. Each one
 ## Per-Finding Table
 
 Severity legend:
+
 - **critical** — would mask a bug that silently changes physics / total energy
 - **high** — masks bugs that change assertions by >10× the natural scale
 - **medium** — documentation drift; test still runs correctly
@@ -82,7 +83,7 @@ Severity legend:
 | # | Severity | File:line | Description | Suggested fix |
 |---|----------|-----------|-------------|---------------|
 | 2.1 | **high** | `tests/spin_polarization.rs:87-90` | `assert!(de < 0.5, ...)` — 0.5 eV tolerance on a Si nspin=1 vs nspin=2 energy comparison where the expected difference is machine-zero (same physics in the unpolarized limit). SPNC demonstrated this system reaches O(µeV). | Tighten to `de < 1e-3` (or, better, measure the actual value and set at 10× empirical). |
-| 2.2 | **high** | `tests/spin_polarization.rs:93-96` | `assert!(r2.magnetization < 0.1, ...)` — Si is non-magnetic; M should be exactly 0 at convergence. 0.1 µB is 10% of a full electron spin. | Tighten to `r2.magnetization < 1e-3` or `.abs() < 1e-3`. Note: the test uses `<` not `.abs() < ` which allows arbitrarily-negative magnetization. Fix both. |
+| 2.2 | **high** | `tests/spin_polarization.rs:93-96` | `assert!(r2.magnetization < 0.1, ...)` — Si is non-magnetic; M should be exactly 0 at convergence. 0.1 µB is 10% of a full electron spin. | Tighten to `r2.magnetization < 1e-3` or `.abs() < 1e-3`. Note: the test uses `<` not `.abs() <` which allows arbitrarily-negative magnetization. Fix both. |
 | 2.3 | high | `tests/spin_polarization.rs:247-249` | `assert!((r.magnetization - 2.0).abs() < 0.5, ...)` — fixed-mag=2 should give *exactly* 2.0 by construction (it's a constraint, not an observable). 0.5 µB is huge. Becomes moot if 1.2 is fixed (test deleted). | Tighten to `< 1e-6` if the test is kept at all. |
 | 2.4 | medium | `tests/gpu_consistency.rs:100-103` | `assert!(rel < 1e-3, ...)` for Hartree GPU-vs-CPU. Hartree is a linear operator — its GPU/CPU comparison should be bounded by f32 relative precision (~1e-6) per op times a few ops, so 1e-5 is the right scale. 1e-3 is 100× looser than needed. | Tighten to `1e-5` and watch for which case (if any) triggers failure — that will tell us where f32 loses precision. |
 | 2.5 | medium | `tests/gpu_consistency.rs:255-259` | `gpu_result.total_energy < -100.0 && > -300.0` — a 200 eV-wide window for a Si energy that is known to be around -212 eV. This is an "is it in the zip code" check. | Replace with a specific value ± tolerance, e.g. `(total_energy + 212.0).abs() < 1.0`. Cross-reference against the single-threaded `parallel_consistency` golden value. |
@@ -130,6 +131,7 @@ Severity legend:
 Group into PR-sized chunks (each < 1 hour of Core Engineer work):
 
 ### PR A — Silent-pass critical fixes (5 tests)
+
 Handles findings **1.1, 1.3, 1.4, 1.5, 1.7**. Straight mechanical edits:
 replace `match`/`if let` on `Result<ScfResult, _>` with `.expect("...")`.
 For the "Both Err" cases (1.5) swap `eprintln!` for `panic!`.
@@ -143,6 +145,7 @@ proposal (the bug was there all along; we just started looking).
 **Validation:** `cargo test` (CPU) and `cargo test --features gpu` (GPU) must both pass post-fix. If any fail, open a follow-up.
 
 ### PR B — Delete or invert the Fe fixed-mag test (1 test)
+
 Finding **1.2**. Per SPNC `proposals/SPNC-spin-per-density-convergence.md`
 §Empirical Result, Fe BCC fixed-mag=2 is known to diverge under the current
 pseudopotential. The test's `Ok` branch is unreachable; the test exists
@@ -156,6 +159,7 @@ review.
 **Files:** `tests/spin_polarization.rs`.
 
 ### PR C — Tolerance tightening (6 call sites)
+
 Findings **2.1, 2.2, 2.3, 2.4, 2.5 (and 2.8), 2.6, 2.7**.
 Mechanical constant edits, but each requires running the affected test
 once to confirm the tighter tolerance still passes (or to set a
@@ -165,6 +169,7 @@ data-driven value).
 **Expected risk:** some tests may now fail → either the current assertion is wrong (code bug) or the empirical value is noisier than we thought. Both are valuable discoveries.
 
 ### PR D — Unignore `test_vloc_comparison_with_qe`
+
 Finding **3.1**. Remove the `#[ignore]`, run the test. If it passes, great —
 the VERF work transitively fixed KB test 11 as well. If it fails, tighten
 the tolerance to something data-driven (current hardcoded `0.5 eV` from
@@ -173,11 +178,13 @@ line 1015-1022 is already loose) or open a follow-up proposal.
 **Files:** `tests/kb_projector_validation.rs`.
 
 ### PR E — Convergence-variant specificity (1 file)
+
 Finding **5.3**. Replace `.is_err()` with `matches!(..., Err(PwdftError::ConvergenceFailure { .. }))` in `test_scf_serial_vs_parallel`.
 
 **Files:** `tests/parallel_consistency.rs`.
 
 ### Deferred (not in this audit's output PRs)
+
 - Finding **4.2** (delete `tests/fe_debug.rs`): wait for VGCMP Phase 2 landing.
 - Finding **3.2** (QE validation `#[ignore]`s): unignore as VGCMP phases close the gap.
 

@@ -36,6 +36,7 @@ if atom_i == atom_j && t_is_zero { continue; }
 ### 3. Missing edge case tests
 
 The test suite verifies NaCl Madelung energy and basic properties but lacks:
+
 - Zero charges (should give zero energy)
 - Charged supercell (non-zero background correction)
 - Highly anisotropic cells (one very short axis)

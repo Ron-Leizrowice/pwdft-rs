@@ -37,7 +37,7 @@ for i in 0..n {
 
 QE's Simpson implementation (`qe-7.5/upflib/simpsn.f90:9-54`) computes:
 
-```
+```text
 result = (1/3) × [c_1 f_1 rab_1 + c_2 f_2 rab_2 + ... + c_n f_n rab_n]
 ```
 
@@ -172,6 +172,7 @@ cargo clippy -q --all-targets                              # no new warnings
 ```
 
 **Success criteria:**
+
 - Si total energy within 1.0 eV of QE (currently 13.3 eV off). If within 0.1 eV, Proposal 39 is unnecessary.
 - Eigenvalue degeneracies at Gamma improve (bands 2-4 splitting < 0.1 eV, currently ~5 eV).
 - All existing tests pass unchanged (the integrals converge to the same values on fine grids, just more accurately).

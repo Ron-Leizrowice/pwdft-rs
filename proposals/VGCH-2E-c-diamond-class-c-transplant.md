@@ -10,9 +10,9 @@ blocks: [VQEF]
 author: Researcher (2026-04-20, VGCH-MECH Class C diagnostic)
 ---
 
-# VGCH-2E — C diamond Class C transplant diagnostic
+## VGCH-2E — C diamond Class C transplant diagnostic
 
-## One-line finding
+### One-line finding
 
 **C diamond is Class A at light-atom magnitude.** The VGCH-2B transplant
 harness seeded pwdft-rs with QE's converged C-diamond density ρ_QE and
@@ -20,7 +20,7 @@ ran one SCF iteration; the per-term residuals show the same opposite-sign
 one-electron / Hartree partial cancellation fingerprint as Cu, Fe PBE,
 GaAs, NaCl, MgO — just 10× smaller.
 
-## What was run
+### What was run
 
 - QE regen: 4×4×4 Γ-centered, ecut=30 Ry, Fermi-Dirac σ=0.01 Ry,
   `disk_io='medium'` (the committed `qe_validation/c_diamond_scf.in`
@@ -39,7 +39,7 @@ GaAs, NaCl, MgO — just 10× smaller.
   `vgch_transplant_cu.rs` byte-for-byte except crystal/PP/FFT-grid).
 - Diagnostic wall: 1 min compile + 0.25 s run.
 
-## Per-component residuals at shared density ρ_QE (iter-1)
+### Per-component residuals at shared density ρ_QE (iter-1)
 
 Units: eV. `Δ = pwdft_iter1 − QE_converged`.
 
@@ -52,6 +52,7 @@ Units: eV. `Δ = pwdft_iter1 − QE_converged`.
 | **Total**    |      −322.1303 |      −324.4065 |      **+2.276** |
 
 One-electron breakdown (eV):
+
 - E_kin = +216.2223
 - E_loc (G≠0) = −91.7539
 - E_loc (G=0)·N_el = 0 (post-VGCH-SiEF-B1 gauge)
@@ -74,18 +75,18 @@ Fermi energy: pwdft 15.8987 vs QE 15.8873 → **ΔE_F = +11.4 meV**.
 Δρ_rms (in-out) = 2.16e-2 e/Å³. `|E_HF − E_KS|` = 0.830 eV (the E_HF
 pair-gauge mismatch scales with the Hartree residual, as expected).
 
-## Classification: Class A mechanism at light-atom magnitude
+### Classification: Class A mechanism at light-atom magnitude
 
 Two observations pin this:
 
-### 1. The opposite-sign ΔE_1e / −ΔE_H signature is present
+#### 1. The opposite-sign ΔE_1e / −ΔE_H signature is present
 
 `|ΔE_1e| / |−ΔE_H|` = **1.866 / 0.830 = 2.25** — inside the Class A
 range [1.2, 2.9] documented in VGCH-MECH (Cu 2.9×, MgO 2.2×, NaCl 1.8×,
 GaAs 1.5×, etc.). This is the quantitative fingerprint of "functional
 disagrees at the same density" that VGCH-2B identified on Cu.
 
-### 2. The gap is 2.28 eV at shared ρ, but only 1.45 eV at independent convergence
+#### 2. The gap is 2.28 eV at shared ρ, but only 1.45 eV at independent convergence
 
 This is a new constraint. Reported in the `test_c_diamond_vs_qe`
 docstring, the SCF-converged per-term split is:
@@ -98,14 +99,14 @@ opposite sign from what a pure "mixer basin" hypothesis (Class C
 original) would predict: if pwdft-rs were hung up in a local minimum,
 seeding ρ_QE should pull the per-component gap *down*, not up.
 
-### 3. E_F is essentially correct — Class C is NOT Fermi-finder
+#### 3. E_F is essentially correct — Class C is NOT Fermi-finder
 
 11.4 meV matches Fermi-finder noise. Compare Cu shared-density E_F gap
 of 2.08 eV (1.82 eV of it pure DOS/occupation origin per VGCH Part C
 session-1). C diamond's E_F at ρ_QE is bit-correct to smearing noise.
 Removes one of three hypotheses I came in with.
 
-### 4. Anderson mixer stall on Plain is irrelevant
+#### 4. Anderson mixer stall on Plain is irrelevant
 
 VQEF-QC (#144) found Plain Anderson stalls at Δρ≈1.75e-8 at 150 iters;
 Broyden+Kerker converges in 12 iters to the same 1.45 eV residual as
@@ -114,7 +115,7 @@ and reaches the shared-density point in one iteration with
 Δρ = 2.16e-2 e/Å³ — the mixer-stall angle was a red herring (MIXA
 pinned it as a conditioning regression, not a physics residual).
 
-## Revised mechanism hypothesis
+### Revised mechanism hypothesis
 
 **Primary (most likely):** C diamond carries the same mechanism as
 Class A heavy-atom cells, just at light-atom magnitude. The specific
@@ -157,7 +158,7 @@ candidates that now apply to BOTH Class A and Class C:
   even Cu's resolved finder noise (VGCH-2C ~μeV on converged
   eigenvalues + weights).
 
-## Proposed follow-up experiment to confirm NLCC hypothesis
+### Proposed follow-up experiment to confirm NLCC hypothesis
 
 The one-line test: **rerun C transplant with the same harness but at
 ecut=60 Ry AND n_bands=16 AND NLCC cross-pinned against QE.**
@@ -186,7 +187,7 @@ Concretely:
 
 Total: ~0.5 CE-day for steps 1+2. Step 3 is ~1.5 CE-days if needed.
 
-## Acceptance criteria
+### Acceptance criteria
 
 1. Per-component residual table committed to this proposal (done — see
    above).
@@ -204,7 +205,7 @@ Total: ~0.5 CE-day for steps 1+2. Step 3 is ~1.5 CE-days if needed.
    hypothesis inherits the case and VGCH-2 Part C's ordering needs
    re-shuffling (H-C5 moves above H-C4).
 
-## Artifacts (this proposal)
+### Artifacts (this proposal)
 
 - `tests/vgch_transplant_c.rs` — Tier-2 test, 280 LOC, mirrors the
   VGCH-2B Cu harness. Gated on QE density bundle at
@@ -215,7 +216,7 @@ Total: ~0.5 CE-day for steps 1+2. Step 3 is ~1.5 CE-days if needed.
   reproducibility (not committed; recipe in
   `tests/vgch_transplant_c.rs` header).
 
-## Out of scope
+### Out of scope
 
 - C PBE transplant — a 15-minute rerun with `pp_c = load_pp` pointed
   at `pseudopotentials/nc/pbe/C.upf` and `XcFunctional::Pbe` on the
@@ -227,7 +228,7 @@ Total: ~0.5 CE-day for steps 1+2. Step 3 is ~1.5 CE-days if needed.
 - Any changes to `src/scf/transplant.rs` — the existing harness was
   designed to be geometry-agnostic and handled C as-is.
 
-## Provenance
+### Provenance
 
 - VGCH-MECH (#168) — Class C scope carved out, "might be Class A at
   smaller magnitude" flagged as the mitigation risk.

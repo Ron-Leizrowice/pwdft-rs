@@ -14,13 +14,14 @@ This produces a wall of text for long calculations (50+ iterations). Users must 
 
 `indicatif` provides progress bars and spinners that would give at-a-glance status:
 
-```
+```text
 SCF [████████░░░░░░░░] 12/50  E_f=-5.284 eV  Δρ=2.3e-04  [18s elapsed, ~25s remaining]
 ```
 
 ## Dependencies
 
 Add:
+
 ```toml
 indicatif = ">=0.17"
 ```
@@ -53,11 +54,13 @@ pb.set_message(format!("{fermi_energy:.4} eV  Δρ={delta:.1e}"));
 ```
 
 On convergence (line 289):
+
 ```rust
 pb.finish_with_message(format!("converged at {:.6} eV (Δρ={delta:.1e})", fermi_energy));
 ```
 
 On failure (line 325):
+
 ```rust
 pb.abandon_with_message("did not converge");
 ```

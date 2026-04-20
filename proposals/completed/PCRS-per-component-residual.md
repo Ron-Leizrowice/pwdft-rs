@@ -21,7 +21,7 @@ incompatible with space-group fractional translations).
 VGC5 Phase 5 (PR #34, 2026-04-17) instrumented per-component SCF
 energies and observed that for Si diamond, the identity
 
-```
+```text
 E_total = E_kinetic + E_local + E_local_G0_shift + E_nonlocal
         + E_Hartree + E_xc + E_ewald
 ```
@@ -40,7 +40,7 @@ structural bookkeeping bug.
 
 From `qe_validation/si_scf.out`:
 
-```
+```text
 one_electron + hartree + xc + ewald = -17.02213518 Ry
 internal E (= F - (-TS))            = -17.02213518 Ry
 Δ = 0.000e+00 Ry
@@ -103,8 +103,10 @@ identity closes. In practice:
 - `src/symmetry/density.rs::symmetrize_density` applies each space-group
   operation `S = {R | τ}` by mapping grid indices via a `round()`-based
   `nint` at `src/symmetry/density.rs:12-16` / `:75-77`.
+
 - For Si Fd-3m (space group 227), non-symmorphic generators have
   fractional translation **τ = (1/4, 1/4, 1/4)**.
+
 - Our FFT grid for Si at ecut=15 Ry is **18 × 18 × 18**, and
   **18 is not divisible by 4**. So `nint(n · τ_i)` rounds a half-integer
   (`4.5 → 5` in Rust), and the inverse operation rounds back to a
@@ -132,7 +134,7 @@ per-term identity closes bit-exactly.
 Subtracting the sum of components from `total_energy` and back-solving
 for the implied `e_vxc` reproduces the correct self-consistent identity:
 
-```
+```text
 e_vxc_from_total_energy_bookkeeping    = -85.3128 eV  (∫ρ_sym · V_xc dr)
 e_vxc_implied_by_band_identity          = -86.5169 eV  (∫ρ_ψ · V_xc dr)
 difference                               = +1.2041 eV  ≡  the residual

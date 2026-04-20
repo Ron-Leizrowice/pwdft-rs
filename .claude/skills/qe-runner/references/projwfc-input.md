@@ -11,7 +11,7 @@ For k-resolved PDOS (fat bands), use the same k-path as the bands calculation in
 
 ## Input file structure
 
-```
+```text
 &PROJWFC
   ... parameters ...
 /
@@ -42,6 +42,7 @@ For k-resolved PDOS (fat bands), use the same k-path as the bands calculation in
 ## Example: Total and projected DOS
 
 **Step 1 — NSCF with dense k-grid:**
+
 ```fortran
 &CONTROL
   calculation = 'nscf'
@@ -72,6 +73,7 @@ K_POINTS {automatic}
 ```
 
 **Step 2 — projwfc.x:**
+
 ```fortran
 &PROJWFC
   prefix   = 'si'
@@ -117,7 +119,8 @@ projwfc.x produces several output files:
 | `filpdos.pdos_tot` | Total DOS |
 
 Example filenames for Si with 2 atoms:
-```
+
+```text
 si.pdos_atm#1(Si)_wfc#1(s)
 si.pdos_atm#1(Si)_wfc#2(p)
 si.pdos_atm#2(Si)_wfc#1(s)
@@ -128,7 +131,8 @@ si.pdos_tot
 ### File format
 
 Each PDOS file has columns:
-```
+
+```text
 # E (eV)   ldos(E)   pdos(E)
 -12.000    0.0000    0.0000
 -11.990    0.0001    0.0001
@@ -146,9 +150,11 @@ If `filproj` is set, projwfc.x writes the projection coefficients |⟨φ_i|ψ_nk
 ## Parsing for validation
 
 For comparing DOS against pwdft-rs:
+
 - The `.pdos_tot` file gives the total DOS on a uniform energy grid
 - Individual PDOS files give atom- and orbital-resolved contributions
 - Column format is simple: energy (eV) followed by DOS values (states/eV)
 
 For band character comparison:
+
 - The `filproj` file contains |⟨φ_i|ψ_nk⟩|² — these should sum to ~1 for each (n,k) if the projection basis is complete

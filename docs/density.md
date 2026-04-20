@@ -2,7 +2,7 @@
 
 ## Density from Wavefunctions
 
-```
+```text
 ρ(r) = Σ_{n,k} f_{n,k} w_k |ψ_{n,k}(r)|²
 ```
 
@@ -35,23 +35,25 @@ are larger.
 
 For each atom with pseudopotential data `4πr²ρ_atom(r)`:
 
-```
+```text
 ρ_atom(G) = (1/Ω) ∫ [4πr²ρ(r)] j₀(|G|r) dr × S(G)
 ```
 
 UPF `PP_RHOATOM` stores `4πr²ρ(r)`, so no extra factor is needed.
 
 If PP_RHOATOM is unavailable, falls back to a Gaussian model:
-```
+
+```text
 ρ_atom(G) = (Z_val/Ω) exp(-|G|²σ²/2) × S(G)
 ```
+
 with σ = 1.0 Å.
 
 **Code:** `src/scf/initial_density.rs`
 
 ### Spin-polarized initialization
 
-```
+```text
 ρ_up = (1+m)/2 × ρ
 ρ_down = (1-m)/2 × ρ
 ```
@@ -69,7 +71,7 @@ These are clamped to 0.0 before XC evaluation.
 
 | Item | Status |
 |------|--------|
-| ρ = Σ f w |ψ|² | CORRECT |
+| ρ = Σ f w | ψ |
 | FFT + normalization | CORRECT (rescaled at end) |
 | Parallel reduction | CORRECT |
 | SAD Bessel transform | CORRECT (formula) |

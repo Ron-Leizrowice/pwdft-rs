@@ -4,19 +4,20 @@
 
 `src/symmetry/density.rs` has an inconsistency between how fractional coordinates are mapped to grid indices in two different code paths:
 
-### `symmetrize_density()` uses `round()` (line 65):
+### `symmetrize_density()` uses `round()` (line 65)
 
 ```rust
 let jx = ((fp[0] * nx as f64).round() as i64 % nx as i64 + nx as i64) as usize % nx;
 ```
 
-### `check_grid_compatibility()` / `frac_to_grid_index()` uses `floor()` (line 95):
+### `check_grid_compatibility()` / `frac_to_grid_index()` uses `floor()` (line 95)
 
 ```rust
 f -= (f + 0.5).floor();  // wrap to [-0.5, 0.5)
 ```
 
 `round()` and `floor()` disagree at half-integer boundaries. For a 10×10×10 grid, fractional coordinate `f = 0.05` maps to grid index:
+
 - `round(0.05 × 10) = round(0.5) = 1` (rounds up)
 - `floor(0.05 × 10) = floor(0.5) = 0` (rounds down)
 

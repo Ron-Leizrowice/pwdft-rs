@@ -15,15 +15,18 @@ blocks: []
 When the SCF loop fails to converge, the reported `delta` in the error is always wrong:
 
 **Unpolarized** (`src/scf/mod.rs:340-343`):
+
 ```rust
 Err(PwdftError::ConvergenceFailure {
     iterations: ctx.params.max_iter,
     delta: density_diff(&rho_r, &rho_r, ctx.omega, ctx.n_grid), // rho_r vs rho_r = 0!
 })
 ```
+
 This compares `rho_r` with itself, which is always 0.
 
 **Spin-polarized** (`src/scf/mod.rs:597-600`):
+
 ```rust
 Err(PwdftError::ConvergenceFailure {
     iterations: ctx.params.max_iter,

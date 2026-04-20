@@ -13,7 +13,7 @@ archived_reason: Sparsity assumption is wrong for this codebase. The plane-wave 
 # SPRS: Sparse Matrix Support — ARCHIVED
 
 > **ARCHIVED 2026-04-19.** Sparsity assumption is wrong for plane-wave DFT: the KS Hamiltonian in a plane-wave basis is structurally dense because V_eff enters as a G-space convolution. Sparse storage would pay off only in real-space-grid or atomic-orbital bases; this project uses neither. Keep this file for historical context only.
-
+>
 > **Note:** Line numbers reference the pre-ScfContext codebase. Proposal 01 (faer) is now completed — faer's own `SparseColMat` may be preferable to adding sprs.
 
 ## Motivation
@@ -38,11 +38,13 @@ This structure is exploitable by iterative eigensolvers, which need only the mat
 ## Dependencies
 
 Add:
+
 ```toml
 sprs = { version = ">=0.11", optional = true }
 ```
 
 Behind a feature flag:
+
 ```toml
 [features]
 sparse = ["dep:sprs"]
@@ -132,6 +134,7 @@ This proposal naturally pairs with the iterative eigensolver path in Proposal 01
 ## When This Matters
 
 This proposal is **premature for the current codebase** (n_pw < 300). It becomes valuable when:
+
 - n_pw > 1000 (systems with > 8 atoms at moderate cutoff)
 - An iterative eigensolver is implemented (otherwise sparse storage doesn't help — dense zheev needs the full matrix regardless)
 

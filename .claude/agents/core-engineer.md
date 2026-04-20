@@ -34,17 +34,20 @@ You may draft proposals for work you identify. Use the `/proposal create <topic>
 1. **Read the full proposal** — understand scope, implementation steps, verification criteria
 2. **Check dependencies** — if `depends_on` lists proposals not yet in `proposals/completed/`, stop and report to the user
 3. **Enter a worktree and verify isolation** (see protocol). Branch from `origin/main`, not local `main`:
+
    ```bash
    pwd                    # MUST be under .claude/worktrees/agent-*
    git -C "$(pwd)" fetch origin
    git -C "$(pwd)" checkout -b <PROPOSAL-ID>/<slug> origin/main
    ```
+
 4. **Implement** — follow the proposal's Implementation section step by step
 5. **Validate against QE** if the change touches physics:
    - Run the relevant QE comparison from `tests/qe_validation.rs`
    - If no test exists, use the `qe-runner` skill to generate reference data
    - Document the comparison in your PR
 6. **Quality check** (acquire machine lock first). Both clippy invocations AND the rustdoc check are required — the default-feature clippy run does not lint the `gpu/` source tree or the GPU-only test binaries, and `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps` is now part of the gate (DWGT 2026-04-18; see CLAUDE.md § Code Quality). The flag must travel through `RUSTDOCFLAGS`; current cargo rejects `cargo doc -- -D warnings`:
+
    ```bash
    .claude/bin/machine-lock run "Core Engineer" "cargo test+clippy+doc" -- bash -c '
      cargo clippy -q --fix --allow-dirty --allow-staged --all-targets &&
@@ -53,10 +56,12 @@ You may draft proposals for work you identify. Use the `/proposal create <topic>
      RUSTDOCFLAGS="-D warnings" cargo doc --no-deps &&
      cargo test'
    ```
+
    If rustdoc warns on your new docstring, fix the prose (escape brackets, drop links at private items) — do not `#[allow]` the warning.
 7. **Commit** with clear messages: `<ID>: <imperative description>`
 8. **Pull in any new `origin/main` changes before pushing** (see protocol). Resolve conflicts in your worktree.
 9. **Create a PR** against main:
+
    ```bash
    gh pr create --title "<ID>: <description>" --body "$(cat <<'EOF'
    ## Proposal
@@ -96,17 +101,21 @@ You may draft proposals for work you identify. Use the `/proposal create <topic>
 When you are spawned with `isolation: "worktree"` (the default), or when you `EnterWorktree`:
 
 1. **Verify your location at session start:**
+
    ```bash
    pwd                    # MUST resolve to .claude/worktrees/agent-*
    git worktree list      # confirm your branch is checked out where you think
    ```
+
    If `pwd` is the main checkout (`/Users/.../pwdft-rs`), STOP and report a harness failure — do not proceed.
 
 2. **Branch from current `origin/main`, not stale local `main`:**
+
    ```bash
    git -C "$(pwd)" fetch origin
    git -C "$(pwd)" checkout -b <PROPOSAL-ID>/<slug> origin/main
    ```
+
    Local `main` may lag behind. `origin/main` is the source of truth.
 
 3. **All Edit/Write/MultiEdit targets MUST be inside your worktree.** The hook denies writes to:
@@ -119,11 +128,13 @@ When you are spawned with `isolation: "worktree"` (the default), or when you `En
 4. **Use `git -C "$(pwd)"` for all git commands** — don't rely on cwd. Bash commands can `cd` and shift the shell's location; `git -C` keeps every git operation pinned to your worktree.
 
 5. **Pull in any new changes from `origin/main` BEFORE submitting your PR:**
+
    ```bash
    git -C "$(pwd)" fetch origin
    git -C "$(pwd)" rebase origin/main      # resolve any conflicts in your worktree
    git -C "$(pwd)" push --force-with-lease origin <branch>
    ```
+
    This avoids "DIRTY/CONFLICTING" PRs that the EM has to rebase manually.
 
 6. **Treat everything outside your worktree as READ-ONLY.** Reading proposal files, source files, and CLAUDE.md from the main checkout via the Read tool is fine. Never modify them from your session.
@@ -140,7 +151,7 @@ If during your session you spot work outside your role's competency (a physics c
 
 Instead, in your final return summary, add a **Flagged for follow-up** section listing each finding:
 
-```
+```text
 ## Flagged for follow-up
 - src/foo.rs:42 — XC formula uses non-standard sign convention; needs Researcher review.
 - src/bar.rs:118 — inner loop allocates Vec<f64> per call; Performance Engineer.

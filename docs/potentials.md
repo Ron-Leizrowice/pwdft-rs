@@ -2,7 +2,7 @@
 
 ## Local Pseudopotential
 
-```
+```text
 V_local(G) = Σ_atom S(G) × v_form(|G|)
 ```
 
@@ -13,13 +13,13 @@ radial form factor from the pseudopotential.
 
 For G ≠ 0:
 
-```
+```text
 v_form(G) = (4π/Ω) ∫₀^∞ r² [V_loc(r) + Ze²/r] sin(Gr)/(Gr) dr − 4πZe²/(ΩG²)
 ```
 
 For G = 0:
 
-```
+```text
 v_form(0) = (4π/Ω) ∫₀^∞ r² [V_loc(r) + Ze²/r] dr
 ```
 
@@ -51,14 +51,14 @@ as `V_local(G=0) × N_electrons`. This matches QE's convention
 
 In reciprocal space (Poisson's equation):
 
-```
+```text
 V_H(G) = 4πe² ρ̃(G) / |G|²     for G ≠ 0
 V_H(G=0) = 0                    (neutralizing background)
 ```
 
 Hartree energy:
 
-```
+```text
 E_H = (Ω/2) Σ_{G≠0} |ρ̃(G)|² × 4πe² / |G|²
 ```
 
@@ -74,6 +74,7 @@ average), and |ρ̃(G)|² must be integrated over the cell volume.
 ## Exchange-Correlation (LDA)
 
 Computed in real space on the FFT grid. Unit conversion chain:
+
 1. Input density ρ in e/Å³
 2. Convert to e/Bohr³: `ρ_Bohr = ρ × BOHR3_TO_ANG3` (≈ 0.148)
 3. Compute ε_xc, V_xc in Hartree
@@ -81,7 +82,7 @@ Computed in real space on the FFT grid. Unit conversion chain:
 
 ### Slater exchange
 
-```
+```text
 ε_x = -(3/4)(3ρ/π)^{1/3}     [Hartree, per electron]
 V_x = (4/3) ε_x
 ```
@@ -94,7 +95,7 @@ Reference: Slater, Phys. Rev. 81, 385 (1951)
 
 Two regimes based on Wigner-Seitz radius r_s = (3/(4πρ))^{1/3} in Bohr:
 
-```
+```text
 r_s ≥ 1:  ε_c = γ / (1 + β₁√r_s + β₂ r_s)
 r_s < 1:  ε_c = A ln(r_s) + B + C r_s ln(r_s) + D r_s
 ```
@@ -116,7 +117,8 @@ Reference: Perdew & Zunger, Phys. Rev. B 23, 5048 (1981), Table I
 Exchange: `ε_x(ρ↑,ρ↓) = (ρ↑ε_x(2ρ↑) + ρ↓ε_x(2ρ↓)) / ρ`
 
 Correlation: interpolated with von Barth-Hedin function:
-```
+
+```text
 f(ζ) = [(1+ζ)^{4/3} + (1-ζ)^{4/3} - 2] / [2^{4/3} - 2]
 ε_c(r_s, ζ) = ε_c^unpol + f(ζ) [ε_c^pol - ε_c^unpol]
 ```

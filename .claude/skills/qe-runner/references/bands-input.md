@@ -9,7 +9,7 @@ bands.x is a post-processing tool that reads band energies from a prior pw.x `ca
 
 ## Input file structure
 
-```
+```text
 &BANDS
   ... parameters ...
 /
@@ -36,7 +36,7 @@ bands.x is a post-processing tool that reads band energies from a prior pw.x `ca
 
 ## Example
 
-```
+```text
 &BANDS
   prefix  = 'si'
   outdir  = './tmp'
@@ -53,7 +53,7 @@ bands.x is a post-processing tool that reads band energies from a prior pw.x `ca
 
 The main output contains eigenvalues in eV for each k-point along the path. Format:
 
-```
+```text
  &plot nbnd=   8, nks=  81 /
           -0.500000  0.500000  0.500000
   -2.0025   5.7234   5.7234   5.7234   8.5671   8.5671   8.5671  13.4892
@@ -68,11 +68,13 @@ Then alternating: k-point coordinates (Cartesian, 2π/a) followed by eigenvalues
 ### filband.gnu
 
 A gnuplot-ready file with two columns:
-```
+
+```text
 k_position  eigenvalue_eV
 ```
 
 Each band is a separate block separated by blank lines. Plot with:
+
 ```gnuplot
 plot 'si_bands.dat.gnu' with lines
 ```
@@ -86,6 +88,7 @@ If `lsym = .true.`, this file contains the symmetry representations of each band
 ## Parsing for validation
 
 To extract eigenvalues programmatically from the `.gnu` file:
+
 - Column 1: cumulative k-path distance (in 2π/a units)
 - Column 2: eigenvalue (eV)
 - Blank line separates bands
@@ -98,7 +101,7 @@ For direct numerical comparison, the XML file at `tmp/<prefix>.save/data-file-sc
 
 ### FCC (Si, GaAs, Al, Cu, etc.)
 
-```
+```text
 K_POINTS {crystal_b}
 5
   0.500  0.500  0.500  20  ! L
@@ -110,7 +113,7 @@ K_POINTS {crystal_b}
 
 ### BCC (Fe, W, Na, etc.)
 
-```
+```text
 K_POINTS {crystal_b}
 4
   0.000  0.000  0.000  20  ! Gamma
@@ -121,7 +124,7 @@ K_POINTS {crystal_b}
 
 ### Hexagonal (graphene, BN, etc.)
 
-```
+```text
 K_POINTS {crystal_b}
 4
   0.000  0.000  0.000  20  ! Gamma

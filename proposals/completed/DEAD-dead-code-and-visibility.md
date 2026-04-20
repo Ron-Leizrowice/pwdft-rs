@@ -106,6 +106,7 @@ existing `diagonalize_lowest` wrapper is the public entry point.
 ### Step 2 — SMRT: delete the redundant test
 
 In `src/symmetry/mod.rs`:
+
 - Delete `symmetrize_with_identity_only_is_noop` (lines 178-199, the
   `#[test]` attribute and fn body).
 - Delete the `#[allow(deprecated)]` blanket on line 141 (no longer

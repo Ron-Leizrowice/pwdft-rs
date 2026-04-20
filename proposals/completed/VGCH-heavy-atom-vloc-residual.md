@@ -10,9 +10,9 @@ blocks: [VQEF]
 owner: researcher
 ---
 
-# VGCH — Heavy-atom V_local(G) residual (post-VGCMP continuation)
+## VGCH — Heavy-atom V_local(G) residual (post-VGCMP continuation)
 
-## Status (2026-04-19, post-Phase-1a)
+### Status (2026-04-19, post-Phase-1a)
 
 Phase 1a diagnostic landed as **PR #139**. Key empirical findings on
 Cu and Fe heavy-atom per-component audit:
@@ -54,7 +54,7 @@ Investigate three hypotheses in order of prior probability:
 Phase 1a's `tests/vgch_per_component_heavy.rs` is the reusable
 harness. Each hypothesis adds one arm to that test.
 
-## TL;DR
+### TL;DR
 
 VGCMP Phases 1–4 proved that the pseudopotential → Hamiltonian
 assembly pipeline is bit-correct on Si: V_local(G) to 3×10⁻⁸ eV,
@@ -82,7 +82,7 @@ include semicore states (Na 2s/2p, Mg 2s/2p) that raise
 signature is `z_valence ≥ 7` and/or the presence of semicore
 states that extend the PP's radial support into the core region.**
 
-## Motivation
+### Motivation
 
 5 of 8 `tests/qe_validation.rs` systems remain `#[ignore]`'d solely
 on VGCMP-residual grounds. VQEF's full validation matrix cannot
@@ -91,9 +91,9 @@ bit-correct on one system — but that system's PP has
 `z_valence=4.00`, l_max=2, no semicore. Extrapolating bit-correctness
 from Si to Fe/Cu/Ga PPs is not physics; it's hope.
 
-## Problem
+### Problem
 
-### What VGCMP Phases 1–4 proved
+#### What VGCMP Phases 1–4 proved
 
 On **Si only**, independent Python references confirmed agreement to
 floating-point round-off:
@@ -111,7 +111,7 @@ bugs: (i) PP_NLCC unit conversion `/BOHR_TO_ANG` should be
 `/BOHR_TO_ANG³`, (ii) missing `r²` radial weight and `4π` prefactor in
 `compute_core_density`. Post-NCFX Si gap = 0.26 eV (MPSH residual).
 
-### What VGCMP Phases 1–4 did **not** prove
+#### What VGCMP Phases 1–4 did **not** prove
 
 - Phase 1 checked Si.upf only. It did not check that
   `v_local_of_g` is bit-correct for PPs with **larger `z_valence`**
@@ -133,7 +133,7 @@ bugs: (i) PP_NLCC unit conversion `/BOHR_TO_ANG` should be
   the structure factor `S(G−G')` for non-zero argument) was never
   tested (Phase 4b was explicitly deferred).
 
-### NCFX closed Si, but does it close heavy atoms?
+#### NCFX closed Si, but does it close heavy atoms?
 
 NCFX changed two code paths:
 
@@ -156,7 +156,7 @@ smaller residuals than Fe/Cu/GaAs. They don't — they all sit in the
 7–34 eV range. **Whatever causes the heavy-atom residual cannot be
 purely an NLCC effect.**
 
-### Candidate root causes
+#### Candidate root causes
 
 The observed residual energy scales loosely with `z_valence × n_atoms`,
 ranging from ~0.5 eV/valence-electron to ~1 eV/valence-electron.
@@ -218,7 +218,7 @@ for 1-atom (Fe, Cu, Al) it is `exp(−iτ·(G−G')) = 1` (τ=0) — i.e. the
 structure factor is trivial for 1-atom cells. But Fe **still** has a
 9.5 eV gap, which rules out (f) as the Fe cause.
 
-### Prior-probability ranking (before any new data)
+#### Prior-probability ranking (before any new data)
 
 1. **(c) Semicore/ecut convergence.** Highest prior. Cheap to test
    (rerun at ecut=40 Ry). If residual shrinks, this is the
@@ -236,9 +236,9 @@ structure factor is trivial for 1-atom cells. But Fe **still** has a
 6. **(f) Structure factor off-diagonal.** Low prior given 1-atom Fe's
    9.5 eV gap (τ=0 makes S(G−G') trivial).
 
-## References
+### References
 
-### Primary literature
+#### Primary literature
 
 - Louie, S. G.; Froyen, S.; Cohen, M. L. *Nonlinear ionic
   pseudopotentials in spin-density-functional calculations.*
@@ -255,7 +255,7 @@ structure factor is trivial for 1-atom cells. But Fe **still** has a
   Methods.* Cambridge 2004. §11–13 cover pseudopotential construction
   and the long-range/short-range splitting underlying (a).
 
-### QE source
+#### QE source
 
 - `qe-7.5/upflib/vloc_mod.f90:100-175` — `init_tab_vloc`; lines
   130-165 are the erf-subtracted V_local(G) tabulator; line 148
@@ -273,7 +273,7 @@ structure factor is trivial for 1-atom cells. But Fe **still** has a
 - `qe-7.5/upflib/init_us_1_base.f90` — baseline PP initialization.
 - `qe-7.5/PW/src/set_rhoc.f90:29-125` — applies NLCC to FFT grid.
 
-### pwdft-rs source (for each candidate)
+#### pwdft-rs source (for each candidate)
 
 - `src/pseudopotential/mod.rs:131-184` — `v_local_of_g` (candidate (a)).
 - `src/pseudopotential/upf.rs` — PP_NLCC parse (candidate (b) via
@@ -286,7 +286,7 @@ structure factor is trivial for 1-atom cells. But Fe **still** has a
 - `src/potential/nonlocal.rs::bessel_transform_projector` — β_l(q)
   (candidate (d)).
 
-### Related proposals
+#### Related proposals
 
 - `proposals/VGCMP-vloc-g-cross-check.md` (Phases 1–4 done; kept as
   active for the Phase 4b off-diagonal follow-up deferred to here).
@@ -298,14 +298,14 @@ structure factor is trivial for 1-atom cells. But Fe **still** has a
   Si 13.4 eV gap; demonstrates the per-component diagnostic pattern
   VGCH will follow.
 
-## Implementation
+### Implementation
 
 Phased investigation. Do **not** commit to a specific code fix up
 front — VGCMP Phases 1–4 showed that the form factors are correct,
 so the fix (if any) is most likely in setup/convergence land, not
 raw numerics. Each phase is a day or two of work.
 
-### Phase 0 — Relabel `#[ignore]` strings (mechanical)
+#### Phase 0 — Relabel `#[ignore]` strings (mechanical)
 
 **Motivation.** VGCMP Phases 1–4 closed the Si V_local(G) assembly
 pipeline to bit-precision, and NCFX closed the remaining Si NLCC
@@ -326,23 +326,23 @@ test behavior, no pin value changes):
 
 - **Fe BCC (`test_fe_bcc_fm_vs_qe`, line ~368):**
   - Before: `"CCMX fixes convergence (E = -3050.80 eV); ~9.5 eV gap vs QE -3060.16 eV blocked on VGCMP (heavy-atom V_loc)"`
-  - After:  `"~9.5 eV gap vs QE (E_pwdft = -3050.80, E_qe = -3060.16 eV); root cause TBD, tracked in VGCH"`
+  - After: `"~9.5 eV gap vs QE (E_pwdft = -3050.80, E_qe = -3060.16 eV); root cause TBD, tracked in VGCH"`
 
 - **GaAs (`test_gaas_zincblende_vs_qe`, line ~423):**
   - Before: `"VGCMP: heavy-atom V_loc residual ≈33.6 eV on GaAs (Z=31+33); pwdft-rs E = -4155.954 eV, QE = -4189.586 eV"`
-  - After:  `"VGCH: heavy-atom residual ≈33.6 eV (root cause TBD) on GaAs (Z=31+33); pwdft-rs E = -4155.954 eV, QE = -4189.586 eV"`
+  - After: `"VGCH: heavy-atom residual ≈33.6 eV (root cause TBD) on GaAs (Z=31+33); pwdft-rs E = -4155.954 eV, QE = -4189.586 eV"`
 
 - **Cu FCC (`test_cu_fcc_vs_qe`, line ~471):**
   - Before: `"VGCMP: heavy-atom V_loc residual ≈16.2 eV on Cu (Z=29, 3s/3p/3d semicore); pwdft-rs E = -4837.466 eV, QE = -4853.641 eV"`
-  - After:  `"VGCH: heavy-atom residual (root cause TBD) ≈16.2 eV on Cu (Z=29, 3s/3p/3d semicore); pwdft-rs E = -4837.466 eV, QE = -4853.641 eV"`
+  - After: `"VGCH: heavy-atom residual (root cause TBD) ≈16.2 eV on Cu (Z=29, 3s/3p/3d semicore); pwdft-rs E = -4837.466 eV, QE = -4853.641 eV"`
 
 - **NaCl (`test_nacl_rocksalt_vs_qe`, line ~514):**
   - Before: `"VGCMP: heavy-atom V_loc residual ≈7.7 eV on NaCl (Cl Z=17); pwdft-rs E = -1621.944 eV, QE = -1629.686 eV"`
-  - After:  `"VGCH: heavy-atom residual (root cause TBD) ≈7.7 eV on NaCl (Cl Z=17); pwdft-rs E = -1621.944 eV, QE = -1629.686 eV"`
+  - After: `"VGCH: heavy-atom residual (root cause TBD) ≈7.7 eV on NaCl (Cl Z=17); pwdft-rs E = -1621.944 eV, QE = -1629.686 eV"`
 
 - **MgO (`test_mgo_rocksalt_vs_qe`, line ~562):**
   - Before: `"VGCMP: heavy-atom V_loc residual ≈10.1 eV on MgO (Mg semicore PP); pwdft-rs E = -1993.146 eV, QE = -2003.241 eV"`
-  - After:  `"VGCH: heavy-atom residual (root cause TBD) ≈10.1 eV on MgO (Mg semicore PP); pwdft-rs E = -1993.146 eV, QE = -2003.241 eV"`
+  - After: `"VGCH: heavy-atom residual (root cause TBD) ≈10.1 eV on MgO (Mg semicore PP); pwdft-rs E = -1993.146 eV, QE = -2003.241 eV"`
 
 The module-level `//!` docstring at the top of `tests/qe_validation.rs`
 mentions "VGCMP" several times in its "Why some tests are `#[ignore]`d"
@@ -383,7 +383,7 @@ stand-alone mechanical sub-task so the semantic investigation phases
 (1–5) aren't blocked on the relabel, and so the relabel itself can
 be reviewed quickly without physics context.
 
-### Phase 1 — Semicore / ecut convergence sweep (0.5 CE-day)
+#### Phase 1 — Semicore / ecut convergence sweep (0.5 CE-day)
 
 **Cheapest test with highest prior.** Pick Fe BCC 8×8×8 (the
 smallest heavy-atom system). Run at ecutwfc = 15, 25, 40, 60 Ry
@@ -405,7 +405,7 @@ sweep in QE (re-run `qe_validation/fe_scf.in` at matching ecuts).
 **Deliverable:** `scripts/validate/heavy_atom_ecut_sweep.py` with
 measured values; short writeup in researcher logbook.
 
-### Phase 1a — Per-component diagnostic (landed in this PR)
+#### Phase 1a — Per-component diagnostic (landed in this PR)
 
 Ran VGC5-style per-component accounting on Fe BCC (8×8×8 nspin=1,
 ecut=15 Ry) and Cu FCC (4×4×4 nspin=1, ecut=25 Ry) — see new
@@ -459,9 +459,9 @@ exactly for this in the total energy sum, so the convention does not
 produce a total-energy residual by itself. The +11.5 eV residual is
 elsewhere.
 
-### Phase 1b — β_l(q) form factors (CLEARED)
+#### Phase 1b — β_l(q) form factors (CLEARED)
 
-Landed in a separate PR. `scripts/validate/vgch_beta_l_heavy.py` + 
+Landed in a separate PR. `scripts/validate/vgch_beta_l_heavy.py` +
 `tests/vgch_beta_l_heavy.rs` (Tier-2) cross-check the KB projector
 Bessel transform against an independent QE-convention Simpson reference
 over 11 elements × all projectors × 10 q-values = 590 rows. Max |Δ| =
@@ -469,7 +469,7 @@ over 11 elements × all projectors × 10 q-values = 590 rows. Max |Δ| =
 β_l(q) is bit-perfect on every VGCH heavy-atom PP including Fe/Cu
 semicore 3d projectors.**
 
-### Phase 1c — SAD initial-density (CLEARED)
+#### Phase 1c — SAD initial-density (CLEARED)
 
 Landed in this PR. `scripts/validate/vgch_sad_heavy.py` +
 `tests/vgch_sad_heavy.rs` (Tier-2) cross-check pwdft-rs'
@@ -531,7 +531,7 @@ sum, IFFT) is bit-correct. No fix needed in
 The remaining clamp-vs-QE pipeline delta is a fractional-eV effect at
 most and cannot explain the multi-eV VGCH residuals.
 
-### Phase 1d — Residual target (next session, scoped as VGCH-2)
+#### Phase 1d — Residual target (next session, scoped as VGCH-2)
 
 Both H1 (β_l(q)) and H2 (SAD initial density) are cleared. The 7-34
 eV residuals on heavy-atom cells must therefore live in either:
@@ -554,7 +554,7 @@ Phase 1a's fingerprint (opposite-sign one-electron vs. Hartree
 partial cancellation). **VGCH-2** is spawned to take this up;
 VGCH-1c recommends starting there before climbing the mixer tree.
 
-### Light-atom E_F shift — localization (diagnosis, 2026-04-19, read-only)
+#### Light-atom E_F shift — localization (diagnosis, 2026-04-19, read-only)
 
 **Scope.** This sub-section addresses a separate-but-related issue to
 VGCH's heavy-atom total-energy residual: the light-atom
@@ -711,7 +711,7 @@ No production-code change. Part B1 owns the fix.
   is currently green at 45 meV). Part B1 MUST include a bit-identity
   check on Si E_total before/after.
 
-### Phase 2 — Per-component energy diagnostic on heavy atoms (1 CE-day)
+#### Phase 2 — Per-component energy diagnostic on heavy atoms (1 CE-day)
 
 Extend the VGC5 infrastructure (`scripts/validate/vgc5_per_component.py`
 and `tests/vgc5_per_component_si.rs`) to Fe, Cu, and NaCl. For
@@ -742,7 +742,7 @@ Whichever term holds the gap determines Phase 3's target.
 `tests/vgch_per_component_cu.rs` (new integration tests with pins);
 CSV references committed under `scripts/validate/`.
 
-### Phase 3 — Targeted VGCMP-style cross-check on the suspect term (1 CE-day)
+#### Phase 3 — Targeted VGCMP-style cross-check on the suspect term (1 CE-day)
 
 Based on Phase 2 output, pick the dominant-Δ term and repeat the
 VGCMP methodology at the suspect numerical step:
@@ -761,7 +761,7 @@ with element-by-element Python-vs-Rust pins, at the same 10⁻⁴ Ry
 precision as VGCMP Phase 1. Either a clean bill of health (pushing
 the hunt elsewhere) or a smoking gun (proceed to Phase 4).
 
-### Phase 4 — Fix (1–5 CE-days, depends on what Phase 3 finds)
+#### Phase 4 — Fix (1–5 CE-days, depends on what Phase 3 finds)
 
 Scope reserved for the actual fix once Phase 2/3 isolates the root
 cause. Could be as small as "bump default `ecutrho_ratio` from 4 to
@@ -769,7 +769,7 @@ cause. Could be as small as "bump default `ecutrho_ratio` from 4 to
 the V_local(G=0) branch to handle the long-range Coulomb correction
 explicitly per-atom" (5 days).
 
-### Phase 5 — Validate the full matrix (0.5 CE-day)
+#### Phase 5 — Validate the full matrix (0.5 CE-day)
 
 Once Phase 4 lands, rerun all 5 heavy-atom `qe_validation.rs` tests.
 Drop `#[ignore]` on each whose residual closes below 50 meV/atom.
@@ -777,7 +777,7 @@ Update test pins. If any system remains above tolerance, file
 a narrow follow-up proposal with the measured per-component
 diagnostic and the specific hypothesis that proposal tests.
 
-## Acceptance
+### Acceptance
 
 Close VGCH when **all** of the following hold:
 
@@ -808,7 +808,7 @@ This proposal does NOT assume a pre-existing MPSH; each phase's
 diagnostic number is robust to the ~50 meV MPSH noise floor because
 the heavy-atom residuals are 100–600× larger.
 
-## Cost
+### Cost
 
 1–2 CE-weeks total. Breakdown assumes Phase 1 (ecut sweep) resolves
 it: 1 CE-week. Phase 2+ (per-component diagnostic + root-cause fix):
@@ -827,7 +827,7 @@ unknown up front) but the risk is **medium**: VGCMP Phases 1–4 have
 already ruled out the most common bugs, so the remaining suspects
 are narrow and diagnosable.
 
-## Non-goals
+### Non-goals
 
 - **USPP / PAW support.** All systems here are norm-conserving;
   USPP would be a separate proposal.
@@ -843,7 +843,7 @@ are narrow and diagnosable.
   points at the local-potential term; otherwise Phase 4b remains
   optional and deferred to a future proposal.
 
-## Related
+### Related
 
 - VGCMP Phases 1–4 (done) — established bit-correctness of the Si
   assembly pipeline.

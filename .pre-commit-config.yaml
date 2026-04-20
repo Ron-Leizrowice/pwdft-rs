@@ -1,0 +1,59 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: trailing-whitespace
+      - id: check-ast
+      - id: check-case-conflict
+      - id: end-of-file-fixer
+      - id: detect-private-key
+      - id: check-added-large-files
+
+  - repo: local
+    hooks:
+      - id: uv lock
+        name: uv lock
+        language: system
+        entry: uv lock --check
+        pass_filenames: false
+        files: ^(pyproject\.toml|uv\.lock)$
+        priority: 0
+
+      - id: pyproject-fmt
+        name: pyproject.toml format
+        language: system
+        entry: uv run --frozen --no-sync pyproject-fmt pyproject.toml
+        pass_filenames: false
+        files: ^pyproject\.toml$
+        priority: 1
+
+      - id: rumdl-fmt
+        name: Markdown format
+        language: system
+        entry: uv run --frozen --no-sync rumdl check --fix .
+        pass_filenames: true
+        types_or: [markdown]
+        priority: 1
+
+      - id: ruff-format
+        name: Ruff format
+        entry: uv run --frozen --no-sync ruff format
+        language: system
+        types_or: [python, pyi]
+        priority: 2
+
+      - id: ruff-check
+        name: Ruff check
+        entry: uv run --frozen --no-sync ruff check --fix --exit-non-zero-on-fix
+        language: system
+        types_or: [python, pyi]
+        priority: 3
+
+      - id: ty
+        name: Ty
+        entry: uv run --frozen --no-sync ty check
+        language: system
+        pass_filenames: false
+        types_or: [python, pyi]
+        priority: 4

@@ -44,7 +44,7 @@ Only 3 files are actually used: `nc/lda/Si.upf`, `nc/lda/Fe.upf`, `nc/lda/C.upf`
 
 Replace all `pseudopotentials/Si.UPF` paths with `pseudopotentials/nc/lda/Si.upf`:
 
-```
+```text
 benches/scf_benchmarks.rs:  "pseudopotentials/Si.UPF" → "pseudopotentials/nc/lda/Si.upf"
 examples/si_scf.toml:       Si = "../pseudopotentials/Si.UPF" → Si = "pseudopotentials/nc/lda/Si.upf"
 examples/si_scf_qe_match.toml: same
@@ -88,6 +88,7 @@ git filter-repo --invert-paths --path-glob 'pseudopotentials/Unconfirmed*'
 ```
 
 This rewrites history. Only do this if:
+
 - No other clones/forks exist that would be broken
 - You're comfortable with force-pushing to origin
 

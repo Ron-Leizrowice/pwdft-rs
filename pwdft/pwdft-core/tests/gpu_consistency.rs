@@ -1,0 +1,679 @@
+//! Verify GPU-accelerated SCF produces results consistent with CPU-only.
+//!
+//! Run with: cargo test --features gpu --test gpu_consistency
+
+#![cfg(feature = "gpu")]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "ERR2 § Phase 0: integration tests are allowed to panic"
+)]
+
+use nalgebra::Vector3;
+use num_complex::Complex64;
+
+use pwdft_core::{
+    basis::BasisSet,
+    crystal::{Atom, Crystal, Lattice},
+    gpu::GpuAccelerator,
+    potential::xc,
+};
+
+// Reference values for Si SCF with this PP (Si.upf, ecut=100 eV, FFT 16³,
+// Γ-only, 4 bands). See `test_gpu_vs_cpu_scf_eigenvalues` for the physical
+// justification of each tolerance. Hoisted to module-level consts (DBGC) so
+// all tests that share this configuration reference one source of truth.
+//
+// Post-NCFX values: pre-NCFX had -198.8926 eV / 6.969 eV; the NLCC unit and
+// radial-weight fix shifts E_tot by -14.1 eV (same magnitude as the E_xc gap
+// NCFX closed on the 4×4×4 CPU path).
+//
+// Post-SiEF-B1 (2026-04-19): every Kohn-Sham eigenvalue now carries
+// V_local(G=0) as a DC offset (QE-compatible gauge;
+// `src/scf/context.rs::ScfContext::new`), closing the ≈ 1.35 eV rigid
+// shift on Si E_F. Pre-SiEF-B1 the pinned Fermi was 6.709 eV; post-fix
+// it is 8.052 eV. E_total is algebraically invariant under the gauge
+// shift, so SI_REFERENCE_TOTAL_EV is unchanged.
+const SI_REFERENCE_TOTAL_EV: f64 = -213.0283;
+const SI_REFERENCE_FERMI_EV: f64 = 8.052;
+
+fn si_crystal() -> Crystal {
+    let a = 5.431;
+    Crystal {
+        lattice: Lattice::new(
+            a / 2.0 * Vector3::new(0.0, 1.0, 1.0),
+            a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
+            a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
+        ),
+        atoms: vec![
+            Atom::new(14, [0.0, 0.0, 0.0]),
+            Atom::new(14, [0.25, 0.25, 0.25]),
+        ],
+    }
+}
+
+fn si_scf_params() -> pwdft_core::scf::ScfParams {
+    pwdft_core::scf::ScfParams {
+        n_bands: 4,
+        max_iter: 40,
+        conv_threshold: 1e-6,
+        mixing_beta: 0.3,
+        mixing_ndim: 4,
+        smearing_sigma: 0.05,
+        ecutrho_ratio: 4,
+        fft_grid: Some([16, 16, 16]),
+        ..Default::default()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Individual kernel equivalence
+// ---------------------------------------------------------------------------
+
+#[test]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    reason = "20^3 FFT grid in this test; all indices bounded by O(20), fit in i32 trivially"
+)]
+fn test_gpu_hartree_on_realistic_density() {
+    let Some(gpu) = GpuAccelerator::try_new() else {
+        eprintln!("No GPU, skipping");
+        return;
+    };
+
+    let crystal = si_crystal();
+    let recip = crystal.lattice.reciprocal();
+    let [nx, ny, nz] = [20usize, 20, 20];
+    let n_grid = nx * ny * nz;
+
+    let rho_g: Vec<Complex64> = (0..n_grid)
+        .map(|i| {
+            let phase = i as f64 * 0.01;
+            Complex64::new(0.001 * (-phase).exp(), 0.0001 * phase.sin())
+        })
+        .collect();
+
+    let g_squared: Vec<f64> = (0..n_grid)
+        .map(|idx| {
+            let i1 = idx / (ny * nz);
+            let i2 = (idx / nz) % ny;
+            let i3 = idx % nz;
+            let n1 = if i1 > nx / 2 {
+                i1 as i32 - nx as i32
+            } else {
+                i1 as i32
+            };
+            let n2 = if i2 > ny / 2 {
+                i2 as i32 - ny as i32
+            } else {
+                i2 as i32
+            };
+            let n3 = if i3 > nz / 2 {
+                i3 as i32 - nz as i32
+            } else {
+                i3 as i32
+            };
+            let g = f64::from(n1) * recip.a + f64::from(n2) * recip.b + f64::from(n3) * recip.c;
+            g.norm_squared()
+        })
+        .collect();
+
+    let fourpi_e2 = 4.0 * std::f64::consts::PI * pwdft_core::consts::E2_COULOMB;
+
+    let cpu: Vec<Complex64> = rho_g
+        .iter()
+        .zip(g_squared.iter())
+        .map(|(&rho, &g2)| {
+            if g2 > 1e-20 {
+                rho * fourpi_e2 / g2
+            } else {
+                Complex64::new(0.0, 0.0)
+            }
+        })
+        .collect();
+
+    let gpu_result = gpu.hartree_potential(&rho_g, &g_squared, fourpi_e2);
+
+    let mut max_rel_err = 0.0_f64;
+    for (i, (c, g)) in cpu.iter().zip(gpu_result.iter()).enumerate() {
+        let diff = (c - g).norm();
+        let scale = c.norm().max(1e-15);
+        let rel = diff / scale;
+        max_rel_err = max_rel_err.max(rel);
+        // TAUD finding 2.4: Hartree is a linear f32 operation (divide by g²,
+        // multiply by 4πe²) with f32 relative precision ~1e-6 per op, so
+        // the natural scale is a few ×1e-7 — not 1e-3. Empirical max
+        // relative error = 1.8e-7 on M-series GPU. Threshold at ~50×
+        // empirical = 1e-5 for cross-hardware f32 variance. If this fires,
+        // investigate which G-vector / density entry loses precision.
+        assert!(
+            rel < 1e-5,
+            "Hartree mismatch at {i}: cpu={c:.6e}, gpu={g:.6e}, rel={rel:.2e}"
+        );
+    }
+    eprintln!("Hartree max relative error: {max_rel_err:.2e}");
+}
+
+#[test]
+fn test_gpu_xc_across_density_regimes() {
+    let Some(gpu) = GpuAccelerator::try_new() else {
+        eprintln!("No GPU, skipping");
+        return;
+    };
+
+    // Log-spaced from 1e-4 to 10.0 e/A³ — covers both PZ regimes
+    let rho_r: Vec<f64> = (0..1000)
+        .map(|i| {
+            let t = f64::from(i) / 999.0;
+            10.0_f64.powf(-4.0 + 5.0 * t)
+        })
+        .collect();
+
+    let (cpu_exc, cpu_vxc) = xc::lda_xc_grid(&rho_r);
+    let (gpu_exc, gpu_vxc) = gpu.lda_xc(&rho_r);
+
+    let mut max_exc_err = 0.0_f64;
+    let mut max_vxc_err = 0.0_f64;
+    let mut max_exc_rel = 0.0_f64;
+    let mut max_vxc_rel = 0.0_f64;
+
+    for (i, ((&ce, &cv), (&ge, &gv))) in cpu_exc
+        .iter()
+        .zip(cpu_vxc.iter())
+        .zip(gpu_exc.iter().zip(gpu_vxc.iter()))
+        .enumerate()
+    {
+        let exc_err = (ce - ge).abs();
+        let vxc_err = (cv - gv).abs();
+        max_exc_err = max_exc_err.max(exc_err);
+        max_vxc_err = max_vxc_err.max(vxc_err);
+        max_exc_rel = max_exc_rel.max(exc_err / ce.abs().max(1e-10));
+        max_vxc_rel = max_vxc_rel.max(vxc_err / cv.abs().max(1e-10));
+
+        // Tighter tolerance: 0.01 eV absolute (was 0.05)
+        assert!(
+            exc_err < 0.01,
+            "XC exc at i={i} rho={:.4e}: cpu={ce:.6}, gpu={ge:.6}, err={exc_err:.2e}",
+            rho_r[i]
+        );
+        assert!(
+            vxc_err < 0.015,
+            "XC vxc at i={i} rho={:.4e}: cpu={cv:.6}, gpu={gv:.6}, err={vxc_err:.2e}",
+            rho_r[i]
+        );
+    }
+    eprintln!("XC max abs errors: exc={max_exc_err:.4e} eV, vxc={max_vxc_err:.4e} eV");
+    eprintln!("XC max rel errors: exc={max_exc_rel:.4e}, vxc={max_vxc_rel:.4e}");
+}
+
+// ---------------------------------------------------------------------------
+// GPU buffer pool: pooled vs fresh allocation must agree
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gpu_buffer_pool_matches_fresh() {
+    let Some(mut gpu) = GpuAccelerator::try_new() else {
+        eprintln!("No GPU, skipping");
+        return;
+    };
+
+    let n = 8000;
+    let fourpi_e2 = 4.0 * std::f64::consts::PI * pwdft_core::consts::E2_COULOMB;
+
+    let rho_g: Vec<Complex64> = (0..n)
+        .map(|i| Complex64::new((i as f64 * 0.1).sin() * 0.01, (i as f64 * 0.2).cos() * 0.01))
+        .collect();
+    let g_squared: Vec<f64> = (0..n)
+        .map(|i| if i == 0 { 0.0 } else { 0.5 + i as f64 * 0.3 })
+        .collect();
+
+    // Run WITHOUT buffer pool (fresh allocations)
+    let result_fresh = gpu.hartree_potential(&rho_g, &g_squared, fourpi_e2);
+
+    // Now prepare the buffer pool
+    gpu.prepare_buffers(n, &g_squared);
+
+    // Run WITH buffer pool
+    let result_pooled = gpu.hartree_potential(&rho_g, &g_squared, fourpi_e2);
+
+    // Must be identical (same GPU, same f32 arithmetic)
+    assert_eq!(result_fresh.len(), result_pooled.len());
+    for (i, (f, p)) in result_fresh.iter().zip(result_pooled.iter()).enumerate() {
+        let diff = (f - p).norm();
+        assert!(
+            diff < 1e-10,
+            "Pool mismatch at {i}: fresh={f}, pooled={p}, diff={diff:.2e}"
+        );
+    }
+}
+
+/// GOPT-B: the pool now covers `lda_xc` and `v_eff_assembly`. This test
+/// verifies that the pooled path for XC and V_eff produces bit-identical
+/// output to the fresh-alloc fallback on the same GPU with the same f32
+/// inputs — a correctness gate for the new `BufferPool` fields and the
+/// cached bind groups.
+#[test]
+fn test_gpu_buffer_pool_xc_and_v_eff_match_fresh() {
+    let Some(mut gpu) = GpuAccelerator::try_new() else {
+        eprintln!("No GPU, skipping");
+        return;
+    };
+
+    let n = 8000;
+    let g_squared: Vec<f64> = (0..n)
+        .map(|i| if i == 0 { 0.0 } else { 0.5 + i as f64 * 0.3 })
+        .collect();
+
+    // --- LDA XC ---
+    let rho_r: Vec<f64> = (0..n).map(|i| 0.01 + (i as f64) * 1e-4).collect();
+
+    // Fresh path (no pool prepared yet).
+    let (exc_fresh, vxc_fresh) = gpu.lda_xc(&rho_r);
+
+    // Prepare pool and re-run via the pooled path.
+    gpu.prepare_buffers(n, &g_squared);
+    let (exc_pooled, vxc_pooled) = gpu.lda_xc(&rho_r);
+
+    assert_eq!(exc_fresh.len(), exc_pooled.len());
+    assert_eq!(vxc_fresh.len(), vxc_pooled.len());
+    for (i, ((&ef, &vf), (&ep, &vp))) in exc_fresh
+        .iter()
+        .zip(vxc_fresh.iter())
+        .zip(exc_pooled.iter().zip(vxc_pooled.iter()))
+        .enumerate()
+    {
+        let exc_diff = (ef - ep).abs();
+        let vxc_diff = (vf - vp).abs();
+        // Same GPU, same f32 inputs — must be identical down to the last bit.
+        assert!(
+            exc_diff < 1e-10,
+            "XC exc pool mismatch at {i}: fresh={ef}, pooled={ep}, diff={exc_diff:.2e}"
+        );
+        assert!(
+            vxc_diff < 1e-10,
+            "XC vxc pool mismatch at {i}: fresh={vf}, pooled={vp}, diff={vxc_diff:.2e}"
+        );
+    }
+
+    // --- V_eff assembly ---
+    let make_complex = |seed: f64| -> Vec<Complex64> {
+        (0..n)
+            .map(|i| {
+                Complex64::new(
+                    (i as f64 * seed).sin() * 0.5,
+                    (i as f64 * seed * 1.3).cos() * 0.5,
+                )
+            })
+            .collect()
+    };
+    let v_local = make_complex(0.1);
+    let v_h = make_complex(0.2);
+    let v_xc = make_complex(0.3);
+
+    // Pooled path (pool is still warm from XC above).
+    let v_eff_pooled = gpu.v_eff_assembly(&v_local, &v_h, &v_xc);
+
+    // Force fresh path by constructing a new GpuAccelerator without a pool.
+    let gpu_fresh = GpuAccelerator::try_new().expect("GPU re-init");
+    let v_eff_fresh = gpu_fresh.v_eff_assembly(&v_local, &v_h, &v_xc);
+
+    assert_eq!(v_eff_fresh.len(), v_eff_pooled.len());
+    for (i, (f, p)) in v_eff_fresh.iter().zip(v_eff_pooled.iter()).enumerate() {
+        let diff = (f - p).norm();
+        assert!(
+            diff < 1e-10,
+            "V_eff pool mismatch at {i}: fresh={f}, pooled={p}, diff={diff:.2e}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Full SCF: GPU vs CPU eigenvalue and energy comparison
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore = "TSPL Tier-2: runs Si SCF on GPU at ecut=100, 40 iters; run with cargo test --features gpu -- --ignored when touching scf/, gpu/, or XC paths"]
+fn test_gpu_vs_cpu_scf_eigenvalues() {
+    let Some(_) = GpuAccelerator::try_new() else {
+        eprintln!("No GPU, skipping");
+        return;
+    };
+
+    let crystal = si_crystal();
+    let basis = BasisSet::new(&crystal.lattice, 100.0);
+    let pp = pwdft_core::pseudopotential::load(
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
+            .join("pseudopotentials/nc/lda/Si.upf"),
+    )
+    .unwrap();
+    let kpoints = vec![pwdft_core::kpoints::KPoint {
+        k: nalgebra::Vector3::zeros(),
+        weight: 1.0,
+        label: None,
+    }];
+    let params = si_scf_params();
+
+    // GPU SCF (gpu feature enabled, so run_scf uses GPU automatically)
+    let gpu_result = pwdft_core::scf::run_scf(
+        &crystal,
+        &basis,
+        &kpoints,
+        &[&pp],
+        &params,
+        &pwdft_core::symmetry::SymmetryInfo::identity_only(),
+    );
+
+    // CPU SCF: disable GPU by setting WGPU_BACKEND to none.
+    // Since we can't easily disable the feature at runtime, we run
+    // the CPU path functions directly to get reference values.
+    // Instead, we compare against known physical constraints and
+    // the CPU result from a single-threaded run.
+
+    // Force CPU-only by running in a thread pool where we temporarily
+    // can't control GPU init. Instead, let's just verify against the
+    // CPU parallel_consistency test values which we know are correct.
+
+    // If GPU SCF converges, compare its results with a fresh CPU run
+    // by checking eigenvalue consistency across k-points.
+    let gpu_result = match gpu_result {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("GPU SCF did not converge: {e}");
+            return;
+        }
+    };
+
+    eprintln!(
+        "GPU SCF converged in {} iterations",
+        gpu_result.n_iterations
+    );
+    eprintln!("GPU total energy: {:.6} eV", gpu_result.total_energy);
+    eprintln!("GPU Fermi energy: {:.6} eV", gpu_result.fermi_energy);
+
+    // Physical constraints on converged Si SCF.
+    //
+    // TAUD finding 2.5: previously `< -100 && > -300` (a 200-eV-wide "is it
+    // in the zip code" window). Empirical Si total energy with this PP
+    // (Si.upf, ecut=100 eV, FFT 16³, Γ-only, 4 bands) is -213.0283 eV
+    // post-NCFX. Pre-NCFX value was -198.8926 eV; the 14.1 eV shift is the
+    // same NCFX-closed E_xc gap seen at 4×4×4 on the CPU path. GPU f32
+    // noise ≈ 1e-3 eV accumulated over ~10 SCF iters gives a few ×1e-3
+    // variance. Tolerance ±0.1 eV is ~100× the observed run-to-run
+    // variance, tight enough to catch any >0.1 eV regression but not so
+    // tight that f32 noise flakes the test.
+    let e_diff = (gpu_result.total_energy - SI_REFERENCE_TOTAL_EV).abs();
+    assert!(
+        e_diff < 0.1,
+        "GPU total energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
+        gpu_result.total_energy,
+        SI_REFERENCE_TOTAL_EV,
+        e_diff
+    );
+
+    // TAUD finding 2.6: previously `> -5.0 && < 10.0` (a 15-eV window).
+    // With n_bands=4 all bands are occupied (Si: 8 electrons, 2 per band),
+    // so the Fermi level is set above the HOMO to conserve electron count
+    // under Fermi-Dirac smearing. Empirical E_F ≈ 6.709 eV on this mesh
+    // post-NCFX (pre-NCFX value was 6.969 eV; the NLCC fix shifts the
+    // eigenvalues and thus E_F). Tolerance ±0.1 eV matches the
+    // total-energy scale and catches any smearing/band-count regression.
+    let ef_diff = (gpu_result.fermi_energy - SI_REFERENCE_FERMI_EV).abs();
+    assert!(
+        ef_diff < 0.1,
+        "GPU Fermi energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
+        gpu_result.fermi_energy,
+        SI_REFERENCE_FERMI_EV,
+        ef_diff
+    );
+
+    // 3. Each k-point should have the requested number of eigenvalues
+    let n_bands = params.n_bands;
+    for (ik, evs) in gpu_result.eigenvalues.iter().enumerate() {
+        assert_eq!(
+            evs.len(),
+            n_bands,
+            "k-point {ik}: expected {n_bands} eigenvalues, got {}",
+            evs.len()
+        );
+        // Eigenvalues should be sorted
+        for i in 1..evs.len() {
+            assert!(
+                evs[i] >= evs[i - 1] - 1e-10,
+                "k-point {ik}: eigenvalues not sorted: [{:.4}, {:.4}]",
+                evs[i - 1],
+                evs[i]
+            );
+        }
+    }
+
+    // 4. Lowest eigenvalue at any k-point should be deep (core-like for Si)
+    let min_eig = gpu_result
+        .eigenvalues
+        .iter()
+        .flat_map(|evs| evs.iter())
+        .copied()
+        .fold(f64::INFINITY, f64::min);
+    assert!(
+        min_eig < 0.0,
+        "Minimum eigenvalue {min_eig:.4} eV should be negative for Si"
+    );
+
+    // 5. Highest occupied eigenvalue should be below Fermi energy, within a
+    //    few Fermi-Dirac smearing widths above E_F.
+    //
+    //    TAUD finding 2.7: previously a bare `5.0 * sigma` with a vague
+    //    "within smearing width" comment. For Fermi-Dirac occupation
+    //    f(E) = 1/(exp((E-E_F)/σ) + 1), at (E-E_F) = 5σ the partial
+    //    occupation is f ≈ 1/(e⁵+1) ≈ 0.67%. So 5σ is a conservative
+    //    "essentially occupied" threshold — any state with f > ~1% should
+    //    satisfy it. At σ=0.05 eV this gives 0.25 eV headroom above E_F,
+    //    generous given Si has eigenvalues clustered O(1 eV) around E_F.
+    let sigma = params.smearing_sigma;
+    let fermi_tail_headroom = 5.0 * sigma; // 5σ ≈ f = 0.67% Fermi tail
+    for evs in &gpu_result.eigenvalues {
+        let n_occ = n_bands.min(4); // Si: 8 electrons, 2 per band → 4 occupied
+        for &e in &evs[..n_occ] {
+            assert!(
+                e < gpu_result.fermi_energy + fermi_tail_headroom,
+                "Occupied eigenvalue {e:.4} eV too far above Fermi {:.4} eV \
+                 (> 5σ = {fermi_tail_headroom:.4} eV tail, f < 0.7%)",
+                gpu_result.fermi_energy
+            );
+        }
+    }
+
+    eprintln!("GPU SCF physical constraints: all passed");
+    if let Some(evs) = gpu_result.eigenvalues.first() {
+        eprintln!("Gamma eigenvalues: {evs:?}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GPU ↔ CPU f32/f64 consistency gate (RWHK-FIX fix 1; audit finding C1)
+// ---------------------------------------------------------------------------
+//
+// The previous version of this test (`test_gpu_vs_cpu_scf_direct_comparison`,
+// removed 2026-04-19) ran `pwdft_core::scf::run_scf` twice under
+// `#[cfg(feature = "gpu")]` — once on the default rayon pool, once on a
+// single-thread pool. Both calls took the GPU path unconditionally
+// because `gpu` was compiled in; the test body comment even acknowledged
+// "the GPU will still be used in this path. To truly force CPU-only,
+// we'd need a runtime flag. For now, we verify convergence consistency."
+// The `energy_diff < 0.1` assertion therefore compared GPU-vs-GPU — a
+// structural tautology, not the f32-vs-f64 boundary the test name
+// implied. Every GPU-feature PR that claimed "consistency tests pass"
+// was passing via a trivially-satisfied assertion.
+//
+// The fix splits the responsibility: the CPU baseline is captured once
+// in `tests/cpu_scf_baseline.rs`, which is gated
+// `#![cfg(not(feature = "gpu"))]` so the `gpu` code cannot possibly
+// link in. The baseline values are pinned as constants there and
+// mirrored here. This GPU-side test then runs `scf::run_scf` with the
+// `gpu` feature active (so the GPU accelerator is engaged) and pins the
+// result against those CPU baseline constants. An f32-precision
+// regression in any WGSL kernel (Hartree, XC, V_eff) will push the
+// GPU result outside `TOL_GPU_VS_CPU_EV` and fail the test.
+
+/// CPU-f64 baseline from `tests/cpu_scf_baseline.rs::test_cpu_scf_baseline_convergence`,
+/// captured on 2026-04-19 under RWHK-FIX. This value was measured on the
+/// CPU path with the `gpu` feature **disabled at compile time**, so it
+/// cannot be polluted by the GPU path.
+///
+/// Any GPU regression that pushes the SCF result more than
+/// [`TOL_GPU_VS_CPU_EV`] away from this value signals an f32-precision
+/// regression in a WGSL kernel. See the module docstring at
+/// `tests/cpu_scf_baseline.rs` for the capture provenance.
+const SI_CPU_BASELINE_TOTAL_EV: f64 = -213.028_339;
+
+/// GPU-vs-CPU tolerance. The GPU path runs kernels in f32, the CPU path
+/// in f64; per-iteration noise is ~1e-3 eV on a 16³ FFT grid, accumulated
+/// over ~10 SCF iterations to ~0.01 eV. `TOL_GPU_VS_CPU_EV = 0.05 eV`
+/// is a ~5× headroom over the empirical f32 accumulated error, tight
+/// enough to catch a meaningful regression (kernel sign error or
+/// precision collapse would move the result by > 1 eV) but slack enough
+/// to tolerate legitimate f32 rounding.
+const TOL_GPU_VS_CPU_EV: f64 = 0.05;
+
+#[test]
+#[ignore = "TSPL Tier-2: runs Si SCF on GPU at ecut=100, 40 iters and pins against the tests/cpu_scf_baseline.rs CPU-f64 baseline; run with cargo test --features gpu -- --ignored when touching scf/, gpu/, fft/, or XC paths"]
+fn test_gpu_scf_matches_cpu_within_f32_tolerance() {
+    let Some(_) = GpuAccelerator::try_new() else {
+        eprintln!("No GPU, skipping");
+        return;
+    };
+
+    let crystal = si_crystal();
+    let basis = BasisSet::new(&crystal.lattice, 100.0);
+    let pp = pwdft_core::pseudopotential::load(
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
+            .join("pseudopotentials/nc/lda/Si.upf"),
+    )
+    .unwrap();
+    let kpoints = vec![pwdft_core::kpoints::KPoint {
+        k: nalgebra::Vector3::zeros(),
+        weight: 1.0,
+        label: None,
+    }];
+    let params = si_scf_params();
+
+    // Run GPU-accelerated SCF. The `gpu` feature is enabled at compile
+    // time (guaranteed by the `#![cfg(feature = "gpu")]` at the top of
+    // this file), so the GPU code path is active and the per-iteration
+    // grid ops go through the f32 WGSL kernels.
+    let gpu_result = pwdft_core::scf::run_scf(
+        &crystal,
+        &basis,
+        &kpoints,
+        &[&pp],
+        &params,
+        &pwdft_core::symmetry::SymmetryInfo::identity_only(),
+    )
+    .expect("GPU Si SCF must converge");
+
+    assert!(
+        gpu_result.n_iterations < params.max_iter,
+        "GPU SCF hit max_iter={} without converging",
+        params.max_iter,
+    );
+
+    eprintln!(
+        "GPU Si SCF: {} iters, E_GPU = {:.6} eV, E_F_GPU = {:.6} eV",
+        gpu_result.n_iterations, gpu_result.total_energy, gpu_result.fermi_energy,
+    );
+    eprintln!(
+        "CPU baseline (from tests/cpu_scf_baseline.rs): E_CPU = {SI_CPU_BASELINE_TOTAL_EV:.6} eV",
+    );
+
+    let delta_e = (gpu_result.total_energy - SI_CPU_BASELINE_TOTAL_EV).abs();
+    eprintln!(
+        "GPU vs CPU |ΔE| = {delta_e:.6} eV  (tolerance {TOL_GPU_VS_CPU_EV} eV)",
+    );
+    assert!(
+        delta_e < TOL_GPU_VS_CPU_EV,
+        "GPU SCF total energy drift from CPU baseline exceeds f32 tolerance: \
+         E_GPU = {:.6} eV, E_CPU_baseline = {SI_CPU_BASELINE_TOTAL_EV:.6} eV, \
+         |ΔE| = {delta_e:.6} eV (> {TOL_GPU_VS_CPU_EV} eV). \
+         Likely cause: f32-precision regression in a WGSL kernel \
+         (Hartree, LDA XC, or V_eff assembly). Re-run \
+         `cargo test -- --ignored test_cpu_scf_baseline` to confirm the \
+         CPU baseline is still {SI_CPU_BASELINE_TOTAL_EV:.6} eV; if it drifted \
+         too, the regression is in a shared (non-GPU) code path.",
+        gpu_result.total_energy,
+    );
+}
+
+#[test]
+#[ignore = "TSPL Tier-2: runs Si SCF on GPU with Kerker mixing at ecut=100, 40 iters; run with cargo test --features gpu -- --ignored when touching scf/mixing, gpu/, or fft paths"]
+fn test_gpu_scf_kerker_converges() {
+    // Verify GPU SCF with Kerker preconditioning converges.
+    // Exercises the GPU Hartree/XC/V_eff kernels with Kerker's
+    // FFT→filter→IFFT in the mixing step.
+    let Some(_) = GpuAccelerator::try_new() else {
+        eprintln!("No GPU, skipping");
+        return;
+    };
+
+    let crystal = si_crystal();
+    let basis = BasisSet::new(&crystal.lattice, 100.0);
+    let pp = pwdft_core::pseudopotential::load(
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
+            .join("pseudopotentials/nc/lda/Si.upf"),
+    )
+    .unwrap();
+    let kpoints = vec![pwdft_core::kpoints::KPoint {
+        k: nalgebra::Vector3::zeros(),
+        weight: 1.0,
+        label: None,
+    }];
+
+    let params = pwdft_core::scf::ScfParams {
+        n_bands: 4,
+        max_iter: 40,
+        conv_threshold: 1e-6,
+        mixing_beta: 0.3,
+        mixing_ndim: 4,
+        smearing_sigma: 0.05,
+        ecutrho_ratio: 4,
+        fft_grid: Some([16, 16, 16]),
+        mixing_mode: pwdft_core::scf::mixing::MixingMode::Kerker { q_tf: None },
+        ..Default::default()
+    };
+
+    let result = pwdft_core::scf::run_scf(
+        &crystal,
+        &basis,
+        &kpoints,
+        &[&pp],
+        &params,
+        &pwdft_core::symmetry::SymmetryInfo::identity_only(),
+    );
+
+    let r = result.expect("GPU Kerker SCF must converge");
+
+    // Convergence guard (TAUD finding 5.1).
+    assert!(
+        r.n_iterations < params.max_iter,
+        "GPU+Kerker SCF hit max_iter={} without converging",
+        params.max_iter
+    );
+
+    eprintln!(
+        "GPU+Kerker SCF converged in {} iterations, E={:.6} eV",
+        r.n_iterations, r.total_energy
+    );
+
+    // TAUD finding 2.8: duplicate of 2.5 — replace 200-eV zip-code check with
+    // specific value ± tolerance. Empirical Si total energy with Kerker
+    // (same mesh as test_gpu_vs_cpu_scf_eigenvalues) = -213.0283 eV
+    // post-NCFX (pre-NCFX: -198.8926 eV).
+    let e_diff = (r.total_energy - SI_REFERENCE_TOTAL_EV).abs();
+    assert!(
+        e_diff < 0.1,
+        "GPU+Kerker total energy {:.6} eV differs from expected {:.4} eV by {:.3e} eV (> 0.1 eV)",
+        r.total_energy,
+        SI_REFERENCE_TOTAL_EV,
+        e_diff
+    );
+}

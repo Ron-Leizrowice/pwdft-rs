@@ -33,7 +33,7 @@ blocks: []
 >
 > Re-open as a fresh proposal at that point; rebuild the cost/benefit
 > against then-current state. Do not land pre-emptively.
-
+>
 > **Note:** Line numbers reference the pre-ScfContext codebase. Verify locations before implementing.
 
 ## Motivation
@@ -55,6 +55,7 @@ cubecl = { version = ">=0.6", optional = true, features = ["wgpu"] }
 ```
 
 Replace or supplement:
+
 ```toml
 # Current GPU deps become optional/removable:
 wgpu = { version = ">=24.0", optional = true }
@@ -71,6 +72,7 @@ CubeCL uses wgpu internally but provides a higher-level API.
 **Replace `src/gpu/shaders/hartree.wgsl` with Rust:**
 
 Current WGSL (Hartree potential):
+
 ```wgsl
 @compute @workgroup_size(256)
 fn hartree(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -85,6 +87,7 @@ fn hartree(@builtin(global_invocation_id) id: vec3<u32>) {
 ```
 
 CubeCL equivalent in Rust:
+
 ```rust
 #[cube(launch)]
 fn hartree_kernel(
@@ -138,7 +141,7 @@ CubeCL does not provide FFT primitives, but it could be used to write a GPU-side
 
 ### Restructured GPU module
 
-```
+```text
 src/gpu/
 ├── mod.rs              # GpuAccelerator: device init, buffer management
 ├── kernels/

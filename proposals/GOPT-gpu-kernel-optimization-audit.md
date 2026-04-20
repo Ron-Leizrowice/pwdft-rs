@@ -11,11 +11,11 @@ author: Performance Engineer
 date: 2026-04-18
 ---
 
-# GOPT — GPU kernel + wgpu host path optimization audit
+## GOPT — GPU kernel + wgpu host path optimization audit
 
-## §1 Scope
+### §1 Scope
 
-### In scope
+#### In scope
 
 - Static audit of the wgpu compute path in `src/gpu/mod.rs` and the three
   WGSL kernels in `src/gpu/shaders/` (`hartree.wgsl`, `lda_xc.wgsl`,
@@ -30,7 +30,7 @@ date: 2026-04-18
   machine lock is free.
 - PR sequencing (§4) ordered by expected impact × ease.
 
-### Explicit non-goals
+#### Explicit non-goals
 
 - **Rewriting the kernels in CubeCL** — that is the deferred CUCL proposal;
   GOPT stays within the current wgpu/WGSL stack so it can land incrementally.
@@ -45,7 +45,7 @@ date: 2026-04-18
 - **Defaulting the GPU feature on.** It remains opt-in behind
   `--features gpu` per CLAUDE.md.
 
-### Hardware target
+#### Hardware target
 
 Apple M3 Max (integrated GPU, 10-core, unified memory, Metal backend via
 wgpu 26). Findings reference Apple Metal SIMD-group size (32 lanes) and
@@ -53,14 +53,14 @@ Apple-silicon buffer-coalescing rules. A few findings apply equally to
 the Vulkan fallback on non-Apple hardware, but the benchmarking plan
 only covers macOS.
 
-## §2 Findings
+### §2 Findings
 
 Numbered F1–F12, grouped by category. Each has `file:line` citations,
 a concrete fix, and an impact estimate at **production scale** — here
 meaning a 64³ or larger FFT grid (Si `si_scf_converged.yaml`-class run,
 n_grid ≥ 2.6×10⁵). Micro < 5 %, modest 5–15 %, major > 15 %.
 
-### A. CPU ↔ GPU transfer overhead (largest wins live here)
+#### A. CPU ↔ GPU transfer overhead (largest wins live here)
 
 **F1 — Transfer thrash in the three-kernel chain is the dominant cost.**
 `src/scf/driver.rs:167-199` calls `gpu.hartree_potential`,
@@ -80,7 +80,7 @@ onto the device (`src/gpu/mod.rs:312-316`). For a 64³ grid
 needlessly per iteration, plus 3 blocking submissions. Current code
 `src/gpu/mod.rs:248, 342, 393`:
 
-```
+```text
 self.queue.submit(std::iter::once(encoder.finish()));  // ×3 per iter
 ```
 
@@ -170,7 +170,7 @@ both methods following the shape of the Hartree path. Couples well
 with F1 (the façade already needs these buffers resident). **Impact:
 modest.**
 
-### B. Workgroup / dispatch sizing
+#### B. Workgroup / dispatch sizing
 
 **F5 — Workgroup size 256 is defensible but un-swept.**
 All three WGSL shaders use `@workgroup_size(256)`
@@ -193,7 +193,7 @@ afternoon of bench time after the machine lock is free. **Impact:
 micro-to-modest** (≤ 5 % per kernel; compounded across three kernels
 could reach modest).
 
-### C. Buffer coalescing
+#### C. Buffer coalescing
 
 **F6 — Scalar-strided complex reads could be `vec2<f32>` reads.**
 WGSL storage-buffer layout for `hartree.wgsl:9-12` and
@@ -220,7 +220,7 @@ naga + Metal lower this to a single 64-bit load and one `vec2`
 multiply. **Impact: modest on memory-bound kernels (Hartree, V_eff);
 micro on XC** (XC is compute-bound).
 
-### D. f32 precision
+#### D. f32 precision
 
 **F7 — No accumulation loops means Kahan is not needed (sanity check).**
 All three kernels are pointwise — each thread produces one output
@@ -247,7 +247,7 @@ log-spaced points, tolerance 0.01 eV — well above 2 ULP × 27 eV
 scale). **Impact: modest** on XC specifically (XC is the
 compute-bound one); micro on SCF wall time.
 
-### E. Register pressure / local variables
+#### E. Register pressure / local variables
 
 **F9 — Shader footprints are tiny; no register-pressure concern.**
 Largest per-thread working set is `lda_xc.wgsl` with ~12 scalar
@@ -256,7 +256,7 @@ locals (`rho`, `rho_bohr`, `rs`, `sqrt_rs`, `denom`, `d_ec`, `ln_rs`,
 file per thread is 256 × 32-bit; we use < 5 %. No spill risk.
 **No finding.**
 
-### F. f64 ↔ f32 boundary cost
+#### F. f64 ↔ f32 boundary cost
 
 **F10 — Scalar `.iter().map(|&v| v as f32).collect()` allocates per call.**
 `src/gpu/mod.rs:159, 255, 358, 471-477` do the f64→f32 cast in a
@@ -276,7 +276,7 @@ pool removes 1 MB × 6 allocs/iter on 64³ grids. **Impact: modest
 on small-to-medium grids** (allocation-dominated); micro on large
 grids where the dispatch itself dominates.
 
-### G. Pipeline / bind-group reuse
+#### G. Pipeline / bind-group reuse
 
 **F11 — Bind groups rebuilt every dispatch.**
 `src/gpu/mod.rs:228-237, 261-270, 318-328, 372-381` create a fresh
@@ -294,7 +294,7 @@ a `write_buffer` update instead of `create_buffer_init` is a
 companion cleanup. **Impact: micro** (≤ 2 % at 64³; may matter more
 at 16³ where per-call overhead is already a bigger fraction).
 
-### H. Missing GPU path
+#### H. Missing GPU path
 
 **F12 — `driver_spin.rs` has no GPU path at all.**
 `rg "feature = \"gpu\"" src/scf/driver_spin.rs` returns zero matches.
@@ -311,14 +311,14 @@ as a follow-up proposal (see §4 sequencing). **Impact: major for
 spin runs** (which are the Fe/Co/Ni target for VGCMP Phase 2+);
 zero for non-spin runs.
 
-## §3 Benchmarking plan
+### §3 Benchmarking plan
 
 All measurements must be run under the machine lock (CLAUDE.md
 "Machine Coordination") on Apple M3 Max with no other heavy processes,
 using the existing `benches/gpu_benchmarks.rs` harness extended where
 needed.
 
-### Baseline (must run before any fix lands)
+#### Baseline (must run before any fix lands)
 
 ```bash
 .claude/bin/machine-lock acquire "Performance Engineer" "GOPT baseline"
@@ -334,7 +334,7 @@ n ∈ {8 k, 64 k, 512 k} per kernel; **extend it to include
 n = 2 097 152 (128³)** so we have one production-scale point above
 the existing range.
 
-### Per-finding verification
+#### Per-finding verification
 
 | Finding | New / modified bench | Success criterion |
 |---------|----------------------|-------------------|
@@ -348,7 +348,7 @@ the existing range.
 | F10 (scratch Vec pool)       | Existing benches; isolate with an allocation-profiling run (Instruments Allocations instrument) on the Si SCF example. | Allocations/SCF-iter drop ≥ 60 % at n_grid = 4 096. |
 | F11 (bind-group cache)       | Existing Hartree bench at n = 8 k (smallest, where overhead is largest). | ≤ 2 µs per-call reduction; not a regression anywhere. |
 
-### Correctness gates (every PR)
+#### Correctness gates (every PR)
 
 - `cargo test --features gpu --test gpu_consistency` — all four tests
   must pass with existing tolerances. **Do not loosen a tolerance to
@@ -357,7 +357,7 @@ the existing range.
   regression safety (~28 s).
 - Both clippy invocations per CLAUDE.md § Code Quality.
 
-### Tangential instrument pass
+#### Tangential instrument pass
 
 Once F1 + F3 land, run Instruments' **Metal System Trace** on
 `examples/si_scf_converged.yaml` with `--features gpu` to confirm:
@@ -368,7 +368,7 @@ Once F1 + F3 land, run Instruments' **Metal System Trace** on
   dispatch) shrink.
 - `MTLBuffer` allocation count per SCF iter drops monotonically.
 
-## §4 Recommended PR sequencing
+### §4 Recommended PR sequencing
 
 Landing order maximizes cumulative speedup per PR while minimizing
 risk of a regression at small grids (where current code is already
@@ -397,21 +397,21 @@ probably wrong, per F3).
    Risk: low. Impact: micro-to-modest compounded across three
    kernels.
 
-### Not in this proposal (flagged)
+#### Not in this proposal (flagged)
 
 - **F12 (spin-polarized GPU path).** Large enough to merit its own
   proposal; will lift into INDEX as `GSPN` or similar after GOPT
   PR-A lands. Unblocks VGCMP Phase 2 (Fe 4×4×4 free-mag) running
   with GPU acceleration, which today takes several minutes on CPU.
 
-### Stop conditions
+#### Stop conditions
 
 If after PR-C the GPU path is not within 2× of the theoretical
 memory-bandwidth ceiling (50 GB/s × n_grid / iter → ~1 ms for
 64³), escalate to the deferred CUCL proposal — wgpu overhead would
 then be the genuine bottleneck, not kernel organization.
 
-## Notes
+### Notes
 
 - All file:line references are against commit `0520c8c` (main,
   2026-04-18).

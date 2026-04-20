@@ -192,6 +192,7 @@ fn align_subspace(v_old: &DMatrix<Complex64>, v_new: &mut DMatrix<Complex64>) {
 ## Performance Impact
 
 For a system with n_pw = 200, n_bands = 8:
+
 - Full diag: O(200^3) = 8M operations per k-point
 - Subspace diag: O(200^2 * 8) = 320K operations per k-point
 - Speedup: ~25x on the eigensolve step (25-35% of SCF time)

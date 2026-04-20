@@ -37,6 +37,7 @@ Pick one of:
 ## Verification
 
 After option 2:
+
 - `cargo test test_vloc_comparison_with_qe` — gone.
 - VGCMP cross-check tests still pass (already do).
 

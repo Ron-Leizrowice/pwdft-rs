@@ -10,12 +10,12 @@ Python Fermi-Dirac bisection over QE converged eigenvalues + weights
 reproduces QE's reported E_F to:
 
 | system    | |ΔE_F_py − E_F_QE| |
-|-----------|---------------------|
-| Cu FCC    | 6 μeV               |
-| Fe BCC FM | 15 μeV (nspin=2)    |
-| C diamond | 10 μeV              |
-| MgO       | 66 μeV              |
-| NaCl      | 180 μeV             |
+| ----------- | --------------------- |  |  |
+| Cu FCC | 6 μeV |  |  |
+| Fe BCC FM | 15 μeV (nspin=2) |  |  |
+| C diamond | 10 μeV |  |  |
+| MgO | 66 μeV |  |  |
+| NaCl | 180 μeV |  |  |
 
 pwdft-rs's `smearing::find_fermi_energy` matches QE's `efermig.f90` on:
 (a) sign convention (`x = (ε−E_F)/σ; f = 1/(1+exp(x))` ≡ QE
@@ -38,6 +38,7 @@ double-counts by 2× (original Cu run landed at E_F = 13.42 eV,
 off by 5.79 eV from QE).
 
 **Remaining Part C suspects, reordered:**
+
 1. H-C4 (Cu/GaAs/MgO/Mg ρ_core(G) unpinned; Fe has a guard, heavies
    don't). Highest prior — fingerprint matches ΔE_xc = +8.87 eV at
    transplant.
@@ -65,6 +66,7 @@ rustdoc clean.
 Seed pwdft-rs with QE's converged Cu FCC ρ_QE, diagonalize one SCF iteration, compare per-term to QE.
 
 **Key numbers (post-VGCH-SiEF-B1 #166, merged during session):**
+
 - E_HF at ρ_QE = −4837.30 eV, QE total = −4853.64 eV → **+16.34 eV gap at SAME density**. E_HF is gauge-invariant so this survives the V_loc(G=0) re-gauge.
 - Γ eigenvalues now +0.26 ± 0.03 eV offset from QE (pre-SiEF-B1: −7.47 eV uniform; SiEF-B1 closed that).
 - pwdft E_F = 21.29 eV, QE E_F = 19.21 eV → Δ = +2.08 eV. **1.82 eV is DOS/occupation origin** (subtract the 0.26 eV eigenvalue offset).
@@ -76,6 +78,7 @@ Seed pwdft-rs with QE's converged Cu FCC ρ_QE, diagonalize one SCF iteration, c
 **New leading Part C suspect:** Fermi-finder / smearing on dense 3d DOS at E_F (1.82 eV DOS-origin mis-gauge even at matched eigenvalues). Prior suspects (NLCC Cu/GaAs/MgO, projector scaling) still in play.
 
 **Load-bearing conventions:**
+
 - QE `charge-density.dat` Fortran sequential-access binary, `mill_g(3, ngm_g)` column-major → Rust reshape as C-order `(ngm, 3)`. Verified via `rho(G=0)·Ω ≈ N_el`.
 - pwdft `1/N`-forward FFT normalization matches QE `fwfft('Rho', ..., dfftp)`; no extra scaling needed.
 - ρ(G) unit: QE e/Bohr³ → pwdft e/Å³ via `1/BOHR_TO_ANG³` = 6.7483…
@@ -116,6 +119,7 @@ Cu 7.75, Ga+As 4.70, Na+Cl 1.67, Mg+O 3.35 eV — all would close
 with Part B1. Total-energy arms unaffected.
 
 **Artifacts** (all read-only, no src/ changes):
+
 - `scripts/validate/si_ef_shift_trace.py` + `si_ef_shift.csv`
 - `proposals/VGCH-heavy-atom-vloc-residual.md` § Light-atom E_F shift
 
@@ -207,14 +211,14 @@ Cu, GaAs, NaCl, MgO).
 **Verdict: H2 CLEARED.** Raw-sample point-wise max |Δρ(r)|:
 
 | system | max |Δρ| (e/Å³) | neg mass clamped (e) |
-|---|---|---|
-| C diamond | 5.4e-11 | 0 |
-| Al FCC    | 5.5e-12 | 0 |
-| Fe BCC    | 4.0e-10 | 0 |
-| Cu FCC    | 4.0e-10 | 0 |
-| GaAs      | 1.2e-5  | 2.1e-5 |
-| NaCl      | 8.6e-11 | 0 |
-| MgO       | 4.8e-10 | 0 |
+| --- | --- | --- |  |  |
+| C diamond | 5.4e-11 | 0 |  |  |
+| Al FCC | 5.5e-12 | 0 |  |  |
+| Fe BCC | 4.0e-10 | 0 |  |  |
+| Cu FCC | 4.0e-10 | 0 |  |  |
+| GaAs | 1.2e-5 | 2.1e-5 |  |  |
+| NaCl | 8.6e-11 | 0 |  |  |
+| MgO | 4.8e-10 | 0 |  |  |
 
 C diamond bit-perfect pre-clamp AND post-clamp — the 1.45 eV C
 residual does NOT live in SAD. GaAs's 1.2e-5 outlier is the
@@ -238,8 +242,9 @@ No production-code impact — shell-average is a diagnostic only.
 **H3 target (VGCH-2).** With H1 (β_l(q), landed PR #148) and H2
 (SAD, this PR #156) both cleared, the 7-34 eV residuals must be
 in:
+
 - (H3a) Total-energy assembly — `src/scf/energy.rs` `with_g0_shift`
-  + ρ_in/ρ_out pairing in Harris-Foulkes double counting. Phase 1a
+  - ρ_in/ρ_out pairing in Harris-Foulkes double counting. Phase 1a
   fingerprint: opposite-sign one-electron vs Hartree partial
   cancellation is consistent with an assembly-pairing bug. C
   diamond specifically shows every Γ eigenvalue offset by exactly
@@ -332,6 +337,7 @@ matching V_loc(G=0) convention (pwdft zeros G=0 in H, compensated by
 N·V_loc(G=0) additive). Does NOT contribute to E_total residual.
 
 **Phase 1b hypotheses (next session):**
+
 1. Different SCF fixed point — mixer/initial-density issue on
    heavy-atom cells, not a PP bug. Needs ρ(G) shell-by-shell diff
    between pwdft and QE save files.
@@ -392,6 +398,7 @@ sym OFF scales O(Δρ) (expected); sym ON is a hard plateau. QE's identity close
 E_KS itself is also biased ~17 meV (ρ_sym ≠ ρ_ψ leaks into `-e_H + (e_xc − e_vxc)` double-counting). Not just a diagnostic issue. Fix: G-space symmetrization via phase factors (QE `symme.f90::sym_rho`). Filed as PCFX.
 
 **Tangential (preserved from session):**
+
 - `compatible_grid_dims` is dead code outside tests.
 - FFT grid 20/24 (both div-by-4) → Si Anderson mixer loses conditioning and oscillates. Separate mixer concern.
 
@@ -410,6 +417,7 @@ Added `ScfResult.components` (`EnergyComponents`) populated at convergence. Foun
 Fe nspin=1: ΔE_xc = −48.85 eV. Scales with NLCC magnitude → NLCC core-density FT is the bug.
 
 **Two compounding bugs in NLCC:**
+
 1. `upf.rs:95-105` divides PP_NLCC by `BOHR_TO_ANG` — PP_NLCC is bare ρ_core(r) in e/Bohr³, correct divisor is BOHR_TO_ANG³.
 2. `potentials.rs:92-107` integrates `ρ_c · j₀(Gr)` without r² weight and without 4π. QE's `rhoc_mod.f90:107` uses `ρ·r²·j₀` then `fpi/Ω`.
 
@@ -511,4 +519,3 @@ double-counting bug.
 
 Refs: NLCC PRB 26 1738 (Louie/Froyen/Cohen); QE `upflib/rhoc_mod.f90:107-115`
 (`init_tab_rhc`), `upflib/read_upf_new.f90` (PP_NLCC parse).
-

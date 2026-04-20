@@ -24,6 +24,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
+| PYQE | Route all QE invocation/comparison through `pwdft_validation.qe` (new sub-package); move machine-lock orchestration behind the Python wrapper (QE requires the lock same as cargo); rename skill `qe-runner` → `qe-validation` to point at `uv run pwdft-validate qe ...` instead of hand-typed `mpirun pw.x`; add CI job gating PRs on regeneration-diff against `data/qe/reference_data.toml` via conda-forge `quantum-espresso=7.5`. Phases A (runner + parser consolidation) + B (lock) + C (skill) + D (CI gate) + E (sweep) | large | medium | — | VQEF, VGCH-2, VGCH-MECH |
 | RWHK | Reward-hacking audit (2026-04-19). **1 Critical** (C1: `test_gpu_vs_cpu_scf_direct_comparison` compares GPU-vs-GPU, not GPU-vs-CPU — f32/f64 consistency signal structurally absent), **4 Major** (E2 ITEV heuristic narrow coverage; F3 NLCC convention wrong-sign undefended; H1 PBE-actually-invoked soft assertion gap; A5 five `#[ignore]`d LDA tolerances don't match their disclosed residuals), **6 Minor** | small | low | — | VQEF |
 | PZPW | LDA correlation functional fix — rewire `XcEvaluator::Pz` from PZ-81 → Slater+PW92 to match QE's `SLA+PW` default. Global mismatch surfaced by VGCH-2D (#177); predicted to close Fe LDA's 11 eV Class B outlier (H-2D-A hypothesis) and compress the Class A floor (~1 eV) on every LDA cell. PW92 helpers already exist in `src/potential/xc.rs:894,1111` (used by PBE correlation). Scope: land as `#[doc(hidden)]` `XcFunctional::LdaPw92` diagnostic variant first, run transplant, promote to default if confirmed | small | low | VGCH-2D | VQEF |
 | CNLC | C diamond NLCC pin + NLCC-off ablation — primary suspect per VGCH-2E (#178) for Class A light-atom residual. C LDA PP has `core_correction="T"`; ΔE_xc = +0.43 eV at shared ρ scales with a small ρ_core(G) error. Steps: add Python-Simpson pin for C in `src/pseudopotential/upf/convert.rs` (template: Ga/As/O/Cl pins landed via VGCH-2F), then NLCC-off ablation run | small | low | VGCH-2E | VQEF |
@@ -36,9 +37,11 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
+| PMTL | Split GPU backend (`src/gpu/*`, 980 LOC + 140 WGSL) out of `pwdft-core` into new workspace crate `pwdft-metal`; define `GridAccelerator` trait in core; delete 11 `#[cfg(feature="gpu")]` branches in `scf/driver.rs`; binary picks backend at build time. Unblocks CUCL clean second-backend | medium | medium | — | CUCL |
+| TDBG | Switch CI Tier-1 to `cargo test --profile=dev` (`opt-level=0`); local `cargo test` stays on TPRF's O3 profile. Tier-1 is structurally compile-bound in CI (no SCF loops post-TSPL); projected ≥50% wall reduction on cold-build PR runs. Tier-2 + benches unchanged. Adds a 4-min Tier-1 budget guardrail | small | low | — | — |
 | GGAP | GGA/PBE functional — **Phases A+A.1+B+C+D+F-light all landed** (#85, #155, #145, #151, #158, #161). Si PBE 12 meV GREEN, Al PBE 8 meV GREEN, Fe PBE retains M=2.16 μB (VGCH-class residual). **Only Phase E remains** (GPU PBE shader, 2–3 CE-days, deferred until CPU path validates fully) | medium | medium | — | HYBR |
 | HYBR | Hybrid functional (PBE0, HSE06) with ACE compression (phased 0–6; ~7–11 CE-weeks) | large | high | GGAP-E | — |
-| ITEV | Iterative Eigensolver — faer Lanczos fix vendored (#129); both correctness defects closed (ITEV2 #140, Si ecut=100 Dense↔Iterative |ΔE|=4.52e-12 eV). **Only Phase-5 step-4 remains**: end-to-end SCF wall-time bench with WFRX active → decide default flip | small | low | — | — |
+| ITEV | Iterative Eigensolver — faer Lanczos fix vendored (#129); both correctness defects closed (ITEV2 #140, Si ecut=100 Dense↔Iterative | ΔE | =4.52e-12 eV). **Only Phase-5 step-4 remains**: end-to-end SCF wall-time bench with WFRX active → decide default flip | small | low |
 | GOPT | GPU audit — PR-B #106 + PR-A #138 landed (128³ hartree −34%, v_eff −40%); F5/F6/F8 empirically tested, no measurable gain; remaining lever is F1+F2 chain fusion (blocked on `src/scf/driver.rs` quiescence) | medium | low-medium | — | — |
 | ALOC | Per-iteration allocation audit — F-5 landed (16.8 GB → 0 per SCF); F-7 (psi_g in band loop, 200-1000 µs/iter) + F-12 (FFT3D twiddle rebuild, 100-500 µs/iter) remain | medium | low | — | — |
 | ERR2 | Panic-free production — P0 #86, ERR2-AX #111, P1.a #152 (variants), P1.b #159 (CRYSTAL 3), P1.c #163 (PARAM 9), P1.d #175 (ELEMENT + UPF 2 sites) all landed. **Phase 1 CLOSED.** Post-P1 `InvalidInput` count: 3 sites (1 CLI catch-all `main.rs:47`, 2 transplant.rs shape-checks added after the original census — flagged for a trivial **P1.e** mop-up, ~20 min) | small | low | — | — |
@@ -55,6 +58,7 @@ Proposals use 4-letter IDs (e.g., `SIMP`) to avoid numbering conflicts when mult
 | URES | Replace 82 `#[must_use]` annotations with `unused_results` lint — unconditional coverage without per-function annotation | small | low | — | — |
 | CUCL | CubeCL GPU Kernels (deferred — explicit trigger conditions in proposal) | large | high | — | — |
 | FLUP | Follow-up backlog — remaining unpromoted items: MXB2 (Fe CCMX retune), EIGV/EIGW (bench-noise triage), FLP3 (NLCC 60-element regression parametric expansion), TYPE-AX (folded into TYPB) | small | low | — | — |
+| LTOB | Benchmark `lto = "fat"` vs `"thin"` on the SCF hot path; adopt iff ≥2% production SCF win and link time <5 min | small | low | — | — |
 
 ## Reference Documents
 
@@ -111,7 +115,7 @@ Proposals moved out of the active/deferred backlog after a stale-scope review. F
 | VGCMP | V_local(G) + KB Projector Cross-Check vs QE 7.5 (Phases 1–4; root cause moved to NCFX/NLCC chain, heavy-atom follow-up tracked in VGCH) |
 | ERRH | Error Handling Cleanup |
 | VERF | V_local erf Coulomb Subtraction (landed as QE convention; regression test only) |
-| SPXC | Fix Spin-Polarized E_xc Density Consistency (|HF-KS| 22→13 eV on Fe) |
+| SPXC | Fix Spin-Polarized E_xc Density Consistency ( |
 | QEDX | Systematic Energy Discrepancy vs QE (superseded by VGCMP) |
 | QEVL | QE Validation Test Suite (Tier 1+2) |
 | MUST | `must_use_candidate` Annotations (70 of 80 sites) |
@@ -172,7 +176,7 @@ Proposals moved out of the active/deferred backlog after a stale-scope review. F
 | DFLT | Hoist two `1e-15` density threshold literals into named `const`s with physics docstrings (FLUP entry; PR #137) |
 | GOPT-A | BufferPool scratch `Vec<f32>` for CPU→GPU uploads; 128³ hartree −33.9%, v_eff −39.9%; 64³ hartree −28.6%, v_eff −20.4% (PR #138) |
 | VGCH Phase 1a | Heavy-atom per-component diagnostic — rules out V_local(G=0) Z-scaling and Ewald; residual lives in one-electron/Hartree partial cancellation, not form factors. Phase 1b needs β_q / initial density / mixer basin investigation (PR #139; diagnostic-only, no src/ changes) |
-| ITEV2 | Close ITEV defects 1+2 — adaptive `krylov_max_dim` scales with basis (Lehoucq & Sorensen §3.2); WFRX warm-start wired on Iterative path. Si ecut=100 Dense↔Iterative |ΔE|=4.52e-12 eV (pre-fix 0.77 eV); all 4 single-shot tests pass at 1e-10 eV on Si/Fe/Cu. Default-flip blocked on Phase-5 step-4 end-to-end SCF wall bench (PR #140) |
+| ITEV2 | Close ITEV defects 1+2 — adaptive `krylov_max_dim` scales with basis (Lehoucq & Sorensen §3.2); WFRX warm-start wired on Iterative path. Si ecut=100 Dense↔Iterative |
 | GRM6 | Consolidate TYPB + TYPE-AX into one integer-type cleanup; archive merged CLSS + HKIN (PR #125) |
 | GRM7 | Fold ITEVF findings into ITEV; fix CLAUDE.md perf claim + DEAD drive-by (PR #128) |
 | GRM8 | Vendor faer v0.24.0 + MAX_REORTH `iterate_lanczos` fix; wire `[patch.crates-io]` at `./faer/` (PR #129) |
@@ -190,7 +194,7 @@ Proposals moved out of the active/deferred backlog after a stale-scope review. F
 | TSPL | Bifurcate test suite — Tier-1 fast default (12s) + Tier-2 `#[ignore]` opt-in (58s); 8× speedup on default `cargo test` (PR #150) |
 | GGAP Phase C | PBE correlation + PW92 helper; wire end-to-end (scaffolded, needs A.1 to run; PR #151) |
 | ERR2 P1.a | Add InvalidCrystal / InvalidParam / UnknownElement / InvalidPseudopotential variants (PR #152) |
-| FLUP G2ZT | Hoist `1e-12` |G|=0 threshold to `consts::G_ZERO_THRESHOLD` (distinct from `G2_ZERO_THRESHOLD` |G|² — avoided silent 10⁶ rescaling; PR #153) |
+| FLUP G2ZT | Hoist `1e-12` |
 | GGAP F-pre | QE PBE reference data for all 8 VQEF systems (PR #154) |
 | GGAP Phase A.1 | Driver-side density gradient FFT + semilocal V_xc assembly — **Si PBE end-to-end 12.4 meV** (PR #155) |
 | VGCH Phase 1c | SAD initial density bit-correct vs QE (H2 CLEARED; PR #156) |

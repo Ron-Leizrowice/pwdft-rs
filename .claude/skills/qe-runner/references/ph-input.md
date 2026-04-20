@@ -4,7 +4,7 @@ ph.x computes phonon frequencies and eigenvectors using density-functional pertu
 
 ## Input file structure
 
-```
+```text
 Title line (free text, ignored)
 &INPUTPH
   ... parameters ...
@@ -54,7 +54,7 @@ For `ldisp = .true.` (grid of q-points), the q-point line is omitted.
 
 ### Gamma-point phonons
 
-```
+```text
 Phonons at Gamma
 &INPUTPH
   prefix   = 'si'
@@ -69,7 +69,7 @@ Phonons at Gamma
 
 ### Single q-point (zone boundary X)
 
-```
+```text
 Phonons at X
 &INPUTPH
   prefix   = 'si'
@@ -85,7 +85,7 @@ The q-point is in Cartesian coordinates, units of 2π/a.
 
 ### Full phonon dispersion (q-grid)
 
-```
+```text
 Phonon dispersion on 4x4x4 grid
 &INPUTPH
   prefix   = 'si'
@@ -106,7 +106,7 @@ No q-point line when `ldisp = .true.`.
 
 ### Phonon frequencies
 
-```
+```text
      freq (    1) =      -0.136809 [THz] =      -4.563360 [cm-1]
      freq (    2) =      -0.136809 [THz] =      -4.563360 [cm-1]
      freq (    3) =      -0.136809 [THz] =      -4.563360 [cm-1]
@@ -139,7 +139,8 @@ grep 'Effective charges' output.out       # Born charges
 4. **matdyn.x** — Interpolate to get frequencies along arbitrary q-paths
 
 q2r.x input:
-```
+
+```text
 &INPUT
   fildyn = 'si.dyn'
   zasr   = 'simple'
@@ -148,7 +149,8 @@ q2r.x input:
 ```
 
 matdyn.x input:
-```
+
+```text
 &INPUT
   asr    = 'simple'
   flfrc  = 'si.fc'

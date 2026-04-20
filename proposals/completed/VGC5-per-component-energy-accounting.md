@@ -21,6 +21,7 @@ VGCMP Phases 1+2+3+4 (PR #29 merged 2026-04-17) established that the entire pseu
 - Diagonal H[G,G]: max |Δ| = 2.9e-10 Ry (Phase 4)
 
 **The 13.4 eV Si gap (pwdft-rs −218.18 eV vs QE −231.61 eV) is OUTSIDE the matrix assembly.** Possible loci:
+
 - Total-energy term composition (kinetic, local, non-local, Hartree, XC, Ewald summation in `total_energy()`)
 - The V_local(G=0) compensating background shift (likely missing — see Prime Suspect below)
 - Ewald summation for the 2-atom Si diamond primitive vs the 1-atom Fe BCC cell
@@ -33,7 +34,8 @@ Fe BCC matches QE to 0.02 eV. Si misses by 13.4 eV. The Fe-vs-Si asymmetry is th
 Open branch `VGC5/per-component-energy-accounting`. Steps:
 
 1. **Run Si SCF in pwdft-rs at ecut=30 Ry** (matches `qe_validation/si_scf.in`) with verbose energy logging:
-   ```
+
+   ```text
    E_band     = ...
    E_kinetic  = ...
    E_local    = ...
@@ -69,6 +71,7 @@ To check: read `src/scf/context.rs:93-94`, then `src/scf/mod.rs::total_energy` (
 ## Verification
 
 The 13.4 eV gap should localize to one term. Once located:
+
 - Write a unit test that pins the per-component value against an analytical expression or QE reference.
 - Implement the fix in a separate proposal (e.g., `VGFX-vloc-g0-shift` or `EWFX-ewald-diamond-fix`).
 - Re-run the Si SCF; confirm |E_total - E_QE| < 0.1 eV.

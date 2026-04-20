@@ -49,7 +49,7 @@ Table is ~92 entries, static `const` array. Maintenance cost: re-sync on PseudoD
 
 1. Look up each species' `Standard` ecut from the table.
 2. Take the max across all species in the crystal. Optional 1.0× multiplier (configurable later; default 1.0).
-3. `log::warn!("ecutwfc not set, using recommended {} eV from PseudoDojo .standard (max over species); set `basis.ecutwfc` to override", ecut)`.
+3. `log::warn!("ecutwfc not set, using recommended {} eV from PseudoDojo .standard (max over species); set`basis.ecutwfc`to override", ecut)`.
 
 When `basis.ecutwfc` is set, use it unchanged (current behavior). No warning.
 

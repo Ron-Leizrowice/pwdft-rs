@@ -325,9 +325,9 @@ meaningful regressions (any E_total drift by 2×).
   Hamiltonian diagonal. `src/scf/energy.rs:585-600` documents the
   algebraic identity:
   `E_local_new = E_local_old + V_loc(G=0)·N_el;
-   e_local_g0_shift_new = 0 (was V_loc(G=0)·N_el);
-   e_band_new = e_band_old + V_loc(G=0)·N_el;
-   E_total unchanged.`
+  e_local_g0_shift_new = 0 (was V_loc(G=0)·N_el);
+  e_band_new = e_band_old + V_loc(G=0)·N_el;
+  E_total unchanged.`
   This is a gauge change, not a compensating error.
 
 ### F2 (False-positive-ruled-out) — TSEN `-TS` omission was not masked by another term
@@ -342,11 +342,13 @@ meaningful regressions (any E_total drift by 2×).
 
 - **Location:** `src/scf/energy.rs:136-154`
 - **Evidence:** The implementation does:
-  ```
+
+  ```text
   e_xc  = ∫ (ρ_val + ρ_core) · ε_xc(ρ_val + ρ_core) dV
   e_vxc = ∫ ρ_val · V_xc(ρ_val + ρ_core) dV
   return e_xc - e_vxc
   ```
+
   Cross-checked against QE `PW/src/v_of_rho.f90::v_xc` — QE computes
   `etxc` on `rho_core_total = rho + rho_core` and `vtxc = Σ v_xc · rho`
   (valence-only) the same way. See

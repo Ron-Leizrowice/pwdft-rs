@@ -68,7 +68,7 @@ sequential path; 32³ and above take the parallel path.
 If we always parallelize, the 24³ case pays the ~70 µs fork/join overhead
 on every XC call. Worst case impact on a 30-iteration spin SCF:
 
-```
+```text
 2 calls/iter × 30 iter × ~70 µs/call ≈ 4.2 ms per SCF
 ```
 

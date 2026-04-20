@@ -1,0 +1,38 @@
+&CONTROL
+  calculation = 'scf'
+  prefix = 'fe_fm_pbe'
+  outdir = './tmp_pbe'
+  pseudo_dir = '../../../pseudopotentials/nc/pbe'
+  verbosity = 'high'
+  disk_io = 'low'
+  max_seconds = 540
+/
+&SYSTEM
+  ibrav = 3
+  celldm(1) = 5.4235
+  nat = 1
+  ntyp = 1
+  ecutwfc = 60.0
+  ecutrho = 240.0
+  input_dft = 'pbe'
+  occupations = 'smearing'
+  smearing = 'fermi-dirac'
+  degauss = 0.02
+  nspin = 2
+  starting_magnetization(1) = 0.5
+/
+&ELECTRONS
+  conv_thr = 1.0d-8
+  mixing_beta = 0.3
+  mixing_mode = 'local-TF'
+  electron_maxstep = 60
+  diagonalization = 'david'
+/
+ATOMIC_SPECIES
+  Fe  55.845  Fe.upf
+
+ATOMIC_POSITIONS crystal
+  Fe 0.00 0.00 0.00
+
+K_POINTS automatic
+  8 8 8  0 0 0

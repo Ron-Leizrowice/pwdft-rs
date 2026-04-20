@@ -122,7 +122,7 @@ Both criteria must be satisfied for convergence. This is stricter than either al
 
 Replace the current single-line log (line 287) with a tabular format:
 
-```
+```text
 SCF iter  1: E= -215.483721 eV  dE=       N/A  Δρ= 3.2e-02
 SCF iter  2: E= -216.012455 eV  dE= 5.29e-01  Δρ= 8.4e-03
 SCF iter  3: E= -216.148332 eV  dE= 1.36e-01  Δρ= 2.1e-03

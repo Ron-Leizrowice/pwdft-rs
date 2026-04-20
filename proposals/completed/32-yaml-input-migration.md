@@ -226,6 +226,7 @@ output:
 Add every field from the research inventory to `settings.rs`. All new fields use `#[serde(default)]` with the same values currently hardcoded, so existing YAML files parse unchanged.
 
 **Extend `ElectronSettings`:**
+
 ```rust
 pub mixing_mode: MixingModeType,         // plain | kerker (default: kerker)
 pub kerker_q_tf: Option<f64>,            // None = auto
@@ -240,22 +241,26 @@ pub occupation_threshold: f64,           // default: 1e-15
 ```
 
 **Extend `ScfSettings`:**
+
 ```rust
 pub energy_threshold: f64,               // default: 1e-5
 ```
 
 **Extend `BasisSettings`:**
+
 ```rust
 pub fft_grid: Option<[usize; 3]>,
 ```
 
 **Extend `SymmetrySettings`:**
+
 ```rust
 pub search_radius_factor: f64,           // default: 1.5
 pub kpoint_rounding_tol: f64,            // default: 1e-6
 ```
 
 **New `EwaldSettings`:**
+
 ```rust
 pub eta: Option<f64>,                    // None = auto
 pub cutoff_multiplier: f64,              // default: 10.0
@@ -263,6 +268,7 @@ pub self_interaction_threshold: f64,     // default: 1e-10
 ```
 
 **New `NumericsSettings`:**
+
 ```rust
 pub rho_floor: f64,                      // default: 1e-20
 pub g2_zero_threshold: f64,              // default: 1e-12
@@ -276,6 +282,7 @@ pub q_norm_threshold: f64,               // default: 1e-12
 ```
 
 **New `InitialDensitySettings`:**
+
 ```rust
 pub method: InitialDensityMethod,        // sad | gaussian (default: sad)
 pub gaussian_sigma: f64,                 // default: 1.0
@@ -283,6 +290,7 @@ pub normalization_tol: f64,              // default: 1e-15
 ```
 
 **New `GpuSettings`:**
+
 ```rust
 pub workgroup_size: u32,                 // default: 256
 pub complex_buffers: usize,              // default: 5
@@ -357,6 +365,7 @@ This is the most invasive step. Every hardcoded value that moved into the YAML s
 **Ewald:** Add `&EwaldSettings` parameter to `ewald_energy()`. Replace hardcoded `10.0` multiplier and auto-eta with values from settings. Pass `self_interaction_threshold` instead of `1e-10`.
 
 **Numerics → potentials:** The SCF context (`src/scf/context.rs` or a new `NumericsContext`) carries `rho_floor`, `g2_zero_threshold`, etc. Pass to:
+
 - `potential/xc.rs` — replace all 4 independent `1e-30` floors with `rho_floor`
 - `scf/energy.rs` — replace `G2_ZERO_THRESHOLD` reads with context field
 - `scf/mixing.rs` — pass `diis_pivot_tolerance` and `g2_zero_threshold`

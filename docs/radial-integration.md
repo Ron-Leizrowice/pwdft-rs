@@ -31,7 +31,7 @@ with a boundary correction for even mesh.
 
 Our V_local integrand subtracts the full Coulomb tail:
 
-```
+```text
 v_short(r) = V_local(r) + Z*e^2/r
 ```
 
@@ -41,7 +41,7 @@ r^2 * sinc(Gr)), but the integrand has a very large spike near r=0.
 
 QE (`qe-7.5/upflib/vloc_mod.f90:138`) uses erf subtraction instead:
 
-```
+```text
 v_short(r) = V_local(r) + Z*e^2*erf(r)/r
 ```
 
@@ -61,6 +61,7 @@ parts of the radial integrand), which explains the broken eigenvalue
 degeneracies at high-symmetry k-points.
 
 The per-electron error scales with Z_valence:
+
 - Si (Z=4): 1.66 eV/electron
 - Fe (Z=16): 2.84 eV/electron
 

@@ -78,6 +78,7 @@ This trades O(n_kpoints × n_pw²) memory for eliminating the entire non-local c
 ## Performance Impact
 
 For Si with n_pw=200, n_bands=8, 10 SCF iterations, 1 k-point:
+
 - Current: `NonlocalPotential::new()` called 10× = 10 × O(n_proj × n_pw × n_radial)
 - Step 1: Called 1× (10× speedup on non-local setup)
 - Step 3: Non-local Hamiltonian add goes from O(n_proj × n_pw² × n_atoms) to O(n_pw²) per iteration

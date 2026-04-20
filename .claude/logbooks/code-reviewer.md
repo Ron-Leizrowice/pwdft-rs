@@ -21,6 +21,7 @@ P1 scoping (#147, scoping-only, no code): enumerates 38 `InvalidInput(String)` c
 18 new `#[ignore = "TSPL Tier-2: ..."]` tags. Tier-1 wall: 95 s → **12 s warm** (8× on top of TPRF's 7×; net 55× vs. opt-level=0 baseline). Tier-2 wall: 58 s warm (passing tests only). Gate: 271 unit + 49 integration pass; clippy 18/24 baseline unchanged; rustdoc clean.
 
 Breakdown of new Tier-2:
+
 - `parallel_consistency.rs`: 2 SCF tests (FFT round-trips stay Tier-1)
 - `spin_polarization.rs`: 4 (all SCF-running tests)
 - `vgc5_per_component_si.rs`: 4 (vgc5_si/fe_per_component + madoc_band_sum_si/fe)
@@ -42,6 +43,7 @@ DRSD + SMRT + DHPC all shipped in one bundle after rebasing around HKIN/XCTH/ELM
 Net LOC delta: **−239** (98 ins / 337 del). `real_space.rs` gone (−269). Gate: 306 tests pass, clippy 17/23 unchanged baseline, doc clean.
 
 Notes for next sweep:
+
 - HKIN's landing mid-session freed `tests/free_electron_bands.rs` so DHPC could land fully. If blocking constraints ever force DHPC-only deferral, keep the bench `diagonalize_lowest(h, h.nrows())` change — it's equivalent but survives on its own.
 - `symmetrize_real_ref` inline in g_space.rs tests = ~75 LOC (proposal said 30). The extra LOC is per-operation loop body; non-negotiable — can't shrink without losing readability.
 - `src/main.rs:88` comment still says "symmetrize_density" (identifier gone). Flagged for Technical Writer as single-line cleanup.
@@ -53,6 +55,7 @@ Wrote `proposals/TRV2-test-suite-review-2026-04-19.md`. PR #91. Targeted gaps TA
 Counts: Cat1=5 (physics gap), Cat2=1, Cat3=3 (brittle), Cat4=2 (org), Cat5=4 (bench). 6-PR fix sequence.
 
 Top-3 Cat1 gaps (true physics coverage holes):
+
 1. **MADOC band-sum identity** `E_band = e_kin + e_loc + e_nl + 2·e_H + e_vxc` documented `src/scf/energy.rs:596-608` but unpinned. VGC5 self-check is trivial (`Σ = total` by construction). Factor-2 Hartree bug would pass.
 2. **CCMX basis-change round-trip** inlined `src/scf/driver_spin.rs:537-577`, zero `#[test]`. Sign-swap on ρ↓ branch that converges wrong evades all assertions.
 3. **NLCC Cu/Mn blind** — NCFX fix is universal; pins are Si/Fe only (`convert.rs:305/332/369/395`). 7 other LDA PPs have `core_correction=T`.
@@ -93,6 +96,7 @@ Cosmetic nit flagged for Phase 0: `scf/mixing/broyden.rs:66` missed the `BUG:` p
 ## 2026-04-17 — TAUD test-suite audit
 
 Wrote `proposals/TAUD-test-quality-audit.md`. Top 3 silent-pass findings:
+
 1. `tests/spin_polarization.rs::test_fe_ferromagnetic_fixed_moment` — `match result { Ok=>assert, Err=>eprintln }` means the test passes vacuously; the `Ok` arm is unreachable post-SPNC.
 2. `tests/parallel_consistency.rs:178,238` — serial-vs-parallel SCF tests guard real assertions with `if let (Ok, Ok)`. Any regression silently passes.
 3. `tests/gpu_consistency.rs:406` — `(Err, Err)` treated as pass condition. Critical.
