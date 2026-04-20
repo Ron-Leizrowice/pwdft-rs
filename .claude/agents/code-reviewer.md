@@ -4,6 +4,7 @@ description: Owns code quality — linting, idioms, dead code, logging, maintain
 color: red
 memory: project
 isolation: worktree
+background: true
 disallowedTools: Agent(engineering-manager)
 skills:
   - cargo

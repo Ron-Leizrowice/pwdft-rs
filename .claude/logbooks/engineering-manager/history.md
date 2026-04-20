@@ -4,7 +4,7 @@ Entries should be concise handoff notes — what changed, what's blocked, what's
 
 ## 2026-04-16 — Workflow established
 
-Multi-agent workflow: 6 roles, 4-letter proposal IDs, branch-and-PR model, logbooks, worktree isolation hook-enforced. DLTB/CBRT/CNST pre-workflow work archived. All prior work was committed directly to main — new work must use branches.
+Multi-agent workflow: 6 roles, 4/5-letter proposal IDs, branch-and-PR model, logbooks, worktree isolation hook-enforced. DLTB/CBRT/CNST pre-workflow work archived. All prior work was committed directly to main — new work must use branches.
 
 ## 2026-04-20 — EOD (5 PRs merged, 70 cumulative push)
 

@@ -33,15 +33,15 @@ If the argument is ambiguous, assume `create`.
 
 **This step is mandatory.** Before writing anything:
 
-- Read `proposals/INDEX.md` to see all active and completed proposals.
+- Read `proposals/INDEX.md` for all active and archived proposals.
 - Scan active proposal files in `proposals/` for overlapping scope — read titles and Problem sections.
-- Scan completed proposals in `proposals/completed/` — has this been tried before?
+- Scan completed proposals in `proposals/completed/` for prior attempts. The EM shipping log at `.claude/logbooks/engineering-manager/shipping-log.md` is a thematic index into that directory.
 - If there is overlap with an existing active proposal, **do not create a new one**. Instead, report the overlap and ask whether to extend the existing proposal or proceed anyway.
 - If the topic was previously completed, flag it and ask whether it needs reopening.
 
 ### 2. Choose an ID
 
-Pick a mnemonic 4-5 letter uppercase ID. Verify it doesn't collide with any existing ID in `proposals/INDEX.md` (both active and completed sections). Good IDs are abbreviations of the core concept: `SIMP` for Simpson's rule, `CBRT` for cbrt optimization, `ERRHA` for error handling.
+Pick a mnemonic 4-5 letter uppercase ID. Verify it doesn't collide with any existing ID: check `proposals/INDEX.md` (active + archived) and `ls proposals/completed/` (shipped). Good IDs are abbreviations of the core concept: `SIMP` for Simpson's rule, `CBRT` for cbrt optimization, `ERRHA` for error handling.
 
 ### 3. Research before writing
 
@@ -55,7 +55,7 @@ Do NOT write proposals based on assumptions. Every claim should be verifiable by
 
 ### 4. Write the proposal
 
-Create `proposals/XXXX-slug.md` where `XXXX` is the 4-letter ID and `slug` is a short kebab-case summary.
+Create `proposals/XXXX-slug.md` where `XXXX` is the 4/5-letter ID and `slug` is a short kebab-case summary.
 
 Use this structure:
 
@@ -158,9 +158,9 @@ Review the implementation, ensure it satisfied the proposal, if appropriate: new
 
 ### 4. (Engineering Managers Only) - Archive the proposal
 
-Move `proposals/XXXX-*.md` to `proposals/completed/XXXX-*.md`.
+Move `proposals/XXXX-*.md` to `proposals/completed/XXXX-*.md` and update its frontmatter `status` to `completed`.
 
-Move the proposal's row from the Active section of `proposals/INDEX.md` to the Completed section. Update `status` in the file's frontmatter to `completed`.
+Remove the proposal's row from the Active section of `proposals/INDEX.md`. Append a one-line entry for the landing to `.claude/logbooks/engineering-manager/shipping-log.md` under the appropriate theme bucket. INDEX stays concise — it only lists ongoing work.
 
 ### 5. (Engineering Managers Only) - Update dependents
 

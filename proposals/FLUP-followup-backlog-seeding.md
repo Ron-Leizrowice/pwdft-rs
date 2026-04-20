@@ -18,7 +18,7 @@ better-owned by a different agent role. Rather than leave them as comments
 in review replies (which evaporate), this file records them with enough
 detail to spin each into its own proposal and PR when the EM schedules it.
 
-Each entry includes a suggested 4-letter ID, owner role, priority,
+Each entry includes a suggested 4/5-letter ID, owner role, priority,
 concrete file paths, and an acceptance criterion. When the EM activates
 an entry, it gets promoted to a standalone `proposals/<ID>-<slug>.md`
 and the FLUP entry is struck through (not deleted — history of what was

@@ -4,6 +4,7 @@ description: Benchmarks, profiles, and optimizes. Singularly focused on making t
 color: orange
 memory: project
 isolation: worktree
+background: true
 disallowedTools: Agent(engineering-manager)
 skills:
   - cargo

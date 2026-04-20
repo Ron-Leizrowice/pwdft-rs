@@ -25,4 +25,4 @@ Each line: `file:line — one-sentence finding; target role.`
 
 ## What the EM does with these
 
-The EM triages each flagged item against the existing backlog. Genuinely new findings become stub proposals (4-letter ID, 1-paragraph problem statement) in `proposals/`. Duplicates get appended to the existing proposal's notes. See the Engineering Manager role for the FLUP seeding pattern and the "promote on signal" rule.
+The EM triages each flagged item against the existing backlog. Genuinely new findings become stub proposals (4/5-letter ID, 1-paragraph problem statement) in `proposals/`. Duplicates get appended to the existing proposal's notes. See the Engineering Manager role for the FLUP seeding pattern and the "promote on signal" rule.

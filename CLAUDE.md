@@ -112,7 +112,7 @@ Branch-and-PR workflow with isolated worktrees and multiple concurrent agents. *
 - **Never commit directly to main** — all work goes through PR.
 - **One proposal per branch.** PR title: `<PROPOSAL-ID>: <description>`; commit messages the same. PR body must include Summary + Test Plan.
 - **Quality gate before PR** — see § Code quality gate above; also in `.claude/agents/shared/quality-gate.md`.
-- **Proposals drive work.** See `proposals/INDEX.md`. Each proposal has a 4-letter ID, frontmatter (priority/complexity/risk/dependencies), and an implementation plan. Propose first, implement after EM approval.
+- **Proposals drive work.** See `proposals/INDEX.md`. Each proposal has a 4/5-letter ID, frontmatter (priority/complexity/risk/dependencies), and an implementation plan. Propose first, implement after EM approval.
 - **Logbooks** at `.claude/logbooks/<role>/` — one file per session, named `YYYY-MM-DD-<slug>.md`. Sub-agents write their entry inside their worktree and the file lands as part of their PR. See `.claude/logbooks/README.md` and `.claude/agents/shared/session-end.md`. Search (`rg <topic> .claude/logbooks/`) at session start before re-investigating a known area.
 
 **Agent roles** (see `.claude/agents/*.md` for full prompts; ):

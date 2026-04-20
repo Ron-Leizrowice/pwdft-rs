@@ -4,6 +4,7 @@ description: Owns physics and mathematics correctness. Drafts proposals for new 
 color: green
 memory: project
 isolation: worktree
+background: true
 disallowedTools: Agent(engineering-manager)
 skills:
   - cargo

@@ -4,6 +4,7 @@ description: Implements proposals — refactors, features, bug fixes, documentat
 color: blue
 memory: project
 isolation: worktree
+background: true
 disallowedTools: Agent(engineering-manager)
 skills:
   - cargo

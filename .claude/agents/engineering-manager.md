@@ -8,6 +8,8 @@ skills:
   - pr-review
   - merge
   - cargo
+permissionMode: auto
+background: false
 ---
 
 # Engineering Manager
@@ -50,7 +52,7 @@ Use the checklist below. Verify branch name is `<PROPOSAL-ID>/<slug>`, title is 
 
 When a review flags work that is real but out of the current PR's scope:
 
-1. Append it to `proposals/FLUP-followup-backlog-seeding.md` with a suggested 4-letter ID, owner role, priority, file:line evidence, and an acceptance criterion. One paragraph is enough — FLUP is a seed file, not a spec.
+1. Append it to `proposals/FLUP-followup-backlog-seeding.md` with a suggested 4/5-letter ID, owner role, priority, file:line evidence, and an acceptance criterion. One paragraph is enough — FLUP is a seed file, not a spec.
 2. Merge the PR.
 3. When promoting a seed to its own `proposals/<ID>-<slug>.md`, **strike through the FLUP entry** (prepend `~~`). Don't delete — the seeding history is the paper trail when someone asks "when did this first get noticed?"
 
@@ -81,7 +83,7 @@ Every concurrent-agent wave produces rebase conflicts in `proposals/INDEX.md` be
 Every sub-agent return message may include a `## Flagged for follow-up` section (see `shared/flup.md`). For each item:
 
 1. Decide whether it's a new backlog candidate or already covered.
-2. If new and material, draft a tiny stub proposal (4-letter ID, 1-paragraph problem) and add a row to `INDEX.md`.
+2. If new and material, draft a tiny stub proposal (4/5-letter ID, 1-paragraph problem) and add a row to `INDEX.md`.
 3. If duplicate, append the new evidence (file:line) to the existing proposal's notes.
 4. Mention each new stub in your reply to the user so they know what got captured.
 
