@@ -4,26 +4,54 @@ Applies to every sub-agent role that branches off `origin/main` and opens a PR: 
 
 ## The rule
 
-**Open a draft PR as soon as you have your first file on disk.** Don't wait until the whole implementation is done. The draft PR is:
+**Every atomized change that compiles gets committed, and the
+first commit opens a draft PR.** There's no timer. "Atomized"
+just means the smallest self-contained increment you'd be
+comfortable leaving the branch at — the code compiles, the
+worktree isn't mid-rewrite. It's the unit you'd stage + commit
+anyway.
 
-1. **A visible checkpoint** — the user (and EM) can eyeball your WIP without interrupting you.
-2. **A backup** — if the worktree gets corrupted, force-removed, or the agent session crashes, your work is on `origin` and recoverable. Without the draft, a wiped worktree = lost work.
-3. **The place CI runs early** — long-running CI (clippy + test, eventually PYQE's QE reference regen) starts burning down before the final `/pr-submit`, so end-of-work latency is lower.
+The draft PR gives you:
+
+1. **A visible checkpoint** — the user (and EM) can eyeball
+   your WIP without interrupting you.
+2. **A backup** — if the worktree is removed, the agent
+   crashes, or a hook destroys local state, every committed
+   increment is on `origin` and recoverable.
+3. **Early CI** — clippy + test (and eventually PYQE's QE
+   reference regen) start burning down before the final
+   `/pr-submit`.
 
 ## The cadence
 
-1. **First file change that compiles** → `/pr-draft`. The skill runs `cargo check` (auto-skipped if no `.rs` touched), commits, pushes, opens a draft PR.
-2. **After each logical increment** (a test added, a migration finished, a phase of a multi-phase proposal done) → `/pr-draft` again. Same command; the skill detects the existing PR and just pushes.
-3. **When implementation is done** — quality-gate green, Tier-2 outcome in hand (if triggered), session logbook written — run `/pr-submit`. This promotes the draft to ready-for-review, updates the PR body with the final Test Plan, and hands off to the EM.
+1. **First atomized commit** → `/pr-draft`. The skill runs
+   `cargo check` (auto-skipped if no `.rs` touched), commits
+   what's unstaged, pushes, opens a draft PR.
+2. **Each subsequent atomized commit** → `/pr-draft` again.
+   Same command; the skill detects the existing PR and just
+   pushes.
+3. **When implementation is done** — quality-gate green,
+   Tier-2 outcome in hand (if triggered), session logbook
+   written — run `/pr-submit`. Promotes the draft to
+   ready-for-review, updates the body, hands off to the EM.
 
-## What `/pr-draft` runs
+What counts as "atomized" is your call. A file rename + its
+import updates = one commit. A test added for the helper you
+just wrote = one commit. A failed debugging detour you
+immediately backed out = zero commits. Don't commit code that
+doesn't build — if you're not sure whether it builds, run
+`cargo check` first.
 
-- `cargo check -q` — only when the diff touches `.rs` files. For proposal-only, doc-only, or fixture-only PRs the check is skipped.
-- `git add .` on your worktree root, commit with a `<ID>: checkpoint — <msg>` message. The worktree is isolated, so every file in it belongs to this PR — memories, logbooks, and scratch included.
-- `git push --force-with-lease` — safe for drafts; subsequent checkpoints rewrite freely.
-- `gh pr create --draft` (first time) or no-op (subsequent calls — the push updates the existing PR server-side).
+## Always `git add .` before committing
 
-It does **not** run clippy, rustdoc, tests, or Tier-2. Those belong to `/pr-submit`.
+Never compose a partial-path `git add <path1> <path2>`
+sequence. prek's pre-commit stash/restore dance corrupts
+overlapping edits between staged and unstaged changes — the
+fix is to leave nothing unstaged. Worktrees are isolated;
+everything in yours belongs to this PR anyway, including agent
+memory writes and logbook entries. The `/pr-draft` and
+`/pr-submit` skills already do `git add .`; the rule is for
+hand-crafted commits.
 
 ## What `/pr-submit` runs
 

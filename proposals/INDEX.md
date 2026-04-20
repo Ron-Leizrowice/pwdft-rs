@@ -33,6 +33,7 @@ Proposals use 4/5-letter IDs (e.g., `SIMP` or `UTRU4`) to avoid numbering confli
 | TRV2 | Fresh test-suite review — F1+F3 landed; 10 Categories 2–5 findings remain | medium | low | — | — |
 | CFGN | Numerics knobs — CFGN1/DFLT/G2ZT landed; 10 knobs remain across Fermi-search / iterative-eigensolver / Ewald / floors | medium | low | — | — |
 | ESPL | Split `ElectronSettings` — system physics vs convergence knobs; drop `scf.max_iter` default 100 → 50 | small | low | — | — |
+| STYS | Settings type-sharpening audit — replace `String`-typed enum fields + `[usize;3]` flag-triples on `Settings` with their proper typed variants; surface serde errors for invalid values | medium | low | ESPL | — |
 
 ### Low / Deferred
 
