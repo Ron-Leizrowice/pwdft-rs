@@ -26,16 +26,16 @@ use crate::{
 ///
 /// YAML-facing schema is split into two orthogonal blocks:
 ///
-/// - `electrons:` — *what system are we solving* (spin channels,
+/// - `electrons:` — *what system are we solving* (spin flag,
 ///   magnetization, occupation scheme). Populates [`ElectronsPhysics`].
 /// - `scf:` — *how do we solve it* (max iterations, convergence
 ///   thresholds, density mixer, smearing). Populates [`ScfSettings`].
 ///
-/// Deserialization accepts the pre-ESPL layout where mixing/smearing
-/// fields lived under `electrons:` and emits a [`log::warn!`] per
-/// legacy field pointing at the new path. See [`Settings::from_yaml_str`].
+/// The pre-ESPL layout (mixing/smearing under `electrons:`, integer
+/// `nspin` instead of `spin_polarized`) is a hard parse error — serde
+/// emits "unknown field" naming the migrated key. No deprecation shim,
+/// no alias. See `.claude/agents/shared/no-backcompat.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(from = "SettingsWire")]
 pub struct Settings {
     /// Crystal structure: lattice vectors and atomic positions.
     pub system: SystemSettings,
@@ -271,17 +271,29 @@ impl From<EigensolverType> for crate::eigensolver::EigensolverKind {
     }
 }
 
-/// Electronic-structure physics: spin channels, magnetization,
+/// Electronic-structure physics: spin polarization flag, magnetization,
 /// occupation scheme.
 ///
 /// As of ESPL this struct holds only *what system are we solving*
 /// knobs. The mixing / smearing *how do we solve it* knobs now live in
 /// [`ScfSettings`].
+///
+/// The spin knob is a bool (`spin_polarized`), not an integer: the only
+/// two meaningful values in the collinear formulation are "unpolarized"
+/// (one channel, no magnetization) and "spin-polarized" (up/down
+/// channels). Non-collinear DFT (SOC, 2×2 spinors) is a fundamentally
+/// different code path, not another value of this knob; when/if we add
+/// it, it lands as a new enum (`Collinear(bool) | NonCollinear`) — not
+/// a resurrection of integer `nspin`. The integer `nspin` still lives
+/// internally on [`ScfParams`] as plumbing, derived from this bool in
+/// [`Settings::to_scf_params`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ElectronsPhysics {
-    /// Number of spin channels: 1 (unpolarized) or 2 (collinear spin-polarized).
-    pub nspin: usize,
+    /// Spin-polarization flag. `false` = unpolarized (single channel,
+    /// no magnetization); `true` = collinear spin-polarized (up/down
+    /// channels, CCMX driver dispatch).
+    pub spin_polarized: bool,
     /// Starting magnetization per atom type (fractional, -1 to 1).
     /// Maps from element symbol to magnetization. Empty = non-magnetic.
     pub starting_magnetization: HashMap<String, f64>,
@@ -295,7 +307,7 @@ pub struct ElectronsPhysics {
 impl Default for ElectronsPhysics {
     fn default() -> Self {
         Self {
-            nspin: 1,
+            spin_polarized: false,
             starting_magnetization: HashMap::new(),
             tot_magnetization: None,
             occupations: OccupationType::default(),
@@ -514,146 +526,6 @@ impl KPointSettings {
 }
 
 // ---------------------------------------------------------------------------
-// ESPL deprecated-YAML-layout shim
-//
-// The pre-ESPL YAML shape kept the seven mixing/smearing knobs under the
-// `electrons:` block. After ESPL they live under `scf:` alongside the
-// existing convergence thresholds. `SettingsWire` + `ElectronsWire`
-// accept *both* the new and legacy locations so existing YAML decks keep
-// parsing, and emit a [`log::warn!`] per legacy field pointing at the
-// new path. Planned removal: one release after ESPL lands.
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Deserialize)]
-struct SettingsWire {
-    system: SystemSettings,
-    #[serde(default)]
-    basis: BasisSettings,
-    kpoints: KPointSettings,
-    #[serde(default)]
-    scf: ScfSettings,
-    #[serde(default)]
-    electrons: ElectronsWire,
-    #[serde(default)]
-    xc: XcSettings,
-    #[serde(default)]
-    symmetry: SymmetrySettings,
-    #[serde(default)]
-    pseudopotentials: PseudopotentialSettings,
-    #[serde(default)]
-    output: OutputSettings,
-    #[serde(default)]
-    initial_density: InitialDensitySettings,
-}
-
-/// YAML-wire representation of the `electrons:` block. Carries the
-/// four new-layout physics fields *and* the seven pre-ESPL mixing /
-/// smearing fields. The conversion [`From<SettingsWire> for Settings`]
-/// merges any legacy fields into [`ScfSettings`] and warns.
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
-struct ElectronsWire {
-    // --- Physics (new layout) ---
-    nspin: Option<usize>,
-    starting_magnetization: Option<HashMap<String, f64>>,
-    tot_magnetization: Option<f64>,
-    occupations: Option<OccupationType>,
-
-    // --- Deprecated pre-ESPL location for mixing / smearing knobs ---
-    mixing_beta: Option<f64>,
-    mixing_ndim: Option<usize>,
-    mixing_mode: Option<MixingModeType>,
-    pulay_period: Option<usize>,
-    adaptive_beta: Option<bool>,
-    smearing: Option<SmearingScheme>,
-    smearing_width: Option<f64>,
-}
-
-impl From<SettingsWire> for Settings {
-    fn from(wire: SettingsWire) -> Self {
-        let SettingsWire {
-            system,
-            basis,
-            kpoints,
-            mut scf,
-            electrons,
-            xc,
-            symmetry,
-            pseudopotentials,
-            output,
-            initial_density,
-        } = wire;
-
-        // Merge any pre-ESPL fields from the `electrons:` block into
-        // `ScfSettings`. Each migrated field fires a single
-        // `log::warn!` naming the old and new YAML paths so existing
-        // users have a concrete pointer to the rename.
-        if let Some(v) = electrons.mixing_beta {
-            log::warn!(
-                "YAML field `electrons.mixing_beta` is deprecated; move to `scf.mixing_beta` (pre-ESPL layout accepted for one release)"
-            );
-            scf.mixing_beta = v;
-        }
-        if let Some(v) = electrons.mixing_ndim {
-            log::warn!(
-                "YAML field `electrons.mixing_ndim` is deprecated; move to `scf.mixing_ndim` (pre-ESPL layout accepted for one release)"
-            );
-            scf.mixing_ndim = v;
-        }
-        if let Some(v) = electrons.mixing_mode {
-            log::warn!(
-                "YAML field `electrons.mixing_mode` is deprecated; move to `scf.mixing_mode` (pre-ESPL layout accepted for one release)"
-            );
-            scf.mixing_mode = v;
-        }
-        if let Some(v) = electrons.pulay_period {
-            log::warn!(
-                "YAML field `electrons.pulay_period` is deprecated; move to `scf.pulay_period` (pre-ESPL layout accepted for one release)"
-            );
-            scf.pulay_period = v;
-        }
-        if let Some(v) = electrons.adaptive_beta {
-            log::warn!(
-                "YAML field `electrons.adaptive_beta` is deprecated; move to `scf.adaptive_beta` (pre-ESPL layout accepted for one release)"
-            );
-            scf.adaptive_beta = v;
-        }
-        if let Some(v) = electrons.smearing {
-            log::warn!(
-                "YAML field `electrons.smearing` is deprecated; move to `scf.smearing` (pre-ESPL layout accepted for one release)"
-            );
-            scf.smearing = v;
-        }
-        if let Some(v) = electrons.smearing_width {
-            log::warn!(
-                "YAML field `electrons.smearing_width` is deprecated; move to `scf.smearing_width` (pre-ESPL layout accepted for one release)"
-            );
-            scf.smearing_width = v;
-        }
-
-        let physics = ElectronsPhysics {
-            nspin: electrons.nspin.unwrap_or(1),
-            starting_magnetization: electrons.starting_magnetization.unwrap_or_default(),
-            tot_magnetization: electrons.tot_magnetization,
-            occupations: electrons.occupations.unwrap_or_default(),
-        };
-
-        Settings {
-            system,
-            basis,
-            kpoints,
-            scf,
-            electrons: physics,
-            xc,
-            symmetry,
-            pseudopotentials,
-            output,
-            initial_density,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
 
@@ -738,7 +610,14 @@ impl Settings {
             fft_grid: self.basis.fft_grid,
             mixing_mode: self.scf.mixing_mode.to_scf_mode(self.scf.pulay_period),
             adaptive_beta: self.scf.adaptive_beta,
-            nspin: self.electrons.nspin,
+            // ESPL Part C: the YAML surface is a bool; the internal
+            // `ScfParams.nspin` integer (1 = unpolarized, 2 = up/down
+            // channels) is derived here at the boundary. Keeping the
+            // integer internal lets the spin driver dispatch and all
+            // density-normalization plumbing keep their existing shape
+            // without an `if spin_polarized { … }` sprinkled through
+            // every call site.
+            nspin: if self.electrons.spin_polarized { 2 } else { 1 },
             starting_magnetization: self.electrons.starting_magnetization.clone(),
             tot_magnetization: self.electrons.tot_magnetization,
             eigensolver: self.scf.eigensolver.into(),
@@ -929,65 +808,7 @@ scf:
 
 electrons:
   occupations: smearing
-  nspin: 1
-  starting_magnetization: {}
-  tot_magnetization: null
-
-xc:
-  functional: pz
-
-symmetry:
-  enabled: true
-  time_reversal: true
-  tolerance: 1.0e-5
-
-pseudopotentials:
-  Si: "../pseudopotentials/nc/lda/Si.upf"
-
-output:
-  verbosity: normal
-  write_density: false
-  write_bands: true
-"#;
-
-    /// Pre-ESPL layout: mixing + smearing fields under `electrons:`.
-    /// Accepted for one release after ESPL with a per-field warning.
-    /// Must deserialize to the same `Settings` as [`FULL_YAML`].
-    const FULL_YAML_LEGACY: &str = r#"
-system:
-  lattice:
-    - [0.0, 2.7155, 2.7155]
-    - [2.7155, 0.0, 2.7155]
-    - [2.7155, 2.7155, 0.0]
-  atoms:
-    - symbol: Si
-      position: [0.0, 0.0, 0.0]
-    - symbol: Si
-      position: [0.25, 0.25, 0.25]
-
-basis:
-  ecutwfc: 204.09
-  ecutrho_ratio: 4
-  fft_grid: [24, 24, 24]
-
-kpoints:
-  type: monkhorst_pack
-  grid: [4, 4, 4]
-
-scf:
-  max_iter: 100
-  conv_threshold: 1.0e-6
-  energy_threshold: 1.0e-5
-  n_bands: 8
-
-electrons:
-  mixing_beta: 0.3
-  mixing_ndim: 8
-  smearing: fermi_dirac
-  smearing_width: 0.05
-  occupations: smearing
-  mixing_mode: plain
-  nspin: 1
+  spin_polarized: false
   starting_magnetization: {}
   tot_magnetization: null
 
@@ -1116,7 +937,7 @@ kpoints:
         assert!((s.scf.smearing_width - 0.05).abs() < 1e-15);
         assert_eq!(s.scf.mixing_mode, MixingModeType::Plain);
         assert_eq!(s.electrons.occupations, OccupationType::Smearing);
-        assert_eq!(s.electrons.nspin, 1);
+        assert!(!s.electrons.spin_polarized);
         assert!(s.electrons.starting_magnetization.is_empty());
         assert!(s.electrons.tot_magnetization.is_none());
         assert_eq!(s.xc.functional, XcFunctional::Pz);
@@ -1133,48 +954,50 @@ kpoints:
     }
 
     #[test]
-    fn legacy_electrons_layout_matches_new_layout() {
-        // ESPL deprecation alias: the pre-ESPL YAML (mixing / smearing
-        // fields under `electrons:`) must deserialize to the same
-        // `Settings` as the new layout. A `log::warn!` is emitted per
-        // legacy field at parse time — callers that want to assert on
-        // the warning stream should install a `log::set_boxed_logger`
-        // before parsing (logs are captured by the tracing-compatible
-        // test harness but not asserted here). Expected warning text:
-        //
-        //   "YAML field `electrons.<field>` is deprecated; move to
-        //    `scf.<field>` (pre-ESPL layout accepted for one release)"
-        //
-        // fired once per migrated field.
-        let new = Settings::from_yaml_str(FULL_YAML).unwrap();
-        let legacy = Settings::from_yaml_str(FULL_YAML_LEGACY).unwrap();
-
-        assert_eq!(new.scf.max_iter, legacy.scf.max_iter);
-        assert!((new.scf.mixing_beta - legacy.scf.mixing_beta).abs() < 1e-15);
-        assert_eq!(new.scf.mixing_ndim, legacy.scf.mixing_ndim);
-        assert_eq!(new.scf.mixing_mode, legacy.scf.mixing_mode);
-        assert_eq!(new.scf.pulay_period, legacy.scf.pulay_period);
-        assert_eq!(new.scf.adaptive_beta, legacy.scf.adaptive_beta);
-        assert_eq!(new.scf.smearing, legacy.scf.smearing);
-        assert!((new.scf.smearing_width - legacy.scf.smearing_width).abs() < 1e-15);
-
-        assert_eq!(new.electrons.nspin, legacy.electrons.nspin);
-        assert_eq!(new.electrons.occupations, legacy.electrons.occupations);
-        assert_eq!(
-            new.electrons.starting_magnetization,
-            legacy.electrons.starting_magnetization
+    fn pre_espl_nspin_integer_rejected() {
+        // ESPL § no-backcompat: a YAML deck that still writes the
+        // pre-ESPL `nspin: 1` (or any integer) under `electrons:` must
+        // fail with a hard parse error. Serde's default "unknown field"
+        // path names the new field (`spin_polarized`) so the user has a
+        // concrete pointer to the rename.
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+electrons:
+  nspin: 2
+"#;
+        let err = Settings::from_yaml_str(yaml)
+            .expect_err("pre-ESPL `electrons.nspin` must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("nspin"),
+            "parse error should mention the offending field `nspin`; got: {msg}"
         );
-        assert_eq!(new.electrons.tot_magnetization, legacy.electrons.tot_magnetization);
+    }
 
-        // Cross-check: `ScfParams` produced from either should agree on
-        // every convergence knob.
-        let a = new.to_scf_params(4);
-        let b = legacy.to_scf_params(4);
-        assert_eq!(a.max_iter, b.max_iter);
-        assert!((a.mixing_beta - b.mixing_beta).abs() < 1e-15);
-        assert_eq!(a.mixing_ndim, b.mixing_ndim);
-        assert_eq!(a.smearing_scheme, b.smearing_scheme);
-        assert!((a.smearing_sigma - b.smearing_sigma).abs() < 1e-15);
+    #[test]
+    fn pre_espl_mixing_beta_under_electrons_rejected() {
+        // Sibling check for the other half of the ESPL split: a YAML
+        // deck that still writes `electrons.mixing_beta` must fail with
+        // "unknown field" pointing at the new location (`scf.*`).
+        let yaml = r#"
+system:
+  lattice: [[1,0,0],[0,1,0],[0,0,1]]
+kpoints:
+  type: monkhorst_pack
+  grid: [2, 2, 2]
+electrons:
+  mixing_beta: 0.25
+"#;
+        let err = Settings::from_yaml_str(yaml)
+            .expect_err("pre-ESPL `electrons.mixing_beta` must be rejected");
+        assert!(
+            err.to_string().contains("mixing_beta"),
+            "parse error should name the offending field"
+        );
     }
 
     #[test]
@@ -1206,7 +1029,7 @@ kpoints:
         assert!((s.scf.smearing_width - 0.05).abs() < 1e-15);
         assert_eq!(s.scf.mixing_mode, MixingModeType::Plain);
         assert_eq!(s.electrons.occupations, OccupationType::Smearing);
-        assert_eq!(s.electrons.nspin, 1);
+        assert!(!s.electrons.spin_polarized);
         assert!(s.electrons.starting_magnetization.is_empty());
         assert!(s.electrons.tot_magnetization.is_none());
         assert_eq!(s.xc.functional, XcFunctional::Pz);
@@ -1621,7 +1444,7 @@ initial_density:
         assert_eq!(original.scf.mixing_ndim, restored.scf.mixing_ndim);
         assert_eq!(original.scf.mixing_mode, restored.scf.mixing_mode);
         assert_eq!(original.scf.smearing, restored.scf.smearing);
-        assert_eq!(original.electrons.nspin, restored.electrons.nspin);
+        assert_eq!(original.electrons.spin_polarized, restored.electrons.spin_polarized);
         assert_eq!(original.electrons.occupations, restored.electrons.occupations);
         assert_eq!(original.xc.functional, restored.xc.functional);
         assert_eq!(original.symmetry.enabled, restored.symmetry.enabled);
