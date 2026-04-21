@@ -92,7 +92,7 @@ fn c_diamond() -> Crystal {
 /// `#[ignore]` so the default `cargo test` wall time stays green;
 /// exercise it with `cargo test --test mixer_robustness -- --ignored`.
 #[test]
-#[ignore = "TSPL tier-2: heavy SCF, run with --ignored when touching scf/mixing/**, scf/driver*.rs, or scf/density.rs — pins Plain Anderson stall on wide-gap insulators as negative regression"]
+#[ignore = "SKIP-TIER2 TSPL tier-2: heavy SCF, run with --ignored when touching scf/mixing/**, scf/driver*.rs, or scf/density.rs — pins Plain Anderson stall on wide-gap insulators as negative regression"]
 fn test_plain_anderson_stalls_on_c_diamond() {
     let _ = env_logger::builder().is_test(true).try_init();
 

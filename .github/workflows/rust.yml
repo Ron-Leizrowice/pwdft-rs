@@ -10,6 +10,7 @@ on:
       - Cargo.lock
       - .cargo/config.toml
       - .github/workflows/rust.yml
+      - scripts/**
   pull_request:
     paths:
       - pwdft/pwdft-core/**
@@ -18,6 +19,7 @@ on:
       - Cargo.lock
       - .cargo/config.toml
       - .github/workflows/rust.yml
+      - scripts/**
   workflow_dispatch:
 
 # Cancel superseded runs on the same ref. Rust and Python workflows use
@@ -55,6 +57,13 @@ jobs:
           # artifacts differ from any release-profile ones; mixing caches
           # would thrash both.
           shared-key: pwdft-ci-tier1-dev
+
+      # Fast pre-clippy check: verify every SKIP-TIER2 marker in #[ignore]
+      # strings resolves to a real fn declaration. Catches orphaned markers
+      # (e.g. a physics-blocker was tagged but the fn was renamed) before
+      # any cargo compile step. ~2 s wall.
+      - name: Check Tier-2 skip-list consistency
+        run: bash scripts/check-tier2-skip-consistency.sh
 
       # Scope to our own crates. The vendored faer group
       # (faer, faer-traits, faer-macros, faer-ffi) is upstream code —
