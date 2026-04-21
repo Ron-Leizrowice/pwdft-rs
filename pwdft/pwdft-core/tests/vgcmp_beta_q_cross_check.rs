@@ -39,14 +39,9 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
-use std::fs;
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
-use pwdft_core::{
-    consts::BOHR_TO_ANG,
-    numerics::simpson_integrate,
-    pseudopotential::{PseudopotentialData, load},
-};
+use pwdft_core::{consts::BOHR_TO_ANG, numerics::simpson_integrate, pseudopotential::UpfPseudoPotential};
 
 const CSV_REL_PATH: &str = "data/csv/beta_q_si_reference.csv";
 const UPF_REL_PATH: &str = "pseudopotentials/nc/lda/Si.upf";
@@ -72,11 +67,7 @@ fn load_reference_csv(path: &PathBuf) -> Option<Vec<RefRow>> {
             continue;
         }
         let fields: Vec<&str> = line.split(',').collect();
-        assert!(
-            fields.len() == 4,
-            "malformed CSV row at line {}: {line:?}",
-            line_no + 1
-        );
+        assert!(fields.len() == 4, "malformed CSV row at line {}: {line:?}", line_no + 1);
         let projector_index: usize = fields[0].trim().parse().unwrap();
         let l: i32 = fields[1].trim().parse().unwrap();
         let q_bohr_inv: f64 = fields[2].trim().parse().unwrap();
@@ -91,9 +82,9 @@ fn load_reference_csv(path: &PathBuf) -> Option<Vec<RefRow>> {
     Some(rows)
 }
 
-fn load_si_pp() -> PseudopotentialData {
+fn load_si_pp() -> UpfPseudoPotential {
     let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join(UPF_REL_PATH);
-    load(&path).expect("failed to parse Si.upf")
+    UpfPseudoPotential::load(&path).expect("failed to parse Si.upf")
 }
 
 /// Spherical Bessel function j_l(x), replicated from
@@ -121,7 +112,8 @@ fn spherical_bessel_j(l: i32, x: f64) -> f64 {
     jl
 }
 
-/// Pure-Rust transcription of `src/potential/nonlocal.rs::bessel_transform_projector`.
+/// Pure-Rust transcription of
+/// `src/potential/nonlocal.rs::bessel_transform_projector`.
 ///
 ///     F_l(q) = 4π · Simpson[χ(r) · j_l(q·r) · r, rab]
 ///
@@ -131,13 +123,7 @@ fn spherical_bessel_j(l: i32, x: f64) -> f64 {
 /// - `q`: |k+G| in Å⁻¹
 ///
 /// Returns F in Å^(3/2).
-fn f_l_of_q_rust(
-    r_grid: &[f64],
-    rab: &[f64],
-    chi: &[f64],
-    l: i32,
-    q_ang_inv: f64,
-) -> f64 {
+fn f_l_of_q_rust(r_grid: &[f64], rab: &[f64], chi: &[f64], l: i32, q_ang_inv: f64) -> f64 {
     use std::f64::consts::PI;
     let n = r_grid.len();
     let mut integrand = vec![0.0_f64; n];
@@ -151,8 +137,8 @@ fn f_l_of_q_rust(
 
 /// Convert Rust output from Å^(3/2) → Bohr^(3/2).
 ///
-/// F [Å^(3/2)] = F [Bohr^(3/2)] · (Å/Bohr)^(3/2) = F [Bohr^(3/2)] · BOHR_TO_ANG^(3/2)
-/// ⇒ F [Bohr^(3/2)] = F [Å^(3/2)] / BOHR_TO_ANG^(3/2).
+/// F [Å^(3/2)] = F [Bohr^(3/2)] · (Å/Bohr)^(3/2) = F [Bohr^(3/2)] ·
+/// BOHR_TO_ANG^(3/2) ⇒ F [Bohr^(3/2)] = F [Å^(3/2)] / BOHR_TO_ANG^(3/2).
 fn ang_3halves_to_bohr_3halves(x: f64) -> f64 {
     x / BOHR_TO_ANG.powf(1.5)
 }
@@ -212,8 +198,7 @@ fn vgcmp_phase2_beta_q_matches_python_reference() {
         let f_bohr = ang_3halves_to_bohr_3halves(f_ang);
         let diff = f_bohr - row.f_bohr_3_halves;
 
-        per_proj_max[row.projector_index] =
-            per_proj_max[row.projector_index].max(diff.abs());
+        per_proj_max[row.projector_index] = per_proj_max[row.projector_index].max(diff.abs());
 
         if row.q_bohr_inv < 3.5 {
             max_low = max_low.max(diff.abs());
@@ -245,9 +230,7 @@ fn vgcmp_phase2_beta_q_matches_python_reference() {
 
     // Print the full table unconditionally so passing runs also document
     // the numerics.
-    eprintln!(
-        "\nVGCMP Phase 2 — Si β_l(q) cross-check (tol = {TOL_BOHR_3_HALVES:.2e} Bohr^(3/2) abs):"
-    );
+    eprintln!("\nVGCMP Phase 2 — Si β_l(q) cross-check (tol = {TOL_BOHR_3_HALVES:.2e} Bohr^(3/2) abs):");
     eprintln!(
         "{:>4}  {:>2}  {:>11}  {:>20}  {:>20}  {:>14}",
         "proj", "l", "q (Bohr⁻¹)", "Python (Bohr^3/2)", "Rust (Bohr^3/2)", "Δ (Bohr^3/2)"
@@ -256,25 +239,16 @@ fn vgcmp_phase2_beta_q_matches_python_reference() {
     for r in &table {
         eprintln!(
             "{:>4}  {:>2}  {:>11.6}  {:>20.12e}  {:>20.12e}  {:>14.3e}",
-            r.projector_index,
-            r.l,
-            r.q_bohr_inv,
-            r.py_bohr_3halves,
-            r.rust_bohr_3halves,
-            r.diff_bohr_3halves
+            r.projector_index, r.l, r.q_bohr_inv, r.py_bohr_3halves, r.rust_bohr_3halves, r.diff_bohr_3halves
         );
     }
 
-    eprintln!(
-        "\nPer-projector max |Δ| (Bohr^(3/2)):"
-    );
+    eprintln!("\nPer-projector max |Δ| (Bohr^(3/2)):");
     for (i, &d) in per_proj_max.iter().enumerate() {
         let l = pp.beta_projectors[i].l;
         eprintln!("  proj={i} l={l}  max|Δ| = {d:.3e}");
     }
-    eprintln!(
-        "\nBucket max |Δ|: low-q (q<3.5)  = {max_low:.3e} Bohr^(3/2)"
-    );
+    eprintln!("\nBucket max |Δ|: low-q (q<3.5)  = {max_low:.3e} Bohr^(3/2)");
     eprintln!("                high-q (q>=3.5) = {max_high:.3e} Bohr^(3/2)");
     eprintln!("\noverall max |Δ| = {max_abs_diff:.3e} Bohr^(3/2)");
 

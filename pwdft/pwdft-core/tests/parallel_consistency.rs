@@ -8,13 +8,14 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
+use mendeleev::Element;
 use nalgebra::Vector3;
 use num_complex::Complex64;
-
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     fft::FFT3D,
+    pseudopotential::UpfPseudoPotential,
 };
 
 fn si_crystal() -> Crystal {
@@ -25,10 +26,7 @@ fn si_crystal() -> Crystal {
             a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
             a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
         ),
-        atoms: vec![
-            Atom::new(14, [0.0, 0.0, 0.0]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
     }
 }
 
@@ -118,8 +116,7 @@ fn test_scf_serial_vs_parallel() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0); // smaller basis for speed
     let pp = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf"),
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
 
@@ -152,7 +149,7 @@ fn test_scf_serial_vs_parallel() {
                 &crystal,
                 &basis,
                 &kpoints,
-                &[&pp],
+                &pp,
                 &params,
                 &pwdft_core::symmetry::SymmetryInfo::identity_only(),
             )
@@ -163,7 +160,7 @@ fn test_scf_serial_vs_parallel() {
         &crystal,
         &basis,
         &kpoints,
-        &[&pp],
+        &pp,
         &params,
         &pwdft_core::symmetry::SymmetryInfo::identity_only(),
     );
@@ -174,7 +171,7 @@ fn test_scf_serial_vs_parallel() {
     // the regression. `ConvergenceFailure` is specifically the expected
     // outcome from max_iter=5 with conv_threshold=1e-20 on Si.
     match &result_serial {
-        Err(pwdft_core::error::PwdftError::ConvergenceFailure { .. }) => {}
+        Err(pwdft_core::error::PwdftError::ConvergenceFailure { .. }) => {},
         Ok(_) => panic!(
             "serial 5-iter SCF unexpectedly converged — conv_threshold=1e-20 \
              should force ConvergenceFailure in 5 iters"
@@ -185,7 +182,7 @@ fn test_scf_serial_vs_parallel() {
         ),
     }
     match &result_parallel {
-        Err(pwdft_core::error::PwdftError::ConvergenceFailure { .. }) => {}
+        Err(pwdft_core::error::PwdftError::ConvergenceFailure { .. }) => {},
         Ok(_) => panic!(
             "parallel 5-iter SCF unexpectedly converged — conv_threshold=1e-20 \
              should force ConvergenceFailure in 5 iters"
@@ -213,7 +210,7 @@ fn test_scf_serial_vs_parallel() {
                 &crystal,
                 &basis,
                 &kpoints,
-                &[&pp],
+                &pp,
                 &params_conv,
                 &pwdft_core::symmetry::SymmetryInfo::identity_only(),
             )
@@ -223,7 +220,7 @@ fn test_scf_serial_vs_parallel() {
         &crystal,
         &basis,
         &kpoints,
-        &[&pp],
+        &pp,
         &params_conv,
         &pwdft_core::symmetry::SymmetryInfo::identity_only(),
     );
@@ -267,11 +264,7 @@ fn test_scf_kerker_serial_vs_parallel() {
     // Exercises the FFT→filter→IFFT path inside the mixer under parallelism.
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
-    let pp = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf"),
-    )
-    .unwrap();
+    let pp = UpfPseudoPotential::load(&Element::Si).unwrap();
 
     let kpoints = vec![pwdft_core::kpoints::KPoint {
         k: Vector3::zeros(),
@@ -301,7 +294,7 @@ fn test_scf_kerker_serial_vs_parallel() {
                 &crystal,
                 &basis,
                 &kpoints,
-                &[&pp],
+                &pp,
                 &params,
                 &pwdft_core::symmetry::SymmetryInfo::identity_only(),
             )
@@ -311,7 +304,7 @@ fn test_scf_kerker_serial_vs_parallel() {
         &crystal,
         &basis,
         &kpoints,
-        &[&pp],
+        &pp,
         &params,
         &pwdft_core::symmetry::SymmetryInfo::identity_only(),
     );

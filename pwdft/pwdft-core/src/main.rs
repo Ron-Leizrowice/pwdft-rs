@@ -1,13 +1,16 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use clap::Parser;
+use elements_rs::Element;
+use itertools::Itertools;
 use log::info;
-
 use pwdft_core::{
     bandstructure,
     basis::BasisSet,
-    kpoints, scf,
-    settings::{KPointSettings, Settings},
+    kpoints,
+    pseudopotential::UpfPseudoPotential,
+    scf,
+    settings::{InputSettings, KPointSettings},
 };
 
 #[derive(Parser)]
@@ -35,7 +38,6 @@ fn main() -> pwdft_core::error::Result<()> {
         crystal.lattice.volume()
     );
 
-    let ecut = settings.resolve_ecutwfc(&crystal)?;
     let basis = BasisSet::new(&crystal.lattice, ecut);
     info!("Basis set: {} plane waves at ecut = {ecut} eV", basis.len());
 
@@ -44,34 +46,29 @@ fn main() -> pwdft_core::error::Result<()> {
     match &settings.kpoints {
         KPointSettings::BandPath { npoints, .. } => {
             let path_points = settings.to_high_sym_path().ok_or_else(|| {
-                pwdft_core::error::PwdftError::InvalidInput(
-                    "band_path mode requires a band path definition".into(),
-                )
+                pwdft_core::error::PwdftError::InvalidInput("band_path mode requires a band path definition".into())
             })?;
-            let (kpts, distances) =
-                kpoints::high_symmetry_path(&path_points, *npoints, &crystal.lattice);
+            let (kpts, distances) = kpoints::high_symmetry_path(&path_points, *npoints, &crystal.lattice);
 
             let n_bands = settings.scf.n_bands.unwrap_or(n_bands_fallback);
             info!("Band structure: {} k-points, {n_bands} bands", kpts.len());
 
-            let bs =
-                bandstructure::compute_band_structure(&basis, &kpts, &distances, n_bands)?;
+            let bs = bandstructure::compute_band_structure(&basis, &kpts, &distances, n_bands)?;
 
             match &cli.output {
                 Some(path) => {
                     let mut file = std::fs::File::create(path)?;
                     bs.write_tsv(&mut file)?;
                     info!("Band structure written to {}", path.display());
-                }
+                },
                 None => {
                     let mut stdout = std::io::stdout().lock();
                     bs.write_tsv(&mut stdout)?;
-                }
+                },
             }
-        }
+        },
         KPointSettings::MonkhorstPack { grid, shift } => {
-            let full_kpts =
-                kpoints::monkhorst_pack(grid[0], grid[1], grid[2], *shift, &crystal.lattice);
+            let full_kpts = kpoints::monkhorst_pack(grid[0], grid[1], grid[2], *shift, &crystal.lattice);
 
             // Always reduce k-points via `reduce_kpoints`. When the user
             // disables symmetry, `settings.to_symmetry_info` returns the
@@ -106,33 +103,17 @@ fn main() -> pwdft_core::error::Result<()> {
             );
 
             // Load pseudopotentials
-            let input_dir = cli.input.parent().unwrap_or(std::path::Path::new("."));
-            let mut pp_data = Vec::new();
-            for atom in &crystal.atoms {
-                let sym = pwdft_core::atoms::Element::iter()
-                    .find(|e| e.atomic_number() == atom.z)
-                    .map(|e| e.symbol().to_string())
-                    .unwrap_or_default();
-                if pp_data
-                    .iter()
-                    .any(|pp: &pwdft_core::pseudopotential::PseudopotentialData| pp.element == sym)
-                {
-                    continue;
-                }
-                let pp_path = settings.pseudopotential_path(&sym).ok_or_else(|| {
-                    pwdft_core::error::PwdftError::MissingPseudopotential(sym.clone())
-                })?;
-                let pp_path = input_dir.join(pp_path);
-                info!("Loading pseudopotential for {sym}: {}", pp_path.display());
-                let pp = pwdft_core::pseudopotential::load(&pp_path)?;
-                pp_data.push(pp);
-            }
-            let pp_refs: Vec<&pwdft_core::pseudopotential::PseudopotentialData> =
-                pp_data.iter().collect();
+            let pseudopotentials: HashMap<Element, UpfPseudoPotential> = crystal
+                .atoms
+                .iter()
+                .map(|a| a.symbol)
+                .unique()
+                .map(|sym| UpfPseudoPotential::load(sym).map(|pp| (sym, pp)))
+                .collect::<Result<_, _>>()?;
 
             let params = settings.to_scf_params(n_bands_fallback);
 
-            let result = scf::run_scf(&crystal, &basis, &kpts, &pp_refs, &params, &symmetry_info)?;
+            let result = scf::run_scf(&crystal, &basis, &kpts, &pseudopotentials, &params, &symmetry_info)?;
 
             info!("SCF converged in {} iterations", result.n_iterations);
             info!("Total energy: {:.6} eV", result.total_energy);
@@ -145,13 +126,13 @@ fn main() -> pwdft_core::error::Result<()> {
                     );
                 }
             }
-        }
+        },
     }
 
     Ok(())
 }
 
 /// Load settings from a YAML input file.
-fn load_settings(path: &std::path::Path) -> pwdft_core::error::Result<Settings> {
-    Settings::from_yaml_file(path)
+fn load_settings(path: &std::path::Path) -> pwdft_core::error::Result<InputSettings> {
+    InputSettings::from_yaml_file(path)
 }

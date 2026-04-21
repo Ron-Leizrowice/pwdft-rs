@@ -13,13 +13,12 @@
 //! valence problem. The implementation keeps the core *only* inside the
 //! XC functional:
 //!
-//! - `ρ_val + ρ_core` enters `ε_xc[·]` and `v_xc[·]` (see
-//!   [`xc_energy_corrected`] and QE `PW/src/v_of_rho.f90:511`).
-//! - `ρ_val` alone enters the Hartree source, the electron count, and the
-//!   double-counting integral `∫ ρ_val · v_xc dr`.
-//! - In LSDA, `ρ_core` is spin-unpolarized and split evenly as
-//!   `ρ_core/2` between the two spin channels before being added to each
-//!   `ρ_σ` (see `scf::driver_spin::run_scf_spin`).
+//! - `ρ_val + ρ_core` enters `ε_xc[·]` and `v_xc[·]` (see [`xc_energy_corrected`] and QE
+//!   `PW/src/v_of_rho.f90:511`).
+//! - `ρ_val` alone enters the Hartree source, the electron count, and the double-counting integral
+//!   `∫ ρ_val · v_xc dr`.
+//! - In LSDA, `ρ_core` is spin-unpolarized and split evenly as `ρ_core/2` between the two spin
+//!   channels before being added to each `ρ_σ` (see `scf::driver_spin::run_scf_spin`).
 //!
 //! `ρ_core` itself is built on the FFT grid by
 //! [`scf::potentials::compute_core_density`](super::potentials::compute_core_density)
@@ -30,12 +29,7 @@
 use nalgebra::Vector3;
 use num_complex::Complex64;
 
-use crate::{
-    basis::BasisSet,
-    consts::HBAR2_OVER_2M,
-    fft::FFT3D,
-    potential::xc,
-};
+use crate::{basis::BasisSet, consts::HBAR2_OVER_2M, fft::FFT3D, potential::xc};
 
 // ---------------------------------------------------------------------------
 // Energy computation
@@ -47,28 +41,19 @@ use crate::{
 ///     E_band = Σ_{n,k} f_{n,k} · w_k · ε_{n,k}
 /// ```
 /// - `ε_{n,k}` in eV (band index `n`, k-point index `k`);
-/// - `f_{n,k}` dimensionless occupation in `[0, spin_factor]`
-///   (`spin_factor = 2` for nspin=1, `1` for nspin=2);
+/// - `f_{n,k}` dimensionless occupation in `[0, spin_factor]` (`spin_factor = 2` for nspin=1, `1`
+///   for nspin=2);
 /// - `w_k` k-point weight with `Σ_k w_k = 1` (IBZ-reduced; see
 ///   [`crate::symmetry::kpoints::reduce_kpoints`]).
 ///
 /// E_band is **not** the total KS energy — it double-counts Hartree and
 /// XC. See [`total_energy`] for the corrected expression. Returned in eV.
-pub(crate) fn band_energy(
-    eigenvalues: &[Vec<f64>],
-    occupations: &[Vec<f64>],
-    kpoint_weights: &[f64],
-) -> f64 {
+pub(crate) fn band_energy(eigenvalues: &[Vec<f64>], occupations: &[Vec<f64>], kpoint_weights: &[f64]) -> f64 {
     eigenvalues
         .iter()
         .zip(occupations.iter())
         .zip(kpoint_weights.iter())
-        .map(|((evs, occs), &w)| {
-            evs.iter()
-                .zip(occs.iter())
-                .map(|(&e, &f)| f * w * e)
-                .sum::<f64>()
-        })
+        .map(|((evs, occs), &w)| evs.iter().zip(occs.iter()).map(|(&e, &f)| f * w * e).sum::<f64>())
         .sum()
 }
 
@@ -80,12 +65,11 @@ pub(crate) fn band_energy(
 /// ```
 /// Derivation: Parseval on `E_H = (1/2) ∫∫ ρ(r) ρ(r')/|r−r'| d³r d³r'` with
 /// the convention `ρ(r) = (1/Ω) Σ_G ρ(G) e^{iG·r}` and `v_C(G) = 4πe²/|G|²`.
-/// - `rho_g[ig]` complex Fourier coefficient `ρ(G)` in e/Å³ on the FFT
-///   grid; `rho_g[0]` is the G=0 component (average density = N_el / Ω);
+/// - `rho_g[ig]` complex Fourier coefficient `ρ(G)` in e/Å³ on the FFT grid; `rho_g[0]` is the G=0
+///   component (average density = N_el / Ω);
 /// - `g_squared[ig]` = `|G|²` in Å⁻² for the same index;
 /// - `omega` cell volume Ω in Å³;
-/// - `4πe² = 4π · E2_COULOMB` with `E2_COULOMB ≈ 14.3996 eV·Å` (see
-///   [`crate::consts::E2_COULOMB`]).
+/// - `4πe² = 4π · E2_COULOMB` with `E2_COULOMB ≈ 14.3996 eV·Å` (see [`crate::consts::E2_COULOMB`]).
 ///
 /// The G=0 divergence is excised: a neutral compensating background from
 /// the ion lattice makes the full electrostatic sum finite. The
@@ -133,13 +117,7 @@ pub(crate) fn hartree_energy(rho_g: &[Complex64], g_squared: &[f64], omega: f64)
 ///
 /// The `E_xc[ρ_xc]` piece is `Σ_r ρ_xc(r) · ε_xc(r) · dV` via
 /// [`xc::lda_xc_energy`]. Returns (E_xc − E_dc) in eV.
-pub(crate) fn xc_energy_corrected(
-    rho_xc: &[f64],
-    rho_val: &[f64],
-    exc_r: &[f64],
-    vxc_r: &[f64],
-    omega: f64,
-) -> f64 {
+pub(crate) fn xc_energy_corrected(rho_xc: &[f64], rho_val: &[f64], exc_r: &[f64], vxc_r: &[f64], omega: f64) -> f64 {
     let n_grid = rho_xc.len();
     let dvol = omega / n_grid as f64;
 
@@ -182,13 +160,7 @@ pub(crate) fn xc_energy_corrected(
 /// variationally exact KS free energy once SCF is converged. Away from
 /// self-consistency this estimator is only linear in `ρ_out − ρ_in`;
 /// [`harris_foulkes_energy`] gives a better early-iteration estimate.
-pub(crate) fn total_energy(
-    e_band: f64,
-    e_hartree: f64,
-    e_xc_corrected: f64,
-    e_ewald: f64,
-    e_smearing: f64,
-) -> f64 {
+pub(crate) fn total_energy(e_band: f64, e_hartree: f64, e_xc_corrected: f64, e_ewald: f64, e_smearing: f64) -> f64 {
     e_band - e_hartree + e_xc_corrected + e_ewald + e_smearing
 }
 
@@ -305,11 +277,10 @@ pub(crate) fn real_to_g_space(data_r: &[f64], fft: &mut FFT3D) -> Vec<Complex64>
 /// ```text
 ///     V_eff(G) = V_local(G) + V_H(G) + V_xc(G)
 /// ```
-/// - `V_local(G)`: ionic local PP (G=0 kept on the Hamiltonian
-///   diagonal; see [`crate::scf::context::ScfContext::new`]);
+/// - `V_local(G)`: ionic local PP (G=0 kept on the Hamiltonian diagonal; see
+///   [`crate::scf::context::ScfContext::new`]);
 /// - `V_H(G) = 4πe² · ρ(G) / |G|²`: classical electron repulsion;
-/// - `V_xc(G)`: Fourier transform of the LDA XC potential `v_xc(r)
-///   = δE_xc/δρ`.
+/// - `V_xc(G)`: Fourier transform of the LDA XC potential `v_xc(r) = δE_xc/δρ`.
 ///
 /// All three arrays live on the FFT grid with consistent index ordering;
 /// all entries in eV. Returned `V_eff(G)` is the reciprocal-space
@@ -317,12 +288,9 @@ pub(crate) fn real_to_g_space(data_r: &[f64], fft: &mut FFT3D) -> Vec<Complex64>
 /// [`crate::scf::potentials::fill_hamiltonian_with_v_eff`]
 /// to form the Hamiltonian matrix elements
 /// `⟨G | V_eff | G'⟩ = V_eff(G − G')`. The non-local KB term is added
-/// separately; see [`crate::potential::nonlocal::NonlocalPotential::add_to_hamiltonian`].
-pub(crate) fn assemble_v_eff(
-    v_local: &[Complex64],
-    v_h: &[Complex64],
-    v_xc: &[Complex64],
-) -> Vec<Complex64> {
+/// separately; see
+/// [`crate::potential::nonlocal::NonlocalPotential::add_to_hamiltonian`].
+pub(crate) fn assemble_v_eff(v_local: &[Complex64], v_h: &[Complex64], v_xc: &[Complex64]) -> Vec<Complex64> {
     use rayon::prelude::*;
     v_local
         .par_iter()
@@ -367,8 +335,8 @@ pub(crate) fn add_core_density(rho_val: &[f64], rho_core: &[f64]) -> Vec<f64> {
 /// cancel, and `E_ion-ion` (Ewald) supplies the finite remainder.
 ///
 /// - `rho_g`: total electron density in G-space (e/Å³);
-/// - `g_squared[ig]` = |G|² in Å⁻², thresholded by
-///   [`crate::consts::G2_ZERO_THRESHOLD`] to identify G=0;
+/// - `g_squared[ig]` = |G|² in Å⁻², thresholded by [`crate::consts::G2_ZERO_THRESHOLD`] to identify
+///   G=0;
 /// - `4πe² = 4π · E2_COULOMB` with `E2_COULOMB ≈ 14.3996 eV·Å`.
 ///
 /// Returns `V_H(G)` in eV on the same FFT grid.
@@ -404,11 +372,10 @@ pub(crate) fn hartree_on_fft_grid(rho_g: &[Complex64], g_squared: &[f64]) -> Vec
 /// basis, giving `⟨k+G|T|k+G'⟩ = (ℏ²/2m) |k+G|² · δ_{G,G'}`.
 /// `ℏ²/(2m) = HBAR2_OVER_2M ≈ 3.810 eV·Å²` ([`crate::consts::HBAR2_OVER_2M`]).
 ///
-/// - `c_{n,k}(G)` = `wavefunctions[ik][(ig, nb)]` plane-wave coefficients,
-///   assumed orthonormal in the Bloch sense `Σ_G |c_{n,k}(G)|² = 1`;
+/// - `c_{n,k}(G)` = `wavefunctions[ik][(ig, nb)]` plane-wave coefficients, assumed orthonormal in
+///   the Bloch sense `Σ_G |c_{n,k}(G)|² = 1`;
 /// - `k + G` in Å⁻¹; `|k+G|²` in Å⁻²;
-/// - band occupation `f_{n,k}` dimensionless (Fermi-Dirac or other;
-///   [`crate::scf::smearing`]);
+/// - band occupation `f_{n,k}` dimensionless (Fermi-Dirac or other; [`crate::scf::smearing`]);
 /// - k-point weight `w_k` with `Σ_k w_k = 1`.
 ///
 /// Returns E_kin in eV. Parallelized over k-points via rayon.
@@ -463,18 +430,13 @@ pub(crate) fn kinetic_expectation(
 /// automatically. `EnergyComponents::e_local_g0_shift` is therefore zero
 /// by construction.
 ///
-/// - `rho_r`: valence density in e/Å³ (total density in spin-
-///   polarized runs — the local PP is spin-independent);
+/// - `rho_r`: valence density in e/Å³ (total density in spin- polarized runs — the local PP is
+///   spin-independent);
 /// - `v_local_fft_r`: `V_local(r)` in eV;
 /// - `omega`: Ω in Å³.
 ///
 /// Returns E_local in eV.
-pub(crate) fn local_pp_energy_grid(
-    rho_r: &[f64],
-    v_local_fft_r: &[f64],
-    omega: f64,
-    n_grid: usize,
-) -> f64 {
+pub(crate) fn local_pp_energy_grid(rho_r: &[f64], v_local_fft_r: &[f64], omega: f64, n_grid: usize) -> f64 {
     let dvol = omega / n_grid as f64;
     rho_r
         .iter()
@@ -498,8 +460,7 @@ pub(crate) fn local_pp_energy_grid(
 /// as a single GEMM in reciprocal space.
 ///
 /// - `wavefunctions[ik]`: n_pw × n_bands column-major coefficient matrix;
-/// - occupations, k-point weights: same conventions as
-///   [`kinetic_expectation`].
+/// - occupations, k-point weights: same conventions as [`kinetic_expectation`].
 ///
 /// Returns E_nl in eV. Parallelized over k-points via rayon; each
 /// k-point pays an O(n_pw²) matrix-vector cost per band.
@@ -710,9 +671,9 @@ pub struct EnergyComponents {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use approx::relative_eq;
+
+    use super::*;
     use crate::fft::FFT3D;
 
     #[test]
@@ -728,16 +689,14 @@ mod tests {
         // G=0 component (index 0) should be C
         assert!(
             relative_eq!(data_g[0].re, c, epsilon = 1e-10),
-            "DC component: expected {c}, got {}", data_g[0].re
+            "DC component: expected {c}, got {}",
+            data_g[0].re
         );
         assert!(data_g[0].im.abs() < 1e-10);
 
         // All other G-components should be ~0
         for (i, &v) in data_g.iter().enumerate().skip(1) {
-            assert!(
-                v.norm() < 1e-10,
-                "G≠0 component at {i}: expected ~0, got {v}"
-            );
+            assert!(v.norm() < 1e-10, "G≠0 component at {i}: expected ~0, got {v}");
         }
     }
 
@@ -751,11 +710,13 @@ mod tests {
         // Inverse FFT should recover original (unnormalized → need N factor)
         let mut data_back = data_g;
         fft.inverse(&mut data_back);
-        // real_to_g_space divides by N, inverse multiplies by N → should recover original
+        // real_to_g_space divides by N, inverse multiplies by N → should recover
+        // original
         for (i, (&orig, &back)) in data_r.iter().zip(data_back.iter()).enumerate() {
             assert!(
                 relative_eq!(orig, back.re, epsilon = 1e-10),
-                "Roundtrip failed at {i}: original={orig}, recovered={}", back.re
+                "Roundtrip failed at {i}: original={orig}, recovered={}",
+                back.re
             );
             assert!(back.im.abs() < 1e-10, "Imaginary part at {i}: {}", back.im);
         }
@@ -774,7 +735,8 @@ mod tests {
             let expected = v1[i] + v2[i] + v3[i];
             assert!(
                 (result[i] - expected).norm() < 1e-14,
-                "V_eff mismatch at {i}: expected {expected}, got {}", result[i]
+                "V_eff mismatch at {i}: expected {expected}, got {}",
+                result[i]
             );
         }
     }
@@ -805,8 +767,8 @@ mod tests {
         let n = 100;
         let rho_a = vec![1.0; n];
         let rho_b = vec![2.0; n];
-        // diff = sqrt(Σ(1.0)² × dvol / omega) = sqrt(n × dvol / omega) = sqrt(dvol × n / omega)
-        // dvol = omega / n = 0.4
+        // diff = sqrt(Σ(1.0)² × dvol / omega) = sqrt(n × dvol / omega) = sqrt(dvol × n
+        // / omega) dvol = omega / n = 0.4
         // diff = sqrt(0.4 * 100 / 40) = sqrt(1.0) = 1.0
         let diff = density_diff(&rho_a, &rho_b, omega, n);
         assert!(
@@ -850,8 +812,7 @@ mod tests {
         let e_ewald = -4.8_f64;
 
         let pre_tsen = e_band - e_hartree_in + e_xc_corr_in + e_ewald;
-        let post_tsen =
-            harris_foulkes_energy(e_band, e_hartree_in, e_xc_corr_in, e_ewald, 0.0);
+        let post_tsen = harris_foulkes_energy(e_band, e_hartree_in, e_xc_corr_in, e_ewald, 0.0);
 
         assert_eq!(
             pre_tsen.to_bits(),

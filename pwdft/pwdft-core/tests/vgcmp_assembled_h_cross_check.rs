@@ -47,8 +47,7 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
-use std::fs;
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 use nalgebra::Vector3;
 use pwdft_core::{
@@ -57,7 +56,7 @@ use pwdft_core::{
     crystal::{Atom, Crystal, Lattice},
     hamiltonian::build_kinetic,
     potential::nonlocal::NonlocalPotential,
-    pseudopotential::{PseudopotentialData, load},
+    pseudopotential::UpfPseudoPotential,
 };
 
 const CSV_REL_PATH: &str = "data/csv/vgcmp_phase4_reference.csv";
@@ -116,9 +115,9 @@ fn load_reference_csv(path: &PathBuf) -> Option<Vec<RefRow>> {
     Some(rows)
 }
 
-fn load_si_pp() -> PseudopotentialData {
+fn load_si_pp() -> UpfPseudoPotential {
     let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join(UPF_REL_PATH);
-    load(&path).expect("failed to parse Si.upf")
+    UpfPseudoPotential::load(&path).expect("failed to parse Si.upf")
 }
 
 /// Primitive Si FCC cell at a = 5.431 Å, matching Phase 1/2/3 reference.
@@ -130,25 +129,24 @@ fn build_si_fcc() -> Crystal {
         (a / 2.0) * Vector3::new(1.0, 0.0, 1.0),
         (a / 2.0) * Vector3::new(1.0, 1.0, 0.0),
     );
-    let atoms = vec![
-        Atom::new(14, [0.0, 0.0, 0.0]),
-        Atom::new(14, [0.25, 0.25, 0.25]),
-    ];
+    let atoms = vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])];
     Crystal { atoms, lattice }
 }
 
 /// Find the basis index corresponding to a given Miller triple.
-/// Panics if the triple is not in the basis (which would mean ecut is too small).
+/// Panics if the triple is not in the basis (which would mean ecut is too
+/// small).
 fn basis_index_of(basis: &BasisSet, miller: [i32; 3]) -> usize {
-    basis
-        .index_of(miller[0], miller[1], miller[2])
-        .unwrap_or_else(|| {
-            panic!(
-                "Miller index ({}, {}, {}) not found in basis of size {}. \
+    basis.index_of(miller[0], miller[1], miller[2]).unwrap_or_else(|| {
+        panic!(
+            "Miller index ({}, {}, {}) not found in basis of size {}. \
                  Increase ecut in the test.",
-                miller[0], miller[1], miller[2], basis.len()
-            )
-        })
+            miller[0],
+            miller[1],
+            miller[2],
+            basis.len()
+        )
+    })
 }
 
 #[test]
@@ -208,7 +206,7 @@ fn vgcmp_phase4_assembled_h_matches_python_reference() {
     // --- Set up Si FCC Γ-point calculation ----------------------------------
     let crystal = build_si_fcc();
     let pp = load_si_pp();
-    let pp_refs: Vec<&PseudopotentialData> = vec![&pp];
+    let pp_refs: Vec<&UpfPseudoPotential> = vec![&pp];
 
     // ecut = 200 eV: comfortably covers all 5 reference shells.
     // Shell 4 has |G|² = 11·(2π/a)² ≈ 14.7 Å⁻² → kinetic T ≈ 56 eV.
@@ -228,8 +226,8 @@ fn vgcmp_phase4_assembled_h_matches_python_reference() {
 
     // Full Hamiltonian = kinetic + V_NL (V_eff still zero).
     let mut h_full = build_kinetic(&basis, &k_gamma);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &pp_refs)
-        .expect("NonlocalPotential construction failed");
+    let vnl =
+        NonlocalPotential::new(&crystal, &basis, &k_gamma, &pp_refs).expect("NonlocalPotential construction failed");
     vnl.add_to_hamiltonian(&mut h_full, &crystal, &basis, &k_gamma);
 
     // Build per-row output.
@@ -260,7 +258,8 @@ fn vgcmp_phase4_assembled_h_matches_python_reference() {
         assert!(
             im < 1e-10,
             "H[{idx},{idx}] has non-zero imaginary part {im:.3e} eV at shell {} (Miller {:?})",
-            row.shell_index, row.miller
+            row.shell_index,
+            row.miller
         );
 
         table.push(RowOut {

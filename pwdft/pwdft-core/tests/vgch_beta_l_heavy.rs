@@ -9,9 +9,9 @@
 //! with QE's `qe-7.5/upflib/beta_mod.f90:113` on *any* projector at
 //! *any* q in the production range?
 //!
-//! - If C diamond (light, no semicore) matches AND Cu/Fe (semicore)
-//!   match, the "different converged density" residual is NOT a β_l(q)
-//!   form-factor bug. Hypothesis 1 is eliminated → move to H2 (SAD).
+//! - If C diamond (light, no semicore) matches AND Cu/Fe (semicore) match, the "different converged
+//!   density" residual is NOT a β_l(q) form-factor bug. Hypothesis 1 is eliminated → move to H2
+//!   (SAD).
 //! - If any element fails, we have a smoking gun for the residual.
 //!
 //! Tolerance: 1e-8 Bohr^{3/2} absolute. QE's printed `tab_beta` keeps
@@ -32,14 +32,9 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
-use std::fs;
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
-use pwdft_core::{
-    consts::BOHR_TO_ANG,
-    numerics::simpson_integrate,
-    pseudopotential::{PseudopotentialData, load},
-};
+use pwdft_core::{consts::BOHR_TO_ANG, numerics::simpson_integrate, pseudopotential::UpfPseudoPotential};
 
 const CSV_REL_PATH: &str = "data/csv/vgch_beta_l_heavy.csv";
 
@@ -88,10 +83,9 @@ fn load_reference_csv(path: &PathBuf) -> Option<Vec<RefRow>> {
     Some(rows)
 }
 
-fn load_pp(element: &str) -> PseudopotentialData {
-    let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-        .join(format!("pseudopotentials/nc/lda/{element}.upf"));
-    load(&path).unwrap_or_else(|e| panic!("failed to parse {}: {e}", path.display()))
+fn load_pp(element: &str) -> UpfPseudoPotential {
+    let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join(format!("pseudopotentials/nc/lda/{element}.upf"));
+    UpfPseudoPotential::load(&path).unwrap_or_else(|e| panic!("failed to parse {}: {e}", path.display()))
 }
 
 /// Transcription of `src/potential/nonlocal.rs::spherical_bessel_j`.
@@ -120,13 +114,7 @@ fn spherical_bessel_j(l: i32, x: f64) -> f64 {
 ///
 /// `r_grid`, `rab` in Å; `chi = r·β(r)` in Å^{-1/2}; `q_ang_inv` in 1/Å.
 /// Returns F_l(q) in Å^{3/2}.
-fn f_l_of_q_rust(
-    r_grid: &[f64],
-    rab: &[f64],
-    chi: &[f64],
-    l: i32,
-    q_ang_inv: f64,
-) -> f64 {
+fn f_l_of_q_rust(r_grid: &[f64], rab: &[f64], chi: &[f64], l: i32, q_ang_inv: f64) -> f64 {
     use std::f64::consts::PI;
     let n = r_grid.len();
     let mut integrand = vec![0.0_f64; n];
@@ -157,10 +145,8 @@ fn vgch_h1_beta_l_matches_python_reference() {
             element_order.push(r.element.clone());
         }
     }
-    let pps: std::collections::HashMap<String, PseudopotentialData> = element_order
-        .iter()
-        .map(|e| (e.clone(), load_pp(e)))
-        .collect();
+    let pps: std::collections::HashMap<String, UpfPseudoPotential> =
+        element_order.iter().map(|e| (e.clone(), load_pp(e))).collect();
 
     // Per-element running max |Δ|.
     let mut per_element_max: std::collections::HashMap<String, f64> =
@@ -221,7 +207,8 @@ fn vgch_h1_beta_l_matches_python_reference() {
         assert!(
             unit_consistency < 1e-10,
             "{}: CSV Å/Bohr columns inconsistent ({:.2e})",
-            row.element, unit_consistency
+            row.element,
+            unit_consistency
         );
 
         // Å-side cross-check: diff_ang / BOHR^{3/2} should equal diff_bohr.
@@ -232,12 +219,10 @@ fn vgch_h1_beta_l_matches_python_reference() {
 
     eprintln!(
         "\n===== VGCH H1 β_l(q) cross-check: {} rows across {} elements =====",
-        checked, element_order.len()
+        checked,
+        element_order.len()
     );
-    eprintln!(
-        "{:>6}  {:>12}",
-        "elem", "max |Δ| Bohr^{3/2}"
-    );
+    eprintln!("{:>6}  {:>12}", "elem", "max |Δ| Bohr^{3/2}");
     eprintln!("{:>6}  {:>12}", "----", "---------------");
     for e in &element_order {
         eprintln!("{:>6}  {:>12.3e}", e, per_element_max[e]);

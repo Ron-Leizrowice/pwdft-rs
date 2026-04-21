@@ -19,9 +19,8 @@
 //! tractability:
 //!
 //! - `vgch_cu_per_component`: 4×4×4 (QE ref 8×8×8), nspin=1.
-//! - `vgch_fe_per_component_8x8x8`: 8×8×8 nspin=1 (QE ref 8×8×8
-//!   nspin=2 FM, collapses to NM anyway under PseudoDojo LDA Fe at
-//!   ecut=15 Ry).
+//! - `vgch_fe_per_component_8x8x8`: 8×8×8 nspin=1 (QE ref 8×8×8 nspin=2 FM, collapses to NM anyway
+//!   under PseudoDojo LDA Fe at ecut=15 Ry).
 //!
 //! Per-term CSV emission (VGCH-2 Part A): every test writes rows to
 //! `<CARGO_TARGET_TMPDIR>/vgch2_per_term_trace_pwdft.csv` via the shared
@@ -59,16 +58,17 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
+use std::{collections::HashMap, io::Write, path::PathBuf, sync::Mutex};
+
 use nalgebra::Vector3;
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     kpoints,
-    pseudopotential::PseudopotentialData,
+    pseudopotential::UpfPseudoPotential,
     scf::{self, ScfParams, ScfResult, mixing::MixingMode, smearing::SmearingScheme},
     symmetry::SymmetryInfo,
 };
-use std::{collections::HashMap, io::Write, path::PathBuf, sync::Mutex};
 
 const RY_TO_EV: f64 = 13.605_693_122_994;
 
@@ -158,12 +158,11 @@ fn bcc_crystal(a_ang: f64, atom: Atom) -> Crystal {
     }
 }
 
-fn load_pp(element: &str) -> PseudopotentialData {
+fn load_pp(element: &str) -> UpfPseudoPotential {
     let path = std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
         .join("pseudopotentials/nc/lda")
         .join(format!("{element}.upf"));
-    pwdft_core::pseudopotential::load(&path)
-        .unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
+    UpfPseudoPotential::load(&path).unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
 }
 
 // ---------------------------------------------------------------------------
@@ -230,15 +229,24 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
     );
     eprintln!(
         "  {:<24}  {:>14.6}  {:>14.6}  {:>+12.6}",
-        "E_hartree", c.e_hartree, qe.hartree, c.e_hartree - qe.hartree
+        "E_hartree",
+        c.e_hartree,
+        qe.hartree,
+        c.e_hartree - qe.hartree
     );
     eprintln!(
         "  {:<24}  {:>14.6}  {:>14.6}  {:>+12.6}",
-        "E_xc", c.e_xc, qe.xc, c.e_xc - qe.xc
+        "E_xc",
+        c.e_xc,
+        qe.xc,
+        c.e_xc - qe.xc
     );
     eprintln!(
         "  {:<24}  {:>14.6}  {:>14.6}  {:>+12.6}",
-        "E_ewald", c.e_ewald, qe.ewald, c.e_ewald - qe.ewald
+        "E_ewald",
+        c.e_ewald,
+        qe.ewald,
+        c.e_ewald - qe.ewald
     );
     eprintln!(
         "  {:<24}  {:>14.6}  {:>14.6}  {:>+12.6}",
@@ -250,14 +258,8 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
 
     // Post-TSEN: `total_energy` carries `−TS` (= `c.e_smearing`); include it
     // so the identity still closes to machine precision on metals.
-    let e_sum = c.e_kinetic
-        + c.e_local
-        + c.e_local_g0_shift
-        + c.e_nonlocal
-        + c.e_hartree
-        + c.e_xc
-        + c.e_ewald
-        + c.e_smearing;
+    let e_sum =
+        c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
     let sum_err = e_sum - result.total_energy;
     eprintln!(
         "  [self-check] Σ(components) = {e_sum:.6} eV, E_total = {:.6} eV, Δ = {sum_err:.2e} eV",
@@ -268,15 +270,14 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
 fn run_and_assert_sum(
     label: &str,
     crystal: &Crystal,
-    pps: &[&PseudopotentialData],
+    pps: &[&UpfPseudoPotential],
     params: &ScfParams,
     basis_ecut_ev: f64,
     nk: u32,
     qe: &QeReference,
 ) -> ScfResult {
     let basis = BasisSet::new(&crystal.lattice, basis_ecut_ev);
-    let kpts =
-        kpoints::monkhorst_pack(nk, nk, nk, kpoints::KGridShift::GammaCentered, &crystal.lattice);
+    let kpts = kpoints::monkhorst_pack(nk, nk, nk, kpoints::KGridShift::GammaCentered, &crystal.lattice);
 
     let symmetry = SymmetryInfo::from_crystal(crystal, 1e-5);
     let result = scf::run_scf(crystal, &basis, &kpts, pps, params, &symmetry)
@@ -288,14 +289,8 @@ fn run_and_assert_sum(
     // of how close the residual lands to QE. Post-TSEN the identity
     // includes `c.e_smearing` (= −TS).
     let c = &result.components;
-    let e_sum = c.e_kinetic
-        + c.e_local
-        + c.e_local_g0_shift
-        + c.e_nonlocal
-        + c.e_hartree
-        + c.e_xc
-        + c.e_ewald
-        + c.e_smearing;
+    let e_sum =
+        c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
     let sum_residual = (e_sum - result.total_energy).abs();
     assert!(
         sum_residual < 0.1,
@@ -340,10 +335,7 @@ fn default_heavy_params(n_bands: usize, mixing: MixingMode, nspin: usize) -> Scf
 fn vgch2_si_per_component() {
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
     let pp_si = load_pp("Si");
 
@@ -361,15 +353,7 @@ fn vgch2_si_per_component() {
         -6.203_015_07,
         -16.796_673_13,
     );
-    run_and_assert_sum(
-        "Si",
-        &crystal,
-        &[&pp_si],
-        &params,
-        15.0 * RY_TO_EV,
-        4,
-        &qe,
-    );
+    run_and_assert_sum("Si", &crystal, &[&pp_si], &params, 15.0 * RY_TO_EV, 4, &qe);
 }
 
 // ---------------------------------------------------------------------------
@@ -384,10 +368,7 @@ fn vgch2_si_per_component() {
 fn vgch2_c_diamond_per_component() {
     let crystal = fcc_crystal(
         3.567,
-        vec![
-            Atom::new(6, [0.00, 0.00, 0.00]),
-            Atom::new(6, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(6, [0.00, 0.00, 0.00]), Atom::new(6, [0.25, 0.25, 0.25])],
     );
     let pp_c = load_pp("C");
 
@@ -405,15 +386,7 @@ fn vgch2_c_diamond_per_component() {
         -8.602_806_00,
         -25.571_887_69,
     );
-    run_and_assert_sum(
-        "C_diamond",
-        &crystal,
-        &[&pp_c],
-        &params,
-        30.0 * RY_TO_EV,
-        4,
-        &qe,
-    );
+    run_and_assert_sum("C_diamond", &crystal, &[&pp_c], &params, 30.0 * RY_TO_EV, 4, &qe);
 }
 
 // ---------------------------------------------------------------------------
@@ -432,22 +405,8 @@ fn vgch2_al_per_component() {
 
     // QE: data/qe/al_fcc_scf.out — total=-4.72724484 Ry,
     // one-e=2.88539588, hartree=0.00731666, xc=-2.22048340, ewald=-5.39205235.
-    let qe = QeReference::from_ry(
-        -4.727_244_84,
-        2.885_395_88,
-        0.007_316_66,
-        -2.220_483_40,
-        -5.392_052_35,
-    );
-    run_and_assert_sum(
-        "Al",
-        &crystal,
-        &[&pp_al],
-        &params,
-        24.0 * RY_TO_EV,
-        8,
-        &qe,
-    );
+    let qe = QeReference::from_ry(-4.727_244_84, 2.885_395_88, 0.007_316_66, -2.220_483_40, -5.392_052_35);
+    run_and_assert_sum("Al", &crystal, &[&pp_al], &params, 24.0 * RY_TO_EV, 8, &qe);
 }
 
 // ---------------------------------------------------------------------------
@@ -488,15 +447,7 @@ fn vgch_cu_per_component() {
         -41.095_186_82,
         -242.620_854_75,
     );
-    run_and_assert_sum(
-        "Cu_FCC",
-        &crystal,
-        &[&pp_cu],
-        &params,
-        25.0 * RY_TO_EV,
-        4,
-        &qe,
-    );
+    run_and_assert_sum("Cu_FCC", &crystal, &[&pp_cu], &params, 25.0 * RY_TO_EV, 4, &qe);
 }
 
 /// VGCH Phase 1a — Fe BCC per-component diagnostic (8×8×8 nspin=1).
@@ -526,15 +477,7 @@ fn vgch_fe_per_component_8x8x8() {
         -28.904_021_34,
         -171.779_065_80,
     );
-    run_and_assert_sum(
-        "Fe_BCC_FM",
-        &crystal,
-        &[&pp_fe],
-        &params,
-        15.0 * RY_TO_EV,
-        8,
-        &qe,
-    );
+    run_and_assert_sum("Fe_BCC_FM", &crystal, &[&pp_fe], &params, 15.0 * RY_TO_EV, 8, &qe);
 }
 
 /// VGCH-2 Part A — GaAs zincblende. 33.6 eV residual (Ga Z=31, As Z=33).
@@ -543,10 +486,7 @@ fn vgch_fe_per_component_8x8x8() {
 fn vgch2_gaas_per_component() {
     let crystal = fcc_crystal(
         5.653,
-        vec![
-            Atom::new(31, [0.00, 0.00, 0.00]),
-            Atom::new(33, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(31, [0.00, 0.00, 0.00]), Atom::new(33, [0.25, 0.25, 0.25])],
     );
     let pp_ga = load_pp("Ga");
     let pp_as = load_pp("As");
@@ -563,15 +503,7 @@ fn vgch2_gaas_per_component() {
         -75.978_778_17,
         -198.372_229_22,
     );
-    run_and_assert_sum(
-        "GaAs",
-        &crystal,
-        &[&pp_ga, &pp_as],
-        &params,
-        20.0 * RY_TO_EV,
-        4,
-        &qe,
-    );
+    run_and_assert_sum("GaAs", &crystal, &[&pp_ga, &pp_as], &params, 20.0 * RY_TO_EV, 4, &qe);
 }
 
 /// VGCH-2 Part A — NaCl rocksalt. 7.7 eV residual (Cl Z=17).
@@ -580,10 +512,7 @@ fn vgch2_gaas_per_component() {
 fn vgch2_nacl_per_component() {
     let crystal = fcc_crystal(
         5.614,
-        vec![
-            Atom::new(11, [0.00, 0.00, 0.00]),
-            Atom::new(17, [0.50, 0.50, 0.50]),
-        ],
+        vec![Atom::new(11, [0.00, 0.00, 0.00]), Atom::new(17, [0.50, 0.50, 0.50])],
     );
     let pp_na = load_pp("Na");
     let pp_cl = load_pp("Cl");
@@ -600,15 +529,7 @@ fn vgch2_nacl_per_component() {
         -21.274_136_00,
         -69.131_998_46,
     );
-    run_and_assert_sum(
-        "NaCl",
-        &crystal,
-        &[&pp_na, &pp_cl],
-        &params,
-        25.0 * RY_TO_EV,
-        4,
-        &qe,
-    );
+    run_and_assert_sum("NaCl", &crystal, &[&pp_na, &pp_cl], &params, 25.0 * RY_TO_EV, 4, &qe);
 }
 
 /// VGCH-2 Part A — MgO rocksalt. 10.1 eV residual (Mg 2s/2p semicore PP).
@@ -617,10 +538,7 @@ fn vgch2_nacl_per_component() {
 fn vgch2_mgo_per_component() {
     let crystal = fcc_crystal(
         4.212,
-        vec![
-            Atom::new(12, [0.00, 0.00, 0.00]),
-            Atom::new(8, [0.50, 0.50, 0.50]),
-        ],
+        vec![Atom::new(12, [0.00, 0.00, 0.00]), Atom::new(8, [0.50, 0.50, 0.50])],
     );
     let pp_mg = load_pp("Mg");
     let pp_o = load_pp("O");
@@ -637,13 +555,5 @@ fn vgch2_mgo_per_component() {
         -22.765_634_85,
         -94.779_130_59,
     );
-    run_and_assert_sum(
-        "MgO",
-        &crystal,
-        &[&pp_mg, &pp_o],
-        &params,
-        30.0 * RY_TO_EV,
-        4,
-        &qe,
-    );
+    run_and_assert_sum("MgO", &crystal, &[&pp_mg, &pp_o], &params, 30.0 * RY_TO_EV, 4, &qe);
 }

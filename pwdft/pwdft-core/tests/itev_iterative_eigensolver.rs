@@ -2,17 +2,13 @@
 //! consistency against the dense backend.
 //!
 //! Covers the two ITEV2 correctness criteria:
-//! 1. **Single-shot diagonalization** of realistic Kohn-Sham Hamiltonians
-//!    (kinetic + KB non-local, Γ-point) at small, medium, and large
-//!    basis sizes. The iterative solver must agree with the dense solver
-//!    on all bands to within `1e-10` eV — the regression floor for
-//!    defect 1 (size-independent Krylov padding dropped 3-fold-degenerate
-//!    valence clusters at `n_pw ≈ 725`).
-//! 2. **End-to-end SCF fixed-point**: Si at n_pw ∈ {89, 259} must
-//!    converge to the same total energy on Dense and Iterative to
-//!    within `1e-8` eV — the regression floor for defect 2 (cold Arnoldi
-//!    found a *different* SCF fixed point than Dense before the WFRX
-//!    warm-start wiring landed).
+//! 1. **Single-shot diagonalization** of realistic Kohn-Sham Hamiltonians (kinetic + KB non-local,
+//!    Γ-point) at small, medium, and large basis sizes. The iterative solver must agree with the
+//!    dense solver on all bands to within `1e-10` eV — the regression floor for defect 1
+//!    (size-independent Krylov padding dropped 3-fold-degenerate valence clusters at `n_pw ≈ 725`).
+//! 2. **End-to-end SCF fixed-point**: Si at n_pw ∈ {89, 259} must converge to the same total energy
+//!    on Dense and Iterative to within `1e-8` eV — the regression floor for defect 2 (cold Arnoldi
+//!    found a *different* SCF fixed point than Dense before the WFRX warm-start wiring landed).
 
 #![allow(
     clippy::unwrap_used,
@@ -21,20 +17,19 @@
     reason = "integration tests are allowed to panic"
 )]
 
+use std::{collections::HashMap, path::PathBuf};
+
 use nalgebra::Vector3;
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     eigensolver::{EigensolverKind, dense, iterative},
-    hamiltonian,
-    kpoints,
+    hamiltonian, kpoints,
     potential::nonlocal::NonlocalPotential,
-    pseudopotential,
+    pseudopotential::{self, UpfPseudoPotential},
     scf::{self, ScfParams, ScfResult, mixing::MixingMode, smearing::SmearingScheme},
     symmetry::SymmetryInfo,
 };
-use std::collections::HashMap;
-use std::path::PathBuf;
 
 fn fcc_crystal(a_ang: f64, atoms: Vec<Atom>) -> Crystal {
     Crystal {
@@ -75,11 +70,8 @@ fn build_kinetic_plus_vnl(
     ecut_ev: f64,
 ) -> (faer::Mat<num_complex::Complex64>, usize) {
     let basis = BasisSet::new(&crystal.lattice, ecut_ev);
-    let pps: Vec<_> = pp_paths
-        .iter()
-        .map(|p| pseudopotential::load(p).unwrap())
-        .collect();
-    let pp_refs: Vec<&pseudopotential::PseudopotentialData> = pps.iter().collect();
+    let pps: Vec<_> = pp_paths.iter().map(|p| pseudopotential::load(p).unwrap()).collect();
+    let pp_refs: Vec<&pseudopotential::UpfPseudoPotential> = pps.iter().collect();
     let k_gamma = Vector3::zeros();
     let mut h = hamiltonian::build_kinetic(&basis, &k_gamma);
     let vnl = NonlocalPotential::new(crystal, &basis, &k_gamma, &pp_refs).unwrap();
@@ -88,13 +80,7 @@ fn build_kinetic_plus_vnl(
     (h, n)
 }
 
-fn assert_eigvals_match(
-    dense_ev: &[f64],
-    iter_ev: &[f64],
-    tol: f64,
-    system: &str,
-    n_pw: usize,
-) {
+fn assert_eigvals_match(dense_ev: &[f64], iter_ev: &[f64], tol: f64, system: &str, n_pw: usize) {
     assert_eq!(
         dense_ev.len(),
         iter_ev.len(),
@@ -123,32 +109,14 @@ fn assert_eigvals_match(
 fn itev2_defect1_si_ecut400() {
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
     let (h, n_pw) = build_kinetic_plus_vnl(&crystal, &[pp_path("Si.upf")], 400.0);
     let n_bands = 8;
     let dense = dense::diagonalize_lowest(&h, n_bands).unwrap();
-    let iter_r = iterative::diagonalize_lowest_iterative(
-        &h,
-        n_bands,
-        None,
-        iterative::DEFAULT_TOL,
-    )
-    .unwrap();
-    eprintln!(
-        "Si ecut=400: n_pw={n_pw}, dense[0..{n_bands}]={:?}",
-        &dense.eigenvalues
-    );
-    assert_eigvals_match(
-        &dense.eigenvalues,
-        &iter_r.eigenvalues,
-        1e-10,
-        "Si diamond",
-        n_pw,
-    );
+    let iter_r = iterative::diagonalize_lowest_iterative(&h, n_bands, None, iterative::DEFAULT_TOL).unwrap();
+    eprintln!("Si ecut=400: n_pw={n_pw}, dense[0..{n_bands}]={:?}", &dense.eigenvalues);
+    assert_eigvals_match(&dense.eigenvalues, &iter_r.eigenvalues, 1e-10, "Si diamond", n_pw);
 }
 
 #[test]
@@ -160,24 +128,12 @@ fn itev2_defect1_fe_bcc_ecut400() {
     let (h, n_pw) = build_kinetic_plus_vnl(&crystal, &[pp_path("Fe.upf")], 400.0);
     let n_bands = 8;
     let dense = dense::diagonalize_lowest(&h, n_bands).unwrap();
-    let iter_r = iterative::diagonalize_lowest_iterative(
-        &h,
-        n_bands,
-        None,
-        iterative::DEFAULT_TOL,
-    )
-    .unwrap();
+    let iter_r = iterative::diagonalize_lowest_iterative(&h, n_bands, None, iterative::DEFAULT_TOL).unwrap();
     eprintln!(
         "Fe BCC ecut=400: n_pw={n_pw}, dense[0..{n_bands}]={:?}",
         &dense.eigenvalues
     );
-    assert_eigvals_match(
-        &dense.eigenvalues,
-        &iter_r.eigenvalues,
-        1e-10,
-        "Fe BCC",
-        n_pw,
-    );
+    assert_eigvals_match(&dense.eigenvalues, &iter_r.eigenvalues, 1e-10, "Fe BCC", n_pw);
 }
 
 #[test]
@@ -189,24 +145,12 @@ fn itev2_defect1_cu_fcc_ecut400() {
     let (h, n_pw) = build_kinetic_plus_vnl(&crystal, &[pp_path("Cu.upf")], 400.0);
     let n_bands = 8;
     let dense = dense::diagonalize_lowest(&h, n_bands).unwrap();
-    let iter_r = iterative::diagonalize_lowest_iterative(
-        &h,
-        n_bands,
-        None,
-        iterative::DEFAULT_TOL,
-    )
-    .unwrap();
+    let iter_r = iterative::diagonalize_lowest_iterative(&h, n_bands, None, iterative::DEFAULT_TOL).unwrap();
     eprintln!(
         "Cu FCC ecut=400: n_pw={n_pw}, dense[0..{n_bands}]={:?}",
         &dense.eigenvalues
     );
-    assert_eigvals_match(
-        &dense.eigenvalues,
-        &iter_r.eigenvalues,
-        1e-10,
-        "Cu FCC",
-        n_pw,
-    );
+    assert_eigvals_match(&dense.eigenvalues, &iter_r.eigenvalues, 1e-10, "Cu FCC", n_pw);
 }
 
 #[test]
@@ -215,32 +159,14 @@ fn itev2_defect1_si_ecut200() {
     // also missed smaller clusters at n_pw ≈ 259 under some settings.
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
     let (h, n_pw) = build_kinetic_plus_vnl(&crystal, &[pp_path("Si.upf")], 200.0);
     let n_bands = 8;
     let dense = dense::diagonalize_lowest(&h, n_bands).unwrap();
-    let iter_r = iterative::diagonalize_lowest_iterative(
-        &h,
-        n_bands,
-        None,
-        iterative::DEFAULT_TOL,
-    )
-    .unwrap();
-    eprintln!(
-        "Si ecut=200: n_pw={n_pw}, dense[0..{n_bands}]={:?}",
-        &dense.eigenvalues
-    );
-    assert_eigvals_match(
-        &dense.eigenvalues,
-        &iter_r.eigenvalues,
-        1e-10,
-        "Si diamond",
-        n_pw,
-    );
+    let iter_r = iterative::diagonalize_lowest_iterative(&h, n_bands, None, iterative::DEFAULT_TOL).unwrap();
+    eprintln!("Si ecut=200: n_pw={n_pw}, dense[0..{n_bands}]={:?}", &dense.eigenvalues);
+    assert_eigvals_match(&dense.eigenvalues, &iter_r.eigenvalues, 1e-10, "Si diamond", n_pw);
 }
 
 // ---------------------------------------------------------------------
@@ -250,21 +176,12 @@ fn itev2_defect1_si_ecut200() {
 fn run_si_scf(ecut_ev: f64, kind: EigensolverKind) -> ScfResult {
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
     let pp_si = pseudopotential::load(&pp_path("Si.upf")).unwrap();
 
     let basis = BasisSet::new(&crystal.lattice, ecut_ev);
-    let kpts = kpoints::monkhorst_pack(
-        2,
-        2,
-        2,
-        kpoints::KGridShift::GammaCentered,
-        &crystal.lattice,
-    );
+    let kpts = kpoints::monkhorst_pack(2, 2, 2, kpoints::KGridShift::GammaCentered, &crystal.lattice);
 
     // Use Anderson DIIS mixing so both backends converge in a reasonable
     // iteration count; pure Plain mixing at n_pw = 89 oscillates past
@@ -287,8 +204,7 @@ fn run_si_scf(ecut_ev: f64, kind: EigensolverKind) -> ScfResult {
     };
 
     let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
-    scf::run_scf(&crystal, &basis, &kpts, &[&pp_si], &params, &symmetry)
-        .expect("Si SCF should converge")
+    scf::run_scf(&crystal, &basis, &kpts, &[&pp_si], &params, &symmetry).expect("Si SCF should converge")
 }
 
 /// Tiny in-memory logger that counts occurrences of the `diagonalize_dispatch`
@@ -310,6 +226,7 @@ impl log::Log for CountingLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
         metadata.level() <= log::Level::Debug
     }
+
     fn log(&self, record: &log::Record) {
         let msg = format!("{}", record.args());
         if msg.contains("iterative eigensolver: using WFRX warm-start v0") {
@@ -318,6 +235,7 @@ impl log::Log for CountingLogger {
             self.cold.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
     }
+
     fn flush(&self) {}
 }
 
@@ -350,10 +268,7 @@ fn itev_iterative_matches_dense_si_total_energy() {
     // must be warm. We have `n_iterations` SCF iterations at 8 k-points =
     // `8 * n_iter` dispatch calls on the iterative backend; at least
     // `8 * (n_iter - 1)` of those must be warm.
-    #[allow(
-        clippy::cast_possible_wrap,
-        reason = "n_iterations bounded by ScfParams::max_iter"
-    )]
+    #[allow(clippy::cast_possible_wrap, reason = "n_iterations bounded by ScfParams::max_iter")]
     let expected_min_warm = 8 * (iterative.n_iterations - 1);
     assert!(
         warm >= expected_min_warm,
@@ -406,9 +321,7 @@ fn itev_iterative_matches_dense_si_total_energy() {
 
     eprintln!(
         "ITEV2 consistency (Si ecut=100):\n  dense      E={:.9} eV, niter={}\n  iterative  E={:.9} eV, niter={}\n  |ΔE|={:.3e} eV",
-        dense.total_energy, dense.n_iterations,
-        iterative.total_energy, iterative.n_iterations,
-        de,
+        dense.total_energy, dense.n_iterations, iterative.total_energy, iterative.n_iterations, de,
     );
 }
 
@@ -421,20 +334,11 @@ fn itev_iterative_matches_dense_si_total_energy() {
 fn itev2_iterative_matches_dense_si_ecut200_tier2() {
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
-    let pp_si = pseudopotential::load(&pp_path("Si.upf")).unwrap();
+    let pp_si = UpfPseudoPotential::load(&pp_path("Si.upf")).unwrap();
     let basis = BasisSet::new(&crystal.lattice, 200.0);
-    let kpts = kpoints::monkhorst_pack(
-        4,
-        4,
-        4,
-        kpoints::KGridShift::GammaCentered,
-        &crystal.lattice,
-    );
+    let kpts = kpoints::monkhorst_pack(4, 4, 4, kpoints::KGridShift::GammaCentered, &crystal.lattice);
     // `conv_threshold = 1e-6` is the same SCF tolerance as the non-Tier-2
     // Si ecut=100 test; at this tier the 4×4×4 k-grid + ecut=200 makes
     // tighter thresholds run into `f64` arithmetic floors on the
@@ -493,9 +397,6 @@ fn itev2_iterative_matches_dense_si_ecut200_tier2() {
     );
     eprintln!(
         "ITEV2 Si ecut=200: dense={:.9} eV (niter={}), iterative={:.9} eV (niter={}), ΔE={de:.3e} eV",
-        dense.total_energy,
-        dense.n_iterations,
-        iterative.total_energy,
-        iterative.n_iterations
+        dense.total_energy, dense.n_iterations, iterative.total_energy, iterative.n_iterations
     );
 }

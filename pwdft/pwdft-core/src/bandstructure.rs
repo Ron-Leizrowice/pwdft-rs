@@ -12,13 +12,7 @@
 //! [`crate::scf`] driver; a post-SCF hook that reuses the converged
 //! potential is tracked separately.
 
-use crate::{
-    basis::BasisSet,
-    eigensolver::dense,
-    error::Result,
-    hamiltonian,
-    kpoints::KPoint,
-};
+use crate::{basis::BasisSet, eigensolver::dense, error::Result, hamiltonian, kpoints::KPoint};
 
 /// Result of a band structure calculation.
 pub struct BandStructure {
@@ -110,13 +104,11 @@ impl BandStructure {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use nalgebra::Vector3;
-    use crate::{
-        crystal::Lattice,
-        consts::HBAR2_OVER_2M,
-    };
     use approx::relative_eq;
+    use nalgebra::Vector3;
+
+    use super::*;
+    use crate::{consts::HBAR2_OVER_2M, crystal::Lattice};
 
     fn si_lattice() -> Lattice {
         let a = 5.431;

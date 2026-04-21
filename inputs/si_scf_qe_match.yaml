@@ -13,7 +13,7 @@ system:
 basis:
   ecutwfc: 204.09
   ecutrho_ratio: 4
-  fft_grid: [20, 20, 20]    # Match QE's FFT grid exactly
+  fft_grid: [20, 20, 20] # Match QE's FFT grid exactly
 
 kpoints:
   type: monkhorst_pack
@@ -26,6 +26,3 @@ scf:
   mixing_beta: 0.3
   mixing_ndim: 8
   smearing_width: 0.05
-
-pseudopotentials:
-  Si: "../pseudopotentials/nc/lda/Si.upf"

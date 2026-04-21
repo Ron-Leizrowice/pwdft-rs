@@ -53,8 +53,8 @@ pub struct GpuAccelerator {
 /// Complex buffer roles (each sized `2 * n_grid * f32`):
 /// - `complex_bufs[0]` — `rho_g` (Hartree input).
 /// - `complex_bufs[1]` — `v_h` (Hartree output; also V_eff `v_h` input).
-/// - `complex_bufs[2]` — `v_local` (V_eff input; static across SCF iterations
-///   but currently re-uploaded per call).
+/// - `complex_bufs[2]` — `v_local` (V_eff input; static across SCF iterations but currently
+///   re-uploaded per call).
 /// - `complex_bufs[3]` — `v_xc_g` (V_eff input).
 /// - `complex_bufs[4]` — `v_eff` (V_eff output).
 ///
@@ -153,7 +153,8 @@ impl GpuAccelerator {
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             ..Default::default()
-        })).ok()?;
+        }))
+        .ok()?;
 
         let adapter_info = adapter.get_info();
         info!(
@@ -161,29 +162,15 @@ impl GpuAccelerator {
             adapter_info.name, adapter_info.backend, adapter_info.device_type
         );
 
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("pwdft-core GPU"),
-                ..Default::default()
-            },
-        ))
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("pwdft-core GPU"),
+            ..Default::default()
+        }))
         .ok()?;
 
-        let hartree_pipeline = Self::create_pipeline(
-            &device,
-            "hartree",
-            include_str!("shaders/hartree.wgsl"),
-        );
-        let v_eff_pipeline = Self::create_pipeline(
-            &device,
-            "v_eff_add",
-            include_str!("shaders/v_eff_add.wgsl"),
-        );
-        let lda_xc_pipeline = Self::create_pipeline(
-            &device,
-            "lda_xc",
-            include_str!("shaders/lda_xc.wgsl"),
-        );
+        let hartree_pipeline = Self::create_pipeline(&device, "hartree", include_str!("shaders/hartree.wgsl"));
+        let v_eff_pipeline = Self::create_pipeline(&device, "v_eff_add", include_str!("shaders/v_eff_add.wgsl"));
+        let lda_xc_pipeline = Self::create_pipeline(&device, "lda_xc", include_str!("shaders/lda_xc.wgsl"));
 
         Some(Self {
             device,
@@ -218,9 +205,7 @@ impl GpuAccelerator {
                 self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some(&format!("pool_complex_{i}")),
                     size: complex_size,
-                    usage: wgpu::BufferUsages::STORAGE
-                        | wgpu::BufferUsages::COPY_DST
-                        | wgpu::BufferUsages::COPY_SRC,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
                     mapped_at_creation: false,
                 })
             })
@@ -289,31 +274,70 @@ impl GpuAccelerator {
             label: Some("hartree_bg"),
             layout: &self.hartree_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: hartree_params_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: complex_bufs[0].as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: g_squared_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: complex_bufs[1].as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: hartree_params_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: complex_bufs[0].as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: g_squared_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: complex_bufs[1].as_entire_binding(),
+                },
             ],
         });
         let v_eff_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("v_eff_bg"),
             layout: &self.v_eff_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: grid_params_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: complex_bufs[2].as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: complex_bufs[1].as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: complex_bufs[3].as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: complex_bufs[4].as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: grid_params_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: complex_bufs[2].as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: complex_bufs[1].as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: complex_bufs[3].as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: complex_bufs[4].as_entire_binding(),
+                },
             ],
         });
         let lda_xc_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("lda_xc_bg"),
             layout: &self.lda_xc_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: grid_params_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: rho_r_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: exc_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: vxc_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: grid_params_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: rho_r_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: exc_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: vxc_buf.as_entire_binding(),
+                },
             ],
         });
 
@@ -339,11 +363,7 @@ impl GpuAccelerator {
         info!("GPU buffer pool allocated for {n_grid} grid points (all kernels)");
     }
 
-    fn create_pipeline(
-        device: &wgpu::Device,
-        label: &str,
-        source: &str,
-    ) -> wgpu::ComputePipeline {
+    fn create_pipeline(device: &wgpu::Device, label: &str, source: &str) -> wgpu::ComputePipeline {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(label),
             source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -362,7 +382,8 @@ impl GpuAccelerator {
     ///
     /// V_H(G) = 4πe² × ρ(G) / |G|² for |G|² > 0, else 0.
     ///
-    /// Uses pooled buffers if `prepare_buffers` was called; otherwise allocates fresh.
+    /// Uses pooled buffers if `prepare_buffers` was called; otherwise allocates
+    /// fresh.
     ///
     /// # Panics
     ///
@@ -374,12 +395,7 @@ impl GpuAccelerator {
         clippy::cast_possible_truncation,
         reason = "GPU mixed-precision: f64→f32 at CPU→GPU boundary is intentional; n_grid <= 512^3 (~1.3e8) fits in u32::MAX (~4.3e9) for all physical inputs"
     )]
-    pub fn hartree_potential(
-        &self,
-        rho_g: &[Complex64],
-        g_squared: &[f64],
-        fourpi_e2: f64,
-    ) -> Vec<Complex64> {
+    pub fn hartree_potential(&self, rho_g: &[Complex64], g_squared: &[f64], fourpi_e2: f64) -> Vec<Complex64> {
         let n_grid = rho_g.len();
 
         let params = HartreeParams {
@@ -394,11 +410,8 @@ impl GpuAccelerator {
         if let Some(ref pool) = self.pool
             && pool.n_grid == n_grid
         {
-            self.queue.write_buffer(
-                &pool.hartree_params_buf,
-                0,
-                bytemuck::bytes_of(&params),
-            );
+            self.queue
+                .write_buffer(&pool.hartree_params_buf, 0, bytemuck::bytes_of(&params));
 
             let complex_f32_len = 2 * n_grid;
             let byte_size = (complex_f32_len * std::mem::size_of::<f32>()) as u64;
@@ -426,13 +439,7 @@ impl GpuAccelerator {
                 pass.set_bind_group(0, &pool.hartree_bg, &[]);
                 pass.dispatch_workgroups(dispatch_size(n_grid as u32), 1, 1);
             }
-            encoder.copy_buffer_to_buffer(
-                &pool.complex_bufs[1],
-                0,
-                &pool.complex_staging,
-                0,
-                byte_size,
-            );
+            encoder.copy_buffer_to_buffer(&pool.complex_bufs[1], 0, &pool.complex_staging, 0, byte_size);
             let _submission = self.queue.submit(std::iter::once(encoder.finish())); // SubmissionIndex intentionally discarded; synchronization via device.poll()
 
             let result_f32 = self.read_staging_buffer(&pool.complex_staging, complex_f32_len);
@@ -452,10 +459,22 @@ impl GpuAccelerator {
             label: Some("hartree"),
             layout: &self.hartree_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: rho_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: g2_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: out_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: rho_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: g2_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: out_buf.as_entire_binding(),
+                },
             ],
         });
 
@@ -486,12 +505,7 @@ impl GpuAccelerator {
         clippy::cast_possible_truncation,
         reason = "GPU mixed-precision: f64→f32 at CPU→GPU boundary is intentional; n_grid <= 512^3 fits in u32::MAX"
     )]
-    pub fn v_eff_assembly(
-        &self,
-        v_local: &[Complex64],
-        v_h: &[Complex64],
-        v_xc: &[Complex64],
-    ) -> Vec<Complex64> {
+    pub fn v_eff_assembly(&self, v_local: &[Complex64], v_h: &[Complex64], v_xc: &[Complex64]) -> Vec<Complex64> {
         let n_grid = v_local.len();
         assert_eq!(v_h.len(), n_grid);
         assert_eq!(v_xc.len(), n_grid);
@@ -513,27 +527,9 @@ impl GpuAccelerator {
                 .write_buffer(&pool.grid_params_buf, 0, bytemuck::bytes_of(&params));
 
             let complex_f32_len = 2 * n_grid;
-            write_complex_via_scratch(
-                &self.queue,
-                pool,
-                &pool.complex_bufs[2],
-                v_local,
-                complex_f32_len,
-            );
-            write_complex_via_scratch(
-                &self.queue,
-                pool,
-                &pool.complex_bufs[1],
-                v_h,
-                complex_f32_len,
-            );
-            write_complex_via_scratch(
-                &self.queue,
-                pool,
-                &pool.complex_bufs[3],
-                v_xc,
-                complex_f32_len,
-            );
+            write_complex_via_scratch(&self.queue, pool, &pool.complex_bufs[2], v_local, complex_f32_len);
+            write_complex_via_scratch(&self.queue, pool, &pool.complex_bufs[1], v_h, complex_f32_len);
+            write_complex_via_scratch(&self.queue, pool, &pool.complex_bufs[3], v_xc, complex_f32_len);
 
             let mut encoder = self.device.create_command_encoder(&Default::default());
             {
@@ -570,11 +566,26 @@ impl GpuAccelerator {
             label: Some("v_eff"),
             layout: &self.v_eff_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: vl_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: vh_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: vxc_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: out_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: vl_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: vh_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: vxc_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: out_buf.as_entire_binding(),
+                },
             ],
         });
 
@@ -586,8 +597,10 @@ impl GpuAccelerator {
             pass.dispatch_workgroups(dispatch_size(n_grid as u32), 1, 1);
         }
         encoder.copy_buffer_to_buffer(
-            &out_buf, 0,
-            &staging_buf, 0,
+            &out_buf,
+            0,
+            &staging_buf,
+            0,
             (vl_f32.len() * std::mem::size_of::<f32>()) as u64,
         );
         let _submission = self.queue.submit(std::iter::once(encoder.finish())); // SubmissionIndex intentionally discarded; synchronization via device.poll()
@@ -635,11 +648,8 @@ impl GpuAccelerator {
                 )]
                 let mut scratch = pool.scratch_f32.lock().expect("scratch_f32 poisoned");
                 fill_f64_to_f32(rho_r, &mut scratch[..n_grid]);
-                self.queue.write_buffer(
-                    &pool.rho_r_buf,
-                    0,
-                    bytemuck::cast_slice(&scratch[..n_grid]),
-                );
+                self.queue
+                    .write_buffer(&pool.rho_r_buf, 0, bytemuck::cast_slice(&scratch[..n_grid]));
             }
 
             let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -675,10 +685,22 @@ impl GpuAccelerator {
             label: Some("lda_xc"),
             layout: &self.lda_xc_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: rho_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: exc_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: vxc_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: rho_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: exc_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: vxc_buf.as_entire_binding(),
+                },
             ],
         });
 
@@ -744,13 +766,18 @@ impl GpuAccelerator {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             // SAFETY: receiver.recv() is called immediately after device.poll(),
             // so the receiver cannot be dropped before this callback fires.
-            sender.send(result)
+            sender
+                .send(result)
                 .expect("BUG: GPU readback channel closed before callback fired");
         });
-        let _ = self.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+        let _ = self.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
         // SAFETY: The callback above sends exactly one message after poll() completes,
         // so recv() cannot fail. The inner Result is the GPU mapping result.
-        receiver.recv()
+        receiver
+            .recv()
             .expect("BUG: GPU readback channel closed unexpectedly")
             .expect("BUG: GPU buffer mapping failed");
 
@@ -906,12 +933,7 @@ mod tests {
         let n = 2000;
         let make_complex = |seed: f64| -> Vec<Complex64> {
             (0..n)
-                .map(|i| {
-                    Complex64::new(
-                        (i as f64 * seed).sin() * 0.5,
-                        (i as f64 * seed * 1.3).cos() * 0.5,
-                    )
-                })
+                .map(|i| Complex64::new((i as f64 * seed).sin() * 0.5, (i as f64 * seed * 1.3).cos() * 0.5))
                 .collect()
         };
 
@@ -920,9 +942,7 @@ mod tests {
         let v_xc = make_complex(0.3);
 
         // CPU
-        let cpu_result: Vec<Complex64> = (0..n)
-            .map(|i| v_local[i] + v_h[i] + v_xc[i])
-            .collect();
+        let cpu_result: Vec<Complex64> = (0..n).map(|i| v_local[i] + v_h[i] + v_xc[i]).collect();
 
         // GPU
         let gpu_result = gpu.v_eff_assembly(&v_local, &v_h, &v_xc);
@@ -930,10 +950,7 @@ mod tests {
         for (i, (c, g)) in cpu_result.iter().zip(gpu_result.iter()).enumerate() {
             let diff = (c - g).norm();
             let scale = c.norm().max(1e-10);
-            assert!(
-                diff / scale < 1e-5,
-                "V_eff mismatch at {i}: cpu={c}, gpu={g}",
-            );
+            assert!(diff / scale < 1e-5, "V_eff mismatch at {i}: cpu={c}, gpu={g}",);
         }
     }
 

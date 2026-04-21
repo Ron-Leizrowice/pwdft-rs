@@ -15,6 +15,7 @@ use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     kpoints::KPoint,
+    pseudopotential::UpfPseudoPotential,
     scf::{self, mixing::MixingMode},
 };
 
@@ -26,10 +27,7 @@ fn si_crystal() -> Crystal {
             a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
             a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
         ),
-        atoms: vec![
-            Atom::new(14, [0.0, 0.0, 0.0]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
     }
 }
 
@@ -46,7 +44,11 @@ fn fe_bcc() -> Crystal {
 }
 
 fn gamma_only() -> Vec<KPoint> {
-    vec![KPoint { k: Vector3::zeros(), weight: 1.0, label: None }]
+    vec![KPoint {
+        k: Vector3::zeros(),
+        weight: 1.0,
+        label: None,
+    }]
 }
 
 #[test]
@@ -57,7 +59,8 @@ fn test_si_nspin2_matches_nspin1() {
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_core::pseudopotential::load(
         &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
-    ).unwrap();
+    )
+    .unwrap();
     let kpoints = gamma_only();
 
     let params_nspin1 = scf::ScfParams {
@@ -76,13 +79,13 @@ fn test_si_nspin2_matches_nspin1() {
 
     let params_nspin2 = scf::ScfParams {
         nspin: 2,
-        n_bands: 4,  // per spin channel
+        n_bands: 4, // per spin channel
         ..params_nspin1.clone()
     };
 
     let sym_id = pwdft_core::symmetry::SymmetryInfo::identity_only();
-    let result1 = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_nspin1, &sym_id);
-    let result2 = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_nspin2, &sym_id);
+    let result1 = scf::run_scf(&crystal, &basis, &kpoints, &pp, &params_nspin1, &sym_id);
+    let result2 = scf::run_scf(&crystal, &basis, &kpoints, &pp, &params_nspin2, &sym_id);
 
     let r1 = result1.expect("nspin=1 must converge");
     let r2 = result2.expect("nspin=2 must converge");
@@ -102,7 +105,10 @@ fn test_si_nspin2_matches_nspin1() {
 
     let de = (r1.total_energy - r2.total_energy).abs();
     eprintln!("Si nspin=1: E={:.6} eV ({} iters)", r1.total_energy, r1.n_iterations);
-    eprintln!("Si nspin=2: E={:.6} eV ({} iters), M={:.6} μB", r2.total_energy, r2.n_iterations, r2.magnetization);
+    eprintln!(
+        "Si nspin=2: E={:.6} eV ({} iters), M={:.6} μB",
+        r2.total_energy, r2.n_iterations, r2.magnetization
+    );
     eprintln!("Energy diff: {de:.3e} eV");
 
     // TAUD finding 2.1: Si nspin=1 and nspin=2 (M=0 starting) evolve through
@@ -117,7 +123,8 @@ fn test_si_nspin2_matches_nspin1() {
          (> 1e-5 eV). Unpolarized Si must match nspin=1 to SCF precision; a \
          value of many eV suggests SPXC (XC input/output mismatch) or SPNC \
          (per-spin convergence criterion) has regressed.",
-        r1.total_energy, r2.total_energy
+        r1.total_energy,
+        r2.total_energy
     );
 
     // TAUD finding 2.2: Si is non-magnetic — M must be exactly zero at
@@ -127,7 +134,8 @@ fn test_si_nspin2_matches_nspin1() {
     // 10× empirical = 1e-4 μB. Previously 0.1 μB (10% of full electron spin).
     assert!(
         r2.magnetization.abs() < 1.0e-4,
-        "Si should be non-magnetic, got |M|={:.3e} μB (> 1e-4)", r2.magnetization
+        "Si should be non-magnetic, got |M|={:.3e} μB (> 1e-4)",
+        r2.magnetization
     );
 }
 
@@ -152,13 +160,14 @@ fn test_fe_spin_xc_consistency_regression() {
     //
     // Historical baseline (Fe BCC fixed-mag=2 on the same nc/lda/Fe.upf, 4×4×4
     // k, 15 Ry, starting_magnetization=0.5, conv=1e-6, max_iter=300):
-    //   Pre-SPXC, total-only criterion:        |HF-KS| ≈ 22.2 eV (falsely "converged")
-    //   Post-SPXC, total-only criterion:       |HF-KS| ≈ 13.0 eV (falsely "converged")
-    //   Post-SPXC+SPNC, per-spin criterion:    SCF correctly refuses to converge —
-    //     per-channel Δρ locks at ≈0.254 because this pseudopotential does not
-    //     support a stable fixed-mag=2 state (LDA ground state is nonmagnetic).
-    //     The old total-only metric hid this limit cycle by cancelling +ε/−ε
-    //     between the up and down channels.
+    //   Pre-SPXC, total-only criterion:        |HF-KS| ≈ 22.2 eV (falsely
+    // "converged")   Post-SPXC, total-only criterion:       |HF-KS| ≈ 13.0 eV
+    // (falsely "converged")   Post-SPXC+SPNC, per-spin criterion:    SCF
+    // correctly refuses to converge —     per-channel Δρ locks at ≈0.254
+    // because this pseudopotential does not     support a stable fixed-mag=2
+    // state (LDA ground state is nonmagnetic).     The old total-only metric
+    // hid this limit cycle by cancelling +ε/−ε     between the up and down
+    // channels.
     //
     // The Fe fixed-mag case is therefore documented but not tested here — it
     // would require a different pseudopotential or a better mixer. The Si
@@ -167,8 +176,7 @@ fn test_fe_spin_xc_consistency_regression() {
     let _ = env_logger::builder().is_test(true).try_init();
     let crystal = si_crystal();
     let pp = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf"),
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
@@ -195,17 +203,13 @@ fn test_fe_spin_xc_consistency_regression() {
     };
 
     let sym_id = pwdft_core::symmetry::SymmetryInfo::identity_only();
-    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, &sym_id)
+    let result = scf::run_scf(&crystal, &basis, &kpoints, &pp, &params, &sym_id)
         .expect("Si nspin=2 SCF must converge for SPXC+SPNC regression test");
 
     let hf_diff = (result.harris_foulkes_energy - result.total_energy).abs();
     eprintln!(
         "SPXC+SPNC regression (Si nspin=2): E_KS={:.6} eV  E_HF={:.6} eV  |HF-KS|={:.3e} eV  ({} iters, M={:.4})",
-        result.total_energy,
-        result.harris_foulkes_energy,
-        hf_diff,
-        result.n_iterations,
-        result.magnetization,
+        result.total_energy, result.harris_foulkes_energy, hf_diff, result.n_iterations, result.magnetization,
     );
 
     // Quadratic-convergence assertion. Pre-SPXC: |HF-KS| was many eV even at
@@ -245,8 +249,9 @@ fn test_ccmx_fe_free_magnetization_converges() {
     // SCF converges properly.
     //
     // Uses a 4×4×4 grid with Kerker at 15 Ry ecut for speed. Observed:
-    //   pre-CCMX:  Δρ pinned at 0.254, consumes all max_iter=80, |HF-KS| ≈ 13 eV, M ≈ 0.05 μB (spurious).
-    //   post-CCMX: converges in ~14 iters, |HF-KS| ≈ 1e-4 eV, M ≈ 0 μB.
+    //   pre-CCMX:  Δρ pinned at 0.254, consumes all max_iter=80, |HF-KS| ≈ 13 eV, M
+    // ≈ 0.05 μB (spurious).   post-CCMX: converges in ~14 iters, |HF-KS| ≈ 1e-4
+    // eV, M ≈ 0 μB.
     //
     // Regression guards (see assertions below): (1) |HF-KS| stays sub-meV,
     // (2) magnetization collapses to near-zero (no spurious spin leakage),
@@ -265,8 +270,7 @@ fn test_ccmx_fe_free_magnetization_converges() {
     // flip the default to `true` without tuning Eyert thresholds first.
     let crystal = fe_bcc();
     let pp = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Fe.upf"),
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Fe.upf"),
     )
     .unwrap();
     let ecut = 15.0 * 13.605_693_122_994; // 15 Ry
@@ -274,13 +278,8 @@ fn test_ccmx_fe_free_magnetization_converges() {
     // Preserve the MP-1976 shifted grid this CCMX convergence test was
     // pinned on; swapping to Γ-centered alters the SCF trajectory and the
     // pinned iteration count / magnetization assertions.
-    let kpoints = pwdft_core::kpoints::monkhorst_pack(
-        4,
-        4,
-        4,
-        pwdft_core::kpoints::KGridShift::MP1976,
-        &crystal.lattice,
-    );
+    let kpoints =
+        pwdft_core::kpoints::monkhorst_pack(4, 4, 4, pwdft_core::kpoints::KGridShift::MP1976, &crystal.lattice);
 
     let mut starting_mag = std::collections::HashMap::new();
     starting_mag.insert("Fe".to_string(), 0.5);
@@ -304,7 +303,7 @@ fn test_ccmx_fe_free_magnetization_converges() {
     };
 
     let symmetry = pwdft_core::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
-    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, &symmetry)
+    let result = scf::run_scf(&crystal, &basis, &kpoints, &pp, &params, &symmetry)
         .expect("CCMX: Fe BCC nspin=2 free-mag must converge — pre-CCMX would fail here");
 
     eprintln!(
@@ -395,21 +394,17 @@ fn test_fe_ferromagnetic_fixed_moment() {
     //   Gamma up:   4.62  25.71  25.71  26.52  26.52  26.52
     //   Gamma down: 5.79  27.30  27.30  28.05  28.05  28.05
     let crystal = fe_bcc();
-    let pp = pwdft_core::pseudopotential::load(
+    let pp = UpfPseudoPotential::load(
         &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Fe.upf"),
-    ).unwrap();
+    )
+    .unwrap();
     let ecut = 15.0 * 13.605_693_122_994; // 15 Ry
     let basis = BasisSet::new(&crystal.lattice, ecut);
     // MP-1976 shifted grid — this test's expected `ConvergenceFailure`
     // trajectory was pinned on it; the failure mode we assert against is
     // k-mesh sensitive.
-    let kpoints = pwdft_core::kpoints::monkhorst_pack(
-        4,
-        4,
-        4,
-        pwdft_core::kpoints::KGridShift::MP1976,
-        &crystal.lattice,
-    );
+    let kpoints =
+        pwdft_core::kpoints::monkhorst_pack(4, 4, 4, pwdft_core::kpoints::KGridShift::MP1976, &crystal.lattice);
 
     let params = scf::ScfParams {
         n_bands: 8,
@@ -427,7 +422,7 @@ fn test_fe_ferromagnetic_fixed_moment() {
     };
 
     let symmetry = pwdft_core::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
-    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, &symmetry);
+    let result = scf::run_scf(&crystal, &basis, &kpoints, &pp, &params, &symmetry);
 
     // Specifically expect the per-spin limit-cycle failure to manifest as
     // ConvergenceFailure (not e.g. Eigensolver or Gpu). If the variant
@@ -438,7 +433,7 @@ fn test_fe_ferromagnetic_fixed_moment() {
                 "Fe BCC fixed-mag=2 correctly failed to converge after {iterations} iters \
                  (final delta={delta:.3e}) — per-spin limit cycle, as expected post-SPNC."
             );
-        }
+        },
         Ok(r) => {
             panic!(
                 "Fe BCC fixed-mag=2 UNEXPECTEDLY converged: E={:.6} eV, M={:.4} μB, {} iters. \
@@ -446,14 +441,14 @@ fn test_fe_ferromagnetic_fixed_moment() {
                  result and restore the original magnetization/energy assertions (see comment above).",
                 r.total_energy, r.magnetization, r.n_iterations
             );
-        }
+        },
         Err(other) => {
             panic!(
                 "Fe BCC fixed-mag=2 returned an unexpected error variant: {other}. \
                  Expected ConvergenceFailure (per-spin limit cycle, per SPNC proposal). \
                  A different error variant suggests a new regression."
             );
-        }
+        },
     }
 }
 
@@ -467,14 +462,12 @@ fn test_fe_ferromagnetic_fixed_moment() {
 /// a few lines.
 #[test]
 fn non_lda_xc_functional_is_rejected_at_scf_entry() {
-    use pwdft_core::error::PwdftError;
-    use pwdft_core::settings::XcFunctional;
+    use pwdft_core::{error::PwdftError, settings::PredefinedXcFunctionals};
 
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
-    let pp = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf"),
+    let pp = UpfPseudoPotential::load(
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
     let kpoints = gamma_only();
@@ -493,8 +486,8 @@ fn non_lda_xc_functional_is_rejected_at_scf_entry() {
     // (the spin-scaled PBE wrappers have not yet landed). This test
     // defers to spin tests elsewhere for that coverage.
     for (variant, want_substring) in [
-        (XcFunctional::Pbe0, "xc_functional 'pbe0'"),
-        (XcFunctional::Hse06, "xc_functional 'hse06'"),
+        (PredefinedXcFunctionals::Pbe0, "xc_functional 'pbe0'"),
+        (PredefinedXcFunctionals::Hse06, "xc_functional 'hse06'"),
     ] {
         let params = scf::ScfParams {
             n_bands: 4,
@@ -502,7 +495,7 @@ fn non_lda_xc_functional_is_rejected_at_scf_entry() {
             xc_functional: variant,
             ..Default::default()
         };
-        let err = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, &sym)
+        let err = scf::run_scf(&crystal, &basis, &kpoints, &pp, &params, &sym)
             .expect_err("hybrid xc_functional must fail at SCF entry");
         match err {
             PwdftError::NotImplemented { what } => {
@@ -511,10 +504,8 @@ fn non_lda_xc_functional_is_rejected_at_scf_entry() {
                     "NotImplemented.what should identify the functional ({variant:?}): \
                      expected substring {want_substring:?}, got {what:?}"
                 );
-            }
-            other => panic!(
-                "expected PwdftError::NotImplemented for {variant:?}, got: {other:?}"
-            ),
+            },
+            other => panic!("expected PwdftError::NotImplemented for {variant:?}, got: {other:?}"),
         }
     }
 
@@ -524,10 +515,10 @@ fn non_lda_xc_functional_is_rejected_at_scf_entry() {
     let params_pz = scf::ScfParams {
         n_bands: 4,
         max_iter: 1,
-        xc_functional: XcFunctional::Pz,
+        xc_functional: PredefinedXcFunctionals::Pz,
         ..Default::default()
     };
-    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params_pz, &sym);
+    let result = scf::run_scf(&crystal, &basis, &kpoints, &pp, &params_pz, &sym);
     // Any outcome (Ok, ConvergenceFailure, Eigensolver, …) is acceptable; we
     // only care that the not-yet-implemented trap does NOT fire on LDA. A
     // NotImplemented leak here would break every existing LDA test.

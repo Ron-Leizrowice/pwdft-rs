@@ -1,9 +1,10 @@
 //! Rigorous validation of the free-electron band structure for FCC Si.
 //!
-//! For free electrons (V=0), the Hamiltonian H_{G,G'}(k) = δ_{GG'} (ℏ²/2m)|k+G|²
-//! is diagonal in the plane-wave basis, so the eigenvalues are exactly the
-//! kinetic energies of each |k+G|² mode, sorted. No approximations are involved —
-//! the diagonalizer must return EXACT values (up to floating-point roundoff).
+//! For free electrons (V=0), the Hamiltonian H_{G,G'}(k) = δ_{GG'}
+//! (ℏ²/2m)|k+G|² is diagonal in the plane-wave basis, so the eigenvalues are
+//! exactly the kinetic energies of each |k+G|² mode, sorted. No approximations
+//! are involved — the diagonalizer must return EXACT values (up to
+//! floating-point roundoff).
 //!
 //! We verify:
 //! 1. Eigenvalues match analytic (ℏ²/2m)|k+G|² at every high-symmetry point
@@ -20,7 +21,6 @@
 
 use approx::relative_eq;
 use nalgebra::Vector3;
-
 use pwdft_core::{
     bandstructure,
     basis::BasisSet,
@@ -32,8 +32,8 @@ use pwdft_core::{
 };
 
 const SI_A: f64 = 5.431; // Å
-const C_A: f64 = 3.567;  // Å — diamond cubic
-const FE_A: f64 = 2.87;  // Å — BCC iron
+const C_A: f64 = 3.567; // Å — diamond cubic
+const FE_A: f64 = 2.87; // Å — BCC iron
 const N_BANDS: usize = 15;
 const ECUT: f64 = 100.0; // eV — lower cutoff keeps debug-mode eigensolves fast
 
@@ -122,12 +122,7 @@ fn test_eigenvalues_match_analytic_at_high_sym_points() {
         let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
         let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
 
-        for (i, (got, expected)) in result
-            .eigenvalues
-            .iter()
-            .zip(analytic.iter())
-            .enumerate()
-        {
+        for (i, (got, expected)) in result.eigenvalues.iter().zip(analytic.iter()).enumerate() {
             assert!(
                 relative_eq!(got, expected, epsilon = 1e-8),
                 "{label}: band {i} eigenvalue mismatch: got {got:.10}, expected {expected:.10}"
@@ -148,10 +143,10 @@ fn test_gamma_degeneracies() {
     let analytic = analytic_eigenvalues(&basis, &k, N_BANDS);
     let degens = degeneracies(&analytic, 1e-8);
 
-    // FCC reciprocal lattice = BCC. Shells at |G|² = 0, 3, 4, 8, 11, ... in units of (2π/a)²
-    // Shell 0: G=(0,0,0) → 1 vector
-    // Shell 1: G=(±1,±1,±1) → 8 vectors (all combinations of ±1 with same parity constraint)
-    // Shell 2: G=(±2,0,0),(0,±2,0),(0,0,±2) → 6 vectors
+    // FCC reciprocal lattice = BCC. Shells at |G|² = 0, 3, 4, 8, 11, ... in units
+    // of (2π/a)² Shell 0: G=(0,0,0) → 1 vector
+    // Shell 1: G=(±1,±1,±1) → 8 vectors (all combinations of ±1 with same parity
+    // constraint) Shell 2: G=(±2,0,0),(0,±2,0),(0,0,±2) → 6 vectors
 
     let kappa_sq = (2.0 * std::f64::consts::PI / SI_A).powi(2);
 
@@ -220,10 +215,7 @@ fn test_x_point_degeneracies() {
     );
 
     // Verify there's no zero-energy state at X (unlike at Γ)
-    assert!(
-        degens[0].0 > 1.0,
-        "X point should not have zero-energy state"
-    );
+    assert!(degens[0].0 > 1.0, "X point should not have zero-energy state");
 }
 
 // ============================================================
@@ -246,10 +238,7 @@ fn test_l_point_degeneracies() {
 
     let kappa_sq = (2.0 * std::f64::consts::PI / SI_A).powi(2);
     let expected_lowest = HBAR2_OVER_2M * 0.75 * kappa_sq;
-    assert_eq!(
-        degens[0].1, 2,
-        "L lowest level should be 2-fold degenerate"
-    );
+    assert_eq!(degens[0].1, 2, "L lowest level should be 2-fold degenerate");
     assert!(
         relative_eq!(degens[0].0, expected_lowest, epsilon = 1e-6),
         "L lowest: got {:.6} eV, expected {:.6} eV",
@@ -286,8 +275,8 @@ fn test_band_continuity() {
             let de = (bs.eigenvalues[i][band_idx] - bs.eigenvalues[i - 1][band_idx]).abs();
             let dk = distances[i] - distances[i - 1];
             // Energy change per unit k should be bounded.
-            // For free electrons, dE/dk = ℏ²|k+G|/m, which is at most ~50 eV·Å for ecut=200.
-            // With dk ~ 0.01 1/Å, max dE ~ 0.5 eV.
+            // For free electrons, dE/dk = ℏ²|k+G|/m, which is at most ~50 eV·Å for
+            // ecut=200. With dk ~ 0.01 1/Å, max dE ~ 0.5 eV.
             assert!(
                 de < 2.0,
                 "band {band_idx}: jump of {de:.4} eV between k-points {i}-{} (dk={dk:.4})",
@@ -325,12 +314,7 @@ fn test_eigenvalues_are_sorted_diagonal() {
         let result = dense::diagonalize_lowest(&h, n).unwrap();
 
         // All eigenvalues should match the sorted diagonal exactly
-        for (i, (got, expected)) in result
-            .eigenvalues
-            .iter()
-            .zip(diag.iter())
-            .enumerate()
-        {
+        for (i, (got, expected)) in result.eigenvalues.iter().zip(diag.iter()).enumerate() {
             assert!(
                 (got - expected).abs() < 1e-8,
                 "k={k}: eigenvalue {i}: got {got:.10}, expected {expected:.10}, diff={}",
@@ -367,10 +351,7 @@ fn test_eigenvector_reconstruction() {
             residual_sq += diff.norm_sqr();
         }
         let residual = residual_sq.sqrt();
-        assert!(
-            residual < 1e-8,
-            "eigenvector {i}: residual |Hv - λv| = {residual:.2e}"
-        );
+        assert!(residual < 1e-8, "eigenvector {i}: residual |Hv - λv| = {residual:.2e}");
     }
 }
 
@@ -383,10 +364,7 @@ fn test_gamma_numerical_values() {
     let basis = BasisSet::new(&lattice, ECUT);
     let k = Vector3::zeros();
 
-    let result = dense::diagonalize_lowest(
-        &hamiltonian::build_kinetic(&basis, &k),
-        N_BANDS,
-    ).unwrap();
+    let result = dense::diagonalize_lowest(&hamiltonian::build_kinetic(&basis, &k), N_BANDS).unwrap();
 
     let kappa_sq = (2.0 * std::f64::consts::PI / SI_A).powi(2);
 
@@ -431,12 +409,7 @@ fn test_diamond_c_eigenvalues_at_gamma() {
     let h = hamiltonian::build_kinetic(&basis, &k);
     let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
 
-    for (i, (&computed, &expected)) in result
-        .eigenvalues
-        .iter()
-        .zip(analytic.iter())
-        .enumerate()
-    {
+    for (i, (&computed, &expected)) in result.eigenvalues.iter().zip(analytic.iter()).enumerate() {
         assert!(
             relative_eq!(computed, expected, epsilon = 1e-8),
             "C diamond Γ band {i}: computed={computed:.10}, expected={expected:.10}"
@@ -449,7 +422,8 @@ fn test_diamond_c_eigenvalues_at_gamma() {
     let e_shell1 = 3.0 * kappa_sq * HBAR2_OVER_2M;
     assert!(
         result.eigenvalues[0].abs() < 1e-10,
-        "C Γ band 0 should be 0: got {}", result.eigenvalues[0]
+        "C Γ band 0 should be 0: got {}",
+        result.eigenvalues[0]
     );
     // Bands 1-8 should all be degenerate at the first shell
     for i in 1..=8.min(result.eigenvalues.len() - 1) {
@@ -474,12 +448,7 @@ fn test_bcc_fe_eigenvalues_at_gamma() {
     let h = hamiltonian::build_kinetic(&basis, &k);
     let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
 
-    for (i, (&computed, &expected)) in result
-        .eigenvalues
-        .iter()
-        .zip(analytic.iter())
-        .enumerate()
-    {
+    for (i, (&computed, &expected)) in result.eigenvalues.iter().zip(analytic.iter()).enumerate() {
         assert!(
             relative_eq!(computed, expected, epsilon = 1e-8),
             "Fe BCC Γ band {i}: computed={computed:.10}, expected={expected:.10}"
@@ -522,7 +491,9 @@ fn test_bcc_fe_band_continuity() {
                 // Adjacent k-points should have smooth dispersion
                 // For free electrons, max jump ≈ (2ℏ²/2m) * |Δk| * |G_max|
                 let dk = 1.0 / f64::from(n_kpts - 1) * k_end.norm();
-                let max_jump = 2.0 * HBAR2_OVER_2M * dk * basis.g_vectors().iter().map(|g| g.norm()).fold(0.0_f64, f64::max) + 50.0;
+                let max_jump =
+                    2.0 * HBAR2_OVER_2M * dk * basis.g_vectors().iter().map(|g| g.norm()).fold(0.0_f64, f64::max)
+                        + 50.0;
                 assert!(
                     jump < max_jump,
                     "Fe BCC band {ib} at k={ik}: jump={jump:.4} eV exceeds {max_jump:.4} eV"
@@ -549,12 +520,7 @@ fn test_diamond_c_off_gamma() {
     let h = hamiltonian::build_kinetic(&basis, &k);
     let result = dense::diagonalize_lowest(&h, N_BANDS).unwrap();
 
-    for (i, (&computed, &expected)) in result
-        .eigenvalues
-        .iter()
-        .zip(analytic.iter())
-        .enumerate()
-    {
+    for (i, (&computed, &expected)) in result.eigenvalues.iter().zip(analytic.iter()).enumerate() {
         assert!(
             relative_eq!(computed, expected, epsilon = 1e-8),
             "C diamond X band {i}: computed={computed:.10}, expected={expected:.10}"

@@ -55,32 +55,39 @@
 //! eV; densities in e/Å³; magnetization `m(r)` in e/Å³ (its spatial
 //! integral `∫m(r)d³r` is the total magnetic moment in units of μ_B).
 
+use std::collections::HashMap;
+
+use elements_rs::Element;
 use log::info;
 use num_complex::Complex64;
 use rayon::prelude::*;
 
+use super::{
+    ScfParams, ScfResult, context, density,
+    driver::{compute_occupations, diagonalize_dispatch, scf_progress_bar},
+    energy::{
+        EnergyComponents, add_core_density, assemble_v_eff, band_energy, density_diff, density_r_to_g,
+        harris_foulkes_energy, hartree_energy, hartree_on_fft_grid, kinetic_expectation, local_pp_energy_grid,
+        nonlocal_expectation, real_to_g_space, total_energy, xc_energy_bare,
+    },
+    initial_density, mixing,
+    potentials::fill_hamiltonian_with_v_eff,
+    report::{
+        IterationReport, SpinIterationFields, log_components, log_convergence_summary, log_entropy, log_iteration,
+    },
+    smearing,
+};
 use crate::{
     basis::BasisSet,
     crystal::Crystal,
+    eigensolver::EigensolverKind,
     error::{PwdftError, Result},
     fft::compute_density_gradient,
     kpoints::KPoint,
     potential::xc::{self, XcEvaluator, assemble_semilocal_vxc},
-    pseudopotential::PseudopotentialData,
+    pseudopotential::UpfPseudoPotential,
+    symmetry::SymmetryInfo,
 };
-
-use crate::eigensolver::EigensolverKind;
-
-use super::driver::{compute_occupations, diagonalize_dispatch, scf_progress_bar};
-use super::energy::{
-    EnergyComponents, add_core_density, assemble_v_eff, band_energy, density_diff,
-    density_r_to_g, harris_foulkes_energy, hartree_energy, hartree_on_fft_grid,
-    kinetic_expectation, local_pp_energy_grid, nonlocal_expectation, real_to_g_space,
-    total_energy, xc_energy_bare,
-};
-use super::potentials::fill_hamiltonian_with_v_eff;
-use super::report::{log_components, log_convergence_summary, log_entropy, log_iteration, IterationReport, SpinIterationFields};
-use super::{ScfParams, ScfResult, context, density, initial_density, mixing, smearing};
 
 /// Per-channel real-space density gradient pair for the spin PBE path.
 /// `None` on the LDA path (no gradient needed); `Some` with both
@@ -108,21 +115,20 @@ pub(crate) fn run_scf_spin(
     crystal: &Crystal,
     basis: &BasisSet,
     kpoints: &[KPoint],
-    pseudopotentials: &[&PseudopotentialData],
+    pseudopotentials: &HashMap<Element, UpfPseudoPotential>,
     params: &ScfParams,
-    symmetry: &crate::symmetry::SymmetryInfo,
+    symmetry: &SymmetryInfo,
     xc_evaluator: XcEvaluator,
 ) -> Result<ScfResult> {
     let mut ctx = context::ScfContext::new(crystal, basis, kpoints, pseudopotentials, params, symmetry)?;
 
     // Determine initial spin split from starting_magnetization
-    let per_atom_mag: Vec<f64> = ctx.crystal.atoms.iter().map(|a| {
-        let sym = crate::atoms::Element::iter()
-            .find(|e| e.atomic_number() == a.z)
-            .map(|e| e.symbol().to_string())
-            .unwrap_or_default();
-        *ctx.params.starting_magnetization.get(&sym).unwrap_or(&0.0)
-    }).collect();
+    let per_atom_mag: Vec<f64> = ctx
+        .crystal
+        .atoms
+        .iter()
+        .map(|a| *ctx.params.starting_magnetization.get(&a.symbol).unwrap_or(&0.0))
+        .collect();
 
     // Log the target spin populations if the user fixed the magnetization.
     // The per-spin populations aren't otherwise needed here: the CCMX
@@ -147,7 +153,11 @@ pub(crate) fn run_scf_spin(
     };
     // Generate total density then split
     let rho_total = initial_density::generate_initial_density(
-        ctx.crystal, &mut ctx.grid, ctx.pseudopotentials, ctx.n_electrons, &init_config,
+        ctx.crystal,
+        &mut ctx.grid,
+        ctx.pseudopotentials,
+        ctx.n_electrons,
+        &init_config,
     );
     // Split: rho_up = (1+m)/2 * rho, rho_down = (1-m)/2 * rho
     // For a uniform initial split, m=0 -> equal channels
@@ -168,13 +178,12 @@ pub(crate) fn run_scf_spin(
     // `rhoz_or_updw` (qe-7.5/PW/src/scf_mod.f90:1360-1414) and
     // proposals/CCMX-coupled-channel-mixer.md.
     let mag_mixing_mode = match &ctx.params.mixing_mode {
-        mixing::MixingMode::Plain | mixing::MixingMode::Kerker { .. } => {
-            mixing::MixingMode::Plain
-        }
+        mixing::MixingMode::Plain | mixing::MixingMode::Kerker { .. } => mixing::MixingMode::Plain,
         mixing::MixingMode::Broyden { .. } => mixing::MixingMode::Broyden { kerker: false },
-        mixing::MixingMode::PeriodicPulay { period, .. } => {
-            mixing::MixingMode::PeriodicPulay { period: *period, kerker: false }
-        }
+        mixing::MixingMode::PeriodicPulay { period, .. } => mixing::MixingMode::PeriodicPulay {
+            period: *period,
+            kerker: false,
+        },
     };
     // Surface the silent Kerker-off on m once — otherwise a user who configures
     // Kerker sees the charge channel preconditioned but gets no signal about
@@ -191,12 +200,22 @@ pub(crate) fn run_scf_spin(
         );
     }
     let mut mixer_total = mixing::Mixer::new(
-        ctx.params.mixing_beta, ctx.params.mixing_ndim, &ctx.params.mixing_mode,
-        Some(&ctx.g_squared), ctx.n_electrons, ctx.omega, ctx.params.adaptive_beta,
+        ctx.params.mixing_beta,
+        ctx.params.mixing_ndim,
+        &ctx.params.mixing_mode,
+        Some(&ctx.g_squared),
+        ctx.n_electrons,
+        ctx.omega,
+        ctx.params.adaptive_beta,
     );
     let mut mixer_mag = mixing::Mixer::new(
-        ctx.params.mixing_beta, ctx.params.mixing_ndim, &mag_mixing_mode,
-        Some(&ctx.g_squared), ctx.n_electrons, ctx.omega, ctx.params.adaptive_beta,
+        ctx.params.mixing_beta,
+        ctx.params.mixing_ndim,
+        &mag_mixing_mode,
+        Some(&ctx.g_squared),
+        ctx.n_electrons,
+        ctx.omega,
+        ctx.params.adaptive_beta,
     );
     // Two info! lines for the two CCMX channels. Tags distinguish
     // "charge" (ρ_total) from "mag" (m = ρ↑ − ρ↓). Kerker is disabled on
@@ -228,10 +247,8 @@ pub(crate) fn run_scf_spin(
     // Iterative (per-channel Arnoldi `v0`). Each channel carries its own
     // history — a spin-↑ eigenvector is a poor seed for a spin-↓ orbital
     // under LSDA and vice versa.
-    let wfrx_dense_enabled = ctx.params.wfrx_subspace
-        && matches!(ctx.params.eigensolver, EigensolverKind::Dense);
-    let iterative_warmstart_enabled =
-        matches!(ctx.params.eigensolver, EigensolverKind::Iterative);
+    let wfrx_dense_enabled = ctx.params.wfrx_subspace && matches!(ctx.params.eigensolver, EigensolverKind::Dense);
+    let iterative_warmstart_enabled = matches!(ctx.params.eigensolver, EigensolverKind::Iterative);
     let cache_prev_wavefunctions = wfrx_dense_enabled || iterative_warmstart_enabled;
     let mut prev_wfn_up: Option<Vec<faer::Mat<Complex64>>> = None;
     let mut prev_wfn_down: Option<Vec<faer::Mat<Complex64>>> = None;
@@ -241,17 +258,15 @@ pub(crate) fn run_scf_spin(
 
     for iter in 0..ctx.params.max_iter {
         // Total density for Hartree (spin-independent)
-        let rho_total_r: Vec<f64> = rho_up_r.iter().zip(rho_down_r.iter())
-            .map(|(&u, &d)| u + d).collect();
+        let rho_total_r: Vec<f64> = rho_up_r.iter().zip(rho_down_r.iter()).map(|(&u, &d)| u + d).collect();
         let mut rho_total_g = vec![Complex64::new(0.0, 0.0); ctx.n_grid];
         density_r_to_g(&mut ctx.grid.fft, &rho_total_r, &mut rho_total_g);
 
         // 1. Hartree from total density
         let v_h_fft = hartree_on_fft_grid(&rho_total_g, &ctx.g_squared);
 
-        // 2. Spin-dependent XC (routed through the Phase A dispatcher).
-        //    v2_*_r stays None for LDA — the LDA path produces zero FFT
-        //    work beyond pre-Phase-A behaviour.
+        // 2. Spin-dependent XC (routed through the Phase A dispatcher). v2_*_r stays None for LDA — the LDA
+        //    path produces zero FFT work beyond pre-Phase-A behaviour.
         //
         //    GGAP Phase A.1: compute per-channel ∇ρ for GGAs. The spin
         //    XC signature takes both channels' gradients; Phase D's
@@ -266,28 +281,29 @@ pub(crate) fn run_scf_spin(
         // half-core gradient is a tight inner loop, so we read the
         // cached `ctx.rho_core_grad_r` and scale on the fly rather than
         // pre-scaling into a new allocation.
-        let (rho_grad_up_in, rho_grad_down_in): SpinGradPair =
-            if xc_evaluator.needs_gradient() {
-                let mut gu = compute_density_gradient(&rho_up_r, &mut ctx.grid.fft, &ctx.g_vectors);
-                let mut gd = compute_density_gradient(&rho_down_r, &mut ctx.grid.fft, &ctx.g_vectors);
-                if let Some(ref grad_core) = ctx.rho_core_grad_r {
-                    for ((gu_i, gd_i), gc) in gu.iter_mut().zip(gd.iter_mut()).zip(grad_core.iter()) {
-                        let half = [0.5 * gc[0], 0.5 * gc[1], 0.5 * gc[2]];
-                        gu_i[0] += half[0];
-                        gu_i[1] += half[1];
-                        gu_i[2] += half[2];
-                        gd_i[0] += half[0];
-                        gd_i[1] += half[1];
-                        gd_i[2] += half[2];
-                    }
+        let (rho_grad_up_in, rho_grad_down_in): SpinGradPair = if xc_evaluator.needs_gradient() {
+            let mut gu = compute_density_gradient(&rho_up_r, &mut ctx.grid.fft, &ctx.g_vectors);
+            let mut gd = compute_density_gradient(&rho_down_r, &mut ctx.grid.fft, &ctx.g_vectors);
+            if let Some(ref grad_core) = ctx.rho_core_grad_r {
+                for ((gu_i, gd_i), gc) in gu.iter_mut().zip(gd.iter_mut()).zip(grad_core.iter()) {
+                    let half = [0.5 * gc[0], 0.5 * gc[1], 0.5 * gc[2]];
+                    gu_i[0] += half[0];
+                    gu_i[1] += half[1];
+                    gu_i[2] += half[2];
+                    gd_i[0] += half[0];
+                    gd_i[1] += half[1];
+                    gd_i[2] += half[2];
                 }
-                (Some(gu), Some(gd))
-            } else {
-                (None, None)
-            };
+            }
+            (Some(gu), Some(gd))
+        } else {
+            (None, None)
+        };
         let xc_in = xc_evaluator.eval_spin(
-            &rho_up_xc, &rho_down_xc,
-            rho_grad_up_in.as_deref(), rho_grad_down_in.as_deref(),
+            &rho_up_xc,
+            &rho_down_xc,
+            rho_grad_up_in.as_deref(),
+            rho_grad_down_in.as_deref(),
         )?;
         let exc_r = xc_in.exc_r;
         // Full semilocal V_xc per channel. For LDA `v2_*_r = None` and
@@ -311,12 +327,11 @@ pub(crate) fn run_scf_spin(
         let v_eff_up = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_up_g);
         let v_eff_down = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_down_g);
 
-        // 4. Diagonalize both spins at each k-point. Run the two spin channels
-        //    concurrently via `rayon::join`: each closure returns a `Result<Vec<_>>`
-        //    from an inner `par_iter` over k-points. `ctx` is borrowed by shared
-        //    reference, and every captured field is `Sync` (plain data, `Arc`, or
-        //    slice references), so both closures can execute in parallel without
-        //    cloning. Errors propagate after the join.
+        // 4. Diagonalize both spins at each k-point. Run the two spin channels concurrently via
+        //    `rayon::join`: each closure returns a `Result<Vec<_>>` from an inner `par_iter` over k-points.
+        //    `ctx` is borrowed by shared reference, and every captured field is `Sync` (plain data, `Arc`,
+        //    or slice references), so both closures can execute in parallel without cloning. Errors
+        //    propagate after the join.
         //
         //    WFRX: when warm-start is enabled, each closure reads its
         //    channel-specific `prev_wfn_*` cache by shared reference; the
@@ -400,21 +415,35 @@ pub(crate) fn run_scf_spin(
             let n_down_target = (ctx.n_electrons - tot_mag) / 2.0;
 
             let ef_up = smearing::find_fermi_energy(
-                &eig_up, &ctx.kpt_weights, n_up_target,
-                ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
+                &eig_up,
+                &ctx.kpt_weights,
+                n_up_target,
+                ctx.params.smearing_sigma,
+                ctx.params.smearing_scheme,
+                ctx.spin_factor,
             );
             let ef_down = smearing::find_fermi_energy(
-                &eig_down, &ctx.kpt_weights, n_down_target,
-                ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
+                &eig_down,
+                &ctx.kpt_weights,
+                n_down_target,
+                ctx.params.smearing_sigma,
+                ctx.params.smearing_scheme,
+                ctx.spin_factor,
             );
 
             let occ_up = compute_occupations(
-                &eig_up, ctx.params.smearing_scheme, ef_up,
-                ctx.params.smearing_sigma, ctx.spin_factor,
+                &eig_up,
+                ctx.params.smearing_scheme,
+                ef_up,
+                ctx.params.smearing_sigma,
+                ctx.spin_factor,
             );
             let occ_down = compute_occupations(
-                &eig_down, ctx.params.smearing_scheme, ef_down,
-                ctx.params.smearing_sigma, ctx.spin_factor,
+                &eig_down,
+                ctx.params.smearing_scheme,
+                ef_down,
+                ctx.params.smearing_sigma,
+                ctx.spin_factor,
             );
 
             // Report average Fermi energy
@@ -422,43 +451,67 @@ pub(crate) fn run_scf_spin(
         } else {
             // Free magnetization: single Fermi energy for both spins
             let fermi_energy = smearing::find_fermi_energy(
-                &eigenvalues_all, &weights_all, ctx.n_electrons,
-                ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
+                &eigenvalues_all,
+                &weights_all,
+                ctx.n_electrons,
+                ctx.params.smearing_sigma,
+                ctx.params.smearing_scheme,
+                ctx.spin_factor,
             );
 
             let occ_up = compute_occupations(
-                &eig_up, ctx.params.smearing_scheme, fermi_energy,
-                ctx.params.smearing_sigma, ctx.spin_factor,
+                &eig_up,
+                ctx.params.smearing_scheme,
+                fermi_energy,
+                ctx.params.smearing_sigma,
+                ctx.spin_factor,
             );
             let occ_down = compute_occupations(
-                &eig_down, ctx.params.smearing_scheme, fermi_energy,
-                ctx.params.smearing_sigma, ctx.spin_factor,
+                &eig_down,
+                ctx.params.smearing_scheme,
+                fermi_energy,
+                ctx.params.smearing_sigma,
+                ctx.spin_factor,
             );
 
             (fermi_energy, occ_up, occ_down)
         };
 
         // 6. Reconstruct spin densities
-        let n_el_up: f64 = occ_up.iter().zip(ctx.kpt_weights.iter())
+        let n_el_up: f64 = occ_up
+            .iter()
+            .zip(ctx.kpt_weights.iter())
             .flat_map(|(occs, &w)| occs.iter().map(move |&f| f * w))
             .sum();
-        let n_el_down: f64 = occ_down.iter().zip(ctx.kpt_weights.iter())
+        let n_el_down: f64 = occ_down
+            .iter()
+            .zip(ctx.kpt_weights.iter())
             .flat_map(|(occs, &w)| occs.iter().map(move |&f| f * w))
             .sum();
 
         let rho_up_new = density::compute_density(
             &mut density::DensityGrid {
-                basis: ctx.basis, g_to_fft: &ctx.g_to_fft, fft: &mut ctx.grid.fft,
-                n_electrons: n_el_up, omega: ctx.omega,
+                basis: ctx.basis,
+                g_to_fft: &ctx.g_to_fft,
+                fft: &mut ctx.grid.fft,
+                n_electrons: n_el_up,
+                omega: ctx.omega,
             },
-            ctx.kpoints, &wfn_up, &occ_up,
+            ctx.kpoints,
+            &wfn_up,
+            &occ_up,
         );
         let rho_down_new = density::compute_density(
             &mut density::DensityGrid {
-                basis: ctx.basis, g_to_fft: &ctx.g_to_fft, fft: &mut ctx.grid.fft,
-                n_electrons: n_el_down, omega: ctx.omega,
+                basis: ctx.basis,
+                g_to_fft: &ctx.g_to_fft,
+                fft: &mut ctx.grid.fft,
+                n_electrons: n_el_down,
+                omega: ctx.omega,
             },
-            ctx.kpoints, &wfn_down, &occ_down,
+            ctx.kpoints,
+            &wfn_down,
+            &occ_down,
         );
 
         // Symmetrize each channel in G-space (PCFX). See the non-spin
@@ -467,12 +520,7 @@ pub(crate) fn run_scf_spin(
         // fails for Fd-3m on an 18³ grid. G-space is exact for any τ.
         let mut rho_up_sym = rho_up_new;
         let mut rho_down_sym = rho_down_new;
-        crate::symmetry::density::symmetrize_density_g(
-            &mut rho_up_sym,
-            ctx.grid.dims,
-            &mut ctx.grid.fft,
-            ctx.symmetry,
-        );
+        crate::symmetry::density::symmetrize_density_g(&mut rho_up_sym, ctx.grid.dims, &mut ctx.grid.fft, ctx.symmetry);
         crate::symmetry::density::symmetrize_density_g(
             &mut rho_down_sym,
             ctx.grid.dims,
@@ -481,8 +529,11 @@ pub(crate) fn run_scf_spin(
         );
 
         // 7. Convergence check
-        let rho_total_new: Vec<f64> = rho_up_sym.iter().zip(rho_down_sym.iter())
-            .map(|(&u, &d)| u + d).collect();
+        let rho_total_new: Vec<f64> = rho_up_sym
+            .iter()
+            .zip(rho_down_sym.iter())
+            .map(|(&u, &d)| u + d)
+            .collect();
         // SPNC: use per-spin max, not total-density diff. A spin-flip fluctuation
         // (+ε in rho_up, −ε in rho_down) is invisible to the total but keeps
         // zeta_in ≠ zeta_out, which leaves E_xc[rho, zeta] inconsistent and
@@ -510,28 +561,29 @@ pub(crate) fn run_scf_spin(
         // INPUT-based quantities (exc_r, vxc_up_r, vxc_down_r) remain for E_HF below.
         let rho_up_xc_out = add_core_density(&rho_up_sym, &rho_core_half);
         let rho_down_xc_out = add_core_density(&rho_down_sym, &rho_core_half);
-        let (rho_grad_up_out, rho_grad_down_out): SpinGradPair =
-            if xc_evaluator.needs_gradient() {
-                let mut gu = compute_density_gradient(&rho_up_sym, &mut ctx.grid.fft, &ctx.g_vectors);
-                let mut gd = compute_density_gradient(&rho_down_sym, &mut ctx.grid.fft, &ctx.g_vectors);
-                if let Some(ref grad_core) = ctx.rho_core_grad_r {
-                    for ((gu_i, gd_i), gc) in gu.iter_mut().zip(gd.iter_mut()).zip(grad_core.iter()) {
-                        let half = [0.5 * gc[0], 0.5 * gc[1], 0.5 * gc[2]];
-                        gu_i[0] += half[0];
-                        gu_i[1] += half[1];
-                        gu_i[2] += half[2];
-                        gd_i[0] += half[0];
-                        gd_i[1] += half[1];
-                        gd_i[2] += half[2];
-                    }
+        let (rho_grad_up_out, rho_grad_down_out): SpinGradPair = if xc_evaluator.needs_gradient() {
+            let mut gu = compute_density_gradient(&rho_up_sym, &mut ctx.grid.fft, &ctx.g_vectors);
+            let mut gd = compute_density_gradient(&rho_down_sym, &mut ctx.grid.fft, &ctx.g_vectors);
+            if let Some(ref grad_core) = ctx.rho_core_grad_r {
+                for ((gu_i, gd_i), gc) in gu.iter_mut().zip(gd.iter_mut()).zip(grad_core.iter()) {
+                    let half = [0.5 * gc[0], 0.5 * gc[1], 0.5 * gc[2]];
+                    gu_i[0] += half[0];
+                    gu_i[1] += half[1];
+                    gu_i[2] += half[2];
+                    gd_i[0] += half[0];
+                    gd_i[1] += half[1];
+                    gd_i[2] += half[2];
                 }
-                (Some(gu), Some(gd))
-            } else {
-                (None, None)
-            };
+            }
+            (Some(gu), Some(gd))
+        } else {
+            (None, None)
+        };
         let xc_out = xc_evaluator.eval_spin(
-            &rho_up_xc_out, &rho_down_xc_out,
-            rho_grad_up_out.as_deref(), rho_grad_down_out.as_deref(),
+            &rho_up_xc_out,
+            &rho_down_xc_out,
+            rho_grad_up_out.as_deref(),
+            rho_grad_down_out.as_deref(),
         )?;
         let exc_r_out = xc_out.exc_r;
         let vxc_up_r_out = if let Some(ref h_r) = xc_out.v2_up_r {
@@ -545,11 +597,14 @@ pub(crate) fn run_scf_spin(
             xc_out.v1_down_r
         };
 
-        // Spin XC double-counting (OUTPUT density): E_vxc = integral(V_xc_up rho_up_out + V_xc_down rho_down_out) dr
-        // Both V_xc and rho_sigma here come from the OUTPUT (symmetrized) density,
-        // matching the non-spin run_scf convention.
+        // Spin XC double-counting (OUTPUT density): E_vxc = integral(V_xc_up rho_up_out
+        // + V_xc_down rho_down_out) dr Both V_xc and rho_sigma here come from
+        // the OUTPUT (symmetrized) density, matching the non-spin run_scf
+        // convention.
         let dvol = ctx.omega / ctx.n_grid as f64;
-        let e_vxc_spin_out: f64 = rho_up_sym.iter().zip(vxc_up_r_out.iter())
+        let e_vxc_spin_out: f64 = rho_up_sym
+            .iter()
+            .zip(vxc_up_r_out.iter())
             .zip(rho_down_sym.iter().zip(vxc_down_r_out.iter()))
             .map(|((&ru, &vu), (&rd, &vd))| (ru * vu + rd * vd) * dvol)
             .sum();
@@ -566,8 +621,12 @@ pub(crate) fn run_scf_spin(
         // is bit-identical to the pre-TSEN path. See the non-spin
         // driver for the matching comment block.
         let ts = smearing::entropy_ts(
-            &eigenvalues_all, &weights_all, fermi_energy,
-            ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
+            &eigenvalues_all,
+            &weights_all,
+            fermi_energy,
+            ctx.params.smearing_sigma,
+            ctx.params.smearing_scheme,
+            ctx.spin_factor,
         );
         let e_smearing = -ts;
 
@@ -588,7 +647,9 @@ pub(crate) fn run_scf_spin(
         // are all from the input density
         let rho_xc_total_in: Vec<f64> = add_core_density(&rho_total_r, &ctx.rho_core_r);
         let e_xc_in = xc::lda_xc_energy(&rho_xc_total_in, &exc_r, ctx.omega);
-        let e_vxc_spin_in: f64 = rho_up_r.iter().zip(vxc_up_r.iter())
+        let e_vxc_spin_in: f64 = rho_up_r
+            .iter()
+            .zip(vxc_up_r.iter())
             .zip(rho_down_r.iter().zip(vxc_down_r.iter()))
             .map(|((&ru, &vu), (&rd, &vd))| (ru * vu + rd * vd) * dvol)
             .sum();
@@ -611,21 +672,24 @@ pub(crate) fn run_scf_spin(
         let energy_converged = de.is_some_and(|de| de < ctx.params.energy_threshold);
 
         let mag = (n_el_up - n_el_down).abs();
-        log_iteration(&pb, &IterationReport {
-            iter,
-            e_total,
-            e_harris,
-            hf_diff,
-            de,
-            delta,
-            beta: ctx.params.adaptive_beta.then(|| mixer_total.current_beta()),
-            spin: Some(SpinIterationFields {
-                delta_up,
-                delta_down,
-                magnetization: mag,
-                mag_beta: ctx.params.adaptive_beta.then(|| mixer_mag.current_beta()),
-            }),
-        });
+        log_iteration(
+            &pb,
+            &IterationReport {
+                iter,
+                e_total,
+                e_harris,
+                hf_diff,
+                de,
+                delta,
+                beta: ctx.params.adaptive_beta.then(|| mixer_total.current_beta()),
+                spin: Some(SpinIterationFields {
+                    delta_up,
+                    delta_down,
+                    magnetization: mag,
+                    mag_beta: ctx.params.adaptive_beta.then(|| mixer_mag.current_beta()),
+                }),
+            },
+        );
 
         // Warn if density converged but Harris-Foulkes difference is large
         if rho_converged && energy_converged && hf_diff > 0.01 {
@@ -656,15 +720,10 @@ pub(crate) fn run_scf_spin(
             //   independent operators).
             // XC: ∫(ρ_up+ρ_down+ρ_core)·ε_xc(ρ_up,ρ_down)dr (bare, from OUTPUT).
             // -------------------------------------------------------------
-            let k_vecs: Vec<nalgebra::Vector3<f64>> =
-                ctx.kpoints.iter().map(|kp| kp.k).collect();
+            let k_vecs: Vec<nalgebra::Vector3<f64>> = ctx.kpoints.iter().map(|kp| kp.k).collect();
 
-            let e_kin_up = kinetic_expectation(
-                ctx.basis, &k_vecs, &ctx.kpt_weights, &wfn_up, &occ_up,
-            );
-            let e_kin_down = kinetic_expectation(
-                ctx.basis, &k_vecs, &ctx.kpt_weights, &wfn_down, &occ_down,
-            );
+            let e_kin_up = kinetic_expectation(ctx.basis, &k_vecs, &ctx.kpt_weights, &wfn_up, &occ_up);
+            let e_kin_down = kinetic_expectation(ctx.basis, &k_vecs, &ctx.kpt_weights, &wfn_down, &occ_down);
             let e_kinetic = e_kin_up + e_kin_down;
 
             // V_local in real space (G=0 kept — it lives on the Hamiltonian
@@ -678,12 +737,22 @@ pub(crate) fn run_scf_spin(
             let e_local_g0_shift = 0.0;
 
             let e_nl_up = nonlocal_expectation(
-                ctx.basis, ctx.crystal, &k_vecs, &ctx.kpt_weights,
-                &wfn_up, &occ_up, &ctx.vnl_cache,
+                ctx.basis,
+                ctx.crystal,
+                &k_vecs,
+                &ctx.kpt_weights,
+                &wfn_up,
+                &occ_up,
+                &ctx.vnl_cache,
             );
             let e_nl_down = nonlocal_expectation(
-                ctx.basis, ctx.crystal, &k_vecs, &ctx.kpt_weights,
-                &wfn_down, &occ_down, &ctx.vnl_cache,
+                ctx.basis,
+                ctx.crystal,
+                &k_vecs,
+                &ctx.kpt_weights,
+                &wfn_down,
+                &occ_down,
+                &ctx.vnl_cache,
             );
             let e_nonlocal = e_nl_up + e_nl_down;
 
@@ -730,22 +799,12 @@ pub(crate) fn run_scf_spin(
             });
         }
 
-        // 8. CCMX: coupled-channel mixing in the (ρ_total, m) basis.
-        //    Forward basis change: ρ_total = ρ↑ + ρ↓, m = ρ↑ − ρ↓ for both
-        //    the input and output (symmetrized) spin densities. Mix each
-        //    mode independently with its own history. Invert with
-        //    ρ↑ = (ρ_total + m) / 2, ρ↓ = (ρ_total − m) / 2 (matches QE's
-        //    vi=0.5 convention in rhoz_or_updw, scf_mod.f90:1395-1396).
-        let rho_total_in: Vec<f64> = rho_up_r
-            .iter()
-            .zip(rho_down_r.iter())
-            .map(|(&u, &d)| u + d)
-            .collect();
-        let m_in: Vec<f64> = rho_up_r
-            .iter()
-            .zip(rho_down_r.iter())
-            .map(|(&u, &d)| u - d)
-            .collect();
+        // 8. CCMX: coupled-channel mixing in the (ρ_total, m) basis. Forward basis change: ρ_total = ρ↑ +
+        //    ρ↓, m = ρ↑ − ρ↓ for both the input and output (symmetrized) spin densities. Mix each mode
+        //    independently with its own history. Invert with ρ↑ = (ρ_total + m) / 2, ρ↓ = (ρ_total − m) / 2
+        //    (matches QE's vi=0.5 convention in rhoz_or_updw, scf_mod.f90:1395-1396).
+        let rho_total_in: Vec<f64> = rho_up_r.iter().zip(rho_down_r.iter()).map(|(&u, &d)| u + d).collect();
+        let m_in: Vec<f64> = rho_up_r.iter().zip(rho_down_r.iter()).map(|(&u, &d)| u - d).collect();
         let rho_total_out: Vec<f64> = rho_up_sym
             .iter()
             .zip(rho_down_sym.iter())

@@ -1,6 +1,7 @@
 //! MXBA diagnostic: Fe BCC free-magnetization SCF with adaptive β.
 //!
-//! Companion to `tests/spin_polarization.rs::test_ccmx_fe_free_magnetization_converges`
+//! Companion to
+//! `tests/spin_polarization.rs::test_ccmx_fe_free_magnetization_converges`
 //! (which runs the same system at the MXBA *default* of adaptive β = off
 //! and converges in 14 iterations). This test exercises the *adaptive β on*
 //! path and documents the empirical cost: on Fe BCC 4×4×4 nspin=2 Kerker,
@@ -33,11 +34,18 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
-use pwdft_core::{basis::BasisSet, crystal::Crystal, scf, scf::mixing::MixingMode};
+use std::collections::HashMap;
+
+use elements_rs::Element;
+use nalgebra::Vector3;
+use pwdft_core::{
+    basis::BasisSet,
+    crystal::{Atom, Crystal, Lattice},
+    pseudopotential::UpfPseudoPotential,
+    scf::{self, mixing::MixingMode},
+};
 
 fn fe_bcc() -> Crystal {
-    use nalgebra::Vector3;
-    use pwdft_core::crystal::{Atom, Lattice};
     let a = 2.867;
     Crystal {
         lattice: Lattice::new(
@@ -45,11 +53,12 @@ fn fe_bcc() -> Crystal {
             a * Vector3::new(0.0, 1.0, 0.0),
             a * Vector3::new(0.0, 0.0, 1.0),
         ),
-        atoms: vec![
-            Atom::new(26, [0.0, 0.0, 0.0]),
-            Atom::new(26, [0.5, 0.5, 0.5]),
-        ],
+        atoms: vec![Atom::new(26, [0.0, 0.0, 0.0]), Atom::new(26, [0.5, 0.5, 0.5])],
     }
+}
+
+fn fe_pp() -> HashMap<Element, UpfPseudoPotential> {
+    HashMap::from([(Element::Fe, UpfPseudoPotential::load("Fe").unwrap())])
 }
 
 #[test]
@@ -59,25 +68,16 @@ fn fe_bcc() -> Crystal {
 fn test_mxba_fe_documents_adaptive_failure() {
     let _ = env_logger::builder().is_test(true).try_init();
     let crystal = fe_bcc();
-    let pp = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Fe.upf"),
-    )
-    .unwrap();
+    let pp = fe_pp();
     let ecut = 15.0 * 13.605_693_122_994;
     let basis = BasisSet::new(&crystal.lattice, ecut);
     // Preserve the shifted MP-1976 grid this test was pinned against — the
     // documented failure trajectory is sensitive to the exact sample.
-    let kpoints = pwdft_core::kpoints::monkhorst_pack(
-        4,
-        4,
-        4,
-        pwdft_core::kpoints::KGridShift::MP1976,
-        &crystal.lattice,
-    );
+    let kpoints =
+        pwdft_core::kpoints::monkhorst_pack(4, 4, 4, pwdft_core::kpoints::KGridShift::MP1976, &crystal.lattice);
 
     let mut starting_mag = std::collections::HashMap::new();
-    starting_mag.insert("Fe".to_string(), 0.5);
+    starting_mag.insert(Element::Fe, 0.5);
 
     let params = scf::ScfParams {
         n_bands: 8,
@@ -96,7 +96,7 @@ fn test_mxba_fe_documents_adaptive_failure() {
     };
 
     let symmetry = pwdft_core::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
-    let result = scf::run_scf(&crystal, &basis, &kpoints, &[&pp], &params, &symmetry);
+    let result = scf::run_scf(&crystal, &basis, &kpoints, &pp, &params, &symmetry);
 
     // Documents the failure: adaptive β at these defaults does NOT converge
     // Fe CCMX. If the Eyert tuning is reworked and this test starts passing,
@@ -110,9 +110,9 @@ fn test_mxba_fe_documents_adaptive_failure() {
                  has changed — update proposal MXBA + unignore this test.",
                 res.total_energy, res.n_iterations, res.magnetization
             );
-        }
+        },
         Err(err) => {
             eprintln!("MXBA adaptive β on Fe CCMX: documented failure mode hit — {err}");
-        }
+        },
     }
 }

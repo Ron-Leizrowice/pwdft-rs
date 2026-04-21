@@ -5,19 +5,25 @@
 //! module reads those blocks via [`super::xml`] and converts each one to
 //! the engine's internal representation.
 
-use crate::consts::{BOHR3_TO_ANG3, BOHR_TO_ANG, RY_TO_EV};
-use crate::error::{PwdftError, Result};
+use std::str::FromStr;
 
-use super::super::{BetaProjector, PseudopotentialData};
+use elements_rs::Element;
+
 use super::xml::{extract_attr, extract_beta_angular_momentum, extract_data_block};
+use crate::{
+    consts::{BOHR_TO_ANG, BOHR3_TO_ANG3, RY_TO_EV},
+    error::{PwdftError, Result},
+    pseudopotential::{BetaProjector, UpfPseudoPotential},
+};
 
-/// Parse the full UPF body and return a unit-converted
-/// [`PseudopotentialData`].
-pub(super) fn parse_body(content: &str) -> Result<PseudopotentialData> {
-    let element = extract_attr(content, "element")
+/// Parse the full UPF body and return a unit-converted UpfPseudoPotential
+pub(super) fn parse_upf_body(content: &str) -> Result<UpfPseudoPotential> {
+    let element_str = extract_attr(content, "element")
         .ok_or_else(|| PwdftError::Parse("missing element in PP_HEADER".into()))?
-        .trim()
-        .to_string();
+        .trim();
+    let element = Element::from_str(element_str).map_err(|_| PwdftError::UnknownElement {
+        symbol: element_str.to_owned(),
+    })?;
 
     let z_valence: f64 = extract_attr(content, "z_valence")
         .ok_or_else(|| PwdftError::Parse("missing z_valence".into()))?
@@ -65,14 +71,12 @@ pub(super) fn parse_body(content: &str) -> Result<PseudopotentialData> {
 
         let beta_r_ry = extract_data_block(content, &tag, mesh_size)?;
         // UPF stores χ(r) = r · β(r) in Bohr^{-1/2} (no energy dimension).
-        // β(r) is a wavefunction-like quantity in Bohr^{-3/2}, so χ = r·β is in Bohr^{-1/2}.
-        // Energy enters only through D_ij (in Ry, converted to eV).
+        // β(r) is a wavefunction-like quantity in Bohr^{-3/2}, so χ = r·β is in
+        // Bohr^{-1/2}. Energy enters only through D_ij (in Ry, converted to
+        // eV).
         //
         // Convert Bohr^{-1/2} → Å^{-1/2}: divide by √(BOHR_TO_ANG).
-        let values: Vec<f64> = beta_r_ry
-            .iter()
-            .map(|&v| v / BOHR_TO_ANG.sqrt())
-            .collect();
+        let values: Vec<f64> = beta_r_ry.iter().map(|&v| v / BOHR_TO_ANG.sqrt()).collect();
 
         beta_projectors.push(BetaProjector { l, values });
     }
@@ -87,10 +91,7 @@ pub(super) fn parse_body(content: &str) -> Result<PseudopotentialData> {
     // r_grid is in Å, rab is in Å, G is in 1/Å, so 4πr²ρ(r) must be in e/Å.
     // Convert e/Bohr → e/Å by dividing by BOHR_TO_ANG.
     let rho_atom = if let Ok(rho_raw) = extract_data_block(content, "PP_RHOATOM", mesh_size) {
-        rho_raw
-            .iter()
-            .map(|&rho| rho / BOHR_TO_ANG)
-            .collect()
+        rho_raw.iter().map(|&rho| rho / BOHR_TO_ANG).collect()
     } else {
         vec![0.0; mesh_size]
     };
@@ -116,10 +117,7 @@ pub(super) fn parse_body(content: &str) -> Result<PseudopotentialData> {
         || content.contains("nlcc=.true.");
     let core_charge = if has_nlcc {
         if let Ok(nlcc_raw) = extract_data_block(content, "PP_NLCC", mesh_size) {
-            nlcc_raw
-                .iter()
-                .map(|&rho| rho / BOHR3_TO_ANG3)
-                .collect()
+            nlcc_raw.iter().map(|&rho| rho / BOHR3_TO_ANG3).collect()
         } else {
             vec![0.0; mesh_size]
         }
@@ -127,7 +125,7 @@ pub(super) fn parse_body(content: &str) -> Result<PseudopotentialData> {
         vec![]
     };
 
-    Ok(PseudopotentialData {
+    Ok(UpfPseudoPotential {
         element,
         z_valence,
         l_max,
@@ -143,8 +141,7 @@ pub(super) fn parse_body(content: &str) -> Result<PseudopotentialData> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::parse;
-    use crate::pseudopotential::PseudopotentialData;
+    use super::*;
 
     fn si_content() -> String {
         std::fs::read_to_string(
@@ -155,8 +152,8 @@ mod tests {
 
     #[test]
     fn test_parse_header() {
-        let pp = parse(&si_content()).unwrap();
-        assert_eq!(pp.element, "Si");
+        let pp = parse_upf_body(&si_content()).unwrap();
+        assert_eq!(pp.element, Element::Si);
         assert!((pp.z_valence - 4.0).abs() < 1e-10);
         assert!(pp.l_max >= 1, "Si should have l_max >= 1");
         assert!(pp.n_projectors() > 0, "Si should have projectors");
@@ -164,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_radial_grid_monotonic() {
-        let pp = parse(&si_content()).unwrap();
+        let pp = parse_upf_body(&si_content()).unwrap();
         for i in 1..pp.r_grid.len() {
             assert!(
                 pp.r_grid[i] > pp.r_grid[i - 1],
@@ -175,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_radial_grid_units() {
-        let pp = parse(&si_content()).unwrap();
+        let pp = parse_upf_body(&si_content()).unwrap();
         // First grid point should be small (< 0.01 Å)
         assert!(pp.r_grid[0] < 0.01, "first r = {} Å too large", pp.r_grid[0]);
         // Last grid point should be reasonable (> 1 Å)
@@ -188,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_v_local_coulomb_tail() {
-        let pp = parse(&si_content()).unwrap();
+        let pp = parse_upf_body(&si_content()).unwrap();
         // At large r, V_local should approach -Z_val e²/r
         // e² = 14.3997 eV·Å, Z_val = 4
         let e2 = crate::consts::E2_COULOMB;
@@ -205,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_dij_matrix_size() {
-        let pp = parse(&si_content()).unwrap();
+        let pp = parse_upf_body(&si_content()).unwrap();
         assert_eq!(pp.dij.len(), pp.n_projectors() * pp.n_projectors());
     }
 
@@ -223,7 +220,7 @@ mod tests {
     /// give ≈ 0.74·BOHR_TO_ANG² ≈ 0.207 e — implausibly small.
     #[test]
     fn test_si_core_charge_integrates_to_partial_core() {
-        let pp = parse(&si_content()).unwrap();
+        let pp = parse_upf_body(&si_content()).unwrap();
         assert!(pp.core_charge.len() == pp.r_grid.len());
         assert!(pp.has_nlcc(), "Si ONCVPSP should have core_correction=T");
 
@@ -264,11 +261,7 @@ mod tests {
     // e/Å³) on the ONCVPSP log mesh, which sets the pin tolerance.
 
     fn bessel_j0(gr: f64) -> f64 {
-        if gr < 1e-10 {
-            1.0 - gr * gr / 6.0
-        } else {
-            gr.sin() / gr
-        }
+        if gr < 1e-10 { 1.0 - gr * gr / 6.0 } else { gr.sin() / gr }
     }
 
     /// Compute ρ_core(G) in e/Å³ from the parsed pseudopotential data.
@@ -276,7 +269,7 @@ mod tests {
     /// Inputs in internal units: `pp.r_grid` in Å, `pp.rab` in Å,
     /// `pp.core_charge` in e/Å³. Caller supplies the cell volume `omega`
     /// in Å³ and the wavenumber magnitude `g_norm` in Å⁻¹.
-    fn rho_core_of_g_ang(pp: &PseudopotentialData, g_norm: f64, omega: f64) -> f64 {
+    fn rho_core_of_g_ang(pp: &UpfPseudoPotential, g_norm: f64, omega: f64) -> f64 {
         let four_pi = 4.0 * std::f64::consts::PI;
         let integral: f64 = pp
             .core_charge
@@ -301,7 +294,7 @@ mod tests {
     /// `(si, shell 0)` = 1.8476428665e-02 e/Å³.
     #[test]
     fn test_si_rho_core_of_g_zero() {
-        let pp = parse(&si_content()).unwrap();
+        let pp = parse_upf_body(&si_content()).unwrap();
         assert!(pp.has_nlcc());
 
         let a = 5.431_f64; // Å
@@ -327,7 +320,7 @@ mod tests {
     /// = 1.5427684529e-02 e/Å³.
     #[test]
     fn test_si_rho_core_of_g_first_shell() {
-        let pp = parse(&si_content()).unwrap();
+        let pp = parse_upf_body(&si_content()).unwrap();
         assert!(pp.has_nlcc());
 
         let a = 5.431_f64; // Å
@@ -344,8 +337,7 @@ mod tests {
 
     fn fe_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-                .join("pseudopotentials/nc/lda/Fe.upf"),
+            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Fe.upf"),
         )
         .unwrap()
     }
@@ -360,7 +352,7 @@ mod tests {
     /// = 2.4679728958e-01 e/Å³.
     #[test]
     fn test_fe_rho_core_of_g_zero() {
-        let pp = parse(&fe_content()).unwrap();
+        let pp = parse_upf_body(&fe_content()).unwrap();
         assert!(pp.has_nlcc(), "Fe ONCVPSP should have core_correction=T");
 
         let a = 2.87_f64; // Å
@@ -385,7 +377,7 @@ mod tests {
     /// `(fe, shell 1)` = 2.2502662616e-01 e/Å³.
     #[test]
     fn test_fe_rho_core_of_g_first_shell() {
-        let pp = parse(&fe_content()).unwrap();
+        let pp = parse_upf_body(&fe_content()).unwrap();
         assert!(pp.has_nlcc());
 
         let a = 2.87_f64;
@@ -413,8 +405,7 @@ mod tests {
 
     fn cu_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-                .join("pseudopotentials/nc/lda/Cu.upf"),
+            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Cu.upf"),
         )
         .unwrap()
     }
@@ -428,7 +419,7 @@ mod tests {
     /// `(cu, shell 0)` = 2.5568474262e-01 e/Å³.
     #[test]
     fn test_cu_rho_core_of_g_zero() {
-        let pp = parse(&cu_content()).unwrap();
+        let pp = parse_upf_body(&cu_content()).unwrap();
         assert!(pp.has_nlcc(), "Cu ONCVPSP should have core_correction=T");
 
         let a = 6.8219_f64 * crate::consts::BOHR_TO_ANG; // 3.6100 Å
@@ -452,7 +443,7 @@ mod tests {
     /// `(cu, shell 1)` = 2.3967132540e-01 e/Å³.
     #[test]
     fn test_cu_rho_core_of_g_first_shell() {
-        let pp = parse(&cu_content()).unwrap();
+        let pp = parse_upf_body(&cu_content()).unwrap();
         assert!(pp.has_nlcc());
 
         let a = 6.8219_f64 * crate::consts::BOHR_TO_ANG;
@@ -469,8 +460,7 @@ mod tests {
 
     fn mn_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-                .join("pseudopotentials/nc/lda/Mn.upf"),
+            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Mn.upf"),
         )
         .unwrap()
     }
@@ -487,7 +477,7 @@ mod tests {
     /// `(mn, shell 0)` = 3.4733264804e-01 e/Å³.
     #[test]
     fn test_mn_rho_core_of_g_zero() {
-        let pp = parse(&mn_content()).unwrap();
+        let pp = parse_upf_body(&mn_content()).unwrap();
         assert!(pp.has_nlcc(), "Mn ONCVPSP should have core_correction=T");
 
         let a = 2.89_f64; // Å
@@ -511,7 +501,7 @@ mod tests {
     /// `(mn, shell 1)` = 3.1210083482e-01 e/Å³.
     #[test]
     fn test_mn_rho_core_of_g_first_shell() {
-        let pp = parse(&mn_content()).unwrap();
+        let pp = parse_upf_body(&mn_content()).unwrap();
         assert!(pp.has_nlcc());
 
         let a = 2.89_f64;
@@ -547,8 +537,7 @@ mod tests {
 
     fn ga_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-                .join("pseudopotentials/nc/lda/Ga.upf"),
+            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Ga.upf"),
         )
         .unwrap()
     }
@@ -563,7 +552,7 @@ mod tests {
     /// = 1.7582117492e-01 e/Å³.
     #[test]
     fn test_ga_rho_core_of_g_zero() {
-        let pp = parse(&ga_content()).unwrap();
+        let pp = parse_upf_body(&ga_content()).unwrap();
         assert!(pp.has_nlcc(), "Ga ONCVPSP should have core_correction=T");
 
         let a = 10.6829_f64 * crate::consts::BOHR_TO_ANG; // 5.6530 Å
@@ -587,7 +576,7 @@ mod tests {
     /// = 1.6454252388e-01 e/Å³.
     #[test]
     fn test_ga_rho_core_of_g_first_shell() {
-        let pp = parse(&ga_content()).unwrap();
+        let pp = parse_upf_body(&ga_content()).unwrap();
         assert!(pp.has_nlcc());
 
         let a = 10.6829_f64 * crate::consts::BOHR_TO_ANG;
@@ -604,8 +593,7 @@ mod tests {
 
     fn as_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-                .join("pseudopotentials/nc/lda/As.upf"),
+            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/As.upf"),
         )
         .unwrap()
     }
@@ -618,7 +606,7 @@ mod tests {
     /// = 1.7690334999e-01 e/Å³.
     #[test]
     fn test_as_rho_core_of_g_zero() {
-        let pp = parse(&as_content()).unwrap();
+        let pp = parse_upf_body(&as_content()).unwrap();
         assert!(pp.has_nlcc(), "As ONCVPSP should have core_correction=T");
 
         let a = 10.6829_f64 * crate::consts::BOHR_TO_ANG;
@@ -638,7 +626,7 @@ mod tests {
     /// = 1.6708351731e-01 e/Å³.
     #[test]
     fn test_as_rho_core_of_g_first_shell() {
-        let pp = parse(&as_content()).unwrap();
+        let pp = parse_upf_body(&as_content()).unwrap();
         assert!(pp.has_nlcc());
 
         let a = 10.6829_f64 * crate::consts::BOHR_TO_ANG;
@@ -655,8 +643,7 @@ mod tests {
 
     fn o_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-                .join("pseudopotentials/nc/lda/O.upf"),
+            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/O.upf"),
         )
         .unwrap()
     }
@@ -672,7 +659,7 @@ mod tests {
     /// row `(o, shell 0)` = 3.0760542725e-02 e/Å³.
     #[test]
     fn test_o_rho_core_of_g_zero() {
-        let pp = parse(&o_content()).unwrap();
+        let pp = parse_upf_body(&o_content()).unwrap();
         assert!(pp.has_nlcc(), "O ONCVPSP should have core_correction=T");
 
         let a = 7.9586_f64 * crate::consts::BOHR_TO_ANG; // 4.2115 Å
@@ -694,7 +681,7 @@ mod tests {
     /// = 2.9521130484e-02 e/Å³.
     #[test]
     fn test_o_rho_core_of_g_first_shell() {
-        let pp = parse(&o_content()).unwrap();
+        let pp = parse_upf_body(&o_content()).unwrap();
         assert!(pp.has_nlcc());
 
         let a = 7.9586_f64 * crate::consts::BOHR_TO_ANG;
@@ -711,8 +698,7 @@ mod tests {
 
     fn cl_content() -> String {
         std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-                .join("pseudopotentials/nc/lda/Cl.upf"),
+            std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Cl.upf"),
         )
         .unwrap()
     }
@@ -726,7 +712,7 @@ mod tests {
     /// `rho_core_g_reference.csv` row `(cl, shell 0)` = 4.2341213379e-02 e/Å³.
     #[test]
     fn test_cl_rho_core_of_g_zero() {
-        let pp = parse(&cl_content()).unwrap();
+        let pp = parse_upf_body(&cl_content()).unwrap();
         assert!(pp.has_nlcc(), "Cl ONCVPSP should have core_correction=T");
 
         let a = 10.6078_f64 * crate::consts::BOHR_TO_ANG; // 5.6134 Å
@@ -746,7 +732,7 @@ mod tests {
     /// = 3.9423292394e-02 e/Å³.
     #[test]
     fn test_cl_rho_core_of_g_first_shell() {
-        let pp = parse(&cl_content()).unwrap();
+        let pp = parse_upf_body(&cl_content()).unwrap();
         assert!(pp.has_nlcc());
 
         let a = 10.6078_f64 * crate::consts::BOHR_TO_ANG;
@@ -776,8 +762,8 @@ mod tests {
     // Positive integers (0, 1, 2, 3, …) are unaffected — `test_parse_header`
     // and `test_dij_matrix_size` above already exercise that path.
 
-    use crate::error::PwdftError;
     use super::super::xml::extract_beta_angular_momentum;
+    use crate::{error::PwdftError, pseudopotential::upf::parse_upf_body};
 
     #[test]
     fn test_extract_beta_l_rejects_negative() {
@@ -794,10 +780,8 @@ mod tests {
                     reason.contains("angular_momentum") && reason.contains("-1"),
                     "expected reason to mention angular_momentum and -1, got: {reason}"
                 );
-            }
-            other => panic!(
-                "expected PwdftError::InvalidPseudopotential, got {other:?}"
-            ),
+            },
+            other => panic!("expected PwdftError::InvalidPseudopotential, got {other:?}"),
         }
     }
 
@@ -808,8 +792,8 @@ mod tests {
                 r#"<PP_BETA.1 index="1" angular_momentum="{raw}" >
                 </PP_BETA.1>"#
             );
-            let l = extract_beta_angular_momentum(&content, "PP_BETA.1")
-                .expect("non-negative angular_momentum must parse");
+            let l =
+                extract_beta_angular_momentum(&content, "PP_BETA.1").expect("non-negative angular_momentum must parse");
             assert_eq!(l, expected);
         }
     }
@@ -825,12 +809,8 @@ mod tests {
             raw.contains(r#"angular_momentum="0""#),
             "test assumes Si.upf has at least one angular_momentum=\"0\" projector"
         );
-        let corrupted = raw.replacen(
-            r#"angular_momentum="0""#,
-            r#"angular_momentum="-1""#,
-            1,
-        );
-        let err = parse(&corrupted).expect_err("corrupted UPF must fail to parse");
+        let corrupted = raw.replacen(r#"angular_momentum="0""#, r#"angular_momentum="-1""#, 1);
+        let err = parse_upf_body(&corrupted).expect_err("corrupted UPF must fail to parse");
         match err {
             PwdftError::InvalidPseudopotential { file, reason } => {
                 assert!(
@@ -841,10 +821,8 @@ mod tests {
                     reason.contains("angular_momentum"),
                     "expected reason mentioning angular_momentum, got: {reason}"
                 );
-            }
-            other => panic!(
-                "expected PwdftError::InvalidPseudopotential, got {other:?}"
-            ),
+            },
+            other => panic!("expected PwdftError::InvalidPseudopotential, got {other:?}"),
         }
     }
 }

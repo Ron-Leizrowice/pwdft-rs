@@ -35,13 +35,7 @@ pub enum SmearingScheme {
 ///
 /// `spin_factor`: 2.0/nspin (2.0 for unpolarized, 1.0 for spin-polarized).
 /// Returns occupation in [0, spin_factor].
-pub fn occupation(
-    scheme: SmearingScheme,
-    energy: f64,
-    fermi_energy: f64,
-    sigma: f64,
-    spin_factor: f64,
-) -> f64 {
+pub fn occupation(scheme: SmearingScheme, energy: f64, fermi_energy: f64, sigma: f64, spin_factor: f64) -> f64 {
     let f01 = occupation_01(scheme, energy, fermi_energy, sigma);
     f01 * spin_factor
 }
@@ -102,9 +96,7 @@ pub fn find_fermi_energy(
 /// Occupation in [0, 1] for any scheme (before spin factor).
 fn occupation_01(scheme: SmearingScheme, energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     match scheme {
-        SmearingScheme::FermiDirac | SmearingScheme::Fixed => {
-            fermi_dirac_01(energy, fermi_energy, sigma)
-        }
+        SmearingScheme::FermiDirac | SmearingScheme::Fixed => fermi_dirac_01(energy, fermi_energy, sigma),
         SmearingScheme::Gaussian => gaussian_01(energy, fermi_energy, sigma),
         SmearingScheme::MethfesselPaxton => methfessel_paxton_01(energy, fermi_energy, sigma),
         SmearingScheme::Cold => cold_01(energy, fermi_energy, sigma),
@@ -119,12 +111,22 @@ fn occupation_01(scheme: SmearingScheme, energy: f64, fermi_energy: f64, sigma: 
 /// Overflow-protected for |x| > 40.
 fn fermi_dirac_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     if sigma < 1e-15 {
-        return if energy < fermi_energy { 1.0 }
-               else if (energy - fermi_energy).abs() < 1e-12 { 0.5 }
-               else { 0.0 };
+        return if energy < fermi_energy {
+            1.0
+        } else if (energy - fermi_energy).abs() < 1e-12 {
+            0.5
+        } else {
+            0.0
+        };
     }
     let x = (energy - fermi_energy) / sigma;
-    if x > 40.0 { 0.0 } else if x < -40.0 { 1.0 } else { 1.0 / (1.0 + x.exp()) }
+    if x > 40.0 {
+        0.0
+    } else if x < -40.0 {
+        1.0
+    } else {
+        1.0 / (1.0 + x.exp())
+    }
 }
 
 /// Gaussian smearing occupation (before spin factor).
@@ -132,9 +134,13 @@ fn fermi_dirac_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
 /// f(ε) = erfc(x) / 2  where x = (ε - E_F) / σ
 fn gaussian_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     if sigma < 1e-15 {
-        return if energy < fermi_energy { 1.0 }
-               else if (energy - fermi_energy).abs() < 1e-12 { 0.5 }
-               else { 0.0 };
+        return if energy < fermi_energy {
+            1.0
+        } else if (energy - fermi_energy).abs() < 1e-12 {
+            0.5
+        } else {
+            0.0
+        };
     }
     let x = (energy - fermi_energy) / sigma;
     puruspe::erfc(x) / 2.0
@@ -147,9 +153,13 @@ fn gaussian_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
 /// Reference: Methfessel & Paxton, Phys. Rev. B 40, 3616 (1989).
 fn methfessel_paxton_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     if sigma < 1e-15 {
-        return if energy < fermi_energy { 1.0 }
-               else if (energy - fermi_energy).abs() < 1e-12 { 0.5 }
-               else { 0.0 };
+        return if energy < fermi_energy {
+            1.0
+        } else if (energy - fermi_energy).abs() < 1e-12 {
+            0.5
+        } else {
+            0.0
+        };
     }
     let x = (energy - fermi_energy) / sigma;
     let f0 = puruspe::erfc(x) / 2.0;
@@ -164,12 +174,17 @@ fn methfessel_paxton_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
 /// Designed to give positive-definite entropy. Argument shifted by 1/√2
 /// so that f(E_F) = 1/2 exactly.
 ///
-/// Reference: Marzari, Vanderbilt, De Vita, Payne, Phys. Rev. Lett. 82, 3296 (1999).
+/// Reference: Marzari, Vanderbilt, De Vita, Payne, Phys. Rev. Lett. 82, 3296
+/// (1999).
 fn cold_01(energy: f64, fermi_energy: f64, sigma: f64) -> f64 {
     if sigma < 1e-15 {
-        return if energy < fermi_energy { 1.0 }
-               else if (energy - fermi_energy).abs() < 1e-12 { 0.5 }
-               else { 0.0 };
+        return if energy < fermi_energy {
+            1.0
+        } else if (energy - fermi_energy).abs() < 1e-12 {
+            0.5
+        } else {
+            0.0
+        };
     }
     let x = (energy - fermi_energy) / sigma;
     let sq2_inv = std::f64::consts::FRAC_1_SQRT_2;
@@ -225,25 +240,22 @@ fn entropy_weight(scheme: SmearingScheme, x: f64) -> f64 {
             let f = 1.0 / (1.0 + x.exp());
             let f = f.clamp(1e-30, 1.0 - 1e-30);
             -(f * f.ln() + (1.0 - f) * (1.0 - f).ln())
-        }
-        SmearingScheme::Gaussian => {
-            (-x * x).exp() / PI.sqrt()
-        }
-        SmearingScheme::MethfesselPaxton => {
-            x.mul_add(-x, 0.5) * (-x * x).exp() / PI.sqrt()
-        }
+        },
+        SmearingScheme::Gaussian => (-x * x).exp() / PI.sqrt(),
+        SmearingScheme::MethfesselPaxton => x.mul_add(-x, 0.5) * (-x * x).exp() / PI.sqrt(),
         SmearingScheme::Cold => {
             let sq2_inv = std::f64::consts::FRAC_1_SQRT_2;
             let arg = x + sq2_inv;
             arg * (-arg * arg).exp() / PI.sqrt()
-        }
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use approx::relative_eq;
+
+    use super::*;
 
     fn single_kpoint_weights() -> Vec<f64> {
         vec![1.0]
@@ -289,7 +301,8 @@ mod tests {
                 let f2 = occupation(scheme, e, 0.0, 0.1, 2.0);
                 assert!(
                     relative_eq!(f2, 2.0 * f1, epsilon = 1e-12),
-                    "{scheme:?} at e={e}: f2={f2}, 2*f1={}", 2.0 * f1
+                    "{scheme:?} at e={e}: f2={f2}, 2*f1={}",
+                    2.0 * f1
                 );
             }
         }
@@ -306,7 +319,8 @@ mod tests {
         let weights = single_kpoint_weights();
         let ef = find_fermi_energy(&eigenvalues, &weights, 4.0, 0.05, SmearingScheme::FermiDirac, 2.0);
         assert!(ef > -1.5 && ef < 1.5, "E_F={ef} outside range");
-        let n: f64 = eigenvalues[0].iter()
+        let n: f64 = eigenvalues[0]
+            .iter()
             .map(|&e| occupation(SmearingScheme::FermiDirac, e, ef, 0.05, 2.0))
             .sum();
         assert!(relative_eq!(n, 4.0, epsilon = 1e-6), "N={n} != 4.0");
@@ -316,16 +330,22 @@ mod tests {
     fn test_find_fermi_energy_nspin2() {
         // 4 electrons total, spin_factor=1 (nspin=2): need eigenvalues for both spins
         // Spin up: [-2, -1, 1, 2], spin down: [-2, -1, 1, 2]
-        // With spin_factor=1, each state holds 1 electron → need 4 occupied states total
+        // With spin_factor=1, each state holds 1 electron → need 4 occupied states
+        // total
         let eigenvalues = vec![
-            vec![-2.0, -1.0, 1.0, 2.0],  // spin up at k=0
-            vec![-2.0, -1.0, 1.0, 2.0],  // spin down at k=0
+            vec![-2.0, -1.0, 1.0, 2.0], // spin up at k=0
+            vec![-2.0, -1.0, 1.0, 2.0], // spin down at k=0
         ];
         let weights = vec![1.0, 1.0]; // same k-point for both spins
         let ef = find_fermi_energy(&eigenvalues, &weights, 4.0, 0.05, SmearingScheme::FermiDirac, 1.0);
         assert!(ef > -1.5 && ef < 1.5, "E_F={ef} outside range");
-        let n: f64 = eigenvalues.iter().zip(weights.iter())
-            .flat_map(|(evs, &w)| evs.iter().map(move |&e| w * occupation(SmearingScheme::FermiDirac, e, ef, 0.05, 1.0)))
+        let n: f64 = eigenvalues
+            .iter()
+            .zip(weights.iter())
+            .flat_map(|(evs, &w)| {
+                evs.iter()
+                    .map(move |&e| w * occupation(SmearingScheme::FermiDirac, e, ef, 0.05, 1.0))
+            })
             .sum();
         assert!(relative_eq!(n, 4.0, epsilon = 1e-6), "N={n} != 4.0");
     }
@@ -339,18 +359,25 @@ mod tests {
 
         // nspin=1
         let ef1 = find_fermi_energy(
-            std::slice::from_ref(&evs), &[1.0], n_el, sigma, SmearingScheme::FermiDirac, 2.0,
+            std::slice::from_ref(&evs),
+            &[1.0],
+            n_el,
+            sigma,
+            SmearingScheme::FermiDirac,
+            2.0,
         );
 
         // nspin=2 with identical channels
         let ef2 = find_fermi_energy(
-            &[evs.clone(), evs], &[1.0, 1.0], n_el, sigma, SmearingScheme::FermiDirac, 1.0,
+            &[evs.clone(), evs],
+            &[1.0, 1.0],
+            n_el,
+            sigma,
+            SmearingScheme::FermiDirac,
+            1.0,
         );
 
-        assert!(
-            (ef1 - ef2).abs() < 1e-10,
-            "nspin=1 E_F={ef1} != nspin=2 E_F={ef2}"
-        );
+        assert!((ef1 - ef2).abs() < 1e-10, "nspin=1 E_F={ef1} != nspin=2 E_F={ef2}");
     }
 
     // -----------------------------------------------------------------------
@@ -389,16 +416,23 @@ mod tests {
         let sigma = 0.1;
 
         let ts1 = entropy_ts(
-            std::slice::from_ref(&evs), &[1.0], ef, sigma, SmearingScheme::FermiDirac, 2.0,
+            std::slice::from_ref(&evs),
+            &[1.0],
+            ef,
+            sigma,
+            SmearingScheme::FermiDirac,
+            2.0,
         );
         let ts2 = entropy_ts(
-            &[evs.clone(), evs], &[1.0, 1.0], ef, sigma, SmearingScheme::FermiDirac, 1.0,
+            &[evs.clone(), evs],
+            &[1.0, 1.0],
+            ef,
+            sigma,
+            SmearingScheme::FermiDirac,
+            1.0,
         );
 
-        assert!(
-            (ts1 - ts2).abs() < 1e-10,
-            "nspin=1 TS={ts1} != nspin=2 TS={ts2}"
-        );
+        assert!((ts1 - ts2).abs() < 1e-10, "nspin=1 TS={ts1} != nspin=2 TS={ts2}");
     }
 
     // -----------------------------------------------------------------------
@@ -424,5 +458,4 @@ mod tests {
             assert_eq!(occupation(scheme, 0.0, 0.0, 0.0, 1.0), 0.5);
         }
     }
-
 }

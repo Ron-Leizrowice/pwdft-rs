@@ -23,6 +23,3 @@ scf:
   mixing_beta: 0.3
   mixing_ndim: 8
   smearing_width: 0.05
-
-pseudopotentials:
-  Si: "../pseudopotentials/nc/lda/Si.upf"

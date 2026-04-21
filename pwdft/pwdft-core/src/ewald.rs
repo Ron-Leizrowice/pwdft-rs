@@ -2,19 +2,17 @@
 //!
 //! E_ewald = E_real + E_recip + E_self + E_background
 //!
-//! Uses the standard Ewald decomposition of the Coulomb sum between point charges
-//! in a periodic crystal.
+//! Uses the standard Ewald decomposition of the Coulomb sum between point
+//! charges in a periodic crystal.
 
-use std::f64::consts::PI;
+use std::{collections::HashMap, f64::consts::PI};
 
+use elements_rs::Element;
 use nalgebra::Vector3;
 use num_complex::Complex64;
 use puruspe::erfc;
-use crate::{
-    consts::E2_COULOMB as E2,
-    crystal::Crystal,
-    pseudopotential::PseudopotentialData,
-};
+
+use crate::{consts::E2_COULOMB as E2, crystal::Crystal, pseudopotential::UpfPseudoPotential};
 
 /// Compute the Ewald ion-ion energy for a crystal. Returns energy in eV.
 ///
@@ -38,19 +36,20 @@ use crate::{
 /// map is validated up-front by `ScfContext::new`, so this panic indicates
 /// a programming error (context bypassed or misconfigured), not bad user
 /// input.
-#[allow(clippy::cast_possible_truncation, reason="ceil of a finite positive f64 always fits in i32 for physical inputs")]
-pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]) -> f64 {
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "ceil of a finite positive f64 always fits in i32 for physical inputs"
+)]
+pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &HashMap<Element, UpfPseudoPotential>) -> f64 {
     let omega = crystal.lattice.volume();
 
-    // Get charges
-    // SAFETY: ScfContext::new validates all atoms have matching PPs before
-    // ewald_energy is called. A missing PP here would be a programming error.
     let charges: Vec<f64> = crystal
         .atoms
         .iter()
         .map(|a| {
-            crate::pseudopotential::find_for_atom(a.z, pseudopotentials)
-                .expect("BUG: atom has no matching pseudopotential (should have been validated at startup)")
+            pseudopotentials
+                .get(&a.symbol)
+                .expect("BUG: Missing pseudopotential")
                 .z_valence
         })
         .collect();
@@ -90,7 +89,9 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
                 }
 
                 // Structure factor S(G) = Σ_i Z_i exp(iG·r_i)
-                let s: Complex64 = positions.iter().enumerate()
+                let s: Complex64 = positions
+                    .iter()
+                    .enumerate()
                     .map(|(i, pos)| charges[i] * Complex64::cis(g.dot(pos)))
                     .sum();
 
@@ -143,10 +144,13 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
+    use approx::relative_eq;
+    use elements_rs::Element;
+
     use super::*;
     use crate::crystal::{Atom, Lattice};
-    use approx::relative_eq;
-
 
     #[test]
     fn test_erfc_values() {
@@ -190,10 +194,9 @@ mod tests {
         };
 
         // Mock pseudopotentials with Z_val = +1 (Na+) and -1 (Cl-)
-        let pp_na = mock_pp("Na", 1.0);
-        let pp_cl = mock_pp("Cl", -1.0);
+        let pp = HashMap::from_iter([(Element::Na, mock_pp("Na", 1.0)), (Element::Cl, mock_pp("Cl", -1.0))]);
 
-        let e = ewald_energy(&crystal, &[&pp_na, &pp_cl]);
+        let e = ewald_energy(&crystal, &pp);
         // Expected: E = -M × e² × 4 (ion pairs) / (a/2)
         // M = 1.747_565, e² = 14.3997 eV·Å, nearest-neighbor distance = a/2
         let e_expected = -1.747_565 * E2 / (a / 2.0) * 4.0;
@@ -204,9 +207,9 @@ mod tests {
         );
     }
 
-    fn mock_pp(element: &str, z_valence: f64) -> PseudopotentialData {
-        PseudopotentialData {
-            element: element.into(),
+    fn mock_pp(element: &str, z_valence: f64) -> UpfPseudoPotential {
+        UpfPseudoPotential {
+            element: Element::from_str(element).unwrap(),
             z_valence,
             l_max: 0,
             r_grid: vec![],
@@ -230,8 +233,8 @@ mod tests {
             ),
             atoms: vec![Atom::new(14, [0.0, 0.0, 0.0])],
         };
-        let pp = mock_pp("Si", 0.0);
-        let e = ewald_energy(&crystal, &[&pp]);
+        let pp = HashMap::from_iter([(Element::Si, mock_pp("Si", 0.0))]);
+        let e = ewald_energy(&crystal, &pp);
         assert!(e.abs() < 1e-12, "Zero charges should give zero energy: {e}");
     }
 
@@ -247,8 +250,8 @@ mod tests {
             ),
             atoms: vec![Atom::new(14, [0.0, 0.0, 0.0])],
         };
-        let pp = mock_pp("Si", 4.0);
-        let e = ewald_energy(&crystal, &[&pp]);
+        let pp = HashMap::from_iter([(Element::Si, mock_pp("Si", 4.0))]);
+        let e = ewald_energy(&crystal, &pp);
         assert!(e.is_finite(), "Single atom Ewald should be finite: {e}");
         assert!(e < 0.0, "Single atom Ewald should be negative: {e}");
     }
@@ -262,13 +265,10 @@ mod tests {
                 Vector3::new(0.0, 10.0, 0.0),
                 Vector3::new(0.0, 0.0, 2.0),
             ),
-            atoms: vec![
-                Atom::new(14, [0.0, 0.0, 0.0]),
-                Atom::new(14, [0.5, 0.5, 0.5]),
-            ],
+            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.5, 0.5, 0.5])],
         };
-        let pp = mock_pp("Si", 4.0);
-        let e = ewald_energy(&crystal, &[&pp]);
+        let pp = HashMap::from_iter([(Element::Si, mock_pp("Si", 4.0))]);
+        let e = ewald_energy(&crystal, &pp);
         assert!(e.is_finite(), "Anisotropic cell energy should be finite: {e}");
     }
 }

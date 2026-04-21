@@ -58,23 +58,19 @@ impl SymmOp {
     /// Construct from a flat row-major array.
     pub fn from_flat(m: [i32; 9]) -> Self {
         Self {
-            rotation: [
-                [m[0], m[1], m[2]],
-                [m[3], m[4], m[5]],
-                [m[6], m[7], m[8]],
-            ],
+            rotation: [[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]],
         }
     }
 
     /// Determinant of the rotation matrix.
-    /// +1 for proper rotations, -1 for improper (inversion, mirrors, rotoinversion).
+    /// +1 for proper rotations, -1 for improper (inversion, mirrors,
+    /// rotoinversion).
     ///
     /// The worst-case triple product for crystallographic entries
     /// (`|R_ij| ≤ 3`) is 81, far below `i32::MAX`.
     pub fn det(&self) -> i32 {
         let r = &self.rotation;
-        r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1])
-            - r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0])
+        r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1]) - r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0])
             + r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0])
     }
 
@@ -182,10 +178,7 @@ impl SpaceGroupOp {
         };
         let r_inv = r_op.inverse();
         let neg_rinv_tau = r_inv.apply(&self.translation);
-        Self::new(
-            r_inv.rotation,
-            [-neg_rinv_tau[0], -neg_rinv_tau[1], -neg_rinv_tau[2]],
-        )
+        Self::new(r_inv.rotation, [-neg_rinv_tau[0], -neg_rinv_tau[1], -neg_rinv_tau[2]])
     }
 
     /// Compose: {R₁|τ₁} ∘ {R₂|τ₂} = {R₁R₂ | R₁τ₂ + τ₁}.
@@ -212,18 +205,9 @@ impl SpaceGroupOp {
     pub fn apply_to_fractional(&self, f: &[f64; 3]) -> [f64; 3] {
         let r = &self.rotation;
         wrap_to_unit_cell([
-            f64::from(r[0][0]) * f[0]
-                + f64::from(r[0][1]) * f[1]
-                + f64::from(r[0][2]) * f[2]
-                + self.translation[0],
-            f64::from(r[1][0]) * f[0]
-                + f64::from(r[1][1]) * f[1]
-                + f64::from(r[1][2]) * f[2]
-                + self.translation[1],
-            f64::from(r[2][0]) * f[0]
-                + f64::from(r[2][1]) * f[1]
-                + f64::from(r[2][2]) * f[2]
-                + self.translation[2],
+            f64::from(r[0][0]) * f[0] + f64::from(r[0][1]) * f[1] + f64::from(r[0][2]) * f[2] + self.translation[0],
+            f64::from(r[1][0]) * f[0] + f64::from(r[1][1]) * f[1] + f64::from(r[1][2]) * f[2] + self.translation[1],
+            f64::from(r[2][0]) * f[0] + f64::from(r[2][1]) * f[1] + f64::from(r[2][2]) * f[2] + self.translation[2],
         ])
     }
 
@@ -250,14 +234,11 @@ impl SpaceGroupOp {
 
 /// Wrap fractional coordinates to [0, 1).
 pub fn wrap_to_unit_cell(f: [f64; 3]) -> [f64; 3] {
-    [
-        f[0] - f[0].floor(),
-        f[1] - f[1].floor(),
-        f[2] - f[2].floor(),
-    ]
+    [f[0] - f[0].floor(), f[1] - f[1].floor(), f[2] - f[2].floor()]
 }
 
-/// Distance between two fractional coordinate vectors with minimum image convention.
+/// Distance between two fractional coordinate vectors with minimum image
+/// convention.
 pub fn frac_distance(a: &[f64; 3], b: &[f64; 3]) -> f64 {
     let mut d2 = 0.0;
     for i in 0..3 {
@@ -378,10 +359,7 @@ mod tests {
 
     #[test]
     fn test_space_group_op_inverse() {
-        let op = SpaceGroupOp::new(
-            [[0, -1, 0], [1, 0, 0], [0, 0, 1]],
-            [0.25, 0.25, 0.25],
-        );
+        let op = SpaceGroupOp::new([[0, -1, 0], [1, 0, 0], [0, 0, 1]], [0.25, 0.25, 0.25]);
         let inv = op.inverse();
         let prod = op.compose(&inv);
         assert!(
@@ -396,7 +374,7 @@ mod tests {
     fn test_space_group_op_apply() {
         let op = SpaceGroupOp::new(
             [[-1, 0, 0], [0, -1, 0], [0, 0, -1]], // inversion
-            [0.5, 0.5, 0.5],                        // + half translation
+            [0.5, 0.5, 0.5],                      // + half translation
         );
         // Apply to (0.25, 0.25, 0.25): -0.25 + 0.5 = 0.25 → (0.25, 0.25, 0.25)
         let result = op.apply_to_fractional(&[0.25, 0.25, 0.25]);
@@ -429,9 +407,9 @@ mod tests {
         let rots = vec![
             SymmOp::identity(),
             SymmOp::inversion(),
-            SymmOp::from_flat([0, 1, 0, 0, 0, 1, 1, 0, 0]),   // 3-fold [111]
-            SymmOp::from_flat([0, -1, 0, 1, 0, 0, 0, 0, 1]),  // 4-fold [001]
-            SymmOp::from_flat([-1, 0, 0, 0, 1, 0, 0, 0, 1]),  // mirror perp to [100]
+            SymmOp::from_flat([0, 1, 0, 0, 0, 1, 1, 0, 0]), // 3-fold [111]
+            SymmOp::from_flat([0, -1, 0, 1, 0, 0, 0, 0, 1]), // 4-fold [001]
+            SymmOp::from_flat([-1, 0, 0, 0, 1, 0, 0, 0, 1]), // mirror perp to [100]
         ];
         for r in &rots {
             let d = r.det();

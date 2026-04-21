@@ -3,8 +3,8 @@
 //! Runs Si diamond and Fe BCC SCF with the VGC5 parameters (matching
 //! `data/qe/si_scf.in` and `fe_bcc_fm_scf.in`) and:
 //!
-//! 1. Prints the per-component decomposition (`EnergyComponents`) alongside
-//!    the QE reference values parsed from `data/qe/*.out`.
+//! 1. Prints the per-component decomposition (`EnergyComponents`) alongside the QE reference values
+//!    parsed from `data/qe/*.out`.
 //! 2. Pins the pwdft-core per-component values as regression guards.
 //!
 //! This is Phase 5 of the VGCMP audit: the pseudopotential -> Hamiltonian
@@ -29,16 +29,17 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
+use std::collections::HashMap;
+
 use nalgebra::Vector3;
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     kpoints,
-    pseudopotential::PseudopotentialData,
+    pseudopotential::UpfPseudoPotential,
     scf::{self, ScfParams, ScfResult, mixing::MixingMode, smearing::SmearingScheme},
     symmetry::SymmetryInfo,
 };
-use std::collections::HashMap;
 
 const RY_TO_EV: f64 = 13.605_693_122_994;
 
@@ -68,12 +69,11 @@ fn bcc_crystal(a_ang: f64, atom: Atom) -> Crystal {
     }
 }
 
-fn load_pp(element: &str) -> PseudopotentialData {
+fn load_pp(element: &str) -> UpfPseudoPotential {
     let path = std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
         .join("pseudopotentials/nc/lda")
         .join(format!("{element}.upf"));
-    pwdft_core::pseudopotential::load(&path)
-        .unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
+    pwdft_core::pseudopotential::load(&path).unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
 }
 
 // ----------------------------------------------------------------------------
@@ -82,12 +82,12 @@ fn load_pp(element: &str) -> PseudopotentialData {
 
 /// QE per-term reference (eV) for side-by-side reporting.
 struct QeReference {
-    total:        f64,
+    total: f64,
     one_electron: f64,
-    hartree:      f64,
-    xc:           f64,
-    ewald:        f64,
-    fermi:        f64,
+    hartree: f64,
+    xc: f64,
+    ewald: f64,
+    fermi: f64,
 }
 
 impl QeReference {
@@ -97,12 +97,12 @@ impl QeReference {
         //         xc=-6.20301507 Ry, ewald=-16.79667313 Ry,
         //         total=-17.02299344 Ry (includes -TS).
         Self {
-            total:        -17.022_993_44 * RY_TO_EV,
-            one_electron:   4.867_446_32 * RY_TO_EV,
-            hartree:        1.110_106_70 * RY_TO_EV,
-            xc:            -6.203_015_07 * RY_TO_EV,
-            ewald:        -16.796_673_13 * RY_TO_EV,
-            fermi:          6.3449,
+            total: -17.022_993_44 * RY_TO_EV,
+            one_electron: 4.867_446_32 * RY_TO_EV,
+            hartree: 1.110_106_70 * RY_TO_EV,
+            xc: -6.203_015_07 * RY_TO_EV,
+            ewald: -16.796_673_13 * RY_TO_EV,
+            fermi: 6.3449,
         }
     }
 
@@ -112,12 +112,12 @@ impl QeReference {
         // xc=-28.90402134 Ry, ewald=-171.77906580 Ry,
         // total=-224.91744934 Ry.
         Self {
-            total:       -224.917_449_34 * RY_TO_EV,
+            total: -224.917_449_34 * RY_TO_EV,
             one_electron: -50.856_512_13 * RY_TO_EV,
-            hartree:       26.641_158_55 * RY_TO_EV,
-            xc:           -28.904_021_34 * RY_TO_EV,
-            ewald:       -171.779_065_80 * RY_TO_EV,
-            fermi:         26.2006,
+            hartree: 26.641_158_55 * RY_TO_EV,
+            xc: -28.904_021_34 * RY_TO_EV,
+            ewald: -171.779_065_80 * RY_TO_EV,
+            fermi: 26.2006,
         }
     }
 }
@@ -167,15 +167,24 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
     );
     eprintln!(
         "  {:<24}  {:>14.6}  {:>14.6}  {:>+12.6}",
-        "E_hartree", c.e_hartree, qe.hartree, c.e_hartree - qe.hartree
+        "E_hartree",
+        c.e_hartree,
+        qe.hartree,
+        c.e_hartree - qe.hartree
     );
     eprintln!(
         "  {:<24}  {:>14.6}  {:>14.6}  {:>+12.6}",
-        "E_xc", c.e_xc, qe.xc, c.e_xc - qe.xc
+        "E_xc",
+        c.e_xc,
+        qe.xc,
+        c.e_xc - qe.xc
     );
     eprintln!(
         "  {:<24}  {:>14.6}  {:>14.6}  {:>+12.6}",
-        "E_ewald", c.e_ewald, qe.ewald, c.e_ewald - qe.ewald
+        "E_ewald",
+        c.e_ewald,
+        qe.ewald,
+        c.e_ewald - qe.ewald
     );
     eprintln!(
         "  {:<24}  {:>14.6}  {:>14.6}  {:>+12.6}",
@@ -206,8 +215,8 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
     // Post-TSEN (2026-04-19), `total_energy` additionally carries
     // `−TS` (= `c.e_smearing`); that field is included in the sum so
     // the identity still closes to machine precision on metals.
-    let e_sum = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal
-        + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
+    let e_sum =
+        c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
     let sum_err = e_sum - result.total_energy;
     eprintln!(
         "  [self-check] Σ(components) = {e_sum:.6} eV, E_total = {:.6} eV, Δ = {sum_err:.2e} eV",
@@ -232,10 +241,7 @@ fn print_side_by_side(label: &str, result: &ScfResult, qe: &QeReference) {
 fn vgc5_si_per_component() {
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
     let pp_si = load_pp("Si");
 
@@ -263,10 +269,7 @@ fn vgc5_si_per_component() {
     };
 
     let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
-    let result = scf::run_scf(
-        &crystal, &basis, &kpts, &[&pp_si], &params, &symmetry,
-    )
-    .expect("Si SCF should converge");
+    let result = scf::run_scf(&crystal, &basis, &kpts, &[&pp_si], &params, &symmetry).expect("Si SCF should converge");
 
     eprintln!(
         "  Si SCF: {} iters, |HF-KS|={:.2e} eV, E_total={:.6} eV",
@@ -297,7 +300,8 @@ fn vgc5_si_per_component() {
     };
 
     let c = &result.components;
-    // PCFX correction: τ now applied exactly in G-space; pre-PCFX was E_total=-231.8653 eV.
+    // PCFX correction: τ now applied exactly in G-space; pre-PCFX was
+    // E_total=-231.8653 eV.
     //
     // Post-VGCH-SiEF-B1 (2026-04-19): the `V_loc(G=0)` DC offset
     // (`10.7447 eV` = 2 Si atoms × N_el/atom scaling) now lives on
@@ -305,22 +309,22 @@ fn vgc5_si_per_component() {
     // moved up by `V_loc(G=0)·N_el` while `e_local_g0_shift` is now
     // `0.0`. The per-component sum and `E_total` are algebraically
     // unchanged.
-    pin("E_band",             c.e_band,              7.7748); // pre-B1:  -2.9699
-    pin("E_kinetic",          c.e_kinetic,          83.4120); // pre-PCFX: 83.7203
-    pin("E_local",            c.e_local,           -52.9772); // pre-B1: -63.7219 (G≠0 only)
-    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,    0.0);    // pre-B1:  10.7447
-    pin("E_nonlocal",         c.e_nonlocal,         35.7641); // pre-PCFX: 35.9570
-    pin("E_hartree",          c.e_hartree,          14.8249); // pre-PCFX: 14.3111
-    pin("E_xc",               c.e_xc,              -84.3474); // pre-PCFX: -84.7026
-    pin("E_ewald",            c.e_ewald,          -228.5192); // unchanged (lattice-only)
-    pin("E_total",            result.total_energy, -231.8429); // pre-PCFX: -231.8653; post-TSEN: −TS on Si is ~10 meV
+    pin("E_band", c.e_band, 7.7748); // pre-B1:  -2.9699
+    pin("E_kinetic", c.e_kinetic, 83.4120); // pre-PCFX: 83.7203
+    pin("E_local", c.e_local, -52.9772); // pre-B1: -63.7219 (G≠0 only)
+    pin("E_local(G=0)*N_el", c.e_local_g0_shift, 0.0); // pre-B1:  10.7447
+    pin("E_nonlocal", c.e_nonlocal, 35.7641); // pre-PCFX: 35.9570
+    pin("E_hartree", c.e_hartree, 14.8249); // pre-PCFX: 14.3111
+    pin("E_xc", c.e_xc, -84.3474); // pre-PCFX: -84.7026
+    pin("E_ewald", c.e_ewald, -228.5192); // unchanged (lattice-only)
+    pin("E_total", result.total_energy, -231.8429); // pre-PCFX: -231.8653; post-TSEN: −TS on Si is ~10 meV
 
     // PCFX regression guard: the per-component identity closes to machine
     // precision post-fix (was 1.204 eV plateau pre-PCFX). Target was
     // ≤ 1e-5 eV; observed ~3.5e-11 eV. Post-TSEN the identity includes
     // `c.e_smearing` (= −TS).
-    let e_sum = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal
-        + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
+    let e_sum =
+        c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
     let sum_residual = (e_sum - result.total_energy).abs();
     assert!(
         sum_residual < 1e-5,
@@ -376,10 +380,7 @@ fn vgc5_fe_per_component() {
     };
 
     let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
-    let result = scf::run_scf(
-        &crystal, &basis, &kpts, &[&pp_fe], &params, &symmetry,
-    )
-    .expect("Fe SCF should converge");
+    let result = scf::run_scf(&crystal, &basis, &kpts, &[&pp_fe], &params, &symmetry).expect("Fe SCF should converge");
 
     print_side_by_side("Fe BCC (FM)", &result, &QeReference::fe());
 
@@ -406,29 +407,29 @@ fn vgc5_fe_per_component() {
     // gained `V_loc(G=0)·N_el = +82.7774 eV` (Fe, 1 atom, N_el = 16),
     // `e_local_g0_shift` is now 0. `E_total` is algebraically
     // unchanged.
-    pin("E_band",             c.e_band,           -336.8252); // pre-B1: -419.6026
-    pin("E_kinetic",          c.e_kinetic,         942.0082); // PRE-NCFX:  942.2052
-    pin("E_local",            c.e_local,         -1666.0622); // pre-B1: -1748.8396 (G≠0 only)
-    pin("E_local(G=0)*N_el",  c.e_local_g0_shift,    0.0);    // pre-B1:   82.7774
-    pin("E_nonlocal",         c.e_nonlocal,         38.7678); // PRE-NCFX:   38.9673
-    pin("E_hartree",          c.e_hartree,         363.1071); // PRE-NCFX:  363.4925
-    pin("E_xc",               c.e_xc,             -392.5675); // PRE-NCFX: -442.1090 (Δ_QE: −48.85 → +0.69)
-    pin("E_ewald",            c.e_ewald,         -2337.1672); // PRE-NCFX: -2337.1672 (unchanged)
+    pin("E_band", c.e_band, -336.8252); // pre-B1: -419.6026
+    pin("E_kinetic", c.e_kinetic, 942.0082); // PRE-NCFX:  942.2052
+    pin("E_local", c.e_local, -1666.0622); // pre-B1: -1748.8396 (G≠0 only)
+    pin("E_local(G=0)*N_el", c.e_local_g0_shift, 0.0); // pre-B1:   82.7774
+    pin("E_nonlocal", c.e_nonlocal, 38.7678); // PRE-NCFX:   38.9673
+    pin("E_hartree", c.e_hartree, 363.1071); // PRE-NCFX:  363.4925
+    pin("E_xc", c.e_xc, -392.5675); // PRE-NCFX: -442.1090 (Δ_QE: −48.85 → +0.69)
+    pin("E_ewald", c.e_ewald, -2337.1672); // PRE-NCFX: -2337.1672 (unchanged)
     // Post-TSEN (2026-04-19) `total_energy` includes `−TS`. Fe at σ =
     // 0.02 Ry (0.272 eV) and 4×4×4 MP (nspin=1) carries a metallic
     // `−TS` of ≈ −430 meV, shifting the pin down accordingly. If this
     // pin needs to move by more than the 0.1 eV tolerance, revisit
     // the smearing entropy formula (`src/scf/smearing.rs::entropy_ts`),
     // not the per-component decomposition.
-    pin("E_total",            result.total_energy, -3052.3209); // PRE-TSEN: -3051.8909; PRE-NCFX: -3101.2389
+    pin("E_total", result.total_energy, -3052.3209); // PRE-TSEN: -3051.8909; PRE-NCFX: -3101.2389
 
     // PCFX regression guard. Fe BCC Im-3m is symmorphic (τ=0), so the
     // pre-PCFX residual was already small (~0.045 eV at conv=1e-6) and
     // PCFX doesn't change this case materially — but keep the guard so
     // any future regression in the G-space symmetrizer surfaces here.
     // Post-TSEN the sum includes `c.e_smearing`.
-    let e_sum = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal
-        + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
+    let e_sum =
+        c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
     let sum_residual = (e_sum - result.total_energy).abs();
     assert!(
         sum_residual < 0.1,
@@ -476,10 +477,7 @@ fn vgc5_fe_per_component() {
 fn test_madoc_band_sum_identity_si() {
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
     let pp_si = load_pp("Si");
 
@@ -506,14 +504,11 @@ fn test_madoc_band_sum_identity_si() {
     };
 
     let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
-    let result = scf::run_scf(
-        &crystal, &basis, &kpts, &[&pp_si], &params, &symmetry,
-    )
-    .expect("Si SCF should converge at conv=1e-8");
+    let result = scf::run_scf(&crystal, &basis, &kpts, &[&pp_si], &params, &symmetry)
+        .expect("Si SCF should converge at conv=1e-8");
 
     let c = &result.components;
-    let e_band_from_identity =
-        c.e_kinetic + c.e_local + c.e_nonlocal + 2.0 * c.e_hartree + c.e_vxc;
+    let e_band_from_identity = c.e_kinetic + c.e_local + c.e_nonlocal + 2.0 * c.e_hartree + c.e_vxc;
     let residual = (e_band_from_identity - c.e_band).abs();
 
     eprintln!(
@@ -541,12 +536,9 @@ fn test_madoc_band_sum_identity_si() {
     // ~10× headroom over that observation.
     //
     // Both bounds still catch the bug classes this test exists to pin:
-    //   - factor-2 in E_hartree: |ΔE_H| ≈ 14 eV → 2·10⁸× (CPU) /
-    //     2·10⁵× (GPU) the tolerance.
-    //   - sign-flipped e_vxc: |ΔE_vxc| ≈ 10 eV → 10⁸× (CPU) /
-    //     10⁵× (GPU) the tolerance.
-    //   - spin-channel swap (on the Fe counterpart): > 0.5 eV, still
-    //     10⁴× the GPU tolerance.
+    //   - factor-2 in E_hartree: |ΔE_H| ≈ 14 eV → 2·10⁸× (CPU) / 2·10⁵× (GPU) the tolerance.
+    //   - sign-flipped e_vxc: |ΔE_vxc| ≈ 10 eV → 10⁸× (CPU) / 10⁵× (GPU) the tolerance.
+    //   - spin-channel swap (on the Fe counterpart): > 0.5 eV, still 10⁴× the GPU tolerance.
     //
     // We use a feature-gated tolerance rather than a single loose bound
     // so the CPU path keeps its nano-eV pin — tightening that silently
@@ -619,14 +611,11 @@ fn test_madoc_band_sum_identity_fe_bcc() {
     };
 
     let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
-    let result = scf::run_scf(
-        &crystal, &basis, &kpts, &[&pp_fe], &params, &symmetry,
-    )
-    .expect("Fe BCC nspin=2 SCF should converge under CCMX+Kerker at conv=1e-6");
+    let result = scf::run_scf(&crystal, &basis, &kpts, &[&pp_fe], &params, &symmetry)
+        .expect("Fe BCC nspin=2 SCF should converge under CCMX+Kerker at conv=1e-6");
 
     let c = &result.components;
-    let e_band_from_identity =
-        c.e_kinetic + c.e_local + c.e_nonlocal + 2.0 * c.e_hartree + c.e_vxc;
+    let e_band_from_identity = c.e_kinetic + c.e_local + c.e_nonlocal + 2.0 * c.e_hartree + c.e_vxc;
     let residual = (e_band_from_identity - c.e_band).abs();
 
     eprintln!(
@@ -650,10 +639,9 @@ fn test_madoc_band_sum_identity_fe_bcc() {
     // 5e-2 eV keeps ~2× empirical headroom over the observed ~2.3e-2 eV
     // and still catches the major bug classes this test exists to pin:
     //   - factor-2 in E_H: error = |E_H| ≈ 360 eV → 7·10³× the tolerance.
-    //   - sign-flipped spin-channel vxc: error = 2·|E_vxc_σ| ≈ 400 eV
-    //     → 8·10³× the tolerance.
-    //   - kernel swap (V_xc_up/down confused): error depends on |ρ↑-ρ↓|
-    //     × V_xc spread; conservatively ≳ 0.5 eV on Fe.
+    //   - sign-flipped spin-channel vxc: error = 2·|E_vxc_σ| ≈ 400 eV → 8·10³× the tolerance.
+    //   - kernel swap (V_xc_up/down confused): error depends on |ρ↑-ρ↓| × V_xc spread; conservatively ≳
+    //     0.5 eV on Fe.
     //
     // For an order-of-magnitude tighter regression guard on this class,
     // convert Fe to a converged external-dataset fixture (cache a

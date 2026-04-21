@@ -2,57 +2,52 @@
 //!
 //! V_local (pseudopotential), NLCC core density, and Hamiltonian construction.
 
+use std::collections::HashMap;
+
+use elements_rs::Element;
 use nalgebra::Vector3;
 use num_complex::Complex64;
 use rayon::prelude::*;
 
-use crate::{
-    basis::BasisSet,
-    consts::HBAR2_OVER_2M,
-    crystal::Crystal,
-    error::{PwdftError, Result},
-    pseudopotential::PseudopotentialData,
-};
-
 use super::grid::{FftGrid, g_vector_at_dims, miller_to_idx};
+use crate::{
+    basis::BasisSet, consts::HBAR2_OVER_2M, crystal::Crystal, error::Result, pseudopotential::UpfPseudoPotential,
+};
 
 /// Compute local pseudopotential V_local(G) on the full FFT grid.
 pub(crate) fn compute_v_local(
     crystal: &Crystal,
     grid: &FftGrid,
-    pseudopotentials: &[&PseudopotentialData],
+    pseudopotentials: &HashMap<Element, UpfPseudoPotential>,
     omega: f64,
 ) -> Result<Vec<Complex64>> {
-    let atom_data: Vec<(Vector3<f64>, &PseudopotentialData)> = crystal
+    let atom_data: Vec<_> = crystal
         .atoms
         .iter()
         .map(|atom| {
-            let pp = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials)
-                .ok_or_else(|| PwdftError::MissingPseudopotential(
-                    format!("Z={} not found in loaded pseudopotentials", atom.z)
-                ))?;
-            Ok((atom.cart_position(&crystal.lattice), pp))
+            let pp = pseudopotentials.get(&atom.symbol).expect("BUG: PP missing");
+            (atom.cart_position(&crystal.lattice), pp)
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect();
 
+    let recip = &grid.recip;
     let dims = grid.dims;
-    let recip = grid.recip.clone();
-    Ok((0..grid.total_size())
+
+    let v_local = (0..grid.total_size())
         .into_par_iter()
         .map(|idx| {
-            let g = g_vector_at_dims(idx, dims, &recip);
+            let g = g_vector_at_dims(idx, dims, recip);
             let g_norm = g.norm();
-            let mut v = Complex64::new(0.0, 0.0);
 
-            for &(ref tau, pp) in &atom_data {
+            // Use fold for a more functional summation
+            atom_data.iter().fold(Complex64::default(), |acc, (tau, pp)| {
                 let phase = -g.dot(tau);
-                let sf = Complex64::cis(phase);
-                let v_form = pp.v_local_of_g(g_norm, omega);
-                v += sf * v_form;
-            }
-            v
+                acc + Complex64::cis(phase) * pp.v_local_of_g(g_norm, omega)
+            })
         })
-        .collect())
+        .collect();
+
+    Ok(v_local)
 }
 
 /// Compute NLCC core density on the real-space FFT grid.
@@ -77,57 +72,61 @@ pub(crate) fn compute_v_local(
 pub(crate) fn compute_core_density(
     crystal: &Crystal,
     grid: &mut FftGrid,
-    pseudopotentials: &[&PseudopotentialData],
+    pseudopotentials: &HashMap<Element, UpfPseudoPotential>,
 ) -> Vec<f64> {
-    let any_nlcc = pseudopotentials.iter().any(|pp| pp.has_nlcc());
-    if !any_nlcc {
+    if !pseudopotentials.values().any(|pp| pp.has_nlcc()) {
         return vec![];
     }
 
-    let n_grid = grid.total_size();
     let omega = crystal.lattice.volume();
     let four_pi = 4.0 * std::f64::consts::PI;
-    let mut rho_core_g = vec![Complex64::new(0.0, 0.0); n_grid];
 
-    for atom in &crystal.atoms {
-        // SAFETY: if we reached this point, ScfContext::new already validated
-        // that all atoms have matching pseudopotentials. A missing PP here
-        // would be a programming error, not a user input error.
-        let Some(pp) = crate::pseudopotential::find_for_atom(atom.z, pseudopotentials) else {
-            continue;
-        };
-        if !pp.has_nlcc() || pp.core_charge.is_empty() {
-            continue;
-        }
+    // Filter atoms that actually have NLCC to avoid wasted math in the inner loop
+    let nlcc_atoms: Vec<_> = crystal
+        .atoms
+        .iter()
+        .filter_map(|atom| {
+            let pp = pseudopotentials.get(&atom.symbol)?;
+            if pp.has_nlcc() {
+                Some((atom.cart_position(&crystal.lattice), pp))
+            } else {
+                None
+            }
+        })
+        .collect();
 
-        let tau = atom.cart_position(&crystal.lattice);
-
-        for (idx, rho_g_val) in rho_core_g.iter_mut().enumerate() {
+    let mut rho_g: Vec<Complex64> = (0..grid.total_size())
+        .into_par_iter() // Parallelize the heavy radial integrations
+        .map(|idx| {
             let g = grid.g_vector_at(idx);
             let g_norm = g.norm();
 
-            // Integrand: ρ_core(r) · r² · j₀(|G| r)
-            let integrand: Vec<f64> = pp.core_charge.iter().zip(pp.r_grid.iter())
-                .map(|(&rho_c, &r)| {
-                    let gr = g_norm * r;
-                    let j0 = if gr < 1e-10 {
-                        1.0 - gr * gr / 6.0
-                    } else {
-                        gr.sin() / gr
-                    };
-                    rho_c * r * r * j0
-                })
-                .collect();
-            let integral = crate::numerics::simpson_integrate(&integrand, &pp.rab);
+            nlcc_atoms.iter().fold(Complex64::default(), |acc, (tau, pp)| {
+                // Inline the Simpson integration for clarity or keep in helper
+                let integral = integrate_core_charge(pp, g_norm);
+                let phase = -g.dot(tau);
+                acc + Complex64::cis(phase) * (four_pi * integral / omega)
+            })
+        })
+        .collect();
 
-            let phase = -g.dot(&tau);
-            let sf = Complex64::cis(phase);
-            *rho_g_val += sf * (four_pi * integral / omega);
-        }
-    }
+    grid.fft.inverse(&mut rho_g);
+    rho_g.into_iter().map(|c| c.re).collect()
+}
 
-    grid.fft.inverse(&mut rho_core_g);
-    rho_core_g.iter().map(|c| c.re).collect()
+// Helper to keep the main loop clean
+fn integrate_core_charge(pp: &UpfPseudoPotential, g_norm: f64) -> f64 {
+    let integrand: Vec<f64> = pp
+        .core_charge
+        .iter()
+        .zip(&pp.r_grid)
+        .map(|(&rho, &r)| {
+            let gr = g_norm * r;
+            let j0 = if gr < 1e-10 { 1.0 - gr * gr / 6.0 } else { gr.sin() / gr };
+            rho * r * r * j0
+        })
+        .collect();
+    crate::numerics::simpson_integrate(&integrand, &pp.rab)
 }
 
 /// Assemble the kinetic + local part of the Kohn-Sham Hamiltonian at
@@ -139,7 +138,8 @@ pub(crate) fn compute_core_density(
 ///     H[i, i] = (ℏ²/2m) · |k + G_i|² + V_eff(0)        (diagonal)
 /// ```
 /// so `h` does **not** need to be pre-zeroed. This matters because the
-/// non-local KB term ([`crate::potential::nonlocal::NonlocalPotential::add_to_hamiltonian`])
+/// non-local KB term
+/// ([`crate::potential::nonlocal::NonlocalPotential::add_to_hamiltonian`])
 /// is layered on top via an accumulating `matmul(..., Accum::Add, ...)`:
 /// the contract is "fill first, then accumulate". Under the
 /// QE-compatible gauge (see `ScfContext::new`), `V_local(G=0)` is
@@ -184,12 +184,7 @@ pub(crate) fn fill_hamiltonian_with_v_eff(
             let dn3 = mi[2] - mj[2];
             let fft_idx = miller_to_idx(grid_dims, dn1, dn2, dn3);
             let v = v_eff_fft[fft_idx];
-            h[(i, j)] = if i == j {
-                Complex64::new(ke_i, 0.0) + v
-            } else {
-                v
-            };
+            h[(i, j)] = if i == j { Complex64::new(ke_i, 0.0) + v } else { v };
         }
     }
 }
-

@@ -8,26 +8,26 @@
 
 use ndarray::{Array1, ArrayView1};
 
+use super::{
+    AdaptiveBeta, KerkerSetup, MixingMode,
+    kerker::{auto_q_tf_squared, precondition_residual},
+    linalg::solve_linear_system,
+};
 use crate::fft::FFT3D;
-
-use super::AdaptiveBeta;
-use super::KerkerSetup;
-use super::MixingMode;
-use super::kerker::{auto_q_tf_squared, precondition_residual};
-use super::linalg::solve_linear_system;
 
 /// Anderson/Pulay (DIIS) density mixer with optional Kerker preconditioning.
 ///
-/// Stores a history of input densities and residuals R^(n) = ρ_out^(n) - ρ_in^(n).
-/// At each step, finds coefficients c_i (summing to 1) that minimize |Σ c_i R^(i)|²
-/// by solving the DIIS linear system, then constructs the new density as:
+/// Stores a history of input densities and residuals R^(n) = ρ_out^(n) -
+/// ρ_in^(n). At each step, finds coefficients c_i (summing to 1) that minimize
+/// |Σ c_i R^(i)|² by solving the DIIS linear system, then constructs the new
+/// density as:
 ///
 ///   ρ_in^{n+1} = Σ_i c_i [ρ_in^(i) + β R^(i)]
 ///
 /// where β is the mixing parameter.
 ///
-/// With Kerker preconditioning, the residual is modified in G-space before mixing:
-///   R̃(G) = [|G|² / (|G|² + q_TF²)] R(G)
+/// With Kerker preconditioning, the residual is modified in G-space before
+/// mixing:   R̃(G) = [|G|² / (|G|² + q_TF²)] R(G)
 ///
 /// This damps long-wavelength charge sloshing, which is the dominant source of
 /// SCF instability in metals and large-gap systems.
@@ -43,7 +43,8 @@ pub(crate) struct AndersonMixer {
     /// None if plain mixing.
     kerker_weights: Option<Vec<f64>>,
     /// Thomas-Fermi screening wavevector q_TF (Å⁻¹) used to build
-    /// `kerker_weights`. Retained for introspection / logging; `None` for plain.
+    /// `kerker_weights`. Retained for introspection / logging; `None` for
+    /// plain.
     pub(super) kerker_q_tf: Option<KerkerQtf>,
     /// Residual-norm monitor for adaptive β (Eyert 1996 §3.3). When
     /// constructed with `adaptive_beta = false` this is a no-op shim.
@@ -81,13 +82,15 @@ impl AndersonMixer {
                     .g_squared
                     .expect("BUG: Kerker mode requires g_squared to be provided by caller");
                 let (q_tf_sq, q_tf_record) = match q_tf {
-                    Some(q) => (q * q, KerkerQtf {
-                        q_tf: *q,
-                        user_supplied: true,
-                    }),
+                    Some(q) => (
+                        q * q,
+                        KerkerQtf {
+                            q_tf: *q,
+                            user_supplied: true,
+                        },
+                    ),
                     None => {
-                        let q_tf_sq =
-                            auto_q_tf_squared(kerker_setup.n_electrons, kerker_setup.omega);
+                        let q_tf_sq = auto_q_tf_squared(kerker_setup.n_electrons, kerker_setup.omega);
                         let q_tf_est = q_tf_sq.sqrt();
                         // Auto-estimate surfaces on the SCF log — helpful for
                         // debugging convergence on cells with unusual
@@ -100,11 +103,14 @@ impl AndersonMixer {
                             omega = kerker_setup.omega,
                             rho = kerker_setup.n_electrons / kerker_setup.omega,
                         );
-                        (q_tf_sq, KerkerQtf {
-                            q_tf: q_tf_est,
-                            user_supplied: false,
-                        })
-                    }
+                        (
+                            q_tf_sq,
+                            KerkerQtf {
+                                q_tf: q_tf_est,
+                                user_supplied: false,
+                            },
+                        )
+                    },
                 };
                 let weights: Vec<f64> = g2
                     .iter()
@@ -117,13 +123,13 @@ impl AndersonMixer {
                     })
                     .collect();
                 (Some(weights), Some(q_tf_record))
-            }
+            },
             MixingMode::Broyden { .. } | MixingMode::PeriodicPulay { .. } => {
                 unreachable!(
                     "AndersonMixer should not be constructed with Broyden or PeriodicPulay mode; \
                      use Mixer::new()"
                 )
-            }
+            },
         };
 
         Self {
@@ -154,11 +160,13 @@ impl AndersonMixer {
         self.diis_step()
     }
 
-    /// Compute the residual `R = ρ_out - ρ_in` (optionally Kerker-preconditioned),
-    /// append `(ρ_in, R)` to the history, and trim the history to `max_history`.
+    /// Compute the residual `R = ρ_out - ρ_in` (optionally
+    /// Kerker-preconditioned), append `(ρ_in, R)` to the history, and trim
+    /// the history to `max_history`.
     ///
-    /// Exposed for composite mixers (e.g. [`PeriodicPulayMixer`]) that accumulate
-    /// history on every iteration but only invoke the DIIS solve on a subset.
+    /// Exposed for composite mixers (e.g. [`PeriodicPulayMixer`]) that
+    /// accumulate history on every iteration but only invoke the DIIS solve
+    /// on a subset.
     pub(super) fn push_history(&mut self, rho_in: &[f64], rho_out: &[f64], fft: &mut FFT3D) {
         let rho_in_arr = ArrayView1::from(rho_in);
         let rho_out_arr = ArrayView1::from(rho_out);
@@ -213,10 +221,7 @@ impl AndersonMixer {
     /// [`push_history`](Self::push_history) first.
     pub(super) fn diis_step(&self) -> Vec<f64> {
         let m = self.history_in.len();
-        assert!(
-            m >= 1,
-            "AndersonMixer::diis_step called before any history accumulated"
-        );
+        assert!(m >= 1, "AndersonMixer::diis_step called before any history accumulated");
 
         if m < 2 {
             // Simple linear mixing for first iteration: ρ_new = ρ_in + β R
@@ -232,9 +237,7 @@ impl AndersonMixer {
 
         let r_last = &self.history_res[last];
 
-        let dr: Vec<Array1<f64>> = (0..mm)
-            .map(|i| &self.history_res[i] - r_last)
-            .collect();
+        let dr: Vec<Array1<f64>> = (0..mm).map(|i| &self.history_res[i] - r_last).collect();
 
         let mut a_mat = vec![0.0; mm * mm];
         let mut b_vec = vec![0.0; mm];
@@ -277,14 +280,12 @@ impl AndersonMixer {
 ///
 /// The rationale from the paper:
 ///
-/// - Early iterations: DIIS is unreliable when only 1–2 residual vectors are
-///   available and the long-wavelength sloshing dominates. Plain linear mixing
-///   with a conservative β is more robust.
-/// - Later iterations: once several consistent residuals are accumulated, DIIS
-///   extrapolation gives the super-linear convergence advantage.
-/// - Gating DIIS to a periodic cadence (k = 3–5) delivers both benefits and
-///   yields 30–50% iteration-count reduction on the paper's test cases vs.
-///   continuous Anderson.
+/// - Early iterations: DIIS is unreliable when only 1–2 residual vectors are available and the
+///   long-wavelength sloshing dominates. Plain linear mixing with a conservative β is more robust.
+/// - Later iterations: once several consistent residuals are accumulated, DIIS extrapolation gives
+///   the super-linear convergence advantage.
+/// - Gating DIIS to a periodic cadence (k = 3–5) delivers both benefits and yields 30–50%
+///   iteration-count reduction on the paper's test cases vs. continuous Anderson.
 ///
 /// Internally this wraps an [`AndersonMixer`]: on every iteration
 /// [`AndersonMixer::push_history`] is called (history accumulates), and on
@@ -324,8 +325,7 @@ impl PeriodicPulayMixer {
         } else {
             MixingMode::Plain
         };
-        let anderson =
-            AndersonMixer::new(beta, max_history, &inner_mode, kerker_setup, adaptive_beta);
+        let anderson = AndersonMixer::new(beta, max_history, &inner_mode, kerker_setup, adaptive_beta);
         Self {
             anderson,
             period,
@@ -356,8 +356,7 @@ impl PeriodicPulayMixer {
         // residual when the inner Anderson mixer was constructed with Kerker.
         self.anderson.push_history(rho_in, rho_out, fft);
 
-        let do_pulay =
-            self.iteration.is_multiple_of(self.period) && self.anderson.history_len() >= 2;
+        let do_pulay = self.iteration.is_multiple_of(self.period) && self.anderson.history_len() >= 2;
 
         if do_pulay {
             // DIIS extrapolation using the full history.
@@ -388,7 +387,12 @@ impl PeriodicPulayMixer {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use elements_rs::Element;
+
     use super::*;
+    use crate::pseudopotential::UpfPseudoPotential;
 
     /// Default Kerker context for tests without a |G|² grid.
     fn plain_ctx() -> KerkerSetup<'static> {
@@ -416,10 +420,7 @@ mod tests {
         let rho_out = vec![2.0; 8];
         let result = mixer.mix(&rho_in, &rho_out, &mut fft);
         for &v in &result {
-            assert!(
-                (v - 1.3).abs() < 1e-10,
-                "expected 1.3, got {v}"
-            );
+            assert!((v - 1.3).abs() < 1e-10, "expected 1.3, got {v}");
         }
     }
 
@@ -428,9 +429,7 @@ mod tests {
         // Kerker should suppress the G=0 component of the residual
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
-        let g_squared: Vec<f64> = (0..n)
-            .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
-            .collect();
+        let g_squared: Vec<f64> = (0..n).map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 }).collect();
         let mut mixer = AndersonMixer::new(
             0.3,
             4,
@@ -444,9 +443,15 @@ mod tests {
         let rho_out = vec![2.0; n]; // residual = 1.0 everywhere (pure G=0)
         let result = mixer.mix(&rho_in, &rho_out, &mut fft);
 
-        // With Kerker, the G=0 residual is zeroed, so mixing should barely change rho_in
-        let max_change: f64 = result.iter().zip(rho_in.iter()).map(|(r, &i)| (r - i).abs()).fold(0.0, f64::max);
-        // Without Kerker, change would be 0.3. With Kerker on uniform residual, much less.
+        // With Kerker, the G=0 residual is zeroed, so mixing should barely change
+        // rho_in
+        let max_change: f64 = result
+            .iter()
+            .zip(rho_in.iter())
+            .map(|(r, &i)| (r - i).abs())
+            .fold(0.0, f64::max);
+        // Without Kerker, change would be 0.3. With Kerker on uniform residual, much
+        // less.
         assert!(
             max_change < 0.1,
             "Kerker should suppress uniform (G=0) residual, but max_change={max_change}"
@@ -486,15 +491,12 @@ mod tests {
         // As q_TF → 0, P(G) → 1 for all G≠0, so Kerker → plain mixing
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
-        let g_squared: Vec<f64> = (0..n)
-            .map(|i| if i == 0 { 0.0 } else { 1.0 + f64::from(i) })
-            .collect();
+        let g_squared: Vec<f64> = (0..n).map(|i| if i == 0 { 0.0 } else { 1.0 + f64::from(i) }).collect();
 
         let rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.1 * (f64::from(i) * 0.3).sin()).collect();
         let rho_out: Vec<f64> = (0..n).map(|i| 1.0 + 0.2 * (f64::from(i) * 0.3).sin()).collect();
 
-        let mut mixer_plain =
-            AndersonMixer::new(0.3, 4, &MixingMode::Plain, plain_ctx(), false);
+        let mut mixer_plain = AndersonMixer::new(0.3, 4, &MixingMode::Plain, plain_ctx(), false);
         let result_plain = mixer_plain.mix(&rho_in, &rho_out, &mut fft);
 
         let mut mixer_kerker = AndersonMixer::new(
@@ -507,7 +509,8 @@ mod tests {
         let result_kerker = mixer_kerker.mix(&rho_in, &rho_out, &mut fft);
 
         // Should be nearly identical (small q_TF means almost no preconditioning)
-        let max_diff: f64 = result_plain.iter()
+        let max_diff: f64 = result_plain
+            .iter()
             .zip(result_kerker.iter())
             .map(|(a, b)| (a - b).abs())
             .fold(0.0, f64::max);
@@ -522,9 +525,7 @@ mod tests {
         // As q_TF → ∞, P(G) → 0 for all G, total suppression
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
-        let g_squared: Vec<f64> = (0..n)
-            .map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 })
-            .collect();
+        let g_squared: Vec<f64> = (0..n).map(|i| if i == 0 { 0.0 } else { 1.0 + i as f64 }).collect();
         let mut mixer = AndersonMixer::new(
             0.3,
             4,
@@ -538,7 +539,9 @@ mod tests {
         let result = mixer.mix(&rho_in, &rho_out, &mut fft);
 
         // With huge q_TF, almost no mixing should occur (residual fully suppressed)
-        let max_change: f64 = result.iter().zip(rho_in.iter())
+        let max_change: f64 = result
+            .iter()
+            .zip(rho_in.iter())
             .map(|(r, &i)| (r - i).abs())
             .fold(0.0, f64::max);
         assert!(
@@ -571,13 +574,14 @@ mod tests {
     fn test_kerker_vs_plain_scf_convergence() {
         // Both modes should converge to the same energy on Si.
         // Minimal system: Γ-only, ecut=100, 16³ grid.
+        use nalgebra::Vector3;
+
         use crate::{
             basis::BasisSet,
             crystal::{Atom, Crystal, Lattice},
             kpoints::KPoint,
             scf::{ScfParams, run_scf},
         };
-        use nalgebra::Vector3;
 
         let a = 5.431;
         let crystal = Crystal {
@@ -586,16 +590,15 @@ mod tests {
                 a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
                 a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
             ),
-            atoms: vec![
-                Atom::new(14, [0.0, 0.0, 0.0]),
-                Atom::new(14, [0.25, 0.25, 0.25]),
-            ],
+            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
         };
         let basis = BasisSet::new(&crystal.lattice, 100.0);
-        let pp = crate::pseudopotential::load(
-            &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
-        ).unwrap();
-        let kpoints = vec![KPoint { k: Vector3::zeros(), weight: 1.0, label: None }];
+        let pp = HashMap::from_iter([(Element::Si, UpfPseudoPotential::load("Si").unwrap())]);
+        let kpoints = vec![KPoint {
+            k: Vector3::zeros(),
+            weight: 1.0,
+            label: None,
+        }];
 
         let base_params = ScfParams {
             n_bands: 4,
@@ -611,13 +614,13 @@ mod tests {
         };
 
         let sym_id = crate::symmetry::SymmetryInfo::identity_only();
-        let result_plain = run_scf(&crystal, &basis, &kpoints, &[&pp], &base_params, &sym_id);
+        let result_plain = run_scf(&crystal, &basis, &kpoints, &pp, &base_params, &sym_id);
 
         let kerker_params = ScfParams {
             mixing_mode: MixingMode::Kerker { q_tf: None },
             ..base_params
         };
-        let result_kerker = run_scf(&crystal, &basis, &kpoints, &[&pp], &kerker_params, &sym_id);
+        let result_kerker = run_scf(&crystal, &basis, &kpoints, &pp, &kerker_params, &sym_id);
 
         match (&result_plain, &result_kerker) {
             (Ok(plain), Ok(kerker)) => {
@@ -625,16 +628,18 @@ mod tests {
                 assert!(
                     energy_diff < 0.01,
                     "Plain ({:.6} eV) and Kerker ({:.6} eV) should converge to same energy, diff={energy_diff:.6}",
-                    plain.total_energy, kerker.total_energy
+                    plain.total_energy,
+                    kerker.total_energy
                 );
                 // For insulators, Kerker may take a few more iterations (it's
                 // designed for metals). Just verify it's not wildly worse.
                 assert!(
                     kerker.n_iterations <= plain.n_iterations + 10,
                     "Kerker ({} iters) shouldn't be much slower than plain ({} iters)",
-                    kerker.n_iterations, plain.n_iterations
+                    kerker.n_iterations,
+                    plain.n_iterations
                 );
-            }
+            },
             (Ok(_), Err(e)) => panic!("Plain converged but Kerker failed: {e}"),
             (Err(e), Ok(_)) => panic!("Kerker converged but plain failed: {e}"),
             (Err(e_plain), Err(e_kerker)) => panic!(
@@ -730,10 +735,7 @@ mod tests {
             let new_pp = pp.mix(&rho_pp, &rho_out_pp, &mut fft_pp);
 
             for (k, (&a, &b)) in new_pp.iter().zip(new_ref.iter()).enumerate() {
-                assert!(
-                    (a - b).abs() < 1e-12,
-                    "iter {iter} elem {k}: pp={a:.12} ref={b:.12}"
-                );
+                assert!((a - b).abs() < 1e-12, "iter {iter} elem {k}: pp={a:.12} ref={b:.12}");
             }
 
             rho_pp = new_pp;
@@ -827,10 +829,7 @@ mod tests {
         //
         // The robust assertion: iterations 1-2 must match (no Pulay yet),
         // iteration 3 must differ (first Pulay step).
-        assert!(
-            !divergence_iters.contains(&1),
-            "iter 1: should match — no Pulay yet"
-        );
+        assert!(!divergence_iters.contains(&1), "iter 1: should match — no Pulay yet");
         assert!(
             !divergence_iters.contains(&2),
             "iter 2: should match — no Pulay yet (history_len=2 boundary)"
@@ -865,11 +864,8 @@ mod tests {
         // multiple iterations, including Pulay steps.
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
-        let g_squared: Vec<f64> = (0..n)
-            .map(|i| if i == 0 { 0.0 } else { 1.0 + f64::from(i) })
-            .collect();
-        let mut pp =
-            PeriodicPulayMixer::new(0.3, 4, 3, true, kerker_ctx(&g_squared), false);
+        let g_squared: Vec<f64> = (0..n).map(|i| if i == 0 { 0.0 } else { 1.0 + f64::from(i) }).collect();
+        let mut pp = PeriodicPulayMixer::new(0.3, 4, 3, true, kerker_ctx(&g_squared), false);
 
         let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
 
@@ -925,13 +921,14 @@ mod tests {
         // PRPL on Si Γ-only should reach the same total energy as Plain
         // within the convergence threshold, and should not be much slower
         // in iteration count.
+        use nalgebra::Vector3;
+
         use crate::{
             basis::BasisSet,
             crystal::{Atom, Crystal, Lattice},
             kpoints::KPoint,
             scf::{ScfParams, run_scf},
         };
-        use nalgebra::Vector3;
 
         let a = 5.431;
         let crystal = Crystal {
@@ -940,17 +937,10 @@ mod tests {
                 a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
                 a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
             ),
-            atoms: vec![
-                Atom::new(14, [0.0, 0.0, 0.0]),
-                Atom::new(14, [0.25, 0.25, 0.25]),
-            ],
+            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
         };
         let basis = BasisSet::new(&crystal.lattice, 100.0);
-        let pp = crate::pseudopotential::load(
-            &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-                .join("pseudopotentials/nc/lda/Si.upf"),
-        )
-        .unwrap();
+        let pp = HashMap::from_iter([(Element::Si, UpfPseudoPotential::load("Si").unwrap())]);
         let kpoints = vec![KPoint {
             k: Vector3::zeros(),
             weight: 1.0,
@@ -971,7 +961,7 @@ mod tests {
         };
 
         let sym_id = crate::symmetry::SymmetryInfo::identity_only();
-        let result_plain = run_scf(&crystal, &basis, &kpoints, &[&pp], &plain_params, &sym_id);
+        let result_plain = run_scf(&crystal, &basis, &kpoints, &pp, &plain_params, &sym_id);
 
         let prpl_params = ScfParams {
             mixing_mode: MixingMode::PeriodicPulay {
@@ -980,7 +970,7 @@ mod tests {
             },
             ..plain_params
         };
-        let result_prpl = run_scf(&crystal, &basis, &kpoints, &[&pp], &prpl_params, &sym_id);
+        let result_prpl = run_scf(&crystal, &basis, &kpoints, &pp, &prpl_params, &sym_id);
 
         match (&result_plain, &result_prpl) {
             (Ok(plain), Ok(prpl)) => {
@@ -1005,7 +995,7 @@ mod tests {
                     "PRPL convergence: Plain={} iters, PeriodicPulay={} iters (ΔE={energy_diff:.3e} eV)",
                     plain.n_iterations, prpl.n_iterations
                 );
-            }
+            },
             (Ok(_), Err(e)) => panic!("Plain converged but PeriodicPulay failed: {e}"),
             (Err(e), Ok(_)) => panic!("PeriodicPulay converged but Plain failed: {e}"),
             (Err(e_plain), Err(e_prpl)) => panic!(
@@ -1022,11 +1012,7 @@ mod tests {
     /// Drive a mixer with a residual sequence whose norm is prescribed by the
     /// caller: at each iteration, the test overrides ρ_out so that
     /// ‖ρ_out - ρ_in‖₂ ≈ `target_norm`. Returns the β reported after each call.
-    fn drive_mixer_with_norms(
-        mixer: &mut AndersonMixer,
-        fft: &mut FFT3D,
-        norms: &[f64],
-    ) -> Vec<f64> {
+    fn drive_mixer_with_norms(mixer: &mut AndersonMixer, fft: &mut FFT3D, norms: &[f64]) -> Vec<f64> {
         let n = 8;
         let mut rho_in = vec![1.0; n];
         let mut betas = Vec::with_capacity(norms.len());

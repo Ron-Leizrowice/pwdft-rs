@@ -7,10 +7,9 @@
 //! values are in `data/qe/reference_data.toml`.
 //!
 //! Layout of this file:
-//!   * Helpers: `fcc_crystal`, `bcc_crystal`, `run_qe_comparison`,
-//!     `assert_energy_matches_qe`, `assert_fermi_matches_qe`,
-//!     `assert_one_electron_sum_matches_qe` (BSUM gate — shift-compensated
-//!     `<ψ|T + V_ion|ψ>` residual vs QE's `one-electron contribution`).
+//!   * Helpers: `fcc_crystal`, `bcc_crystal`, `run_qe_comparison`, `assert_energy_matches_qe`,
+//!     `assert_fermi_matches_qe`, `assert_one_electron_sum_matches_qe` (BSUM gate —
+//!     shift-compensated `<ψ|T + V_ion|ψ>` residual vs QE's `one-electron contribution`).
 //!   * One `#[test]` per system (8 total).
 //!
 //! Post-MPSH (2026-04-18) `monkhorst_pack` accepts a [`KGridShift`] and
@@ -65,6 +64,8 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
+use std::{collections::HashMap, sync::atomic::Ordering};
+
 use nalgebra::Vector3;
 use pwdft_core::{
     basis::BasisSet,
@@ -72,13 +73,11 @@ use pwdft_core::{
     error::Result as PwdftResult,
     kpoints,
     potential::xc::{PBE_EVAL_INVOCATIONS, PBE_EVAL_SPIN_INVOCATIONS},
-    pseudopotential::PseudopotentialData,
+    pseudopotential::UpfPseudoPotential,
     scf::{self, ScfParams, ScfResult, mixing::MixingMode, smearing::SmearingScheme},
-    settings::XcFunctional,
+    settings::PredefinedXcFunctionals,
     symmetry::SymmetryInfo,
 };
-use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -120,22 +119,20 @@ fn bcc_crystal(a_ang: f64, atom: Atom) -> Crystal {
 // Pseudopotentials
 // ---------------------------------------------------------------------------
 
-fn load_pp(element: &str) -> PseudopotentialData {
+fn load_pp(element: &str) -> UpfPseudoPotential {
     let path = std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
         .join("pseudopotentials/nc/lda")
         .join(format!("{element}.upf"));
-    pwdft_core::pseudopotential::load(&path)
-        .unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
+    UpfPseudoPotential::load(&path).unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
 }
 
 /// Load a PBE-family UPF from `pseudopotentials/nc/pbe/`. Used by the
 /// GGAP-family tests; LDA tests continue to use [`load_pp`].
-fn load_pp_pbe(element: &str) -> PseudopotentialData {
+fn load_pp_pbe(element: &str) -> UpfPseudoPotential {
     let path = std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
         .join("pseudopotentials/nc/pbe")
         .join(format!("{element}.upf"));
-    pwdft_core::pseudopotential::load(&path)
-        .unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
+    UpfPseudoPotential::load(&path).unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +145,7 @@ fn load_pp_pbe(element: &str) -> PseudopotentialData {
 /// bodies stay declarative.
 struct QeComparisonConfig<'a> {
     crystal: &'a Crystal,
-    pps: Vec<&'a PseudopotentialData>,
+    pps: Vec<&'a UpfPseudoPotential>,
     ecut_ry: f64,
     nk: u32,
     n_bands: usize,
@@ -160,7 +157,7 @@ struct QeComparisonConfig<'a> {
     /// Exchange-correlation functional. Defaults to [`XcFunctional::Pz`]
     /// (LDA) to preserve the pre-GGAP-C legacy-test shape; GGAP-family
     /// tests set this to [`XcFunctional::Pbe`].
-    xc_functional: XcFunctional,
+    xc_functional: PredefinedXcFunctionals,
     /// SCF density-convergence threshold. Most tests use the default
     /// `1e-8`; magnetic-metal PBE systems (Fe BCC FM) may need a slightly
     /// looser threshold to avoid hitting an end-of-SCF limit-cycle at the
@@ -184,7 +181,7 @@ struct QeComparisonConfig<'a> {
 }
 
 impl<'a> QeComparisonConfig<'a> {
-    fn new(crystal: &'a Crystal, pps: Vec<&'a PseudopotentialData>) -> Self {
+    fn new(crystal: &'a Crystal, pps: Vec<&'a UpfPseudoPotential>) -> Self {
         Self {
             crystal,
             pps,
@@ -196,7 +193,7 @@ impl<'a> QeComparisonConfig<'a> {
             degauss_ry: 0.01,
             nspin: 1,
             starting_magnetization: HashMap::new(),
-            xc_functional: XcFunctional::default(),
+            xc_functional: PredefinedXcFunctionals::default(),
             conv_threshold: 1e-8,
             max_iter: 80,
             one_electron_qe_ry: None,
@@ -281,12 +278,7 @@ fn run_qe_comparison(cfg: &QeComparisonConfig<'_>) -> PwdftResult<ScfResult> {
 
 /// Require that the pwdft-core total energy agrees with QE (in Ry) within
 /// `tolerance_ev`. Prints the comparison regardless of pass/fail.
-fn assert_energy_matches_qe(
-    label: &str,
-    result: &ScfResult,
-    qe_energy_ry: f64,
-    tolerance_ev: f64,
-) {
+fn assert_energy_matches_qe(label: &str, result: &ScfResult, qe_energy_ry: f64, tolerance_ev: f64) {
     let qe_energy_ev = qe_energy_ry * RY_TO_EV;
     let de = (result.total_energy - qe_energy_ev).abs();
     eprintln!(
@@ -304,12 +296,7 @@ fn assert_energy_matches_qe(
 
 /// Require that the pwdft-core Fermi energy (already in eV) agrees with QE's
 /// within `tolerance_ev`.
-fn assert_fermi_matches_qe(
-    label: &str,
-    result: &ScfResult,
-    qe_fermi_ev: f64,
-    tolerance_ev: f64,
-) {
+fn assert_fermi_matches_qe(label: &str, result: &ScfResult, qe_fermi_ev: f64, tolerance_ev: f64) {
     let df = (result.fermi_energy - qe_fermi_ev).abs();
     eprintln!(
         "  [{label}] E_F_pwdft = {:.4} eV,  E_F_QE = {:.4} eV,  |ΔE_F| = {:.4} eV",
@@ -338,14 +325,12 @@ fn assert_fermi_matches_qe(
 /// term cancels the V_H + V_xc double-counting piece carried in the
 /// raw eigenvalues, yielding a scalar that:
 ///
-/// - Is **invariant** to the V_loc(G=0) convention (both codes absorb
-///   the G=0 shift into the `<V_ion>` piece consistently).
-/// - Is **sensitive** to the converged density: any drift in ρ → V_eff
-///   → ε_{n,k} → |ψ_{n,k}⟩ shows up here as a real signal, not a
-///   convention artifact.
-/// - Is **orthogonal** to Hartree / XC / Ewald on the total-energy
-///   side; a disagreement pattern of E_1e moving one way and
-///   (E_H + E_xc) moving the other is the VGCH "different converged
+/// - Is **invariant** to the V_loc(G=0) convention (both codes absorb the G=0 shift into the
+///   `<V_ion>` piece consistently).
+/// - Is **sensitive** to the converged density: any drift in ρ → V_eff → ε_{n,k} → |ψ_{n,k}⟩ shows
+///   up here as a real signal, not a convention artifact.
+/// - Is **orthogonal** to Hartree / XC / Ewald on the total-energy side; a disagreement pattern of
+///   E_1e moving one way and (E_H + E_xc) moving the other is the VGCH "different converged
 ///   density" signature.
 ///
 /// Pairs with [`assert_energy_matches_qe`] as the second-layer gate:
@@ -355,12 +340,7 @@ fn assert_fermi_matches_qe(
 /// disagreement; one whose residual is carried mostly by
 /// (|ΔE_H| + |ΔE_xc|) with |ΔE_1e| small has a functional or
 /// double-counting-term issue.
-fn assert_one_electron_sum_matches_qe(
-    label: &str,
-    result: &ScfResult,
-    qe_one_electron_ry: f64,
-    tolerance_ev: f64,
-) {
+fn assert_one_electron_sum_matches_qe(label: &str, result: &ScfResult, qe_one_electron_ry: f64, tolerance_ev: f64) {
     let c = &result.components;
     let e_one_electron = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal;
     let qe_one_electron_ev = qe_one_electron_ry * RY_TO_EV;
@@ -413,10 +393,7 @@ fn report_gamma_eigenvalues(label: &str, result: &ScfResult, qe_eigs_ev: &[f64])
 fn test_si_diamond_energy_vs_qe() {
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
     let pp_si = load_pp("Si");
 
@@ -465,10 +442,7 @@ fn test_si_diamond_energy_vs_qe() {
 fn test_si_diamond_fermi_vs_qe() {
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
     let pp_si = load_pp("Si");
 
@@ -502,10 +476,7 @@ fn test_si_diamond_fermi_vs_qe() {
 fn test_si_total_energy_bit_identity_post_siefb1() {
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
     let pp_si = load_pp("Si");
 
@@ -524,7 +495,9 @@ fn test_si_total_energy_bit_identity_post_siefb1() {
     let drift = (result.total_energy - pre_b1_energy).abs();
     eprintln!(
         "  [Si B1 bit-identity] E_pwdft_post_B1 = {:.6} eV,  pre-B1 pin = {:.6} eV,  |Δ| = {:.4} meV",
-        result.total_energy, pre_b1_energy, drift * 1000.0,
+        result.total_energy,
+        pre_b1_energy,
+        drift * 1000.0,
     );
     assert!(
         drift < 0.001,
@@ -550,10 +523,7 @@ fn test_si_total_energy_bit_identity_post_siefb1() {
 fn test_c_diamond_fermi_vs_qe() {
     let crystal = fcc_crystal(
         3.567,
-        vec![
-            Atom::new(6, [0.00, 0.00, 0.00]),
-            Atom::new(6, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(6, [0.00, 0.00, 0.00]), Atom::new(6, [0.25, 0.25, 0.25])],
     );
     let pp_c = load_pp("C");
 
@@ -645,10 +615,7 @@ fn test_al_fcc_fermi_vs_qe() {
 fn test_c_diamond_vs_qe() {
     let crystal = fcc_crystal(
         3.567,
-        vec![
-            Atom::new(6, [0.00, 0.00, 0.00]),
-            Atom::new(6, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(6, [0.00, 0.00, 0.00]), Atom::new(6, [0.25, 0.25, 0.25])],
     );
     let pp_c = load_pp("C");
 
@@ -730,11 +697,7 @@ fn test_al_fcc_vs_qe() {
     };
     let result = run_qe_comparison(&cfg).expect("Al SCF should converge");
 
-    report_gamma_eigenvalues(
-        "Al",
-        &result,
-        &[-3.4118, 20.2167, 20.2167, 21.5192, 21.5192, 21.5192],
-    );
+    report_gamma_eigenvalues("Al", &result, &[-3.4118, 20.2167, 20.2167, 21.5192, 21.5192, 21.5192]);
     assert_energy_matches_qe("Al", &result, -4.727_244_84, 0.090);
     assert_fermi_matches_qe("Al", &result, 7.5876, 0.15);
     // BSUM: Al LDA E_total 25.9 meV (GREEN at 90 meV). Al is a simple
@@ -838,10 +801,7 @@ fn test_fe_bcc_fm_vs_qe() {
 fn test_gaas_zincblende_vs_qe() {
     let crystal = fcc_crystal(
         5.653,
-        vec![
-            Atom::new(31, [0.00, 0.00, 0.00]),
-            Atom::new(33, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(31, [0.00, 0.00, 0.00]), Atom::new(33, [0.25, 0.25, 0.25])],
     );
     let pp_ga = load_pp("Ga");
     let pp_as = load_pp("As");
@@ -857,9 +817,7 @@ fn test_gaas_zincblende_vs_qe() {
     report_gamma_eigenvalues(
         "GaAs",
         &result,
-        &[
-            -9.0547, -9.0547, -9.0547, -7.9791, -7.1414, -7.1414, -0.9400, -0.9400,
-        ],
+        &[-9.0547, -9.0547, -9.0547, -7.9791, -7.1414, -7.1414, -0.9400, -0.9400],
     );
     // RWHK-FIX fix 4 (audit A5): tolerance 37.0 eV = observed 35.17 eV +
     // ~5% margin. Brought in line with the `#[ignore]` reason string so
@@ -965,9 +923,7 @@ fn test_nacl_rocksalt_vs_qe() {
     report_gamma_eigenvalues(
         "NaCl",
         &result,
-        &[
-            -59.5034, -18.1802, -18.1802, -18.1802, -11.3942, 1.1682, 1.1682, 1.1682,
-        ],
+        &[-59.5034, -18.1802, -18.1802, -18.1802, -11.3942, 1.1682, 1.1682, 1.1682],
     );
     // RWHK-FIX fix 4 (audit A5): tolerance 8.5 eV = observed 7.99 eV +
     // ~6% margin. Brought in line with the `#[ignore]` reason string so
@@ -1022,9 +978,7 @@ fn test_mgo_rocksalt_vs_qe() {
     report_gamma_eigenvalues(
         "MgO",
         &result,
-        &[
-            -74.3080, -29.9713, -29.9713, -29.9713, -10.1472, 8.4930, 8.4930, 8.4930,
-        ],
+        &[-74.3080, -29.9713, -29.9713, -29.9713, -10.1472, 8.4930, 8.4930, 8.4930],
     );
     // RWHK-FIX fix 4 (audit A5): tolerance 11.5 eV = observed 10.71 eV +
     // ~7% margin. Brought in line with the `#[ignore]` reason string so
@@ -1114,8 +1068,7 @@ fn test_fe_bcc_xc_nlcc_regression_guard() {
     };
 
     let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
-    let result = scf::run_scf(&crystal, &basis, &kpts, &[&pp_fe], &params, &symmetry)
-        .expect("Fe SCF should converge");
+    let result = scf::run_scf(&crystal, &basis, &kpts, &[&pp_fe], &params, &symmetry).expect("Fe SCF should converge");
 
     let qe_e_xc_ev = -28.904_021_34 * RY_TO_EV;
     let delta = (result.components.e_xc - qe_e_xc_ev).abs();
@@ -1197,10 +1150,7 @@ fn test_fe_bcc_ewald_vs_qe() {
 fn test_si_pbe_non_spin_vs_qe() {
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
     let pp_si = load_pp_pbe("Si");
 
@@ -1208,7 +1158,7 @@ fn test_si_pbe_non_spin_vs_qe() {
         ecut_ry: 24.0, // matches data/qe/si_scf_pbe.in
         nk: 4,
         n_bands: 8,
-        xc_functional: XcFunctional::Pbe,
+        xc_functional: PredefinedXcFunctionals::Pbe,
         // BSUM gate: Si PBE 4×4×4 at ecut=24 Ry.
         one_electron_qe_ry: Some(4.963_857_08),
         ..QeComparisonConfig::new(&crystal, vec![&pp_si])
@@ -1287,7 +1237,7 @@ fn test_fe_bcc_fm_pbe_vs_qe() {
         degauss_ry: 0.02,
         nspin: 2,
         starting_magnetization: starting_mag,
-        xc_functional: XcFunctional::Pbe,
+        xc_functional: PredefinedXcFunctionals::Pbe,
         // Fe BCC FM PBE on 8×8×8 settles into a last-digit limit-cycle
         // around Δρ ≈ 1e-8 at 80 iters; relax to 1e-7 so the SCF
         // completes cleanly (energy is already stable to < 1 meV well
@@ -1318,19 +1268,14 @@ fn test_fe_bcc_fm_pbe_vs_qe() {
         pbe_spin_calls_after - pbe_spin_calls_before,
     );
 
-    eprintln!(
-        "  [Fe-PBE] M_pwdft = {:.4} μB (QE: 2.34 μB)",
-        result.magnetization,
-    );
+    eprintln!("  [Fe-PBE] M_pwdft = {:.4} μB (QE: 2.34 μB)", result.magnetization,);
 
     // QE PBE reference: E_total = -250.538_358_24 Ry, M = 2.34 μB.
     assert_energy_matches_qe("Fe-PBE", &result, -250.538_358_24, 0.100);
 
     let qe_magnetization = 2.34_f64;
     let dmag = (result.magnetization - qe_magnetization).abs();
-    eprintln!(
-        "  [Fe-PBE] |ΔM| = {dmag:.4} μB  (tolerance 0.1 μB)"
-    );
+    eprintln!("  [Fe-PBE] |ΔM| = {dmag:.4} μB  (tolerance 0.1 μB)");
     assert!(
         dmag < 0.1,
         "Fe-PBE magnetization: |M_pwdft − M_QE|={dmag:.4} μB exceeds 0.1 μB \
@@ -1340,7 +1285,8 @@ fn test_fe_bcc_fm_pbe_vs_qe() {
 }
 
 // ---------------------------------------------------------------------------
-// GGAP Phase F-light — remaining 6 PBE cross-checks (Al, C, Cu, GaAs, NaCl, MgO)
+// GGAP Phase F-light — remaining 6 PBE cross-checks (Al, C, Cu, GaAs, NaCl,
+// MgO)
 // ---------------------------------------------------------------------------
 //
 // Each test below mirrors its LDA sibling's cell / k-grid / mixer choice and
@@ -1391,7 +1337,7 @@ fn test_al_fcc_pbe_vs_qe() {
         n_bands: 6,
         mixing: MixingMode::Kerker { q_tf: None },
         degauss_ry: 0.02,
-        xc_functional: XcFunctional::Pbe,
+        xc_functional: PredefinedXcFunctionals::Pbe,
         // BSUM gate: Al PBE 8×8×8 at ecut=24 Ry.
         one_electron_qe_ry: Some(2.918_213_34),
         ..QeComparisonConfig::new(&crystal, vec![&pp_al])
@@ -1431,10 +1377,7 @@ fn test_al_fcc_pbe_vs_qe() {
 fn test_c_diamond_pbe_vs_qe() {
     let crystal = fcc_crystal(
         3.567,
-        vec![
-            Atom::new(6, [0.00, 0.00, 0.00]),
-            Atom::new(6, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(6, [0.00, 0.00, 0.00]), Atom::new(6, [0.25, 0.25, 0.25])],
     );
     let pp_c = load_pp_pbe("C");
 
@@ -1443,7 +1386,7 @@ fn test_c_diamond_pbe_vs_qe() {
         nk: 4,
         n_bands: 8,
         mixing: MixingMode::Broyden { kerker: true },
-        xc_functional: XcFunctional::Pbe,
+        xc_functional: PredefinedXcFunctionals::Pbe,
         // BSUM gate: C PBE 4×4×4 at ecut=36 Ry.
         one_electron_qe_ry: Some(8.387_646_34),
         ..QeComparisonConfig::new(&crystal, vec![&pp_c])
@@ -1462,7 +1405,8 @@ fn test_c_diamond_pbe_vs_qe() {
     assert_one_electron_sum_matches_qe("C-PBE", &result, 8.387_646_34, 0.600);
 }
 
-/// Cu FCC PBE vs QE (transition metal with 3s/3p/3d semicore; GGAP Phase F-light).
+/// Cu FCC PBE vs QE (transition metal with 3s/3p/3d semicore; GGAP Phase
+/// F-light).
 ///
 /// QE ref (`data/qe/cu_fcc_scf_pbe.{in,out}`, see
 /// `data/qe/reference_data.toml::cu_fcc_pbe`):
@@ -1491,7 +1435,7 @@ fn test_cu_fcc_pbe_vs_qe() {
         n_bands: 14,
         mixing: MixingMode::Kerker { q_tf: None },
         degauss_ry: 0.02,
-        xc_functional: XcFunctional::Pbe,
+        xc_functional: PredefinedXcFunctionals::Pbe,
         ..QeComparisonConfig::new(&crystal, vec![&pp_cu])
     };
     let result = run_qe_comparison(&cfg).expect("Cu PBE SCF should converge");
@@ -1500,7 +1444,8 @@ fn test_cu_fcc_pbe_vs_qe() {
     assert_energy_matches_qe("Cu-PBE", &result, -378.986_716_46, 12.0);
 }
 
-/// GaAs zincblende PBE vs QE (III-V semiconductor, two heavy species; GGAP Phase F-light).
+/// GaAs zincblende PBE vs QE (III-V semiconductor, two heavy species; GGAP
+/// Phase F-light).
 ///
 /// QE ref (`data/qe/gaas_scf_pbe.{in,out}`, see
 /// `data/qe/reference_data.toml::gaas_zincblende_pbe`):
@@ -1520,10 +1465,7 @@ fn test_cu_fcc_pbe_vs_qe() {
 fn test_gaas_zincblende_pbe_vs_qe() {
     let crystal = fcc_crystal(
         5.653,
-        vec![
-            Atom::new(31, [0.00, 0.00, 0.00]),
-            Atom::new(33, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(31, [0.00, 0.00, 0.00]), Atom::new(33, [0.25, 0.25, 0.25])],
     );
     let pp_ga = load_pp_pbe("Ga");
     let pp_as = load_pp_pbe("As");
@@ -1532,7 +1474,7 @@ fn test_gaas_zincblende_pbe_vs_qe() {
         ecut_ry: 44.0, // matches data/qe/gaas_scf_pbe.in
         nk: 4,
         n_bands: 18,
-        xc_functional: XcFunctional::Pbe,
+        xc_functional: PredefinedXcFunctionals::Pbe,
         ..QeComparisonConfig::new(&crystal, vec![&pp_ga, &pp_as])
     };
     let result = run_qe_comparison(&cfg).expect("GaAs PBE SCF should converge");
@@ -1572,7 +1514,7 @@ fn test_nacl_rocksalt_pbe_vs_qe() {
         ecut_ry: 36.0, // matches data/qe/nacl_scf_pbe.in
         nk: 4,
         n_bands: 12,
-        xc_functional: XcFunctional::Pbe,
+        xc_functional: PredefinedXcFunctionals::Pbe,
         ..QeComparisonConfig::new(&crystal, vec![&pp_na, &pp_cl])
     };
     let result = run_qe_comparison(&cfg).expect("NaCl PBE SCF should converge");
@@ -1581,7 +1523,8 @@ fn test_nacl_rocksalt_pbe_vs_qe() {
     assert_energy_matches_qe("NaCl-PBE", &result, -123.159_525_87, 6.0);
 }
 
-/// MgO rocksalt PBE vs QE (wide-gap ionic insulator, Mg 2s/2p semicore; GGAP Phase F-light).
+/// MgO rocksalt PBE vs QE (wide-gap ionic insulator, Mg 2s/2p semicore; GGAP
+/// Phase F-light).
 ///
 /// QE ref (`data/qe/mgo_scf_pbe.{in,out}`, see
 /// `data/qe/reference_data.toml::mgo_rocksalt_pbe`):
@@ -1617,7 +1560,7 @@ fn test_mgo_rocksalt_pbe_vs_qe() {
         ecut_ry: 48.0, // matches data/qe/mgo_scf_pbe.in
         nk: 4,
         n_bands: 10,
-        xc_functional: XcFunctional::Pbe,
+        xc_functional: PredefinedXcFunctionals::Pbe,
         ..QeComparisonConfig::new(&crystal, vec![&pp_mg, &pp_o])
     };
     let result = run_qe_comparison(&cfg).expect("MgO PBE SCF should converge");

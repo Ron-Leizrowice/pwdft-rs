@@ -13,18 +13,15 @@
 //!
 //! ## How to regenerate the input density
 //!
-//! 1. Run QE Cu FCC SCF with `disk_io='medium'` (the QE input at
-//!    `data/qe/cu_fcc_scf.in` has `disk_io='low'` and does NOT
-//!    write `charge-density.dat`; copy it to `/tmp/vgch2b_cu/cu.in`,
+//! 1. Run QE Cu FCC SCF with `disk_io='medium'` (the QE input at `data/qe/cu_fcc_scf.in` has
+//!    `disk_io='low'` and does NOT write `charge-density.dat`; copy it to `/tmp/vgch2b_cu/cu.in`,
 //!    flip `disk_io` to `'medium'`, and run with the machine lock).
-//! 2. Parse the resulting `<outdir>/cu.save/charge-density.dat` with
-//!    `pwdft-validate density --verbose` → produces
-//!    `cu_rho_qe.bin` with `{mill, rho_g (e/Bohr³), b1, b2, b3}` in a
-//!    flat little-endian binary bundle (VGCH2BIN magic — chosen over
-//!    `.npz` to avoid pulling a ZIP crate into the test harness).
-//! 3. This test loads that `.bin` via a tiny inline reader and maps
-//!    the Miller-indexed density onto pwdft-core' FFT grid, converting
-//!    units (e/Bohr³ → e/Å³) at the boundary.
+//! 2. Parse the resulting `<outdir>/cu.save/charge-density.dat` with `pwdft-validate density
+//!    --verbose` → produces `cu_rho_qe.bin` with `{mill, rho_g (e/Bohr³), b1, b2, b3}` in a flat
+//!    little-endian binary bundle (VGCH2BIN magic — chosen over `.npz` to avoid pulling a ZIP crate
+//!    into the test harness).
+//! 3. This test loads that `.bin` via a tiny inline reader and maps the Miller-indexed density onto
+//!    pwdft-core' FFT grid, converting units (e/Bohr³ → e/Å³) at the boundary.
 //!
 //! The test is Tier-2 gated (TSPL) — it pulls in the full SCF context
 //! setup + per-term diagnostics on a heavy transition metal at the QE
@@ -37,23 +34,24 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
 use num_complex::Complex64;
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     kpoints,
-    pseudopotential::PseudopotentialData,
+    pseudopotential::UpfPseudoPotential,
     scf::{
+        ScfParams,
         mixing::MixingMode,
         smearing::SmearingScheme,
         transplant::{TransplantIter1Result, run_scf_iter1_from_rho_g_fft},
-        ScfParams,
     },
     symmetry::SymmetryInfo,
-};
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
 };
 
 const RY_TO_EV: f64 = 13.605_693_122_994;
@@ -84,8 +82,7 @@ struct QeDensity {
 }
 
 fn read_qe_density(path: &Path) -> QeDensity {
-    let bytes = std::fs::read(path)
-        .unwrap_or_else(|e| panic!("failed to read {path:?}: {e}"));
+    let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("failed to read {path:?}: {e}"));
     assert!(
         bytes.len() >= 8 + 4 + 1 + 4 + 4 + 72,
         "VGCH2BIN file too short ({} bytes)",
@@ -111,10 +108,7 @@ fn read_qe_density(path: &Path) -> QeDensity {
     off += 4;
     let ngm_i32 = i32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
     assert!(ngm_i32 > 0, "VGCH-2B: ngm must be positive, got {ngm_i32}");
-    #[expect(
-        clippy::cast_sign_loss,
-        reason = "assert!(ngm_i32 > 0) guards against negative cast"
-    )]
+    #[expect(clippy::cast_sign_loss, reason = "assert!(ngm_i32 > 0) guards against negative cast")]
     let ngm = ngm_i32 as usize;
     off += 4;
     // Skip b1, b2, b3 (9 doubles) — not needed by the consumer once we
@@ -122,10 +116,7 @@ fn read_qe_density(path: &Path) -> QeDensity {
     off += 9 * 8;
 
     let mill_bytes = 3 * ngm * 4;
-    assert!(
-        off + mill_bytes <= bytes.len(),
-        "truncated mill block"
-    );
+    assert!(off + mill_bytes <= bytes.len(), "truncated mill block");
     let mill: Vec<i32> = bytes[off..off + mill_bytes]
         .chunks_exact(4)
         .map(|c| i32::from_le_bytes(c.try_into().unwrap()))
@@ -133,15 +124,9 @@ fn read_qe_density(path: &Path) -> QeDensity {
     off += mill_bytes;
 
     assert!(nspin > 0, "VGCH-2B: nspin must be positive, got {nspin}");
-    #[expect(
-        clippy::cast_sign_loss,
-        reason = "assert!(nspin > 0) guards against negative cast"
-    )]
+    #[expect(clippy::cast_sign_loss, reason = "assert!(nspin > 0) guards against negative cast")]
     let rho_bytes = (nspin as usize) * ngm * 16;
-    assert!(
-        off + rho_bytes <= bytes.len(),
-        "truncated rho_g block"
-    );
+    assert!(off + rho_bytes <= bytes.len(), "truncated rho_g block");
     let rho_g: Vec<Complex64> = bytes[off..off + rho_bytes]
         .chunks_exact(16)
         .map(|c| {
@@ -175,12 +160,11 @@ fn fcc_crystal(a_ang: f64, atoms: Vec<Atom>) -> Crystal {
     }
 }
 
-fn load_pp(element: &str) -> PseudopotentialData {
+fn load_pp(element: &str) -> UpfPseudoPotential {
     let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
         .join("pseudopotentials/nc/lda")
         .join(format!("{element}.upf"));
-    pwdft_core::pseudopotential::load(&path)
-        .unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
+    UpfPseudoPotential::load(&path).unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
 }
 
 /// Map (mill_index, rho_g_qe) pairs onto pwdft-core' FFT grid.
@@ -191,12 +175,7 @@ fn load_pp(element: &str) -> PseudopotentialData {
 /// Returns a dense `Vec<Complex64>` of length `dims[0]*dims[1]*dims[2]`
 /// with zeros at every G not in the QE record — consistent with the
 /// spherical cutoff QE writes.
-fn scatter_rho_onto_fft_grid(
-    mill: &[i32],
-    rho_g_bohr3: &[Complex64],
-    dims: [usize; 3],
-    ngm: usize,
-) -> Vec<Complex64> {
+fn scatter_rho_onto_fft_grid(mill: &[i32], rho_g_bohr3: &[Complex64], dims: [usize; 3], ngm: usize) -> Vec<Complex64> {
     let total = dims[0] * dims[1] * dims[2];
     let mut rho_g_fft = vec![Complex64::new(0.0, 0.0); total];
     // Unit conversion: rho(G) in e/Bohr³ → e/Å³. Multiply by 1/BOHR_TO_ANG³.
@@ -288,13 +267,7 @@ fn test_cu_fcc_transplant_iter1() {
     let ecut_ev = 25.0 * RY_TO_EV;
     let basis = BasisSet::new(&crystal.lattice, ecut_ev);
     let nk = 8_u32;
-    let kpts = kpoints::monkhorst_pack(
-        nk,
-        nk,
-        nk,
-        kpoints::KGridShift::GammaCentered,
-        &crystal.lattice,
-    );
+    let kpts = kpoints::monkhorst_pack(nk, nk, nk, kpoints::KGridShift::GammaCentered, &crystal.lattice);
     let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
 
     let params = ScfParams {
@@ -320,18 +293,14 @@ fn test_cu_fcc_transplant_iter1() {
 
     let dims = params.fft_grid.expect("explicit dims pinned above");
     let omega = crystal.lattice.volume();
-    eprintln!(
-        "  [Cu transplant] FFT dims = {dims:?}, ngm_qe = {ngm}, Ω = {omega:.3} Å³"
-    );
+    eprintln!("  [Cu transplant] FFT dims = {dims:?}, ngm_qe = {ngm}, Ω = {omega:.3} Å³");
 
     // Map QE's rho_g (e/Bohr³) onto pwdft-core' FFT grid (e/Å³).
     let rho_g_fft = scatter_rho_onto_fft_grid(mill, rho_g_qe, dims, ngm);
 
     // Sanity: ρ(G=0) · Ω ≈ N_el (= 19 for Cu).
     let n_el_est = integrated_charge(&rho_g_fft, omega, dims);
-    eprintln!(
-        "  [Cu transplant] ρ(G=0) · Ω = {n_el_est:.4} (expected 19.0 for Cu)"
-    );
+    eprintln!("  [Cu transplant] ρ(G=0) · Ω = {n_el_est:.4} (expected 19.0 for Cu)");
     assert!(
         (n_el_est - 19.0).abs() < 0.01,
         "transplanted ρ(G=0) integrates to {n_el_est}, expected 19.0 — \
@@ -339,10 +308,9 @@ fn test_cu_fcc_transplant_iter1() {
     );
 
     // Run iter-1 from the transplant.
-    let result: TransplantIter1Result = run_scf_iter1_from_rho_g_fft(
-        &crystal, &basis, &kpts, &[&pp_cu], &params, &symmetry, &rho_g_fft,
-    )
-    .unwrap_or_else(|e| panic!("transplant iter-1 failed: {e}"));
+    let result: TransplantIter1Result =
+        run_scf_iter1_from_rho_g_fft(&crystal, &basis, &kpts, &[&pp_cu], &params, &symmetry, &rho_g_fft)
+            .unwrap_or_else(|e| panic!("transplant iter-1 failed: {e}"));
 
     // --- Side-by-side print ---
     let c = &result.components;
@@ -360,7 +328,9 @@ fn test_cu_fcc_transplant_iter1() {
     );
     eprintln!(
         "  {:<20}  {:>14.6}  {:>14.6}  {:>+14.6}",
-        "one-electron", ours_one_electron, qe_one_e_ev,
+        "one-electron",
+        ours_one_electron,
+        qe_one_e_ev,
         ours_one_electron - qe_one_e_ev
     );
     // Breakdown of one-electron = kinetic + local(G≠0) + G=0 shift + nonlocal.
@@ -377,29 +347,34 @@ fn test_cu_fcc_transplant_iter1() {
     );
     eprintln!(
         "  {:<20}  {:>14.6}  {:>14.6}  {:>+14.6}",
-        "Hartree", c.e_hartree, qe_hartree_ev, c.e_hartree - qe_hartree_ev
+        "Hartree",
+        c.e_hartree,
+        qe_hartree_ev,
+        c.e_hartree - qe_hartree_ev
     );
     eprintln!(
         "  {:<20}  {:>14.6}  {:>14.6}  {:>+14.6}",
-        "XC (bare)", c.e_xc, qe_xc_ev, c.e_xc - qe_xc_ev
+        "XC (bare)",
+        c.e_xc,
+        qe_xc_ev,
+        c.e_xc - qe_xc_ev
     );
     eprintln!(
         "  {:<20}  {:>14.6}  {:>14.6}  {:>+14.6}",
-        "Ewald", c.e_ewald, qe_ewald_ev, c.e_ewald - qe_ewald_ev
+        "Ewald",
+        c.e_ewald,
+        qe_ewald_ev,
+        c.e_ewald - qe_ewald_ev
     );
     eprintln!(
         "  {:<20}  {:>14.6}  {:>14.6}  {:>+14.6}",
-        "Total (E_KS)", result.total_energy, qe_total_ev,
+        "Total (E_KS)",
+        result.total_energy,
+        qe_total_ev,
         result.total_energy - qe_total_ev
     );
-    eprintln!(
-        "  {:<20}  {:>14.6}",
-        "Fermi (iter1)", result.fermi_energy
-    );
-    eprintln!(
-        "  {:<20}  {:>14.6e}",
-        "Δρ (iter in-out)", result.delta_rho
-    );
+    eprintln!("  {:<20}  {:>14.6}", "Fermi (iter1)", result.fermi_energy);
+    eprintln!("  {:<20}  {:>14.6e}", "Δρ (iter in-out)", result.delta_rho);
     eprintln!(
         "  E_HF = {:.6} eV, |E_HF − E_KS| = {:.6} eV",
         result.harris_foulkes_energy,
@@ -413,14 +388,8 @@ fn test_cu_fcc_transplant_iter1() {
     // built on ρ_out — so the gap is O(‖Δρ‖²) and can be large. We print
     // the mismatch as a diagnostic but do NOT assert — the PCFX
     // converged-only invariant is not applicable here.
-    let e_sum = c.e_kinetic
-        + c.e_local
-        + c.e_local_g0_shift
-        + c.e_nonlocal
-        + c.e_hartree
-        + c.e_xc
-        + c.e_ewald
-        + c.e_smearing;
+    let e_sum =
+        c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal + c.e_hartree + c.e_xc + c.e_ewald + c.e_smearing;
     let sum_err = e_sum - result.total_energy;
     eprintln!(
         "  [diagnostic: Σ − E_total at iter-1 = {sum_err:.3e} eV; expected non-zero \

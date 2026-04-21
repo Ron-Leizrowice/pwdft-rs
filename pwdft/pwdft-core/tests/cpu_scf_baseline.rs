@@ -25,10 +25,10 @@
 )]
 
 use nalgebra::Vector3;
-
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
+    pseudopotential::UpfPseudoPotential,
 };
 
 // ---------------------------------------------------------------------------
@@ -54,10 +54,7 @@ fn si_crystal() -> Crystal {
             a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
             a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
         ),
-        atoms: vec![
-            Atom::new(14, [0.0, 0.0, 0.0]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
     }
 }
 
@@ -110,9 +107,8 @@ fn si_scf_params() -> pwdft_core::scf::ScfParams {
 fn test_cpu_scf_baseline_convergence() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
-    let pp = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf"),
+    let pp = UpfPseudoPotential::load(
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
     let kpoints = vec![pwdft_core::kpoints::KPoint {
@@ -126,7 +122,7 @@ fn test_cpu_scf_baseline_convergence() {
         &crystal,
         &basis,
         &kpoints,
-        &[&pp],
+        &pp,
         &params,
         &pwdft_core::symmetry::SymmetryInfo::identity_only(),
     )

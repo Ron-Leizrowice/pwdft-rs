@@ -2,25 +2,21 @@
 //!
 //! Four mixing algorithms are available:
 //!
-//! - **Anderson (Pulay/DIIS):** finds the optimal linear combination of past
-//!   residuals to minimize the residual norm. Default method.
+//! - **Anderson (Pulay/DIIS):** finds the optimal linear combination of past residuals to minimize
+//!   the residual norm. Default method.
 //!
-//! - **Modified Broyden (Johnson PRB 38, 12807):** builds an approximate inverse
-//!   Jacobian from the history of density residuals. Same algorithm as QE's
-//!   `mix_rho.f90` and VASP's IMIX=4. Often converges faster for difficult
-//!   systems (metals, large cells, charge sloshing).
+//! - **Modified Broyden (Johnson PRB 38, 12807):** builds an approximate inverse Jacobian from the
+//!   history of density residuals. Same algorithm as QE's `mix_rho.f90` and VASP's IMIX=4. Often
+//!   converges faster for difficult systems (metals, large cells, charge sloshing).
 //!
-//! - **Periodic Pulay (Banerjee, Suryanarayana, Pask, JCTC 12, 3053 (2016)):**
-//!   plain linear mixing on every iteration *except* every k-th, where
-//!   Anderson/DIIS extrapolation is performed using the accumulated history.
-//!   Avoids divergence on early iterations (when history is too short for DIIS
-//!   to be reliable) while still getting the acceleration on later iterations.
-//!   Paper reports 30–50% iteration-count reduction on transition-metal-oxide
-//!   cases versus continuous Anderson.
+//! - **Periodic Pulay (Banerjee, Suryanarayana, Pask, JCTC 12, 3053 (2016)):** plain linear mixing
+//!   on every iteration *except* every k-th, where Anderson/DIIS extrapolation is performed using
+//!   the accumulated history. Avoids divergence on early iterations (when history is too short for
+//!   DIIS to be reliable) while still getting the acceleration on later iterations. Paper reports
+//!   30–50% iteration-count reduction on transition-metal-oxide cases versus continuous Anderson.
 //!
-//! - **Kerker preconditioning:** can be combined with Anderson, Broyden, or
-//!   Periodic Pulay. Damps long-wavelength density residuals to prevent charge
-//!   sloshing: P(G) = |G|² / (|G|² + q_TF²).
+//! - **Kerker preconditioning:** can be combined with Anderson, Broyden, or Periodic Pulay. Damps
+//!   long-wavelength density residuals to prevent charge sloshing: P(G) = |G|² / (|G|² + q_TF²).
 //!
 //! Use `Mixer` as the unified interface — it dispatches to the right algorithm
 //! based on [`MixingMode`].
@@ -32,11 +28,10 @@
 //! parameter β between iterations based on the ratio of successive residual
 //! norms:
 //!
-//! - If `‖R_i‖ / ‖R_{i-1}‖ > growth_threshold` (residual grew): damp
-//!   `β ← max(β · damp_factor, β_min)`.
-//! - If the ratio is `< restore_threshold` for `restore_window` consecutive
-//!   iterations (steady convergence): restore
-//!   `β ← min(β / damp_factor, β_start)` toward the user-configured start.
+//! - If `‖R_i‖ / ‖R_{i-1}‖ > growth_threshold` (residual grew): damp `β ← max(β · damp_factor,
+//!   β_min)`.
+//! - If the ratio is `< restore_threshold` for `restore_window` consecutive iterations (steady
+//!   convergence): restore `β ← min(β / damp_factor, β_start)` toward the user-configured start.
 //! - Otherwise: β unchanged (hysteresis band).
 //!
 //! Defaults: `growth_threshold = 1.2`, `damp_factor = 0.7`,
@@ -52,10 +47,10 @@ mod broyden;
 mod kerker;
 mod linalg;
 
-use crate::fft::FFT3D;
-
 use anderson::{AndersonMixer, PeriodicPulayMixer};
 use broyden::BroydenMixer;
+
+use crate::fft::FFT3D;
 
 /// Parameters needed to build Kerker-preconditioning weights.
 ///
@@ -201,8 +196,9 @@ pub enum MixingMode {
     /// on C diamond (see `tests/mixer_robustness.rs`).
     #[default]
     Plain,
-    /// Kerker preconditioning with Thomas-Fermi screening wavevector q_TF (Å⁻¹).
-    /// If q_TF is None, it is auto-estimated from the average electron density.
+    /// Kerker preconditioning with Thomas-Fermi screening wavevector q_TF
+    /// (Å⁻¹). If q_TF is None, it is auto-estimated from the average
+    /// electron density.
     Kerker { q_tf: Option<f64> },
     /// Modified Broyden mixing (Johnson PRB 38, 12807, 1988).
     ///
@@ -232,7 +228,8 @@ pub enum MixingMode {
 /// Unified mixer that dispatches to Anderson, Broyden, or Periodic Pulay
 /// based on `MixingMode`.
 ///
-/// This avoids the need for a trait object or generic parameter in the SCF loop.
+/// This avoids the need for a trait object or generic parameter in the SCF
+/// loop.
 pub(crate) enum Mixer {
     Anderson(AndersonMixer),
     Broyden(BroydenMixer),
@@ -260,20 +257,12 @@ impl Mixer {
             omega,
         };
         match mode {
-            MixingMode::Plain | MixingMode::Kerker { .. } => Mixer::Anderson(AndersonMixer::new(
-                beta,
-                max_history,
-                mode,
-                kerker,
-                adaptive_beta,
-            )),
-            MixingMode::Broyden { kerker: use_kerker } => Mixer::Broyden(BroydenMixer::new(
-                beta,
-                max_history,
-                *use_kerker,
-                kerker,
-                adaptive_beta,
-            )),
+            MixingMode::Plain | MixingMode::Kerker { .. } => {
+                Mixer::Anderson(AndersonMixer::new(beta, max_history, mode, kerker, adaptive_beta))
+            },
+            MixingMode::Broyden { kerker: use_kerker } => {
+                Mixer::Broyden(BroydenMixer::new(beta, max_history, *use_kerker, kerker, adaptive_beta))
+            },
             MixingMode::PeriodicPulay {
                 period,
                 kerker: use_kerker,
@@ -327,13 +316,7 @@ impl Mixer {
     /// is constructed. Callers may pass a short `tag` (e.g. `"charge"` /
     /// `"magnetization"`) to distinguish the two mixers of the spin driver
     /// in the log; empty string for a single-channel run.
-    pub(crate) fn log_init(
-        &self,
-        mode: &MixingMode,
-        max_history: usize,
-        adaptive: bool,
-        tag: &str,
-    ) {
+    pub(crate) fn log_init(&self, mode: &MixingMode, max_history: usize, adaptive: bool, tag: &str) {
         let prefix = if tag.is_empty() {
             "Mixer".to_string()
         } else {
@@ -362,10 +345,10 @@ fn mode_label(mode: &MixingMode) -> String {
         MixingMode::Broyden { kerker: true } => "Broyden + Kerker".to_string(),
         MixingMode::PeriodicPulay { period, kerker: false } => {
             format!("PeriodicPulay(k={period})")
-        }
+        },
         MixingMode::PeriodicPulay { period, kerker: true } => {
             format!("PeriodicPulay(k={period}) + Kerker")
-        }
+        },
     }
 }
 
@@ -390,7 +373,7 @@ fn kerker_summary(q_tf: Option<anderson::KerkerQtf>, wants: bool) -> String {
         (Some(k), _) => {
             let origin = if k.user_supplied { "user" } else { "auto" };
             format!("on (q_TF={origin}, {q:.3} Å⁻¹)", q = k.q_tf)
-        }
+        },
     }
 }
 
@@ -518,19 +501,19 @@ mod adaptive_beta_tests {
         let mut ab = AdaptiveBeta::new(true, beta_start);
         let mut beta = beta_start;
 
-        beta = ab.update(1.0, beta);     // seed
-        beta = ab.update(2.0, beta);     // ratio 2.0 > 1.2 → damp
+        beta = ab.update(1.0, beta); // seed
+        beta = ab.update(2.0, beta); // ratio 2.0 > 1.2 → damp
         assert!((beta - (beta_start * damp)).abs() < 1e-12);
-        beta = ab.update(4.0, beta);     // ratio 2.0 > 1.2 → damp again
+        beta = ab.update(4.0, beta); // ratio 2.0 > 1.2 → damp again
         let after_two_damps = beta_start * damp * damp;
         assert!((beta - after_two_damps).abs() < 1e-12);
 
         // Now three strong decreases.
-        beta = ab.update(0.4, beta);     // ratio 0.1, streak=1
+        beta = ab.update(0.4, beta); // ratio 0.1, streak=1
         assert!((beta - after_two_damps).abs() < 1e-12);
-        beta = ab.update(0.04, beta);    // ratio 0.1, streak=2
+        beta = ab.update(0.04, beta); // ratio 0.1, streak=2
         assert!((beta - after_two_damps).abs() < 1e-12);
-        beta = ab.update(0.004, beta);   // ratio 0.1, streak=3 → restore
+        beta = ab.update(0.004, beta); // ratio 0.1, streak=3 → restore
         let expected = (after_two_damps / damp).min(beta_start);
         assert!(
             (beta - expected).abs() < 1e-12,
@@ -669,8 +652,7 @@ mod adaptive_beta_tests {
         // mixer_ref: adaptive off, driven through several iterations.
         let mut ref_mixer = Mixer::new(0.3, 4, &MixingMode::Plain, None, 8.0, 40.0, false);
         let mut twin_mixer = Mixer::new(0.3, 4, &MixingMode::Plain, None, 8.0, 40.0, false);
-        let mut rho_ref: Vec<f64> =
-            (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
+        let mut rho_ref: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
         let mut rho_twin = rho_ref.clone();
 
         for iter in 1..=6 {
@@ -688,10 +670,7 @@ mod adaptive_beta_tests {
             let new_ref = ref_mixer.mix(&rho_ref, &rho_out_ref, &mut fft_off);
             let new_twin = twin_mixer.mix(&rho_twin, &rho_out_twin, &mut fft_on_then_off);
             for (k, (&a, &b)) in new_ref.iter().zip(new_twin.iter()).enumerate() {
-                assert!(
-                    (a - b).abs() < 1e-15,
-                    "iter {iter} elem {k}: backward-compat diverged"
-                );
+                assert!((a - b).abs() < 1e-15, "iter {iter} elem {k}: backward-compat diverged");
             }
             rho_ref = new_ref;
             rho_twin = new_twin;

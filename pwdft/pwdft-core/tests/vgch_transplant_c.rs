@@ -19,23 +19,24 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
 use num_complex::Complex64;
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     kpoints,
-    pseudopotential::PseudopotentialData,
+    pseudopotential::UpfPseudoPotential,
     scf::{
+        ScfParams,
         mixing::MixingMode,
         smearing::SmearingScheme,
         transplant::{TransplantIter1Result, run_scf_iter1_from_rho_g_fft},
-        ScfParams,
     },
     symmetry::SymmetryInfo,
-};
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
 };
 
 const RY_TO_EV: f64 = 13.605_693_122_994;
@@ -53,8 +54,7 @@ struct QeDensity {
 }
 
 fn read_qe_density(path: &Path) -> QeDensity {
-    let bytes = std::fs::read(path)
-        .unwrap_or_else(|e| panic!("failed to read {path:?}: {e}"));
+    let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("failed to read {path:?}: {e}"));
     assert!(
         bytes.len() >= 8 + 4 + 1 + 4 + 4 + 72,
         "VGCH2BIN file too short ({} bytes)",
@@ -71,18 +71,12 @@ fn read_qe_density(path: &Path) -> QeDensity {
     assert_eq!(version, 1, "unsupported VGCH2BIN version {version}");
     let gamma_only = bytes[off] != 0;
     off += 1;
-    assert!(
-        !gamma_only,
-        "VGCH-2E: gamma_only=True densities are not supported"
-    );
+    assert!(!gamma_only, "VGCH-2E: gamma_only=True densities are not supported");
     let nspin = i32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
     off += 4;
     let ngm_i32 = i32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
     assert!(ngm_i32 > 0, "VGCH-2E: ngm must be positive, got {ngm_i32}");
-    #[expect(
-        clippy::cast_sign_loss,
-        reason = "assert!(ngm_i32 > 0) guards against negative cast"
-    )]
+    #[expect(clippy::cast_sign_loss, reason = "assert!(ngm_i32 > 0) guards against negative cast")]
     let ngm = ngm_i32 as usize;
     off += 4;
     off += 9 * 8; // skip b1..b3
@@ -96,10 +90,7 @@ fn read_qe_density(path: &Path) -> QeDensity {
     off += mill_bytes;
 
     assert!(nspin > 0, "VGCH-2E: nspin must be positive, got {nspin}");
-    #[expect(
-        clippy::cast_sign_loss,
-        reason = "assert!(nspin > 0) guards against negative cast"
-    )]
+    #[expect(clippy::cast_sign_loss, reason = "assert!(nspin > 0) guards against negative cast")]
     let rho_bytes = (nspin as usize) * ngm * 16;
     assert!(off + rho_bytes <= bytes.len(), "truncated rho_g block");
     let rho_g: Vec<Complex64> = bytes[off..off + rho_bytes]
@@ -131,20 +122,7 @@ fn fcc_crystal(a_ang: f64, atoms: Vec<Atom>) -> Crystal {
     }
 }
 
-fn load_pp(element: &str) -> PseudopotentialData {
-    let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-        .join("pseudopotentials/nc/lda")
-        .join(format!("{element}.upf"));
-    pwdft_core::pseudopotential::load(&path)
-        .unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
-}
-
-fn scatter_rho_onto_fft_grid(
-    mill: &[i32],
-    rho_g_bohr3: &[Complex64],
-    dims: [usize; 3],
-    ngm: usize,
-) -> Vec<Complex64> {
+fn scatter_rho_onto_fft_grid(mill: &[i32], rho_g_bohr3: &[Complex64], dims: [usize; 3], ngm: usize) -> Vec<Complex64> {
     let total = dims[0] * dims[1] * dims[2];
     let mut rho_g_fft = vec![Complex64::new(0.0, 0.0); total];
     let unit_scale = 1.0 / BOHR3_TO_ANG3;
@@ -219,22 +197,13 @@ fn test_c_diamond_transplant_iter1() {
     // Mirror `tests/qe_validation.rs::test_c_diamond_vs_qe` geometry.
     let crystal = fcc_crystal(
         3.567,
-        vec![
-            Atom::new(6, [0.00, 0.00, 0.00]),
-            Atom::new(6, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(6, [0.00, 0.00, 0.00]), Atom::new(6, [0.25, 0.25, 0.25])],
     );
     let pp_c = load_pp("C");
     let ecut_ev = 30.0 * RY_TO_EV;
     let basis = BasisSet::new(&crystal.lattice, ecut_ev);
     let nk = 4_u32;
-    let kpts = kpoints::monkhorst_pack(
-        nk,
-        nk,
-        nk,
-        kpoints::KGridShift::GammaCentered,
-        &crystal.lattice,
-    );
+    let kpts = kpoints::monkhorst_pack(nk, nk, nk, kpoints::KGridShift::GammaCentered, &crystal.lattice);
     let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
 
     let params = ScfParams {
@@ -258,26 +227,21 @@ fn test_c_diamond_transplant_iter1() {
 
     let dims = params.fft_grid.expect("explicit dims pinned above");
     let omega = crystal.lattice.volume();
-    eprintln!(
-        "  [C transplant] FFT dims = {dims:?}, ngm_qe = {ngm}, Ω = {omega:.3} Å³"
-    );
+    eprintln!("  [C transplant] FFT dims = {dims:?}, ngm_qe = {ngm}, Ω = {omega:.3} Å³");
 
     let rho_g_fft = scatter_rho_onto_fft_grid(mill, rho_g_qe, dims, ngm);
 
     let n_el_est = integrated_charge(&rho_g_fft, omega);
-    eprintln!(
-        "  [C transplant] ρ(G=0) · Ω = {n_el_est:.4} (expected 8.0 for C diamond)"
-    );
+    eprintln!("  [C transplant] ρ(G=0) · Ω = {n_el_est:.4} (expected 8.0 for C diamond)");
     assert!(
         (n_el_est - 8.0).abs() < 0.01,
         "transplanted ρ(G=0) integrates to {n_el_est}, expected 8.0 — \
          units or Miller-index mapping broken"
     );
 
-    let result: TransplantIter1Result = run_scf_iter1_from_rho_g_fft(
-        &crystal, &basis, &kpts, &[&pp_c], &params, &symmetry, &rho_g_fft,
-    )
-    .unwrap_or_else(|e| panic!("transplant iter-1 failed: {e}"));
+    let result: TransplantIter1Result =
+        run_scf_iter1_from_rho_g_fft(&crystal, &basis, &kpts, &[&pp_c], &params, &symmetry, &rho_g_fft)
+            .unwrap_or_else(|e| panic!("transplant iter-1 failed: {e}"));
 
     let c = &result.components;
     let ours_one_electron = c.e_kinetic + c.e_local + c.e_local_g0_shift + c.e_nonlocal;
@@ -331,10 +295,7 @@ fn test_c_diamond_transplant_iter1() {
         qe_total_ev,
         result.total_energy - qe_total_ev
     );
-    eprintln!(
-        "  {:<20}  {:>14.6}",
-        "Fermi (iter1)", result.fermi_energy
-    );
+    eprintln!("  {:<20}  {:>14.6}", "Fermi (iter1)", result.fermi_energy);
     eprintln!("  {:<20}  {:>14.6e}", "Δρ (iter in-out)", result.delta_rho);
     eprintln!(
         "  E_HF = {:.6} eV, |E_HF − E_KS| = {:.6} eV",

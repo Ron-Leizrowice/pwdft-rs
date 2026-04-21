@@ -1,5 +1,6 @@
 [workspace]
 resolver = "3"
+
 members = [
     "pwdft/pwdft-core",
     "pwdft/faer/faer",
@@ -13,54 +14,48 @@ exclude = [
 ]
 
 [workspace.dependencies]
+# Local path overrides for the vendored faer library
 faer = { path = "pwdft/faer/faer" }
 faer-traits = { path = "pwdft/faer/faer-traits" }
 
 [workspace.lints.clippy]
-# Performance
-needless_pass_by_value = "warn"
-cloned_instead_of_copied = "warn"
-# --- Code Quality  ---
-uninlined_format_args = "warn"
-redundant_closure = "warn"
-unreadable_literal = "warn"
-manual_let_else = "warn"
-doc_link_with_quotes = "warn"
-explicit_iter_loop = "warn"
-implicit_clone = "warn"
-inefficient_to_string = "warn"
-items_after_statements = "warn"
-manual_div_ceil = "warn"
-manual_midpoint = "warn"
-match_same_arms = "warn"
-redundant_clone = "warn"
-semicolon_if_nothing_returned = "warn"
-unnecessary_box_returns = "warn"
-unnecessary_wraps = "warn"
-# --- Numerical correctness ---
-float_cmp = "warn"
-cast_possible_truncation = "warn"
-cast_possible_wrap = "warn"
-cast_sign_loss = "warn"
-cast_lossless = "warn"
-# --- panic-family enforcement in production code ---
-unwrap_used = "warn"
-panic = "warn"
-missing_errors_doc = "warn"
-missing_panics_doc = "warn"
+# --- Performance ---
+needless_pass_by_value = "warn"   # Avoids moving large types (like big structs) into functions
+cloned_instead_of_copied = "warn" # Encourages Copy for small types (f64, i32) instead of Clone
+inefficient_to_string = "warn"    # Prevents unnecessary heap allocations for string conversions
+
+# --- Numerical Correctness ---
+float_cmp = "warn"                # Error-prone: directly comparing floats (use epsilon checks)
+cast_possible_truncation = "warn" # Critical: caught when f64 -> f32 or i64 -> i32
+cast_possible_wrap = "warn"       # Alerts when casting might overflow (i32 -> i16)
+cast_sign_loss = "warn"           # Alerts when u32 -> i32 might lose the sign
+cast_lossless = "warn"            # Suggests using .into() for safe upward casts
+
+# --- Safety & Documentation ---
+unwrap_used = "warn"              # Discourages panics; use .expect() or Result handling
+panic = "warn"                    # Highlights explicit panic calls
+missing_errors_doc = "warn"       # Requires documentation for functions returning Result
+missing_panics_doc = "warn"       # Requires documentation if a function can panic
+
+# --- Code Quality ---
+unreadable_literal = "warn"       # Forces underscores in numbers: 1_000_000.0 instead of 1000000.0
+uninlined_format_args = "warn"    # Modern style: format!("{var}") instead of format!("{}", var)
+redundant_closure = "warn"        # Simplifies .map(|x| foo(x)) to .map(foo)
+manual_let_else = "warn"          # Encourages cleaner guard patterns
+match_same_arms = "warn"          # Catches logic duplication in match statements
+items_after_statements = "warn"   # Keeps code layout clean (functions/structs before logic)
 
 [profile.release]
 opt-level = 3
-lto = "thin"
-# Fat LTO evaluation is tracked in proposals/LTOB-fat-lto-benchmark.md.
+lto = "thin"                      # High performance with reasonable link times on macOS
 
-# All dependencies compile at O3 in dev builds. The local crates
-# stay at the dev default opt-level=0 for fast incremental rebuilds.
 [profile.dev.package."*"]
+# Dependencies are always fast, even in debug mode.
+# Keeps FFTs and Linear Algebra usable during testing.
 opt-level = 3
 
-# local crates are compiled at O3 under the test profile.
 [profile.test]
+# Ensures the physics logic is tested at full speed.
 opt-level = 3
 
 [profile.test.package."*"]

@@ -31,9 +31,6 @@ scf:
   # mixing_mode: periodic_pulay
   # pulay_period: 3
 
-pseudopotentials:
-  Si: "../pseudopotentials/nc/lda/Si.upf"
-
 # Optional: initial-density (SAD) knobs (CFGN Phase 1). The Gaussian
 # model-charge width (Å) controls the starting guess when a pseudopotential
 # lacks PP_RHOATOM. The SCF refines the initial guess away in the first few

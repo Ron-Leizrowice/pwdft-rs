@@ -41,18 +41,17 @@
 //! in H_NL, and the block-diagonal structure of D forces `l_α = l_β`, so the
 //! combined phase is 1. We omit it from B entirely.
 
-use faer::Mat;
-use faer::linalg::matmul::matmul;
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    f64::consts::PI,
+};
+
+use elements_rs::Element;
+use faer::{Mat, linalg::matmul::matmul};
 use nalgebra::Vector3;
 use num_complex::Complex64;
-use std::f64::consts::PI;
 
-use crate::{
-    basis::BasisSet,
-    crystal::Crystal,
-    error::{PwdftError, Result},
-    pseudopotential::PseudopotentialData,
-};
+use crate::{basis::BasisSet, crystal::Crystal, error::Result, pseudopotential::UpfPseudoPotential};
 
 /// Precomputed Kleinman-Bylander non-local pseudopotential data at a
 /// single k-point.
@@ -112,8 +111,8 @@ pub struct NonlocalPotential {
     /// Number of plane waves at this k-point (rows of B).
     n_pw: usize,
     /// Expanded KB projector matrix:
-    ///   B[G, α] = (1/√Ω) · exp(−iG·τ_α) · F_{i_α}(|k+G|) · Y_{l_α m_α}(q̂_{k+G})
-    /// indexed as B[ig, channel]. Size n_pw × n_channels.
+    ///   B[G, α] = (1/√Ω) · exp(−iG·τ_α) · F_{i_α}(|k+G|) · Y_{l_α
+    /// m_α}(q̂_{k+G}) indexed as B[ig, channel]. Size n_pw × n_channels.
     b: Mat<Complex64>,
     /// Pre-applied operator D · B^H of shape n_channels × n_pw.
     ///
@@ -162,20 +161,16 @@ impl NonlocalPotential {
     /// `D·B^H` (see [`NonlocalPotential`] for the full identity).
     ///
     /// Arguments (units):
-    /// - `crystal`: atomic geometry; `τ_α` read via
-    ///   `Atom::cart_position` (Å);
-    /// - `basis`: plane-wave basis at this k-point; `G` ranges over
-    ///   `basis.g_vectors()` (1/Å);
+    /// - `crystal`: atomic geometry; `τ_α` read via `Atom::cart_position` (Å);
+    /// - `basis`: plane-wave basis at this k-point; `G` ranges over `basis.g_vectors()` (1/Å);
     /// - `k`: crystal momentum (1/Å);
-    /// - `pseudopotentials`: borrowed slice of
-    ///   [`PseudopotentialData`]; each atom's `z` is looked up via
-    ///   [`crate::pseudopotential::find_for_atom`]; `D^{(α)}_{ij}` in
-    ///   eV, radial grid and projectors in Å / Å^{−1/2}.
+    /// - `pseudopotentials`: borrowed slice of [`PseudopotentialData`]; each atom's `z` is looked
+    ///   up via [`crate::pseudopotential::find_for_atom`]; `D^{(α)}_{ij}` in eV, radial grid and
+    ///   projectors in Å / Å^{−1/2}.
     ///
     /// Invariants:
-    /// - Every projector's angular-momentum quantum number `l` must
-    ///   satisfy `l >= 0`; a runtime `assert!` turns a negative `l`
-    ///   (malformed UPF) into a clean panic before it becomes an
+    /// - Every projector's angular-momentum quantum number `l` must satisfy `l >= 0`; a runtime
+    ///   `assert!` turns a negative `l` (malformed UPF) into a clean panic before it becomes an
     ///   unsigned-wrap allocation bug.
     ///
     /// Reference: Kleinman & Bylander, *Phys. Rev. Lett.* **48**, 1425
@@ -196,7 +191,7 @@ impl NonlocalPotential {
         crystal: &Crystal,
         basis: &BasisSet,
         k: &Vector3<f64>,
-        pseudopotentials: &[&PseudopotentialData],
+        pseudopotentials: &HashMap<Element, UpfPseudoPotential>,
     ) -> Result<Self> {
         let n_pw = basis.len();
         let omega = crystal.lattice.volume();
@@ -216,7 +211,7 @@ impl NonlocalPotential {
         // negative `l` would silently blow up an allocation via sign-loss;
         // we assert here to turn it into a clean panic.
         let mut lmax: i32 = 0;
-        for pp in pseudopotentials {
+        for pp in pseudopotentials.values() {
             for proj in &pp.beta_projectors {
                 assert!(
                     proj.l >= 0,
@@ -243,10 +238,7 @@ impl NonlocalPotential {
             .iter()
             .map(|atom| {
                 let tau = atom.cart_position(&crystal.lattice);
-                g_vecs
-                    .iter()
-                    .map(|g| Complex64::cis(-g.dot(&tau)))
-                    .collect()
+                g_vecs.iter().map(|g| Complex64::cis(-g.dot(&tau))).collect()
             })
             .collect();
 
@@ -260,18 +252,12 @@ impl NonlocalPotential {
         let mut n_proj_by_atom: Vec<usize> = Vec::with_capacity(crystal.atoms.len());
 
         // Cache F_i(q) per *type* so atoms of the same element reuse the table.
-        let mut type_ff: std::collections::HashMap<u32, TypeCache> =
-            std::collections::HashMap::new();
+        let mut type_ff: std::collections::HashMap<u8, TypeCache> = std::collections::HashMap::new();
 
         for atom in &crystal.atoms {
             let z = atom.z;
-            if let std::collections::hash_map::Entry::Vacant(e) = type_ff.entry(z) {
-                let pp = crate::pseudopotential::find_for_atom(z, pseudopotentials)
-                    .ok_or_else(|| {
-                        PwdftError::MissingPseudopotential(format!(
-                            "Z={z} not found in loaded pseudopotentials"
-                        ))
-                    })?;
+            if let Entry::Vacant(e) = type_ff.entry(z) {
+                let pp = pseudopotentials.get(&atom.symbol).expect("BUG: Missing PP");
                 let mut ff: Vec<Vec<f64>> = Vec::with_capacity(pp.beta_projectors.len());
                 let mut ls: Vec<i32> = Vec::with_capacity(pp.beta_projectors.len());
                 for proj in &pp.beta_projectors {
@@ -279,13 +265,7 @@ impl NonlocalPotential {
                     ls.push(l);
                     let mut fi = Vec::with_capacity(n_pw);
                     for &q in &q_norms {
-                        fi.push(bessel_transform_projector(
-                            &pp.r_grid,
-                            &pp.rab,
-                            &proj.values,
-                            l,
-                            q,
-                        ));
+                        fi.push(bessel_transform_projector(&pp.r_grid, &pp.rab, &proj.values, l, q));
                     }
                     ff.push(fi);
                 }
@@ -326,7 +306,8 @@ impl NonlocalPotential {
         }
 
         // Build the expanded B matrix.
-        //   B[G, α] = (1/√Ω) · e^{-iG·τ_a(α)} · F_{i(α)}(|k+G|) · Y_{l(α) m(α)}(q̂_{k+G})
+        //   B[G, α] = (1/√Ω) · e^{-iG·τ_a(α)} · F_{i(α)}(|k+G|) · Y_{l(α)
+        // m(α)}(q̂_{k+G})
         let mut b: Mat<Complex64> = Mat::zeros(n_pw, n_channels);
         for (iatom, atom_phase) in atom_phases.iter().enumerate() {
             let ls = &proj_l_by_atom[iatom];
@@ -431,20 +412,16 @@ impl NonlocalPotential {
     /// normal matrix-matrix product without any explicit angular sum.
     ///
     /// Arguments:
-    /// - `h`: target Kohn-Sham Hamiltonian matrix. Size
-    ///   `n_pw × n_pw` (checked by `debug_assert!`); all matrix
-    ///   entries are in eV.
-    /// - `_crystal`, `_basis`, `_k`: kept for API compatibility with
-    ///   callers written against the pre-VNLM signature. The heavy
-    ///   lifting — structure factors, form factors, `(B, D·B^H)`
-    ///   assembly — was done at construction time, so these arguments
-    ///   are unused.
+    /// - `h`: target Kohn-Sham Hamiltonian matrix. Size `n_pw × n_pw` (checked by `debug_assert!`);
+    ///   all matrix entries are in eV.
+    /// - `_crystal`, `_basis`, `_k`: kept for API compatibility with callers written against the
+    ///   pre-VNLM signature. The heavy lifting — structure factors, form factors, `(B, D·B^H)`
+    ///   assembly — was done at construction time, so these arguments are unused.
     ///
     /// Preconditions:
     /// - `h.nrows() == h.ncols() == self.n_pw` (debug-asserted).
-    /// - Caller is responsible for ensuring `h` was constructed at the
-    ///   same k-point as `self`; the k-point is baked into `B` via the
-    ///   `q = k + G` form factors and spherical harmonics.
+    /// - Caller is responsible for ensuring `h` was constructed at the same k-point as `self`; the
+    ///   k-point is baked into `B` via the `q = k + G` form factors and spherical harmonics.
     ///
     /// Cost: O(n_pw² · n_channels) through a single `faer::matmul` in
     /// sequential mode. Cache-friendly; on Apple M2 ~10× faster than
@@ -479,8 +456,8 @@ impl NonlocalPotential {
 ///
 /// Algorithm:
 ///   1. Compute cos θ, sin θ, φ from the direction of q.
-///   2. Build Q(l, m) := sqrt((l−m)! / (l+m)!) · P_l^m(cos θ) for 0 ≤ m ≤ l
-///      using the standard associated-Legendre recurrence.
+///   2. Build Q(l, m) := sqrt((l−m)! / (l+m)!) · P_l^m(cos θ) for 0 ≤ m ≤ l using the standard
+///      associated-Legendre recurrence.
 ///   3. Multiply by the normalization and cos(mφ) / sin(mφ) for real harmonics.
 ///
 /// At |q| = 0, q̂ is undefined; we set Y_lm = 0 for l > 0 (physical: F_i(0) = 0
@@ -553,9 +530,7 @@ fn real_sph_harmonics(q: &Vector3<f64>, lmax: i32, out: &mut [f64]) {
             let m_f = m as f64;
             let llmm = (l_f * l_f - m_f * m_f).sqrt();
             let llm1 = ((l_f - 1.0) * (l_f - 1.0) - m_f * m_f).sqrt();
-            q_lm[qidx(l, m)] = (cost * (2.0 * l_f - 1.0) * q_lm[qidx(l - 1, m)]
-                - llm1 * q_lm[qidx(l - 2, m)])
-                / llmm;
+            q_lm[qidx(l, m)] = (cost * (2.0 * l_f - 1.0) * q_lm[qidx(l - 1, m)] - llm1 * q_lm[qidx(l - 2, m)]) / llmm;
         }
         // m = l-1
         q_lm[qidx(l, l - 1)] = cost * (2.0 * l_f - 1.0).sqrt() * q_lm[qidx(l - 1, l - 1)];
@@ -588,13 +563,7 @@ fn real_sph_harmonics(q: &Vector3<f64>, lmax: i32, out: &mut [f64]) {
 /// `r_beta`: r·β(r) in Å^{-1/2} (UPF convention: projectors stored as r×β).
 /// `l`: angular momentum quantum number.
 /// `q`: wavevector magnitude |k+G| (Å⁻¹).
-fn bessel_transform_projector(
-    r_grid: &[f64],
-    rab: &[f64],
-    r_beta: &[f64],
-    l: i32,
-    q: f64,
-) -> f64 {
+fn bessel_transform_projector(r_grid: &[f64], rab: &[f64], r_beta: &[f64], l: i32, q: f64) -> f64 {
     use crate::numerics::simpson_integrate;
 
     let n = r_grid.len();
@@ -672,8 +641,9 @@ fn legendre_p(l: i32, x: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use approx::relative_eq;
+
+    use super::*;
 
     #[test]
     fn test_spherical_bessel_j0() {
@@ -681,11 +651,7 @@ mod tests {
         // j_0(π) = sin(π)/π = 0
         assert!(spherical_bessel_j(0, PI).abs() < 1e-10);
         // j_0(1) = sin(1)/1 ≈ 0.8415
-        assert!(relative_eq!(
-            spherical_bessel_j(0, 1.0),
-            1.0_f64.sin(),
-            epsilon = 1e-10
-        ));
+        assert!(relative_eq!(spherical_bessel_j(0, 1.0), 1.0_f64.sin(), epsilon = 1e-10));
     }
 
     #[test]
@@ -694,11 +660,7 @@ mod tests {
         // j_1(x) = sin(x)/x² - cos(x)/x
         let x: f64 = 2.0;
         let expected = x.sin() / (x * x) - x.cos() / x;
-        assert!(relative_eq!(
-            spherical_bessel_j(1, x),
-            expected,
-            epsilon = 1e-10
-        ));
+        assert!(relative_eq!(spherical_bessel_j(1, x), expected, epsilon = 1e-10));
     }
 
     #[test]
@@ -709,8 +671,7 @@ mod tests {
         assert!(relative_eq!(spherical_bessel_j(2, x), j2_exact, epsilon = 1e-10));
 
         // j_3(x) = (15/x³ - 6/x) sin(x)/x - (15/x² - 1) cos(x)/x
-        let j3_exact = (15.0 / (x * x * x) - 6.0 / x) * x.sin() / x
-            - (15.0 / (x * x) - 1.0) * x.cos() / x;
+        let j3_exact = (15.0 / (x * x * x) - 6.0 / x) * x.sin() / x - (15.0 / (x * x) - 1.0) * x.cos() / x;
         assert!(relative_eq!(spherical_bessel_j(3, x), j3_exact, epsilon = 1e-10));
 
         // j_4(3) ≈ 0.05615 (computed via recurrence from j_0, j_1)
@@ -736,10 +697,7 @@ mod tests {
 
         // j_l(0) = 0 for all l > 0
         for l in 2..=6 {
-            assert!(
-                spherical_bessel_j(l, 0.0).abs() < 1e-10,
-                "j_{l}(0) should be 0"
-            );
+            assert!(spherical_bessel_j(l, 0.0).abs() < 1e-10, "j_{l}(0) should be 0");
         }
     }
 
@@ -755,8 +713,7 @@ mod tests {
         assert!(relative_eq!(legendre_p(5, x), p5_exact, epsilon = 1e-12));
 
         // P_6(x) = (231x⁶ - 315x⁴ + 105x² - 5) / 16
-        let p6_exact =
-            (231.0 * x.powi(6) - 315.0 * x.powi(4) + 105.0 * x * x - 5.0) / 16.0;
+        let p6_exact = (231.0 * x.powi(6) - 315.0 * x.powi(4) + 105.0 * x * x - 5.0) / 16.0;
         assert!(relative_eq!(legendre_p(6, x), p6_exact, epsilon = 1e-12));
 
         // P_l(1) = 1 for all l
@@ -787,15 +744,17 @@ mod tests {
                 let mut integral = 0.0;
                 for i in 0..=n {
                     let x = -1.0 + 2.0 * f64::from(i) / f64::from(n);
-                    let w = if i == 0 || i == n { 1.0 } else if i % 2 == 1 { 4.0 } else { 2.0 };
+                    let w = if i == 0 || i == n {
+                        1.0
+                    } else if i % 2 == 1 {
+                        4.0
+                    } else {
+                        2.0
+                    };
                     integral += w * legendre_p(l, x) * legendre_p(m, x);
                 }
                 integral *= 2.0 / (3.0 * f64::from(n));
-                let expected = if l == m {
-                    2.0 / f64::from(2 * l + 1)
-                } else {
-                    0.0
-                };
+                let expected = if l == m { 2.0 / f64::from(2 * l + 1) } else { 0.0 };
                 assert!(
                     (integral - expected).abs() < 0.01,
                     "P_{l} · P_{m} integral: {integral:.6}, expected {expected:.6}"
@@ -839,20 +798,16 @@ mod tests {
     ///
     /// ## Setup
     ///
-    /// * Simple cubic lattice with `a = 2π` Å, so the reciprocal
-    ///   lattice is `b_i = ê_i` and integer Miller indices coincide
-    ///   with Cartesian G-vectors in 1/Å.
-    /// * Single Si atom at the origin → structure factor
-    ///   `exp(-iG·τ) = 1` for every G.
-    /// * `D_ij` zeroed everywhere except the diagonal entry on the
-    ///   first `l=2` projector (row-major index `4 · 6 + 4 = 28`
-    ///   of Si ONCV's 6-projector layout `[s,s,p,p,d,d]`). This
-    ///   leaves exactly one `l=2` radial channel alive; its
-    ///   contribution sums over all five `m ∈ {-2,-1,0,+1,+2}`.
+    /// * Simple cubic lattice with `a = 2π` Å, so the reciprocal lattice is `b_i = ê_i` and integer
+    ///   Miller indices coincide with Cartesian G-vectors in 1/Å.
+    /// * Single Si atom at the origin → structure factor `exp(-iG·τ) = 1` for every G.
+    /// * `D_ij` zeroed everywhere except the diagonal entry on the first `l=2` projector (row-major
+    ///   index `4 · 6 + 4 = 28` of Si ONCV's 6-projector layout `[s,s,p,p,d,d]`). This leaves
+    ///   exactly one `l=2` radial channel alive; its contribution sums over all five `m ∈
+    ///   {-2,-1,0,+1,+2}`.
     /// * k = Γ, so q = G.
-    /// * G₁ = (1, 0, 1) · 1/Å, G₂ = (2, 0, 1) · 1/Å. Both have
-    ///   φ = 0 and positive z-component, so Y_{2,-1} and Y_{2,-2}
-    ///   vanish on both (leaving three live m-channels).
+    /// * G₁ = (1, 0, 1) · 1/Å, G₂ = (2, 0, 1) · 1/Å. Both have φ = 0 and positive z-component, so
+    ///   Y_{2,-1} and Y_{2,-2} vanish on both (leaving three live m-channels).
     ///
     /// ## Hand-computed reference
     ///
@@ -866,7 +821,8 @@ mod tests {
     ///              = (D_{44}/Ω) · F₄(|G₁|) · F₄(|G₂|) · Σ_m Y_{2,m}(Ĝ₁)·Y_{2,m}(Ĝ₂)
     /// ```
     ///
-    /// Per-m breakdown (QE `ylmr2` convention — see `real_sph_harmonics` above):
+    /// Per-m breakdown (QE `ylmr2` convention — see `real_sph_harmonics`
+    /// above):
     ///   * Y_{2,0}    = ½ · √(5 / 4π) · (3cos²θ − 1)
     ///   * Y_{2,+1}   = −√(15/4π)    · cosθ sinθ cos φ
     ///   * Y_{2,-1}   = −√(15/4π)    · cosθ sinθ sin φ
@@ -888,7 +844,7 @@ mod tests {
     ///   * Y_{2,-2}(Ĝ₂) = 0
     ///
     /// Products and sum:
-    ///   * m=0:   ¼ · √(5/4π) · (−1/5) · √(5/4π)           = −(1/20) · 5/(4π)  = −1/(16π)
+    ///   * m=0:   ¼ · √(5/4π) · (−1/5) · √(5/4π)           = −(1/20) · 5/(4π) = −1/(16π)
     ///   * m=+1:  (−½) · √(15/4π) · (−2/5) · √(15/4π)      =  (1/5)  · 15/(4π) =  12/(16π) = 3/(4π)
     ///   * m=-1:  0
     ///   * m=+2:  ½ · √(15/16π) · (4/5) · √(15/16π)        =  (2/5)  · 15/(16π) = 6/(16π) = 3/(8π)
@@ -913,26 +869,21 @@ mod tests {
     /// f64 on a handful of values).
     #[test]
     fn test_single_channel_l2_m_isolation() {
-        use crate::pseudopotential::load;
-        use std::path::PathBuf;
-
-        // 1. Load Si ONCV PP and zero D_ij except diagonal entry for
-        //    the first l=2 projector (projector index 4, row-major
-        //    offset 4·6 + 4 = 28 in the 6×6 D matrix).
-        let si_path = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf");
-        let mut pp = load(&si_path).expect("Si UPF must load");
-        assert_eq!(pp.n_projectors(), 6, "Si ONCV PP expected 6 projectors");
-        assert_eq!(pp.beta_projectors[4].l, 2, "projector 4 must be l=2");
+        // 1. Load Si ONCV PP and zero D_ij except diagonal entry for the first l=2 projector (projector
+        //    index 4, row-major offset 4·6 + 4 = 28 in the 6×6 D matrix).
+        let mut si_pp = UpfPseudoPotential::load("Si").expect("Si UPF must load");
+        assert_eq!(si_pp.n_projectors(), 6, "Si ONCV PP expected 6 projectors");
+        assert_eq!(si_pp.beta_projectors[4].l, 2, "projector 4 must be l=2");
 
         // Preserve the original D_{44} value before zeroing the rest.
-        let d44 = pp.dij[4 * 6 + 4];
+        let d44 = si_pp.dij[4 * 6 + 4];
         assert!(d44.abs() > 1e-6, "Si ONCV D_{{44}} must be nontrivial, got {d44}");
-        pp.dij.iter_mut().for_each(|d| *d = 0.0);
-        pp.dij[4 * 6 + 4] = d44;
+        si_pp.dij.iter_mut().for_each(|d| *d = 0.0);
+        si_pp.dij[4 * 6 + 4] = d44;
 
-        // 2. Cubic lattice a = 2π → b_i = ê_i. G-vectors are integer
-        //    Cartesian triples in 1/Å.
+        let pp = HashMap::from_iter([(Element::Si, si_pp.clone())]);
+
+        // 2. Cubic lattice a = 2π → b_i = ê_i. G-vectors are integer Cartesian triples in 1/Å.
         let a = 2.0 * PI;
         let lattice = crate::crystal::Lattice::new(
             Vector3::new(a, 0.0, 0.0),
@@ -941,23 +892,23 @@ mod tests {
         );
         let omega = lattice.volume(); // (2π)³
 
-        // ecut = 50 eV > HBAR2_OVER_2M · |(2,0,1)|² = 3.81 · 5 ≈ 19 eV
-        // comfortably includes G₁=(1,0,1), G₂=(2,0,1).
+        // ecut = 50 eV > HBAR2_OVER_2M · |(2,0,1)|² = 3.81 · 5 ≈ 19 eV comfortably
+        // includes G₁=(1,0,1), G₂=(2,0,1).
         let basis = BasisSet::new(&lattice, 50.0);
-        let g1_idx = basis
-            .index_of(1, 0, 1)
-            .expect("G=(1,0,1) must be in basis");
-        let g2_idx = basis
-            .index_of(2, 0, 1)
-            .expect("G=(2,0,1) must be in basis");
+        let g1_idx = basis.index_of(1, 0, 1).expect("G=(1,0,1) must be in basis");
+        let g2_idx = basis.index_of(2, 0, 1).expect("G=(2,0,1) must be in basis");
         // Sanity: confirm the Cartesian coordinates (the assumption that
         // the cubic reciprocal lattice is the identity on Miller indices).
-        assert!(
-            relative_eq!(basis.g_vectors()[g1_idx], Vector3::new(1.0, 0.0, 1.0), epsilon = 1e-12)
-        );
-        assert!(
-            relative_eq!(basis.g_vectors()[g2_idx], Vector3::new(2.0, 0.0, 1.0), epsilon = 1e-12)
-        );
+        assert!(relative_eq!(
+            basis.g_vectors()[g1_idx],
+            Vector3::new(1.0, 0.0, 1.0),
+            epsilon = 1e-12
+        ));
+        assert!(relative_eq!(
+            basis.g_vectors()[g2_idx],
+            Vector3::new(2.0, 0.0, 1.0),
+            epsilon = 1e-12
+        ));
 
         // Single Si atom at origin: τ = 0 → phase = 1 for all G.
         let crystal = crate::crystal::Crystal {
@@ -967,24 +918,26 @@ mod tests {
 
         // 3. Assemble V_NL at Γ via the production path.
         let k = Vector3::new(0.0, 0.0, 0.0);
-        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp])
-            .expect("NonlocalPotential::new");
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &pp).unwrap();
 
         let n_pw = basis.len();
         let mut h: Mat<Complex64> = Mat::zeros(n_pw, n_pw);
         vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
         let h_g1_g2 = h[(g1_idx, g2_idx)];
 
-        // 4. Compute the expected value by hand — Σ_m Y_{2,m}(Ĝ₁)·Y_{2,m}(Ĝ₂) = 17/(16π).
-        //    The two radial form factors F₄(|G|) are evaluated via the
-        //    same Bessel-transform helper the production code calls.
+        // 4. Compute the expected value by hand — Σ_m Y_{2,m}(Ĝ₁)·Y_{2,m}(Ĝ₂) = 17/(16π). The two radial
+        //    form factors F₄(|G|) are evaluated via the same Bessel-transform helper the production code
+        //    calls.
         let fpi = 4.0 * PI;
-        // Per-m products, re-computed explicitly from the QE convention (see doc comment).
-        //   m=0:   ¼ · √(5/4π) · (−1/5) · √(5/4π) = −(1/20) · (5/4π) = −1/(16π)
+        // Per-m products, re-computed explicitly from the QE convention (see doc
+        // comment).   m=0:   ¼ · √(5/4π) · (−1/5) · √(5/4π) = −(1/20) · (5/4π)
+        // = −1/(16π)
         let y_m0 = -1.0 / (16.0 * PI);
-        //   m=+1:  (−½) · √(15/4π) · (−2/5) · √(15/4π) = (1/5) · (15/4π) = 3/(4π) = 12/(16π)
+        //   m=+1:  (−½) · √(15/4π) · (−2/5) · √(15/4π) = (1/5) · (15/4π) = 3/(4π) =
+        // 12/(16π)
         let y_mp1 = 3.0 / fpi;
-        //   m=+2:  ½ · √(15/16π) · (4/5) · √(15/16π) = (2/5) · (15/16π) = 3/(8π) = 6/(16π)
+        //   m=+2:  ½ · √(15/16π) · (4/5) · √(15/16π) = (2/5) · (15/16π) = 3/(8π) =
+        // 6/(16π)
         let y_mp2 = 3.0 / (8.0 * PI);
         let ang_sum = y_m0 + y_mp1 + y_mp2;
         // Consistency check with the closed-form addition theorem sum.
@@ -996,26 +949,13 @@ mod tests {
 
         let g1_norm = (2.0_f64).sqrt();
         let g2_norm = (5.0_f64).sqrt();
-        let f4_g1 = bessel_transform_projector(
-            &pp.r_grid,
-            &pp.rab,
-            &pp.beta_projectors[4].values,
-            2,
-            g1_norm,
-        );
-        let f4_g2 = bessel_transform_projector(
-            &pp.r_grid,
-            &pp.rab,
-            &pp.beta_projectors[4].values,
-            2,
-            g2_norm,
-        );
+        let f4_g1 = bessel_transform_projector(&si_pp.r_grid, &si_pp.rab, &si_pp.beta_projectors[4].values, 2, g1_norm);
+        let f4_g2 = bessel_transform_projector(&si_pp.r_grid, &si_pp.rab, &si_pp.beta_projectors[4].values, 2, g2_norm);
 
         let expected = Complex64::new(d44 / omega * f4_g1 * f4_g2 * ang_sum, 0.0);
 
-        // 5. The computed and expected matrix elements must agree to
-        //    ULP-ish precision; any per-m Y_{l,m} normalization error
-        //    throws this off by ≥ ~1e-2 · |expected|.
+        // 5. The computed and expected matrix elements must agree to ULP-ish precision; any per-m Y_{l,m}
+        //    normalization error throws this off by ≥ ~1e-2 · |expected|.
         let diff = (h_g1_g2 - expected).norm();
         let scale = expected.norm().max(1.0);
         assert!(
@@ -1029,10 +969,7 @@ mod tests {
     ///   Σ_m Y_lm(q̂₁) Y_lm(q̂₂) = (2l+1)/(4π) · P_l(q̂₁·q̂₂)
     /// This is the identity that makes the GEMM-lifted KB assembly exact.
     #[test]
-    #[allow(
-        clippy::cast_sign_loss,
-        reason = "test-only: lmax ranges over 0..=5 by construction"
-    )]
+    #[allow(clippy::cast_sign_loss, reason = "test-only: lmax ranges over 0..=5 by construction")]
     fn test_ylm_addition_theorem() {
         let qs = [
             Vector3::new(0.3, 0.7, -0.5),
@@ -1057,10 +994,7 @@ mod tests {
                         }
                         let cos_theta = q1.dot(q2) / (q1.norm() * q2.norm());
                         let rhs = f64::from(2 * l + 1) / (4.0 * PI) * legendre_p(l, cos_theta);
-                        assert!(
-                            (lhs - rhs).abs() < 1e-12,
-                            "addition theorem l={l}: lhs={lhs} rhs={rhs}"
-                        );
+                        assert!((lhs - rhs).abs() < 1e-12, "addition theorem l={l}: lhs={lhs} rhs={rhs}");
                     }
                 }
             }

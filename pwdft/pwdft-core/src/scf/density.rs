@@ -7,9 +7,10 @@ use rayon::prelude::*;
 
 use crate::{basis::BasisSet, fft::FFT3D, kpoints::KPoint};
 
-/// Bands with effective weight `occ × k-weight` below this threshold are skipped
-/// during density reconstruction — their contribution is below eigensolver
-/// round-off, and the forward FFT plus |ψ(r)|² accumulation would only add noise.
+/// Bands with effective weight `occ × k-weight` below this threshold are
+/// skipped during density reconstruction — their contribution is below
+/// eigensolver round-off, and the forward FFT plus |ψ(r)|² accumulation would
+/// only add noise.
 const OCCUPATION_SKIP_THRESHOLD: f64 = 1e-15;
 
 /// Lower bound on ∫ρ(r)dr before the normalization rescale is applied. Guards
