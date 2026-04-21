@@ -9,7 +9,7 @@ use std::f64::consts::PI;
 
 use nalgebra::Vector3;
 use num_complex::Complex64;
-
+use puruspe::erfc;
 use crate::{
     consts::E2_COULOMB as E2,
     crystal::Crystal,
@@ -38,6 +38,7 @@ use crate::{
 /// map is validated up-front by `ScfContext::new`, so this panic indicates
 /// a programming error (context bypassed or misconfigured), not bad user
 /// input.
+#[allow(clippy::cast_possible_truncation, reason="ceil of a finite positive f64 always fits in i32 for physical inputs")]
 pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]) -> f64 {
     let omega = crystal.lattice.volume();
 
@@ -70,20 +71,9 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
     // Reciprocal space sum
     let recip = crystal.lattice.reciprocal();
     let g_max = 10.0 * eta; // cutoff for G-vectors
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "n_i_max bounded by g_max = 10*eta and reciprocal lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
-    )]
+
     let n1_max = (g_max / recip.a.norm()).ceil() as i32;
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "n_i_max bounded by g_max = 10*eta and reciprocal lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
-    )]
     let n2_max = (g_max / recip.b.norm()).ceil() as i32;
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "n_i_max bounded by g_max = 10*eta and reciprocal lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
-    )]
     let n3_max = (g_max / recip.c.norm()).ceil() as i32;
 
     let mut e_recip = 0.0;
@@ -112,20 +102,9 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
 
     // Real space sum
     let r_max = 10.0 / eta;
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "l_i_max bounded by r_max = 10/eta and real-space lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
-    )]
+
     let l1_max = (r_max / crystal.lattice.a.norm()).ceil() as i32;
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "l_i_max bounded by r_max = 10/eta and real-space lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
-    )]
     let l2_max = (r_max / crystal.lattice.b.norm()).ceil() as i32;
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "l_i_max bounded by r_max = 10/eta and real-space lattice norms; ceil of a finite positive f64 always fits in i32 for physical inputs"
-    )]
     let l3_max = (r_max / crystal.lattice.c.norm()).ceil() as i32;
 
     let mut e_real = 0.0;
@@ -162,19 +141,12 @@ pub fn ewald_energy(crystal: &Crystal, pseudopotentials: &[&PseudopotentialData]
     e_real + e_recip + e_self + e_bg
 }
 
-/// Complementary error function erfc(x) = 1 - erf(x).
-///
-/// Delegates to `puruspe::erfc` — validated, full f64 precision.
-/// puruspe also provides erf, gamma, beta for future GGA/PAW use.
-fn erfc(x: f64) -> f64 {
-    puruspe::erfc(x)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::crystal::{Atom, Lattice};
     use approx::relative_eq;
+
 
     #[test]
     fn test_erfc_values() {
