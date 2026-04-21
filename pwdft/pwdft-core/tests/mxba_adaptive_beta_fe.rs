@@ -53,7 +53,7 @@ fn fe_bcc() -> Crystal {
 }
 
 #[test]
-#[ignore = "documents known adaptive-β failure mode on Fe BCC CCMX; \
+#[ignore = "SKIP-TIER2 documents known adaptive-β failure mode on Fe BCC CCMX; \
             confirms the MXBA default-off decision. Re-run when tuning the \
             Eyert thresholds or after a mixer-topology change."]
 fn test_mxba_fe_documents_adaptive_failure() {

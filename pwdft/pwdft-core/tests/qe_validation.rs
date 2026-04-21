@@ -641,7 +641,7 @@ fn test_al_fcc_fermi_vs_qe() {
 /// between pwdft-core and QE save files, paralleling VGCH Phase 1b on
 /// Cu. File under VGCH light-atom extension.
 #[test]
-#[ignore = "C SCF now converges under Broyden+Kerker (12 iters, Δρ < 1e-10), but E_total 1.45 eV off QE — VGCH light-atom 'different converged density' signature (Δ one-e = +1.76, Δ E_H = -0.59 eV)"]
+#[ignore = "SKIP-TIER2 C SCF now converges under Broyden+Kerker (12 iters, Δρ < 1e-10), but E_total 1.45 eV off QE — VGCH light-atom 'different converged density' signature (Δ one-e = +1.76, Δ E_H = -0.59 eV)"]
 fn test_c_diamond_vs_qe() {
     let crystal = fcc_crystal(
         3.567,
@@ -769,7 +769,7 @@ fn test_al_fcc_vs_qe() {
 ///   (pre-TSEN baseline: 11.50 eV; TSEN closed ~360 meV of the gap by
 ///   folding in the −TS Mermin term.)
 #[test]
-#[ignore = "VGCH-MECH Class A: Fe LDA +11.14 eV energy-functional-at-shared-density gap on 8×8×8 Γ-centered grid (VGCH-2 Part C Fermi-finder / smearing / n_bands investigation)"]
+#[ignore = "SKIP-TIER2 VGCH-MECH Class A: Fe LDA +11.14 eV energy-functional-at-shared-density gap on 8×8×8 Γ-centered grid (VGCH-2 Part C Fermi-finder / smearing / n_bands investigation)"]
 fn test_fe_bcc_fm_vs_qe() {
     let crystal = bcc_crystal(2.87, Atom::new(26, [0.0, 0.0, 0.0]));
     let pp_fe = load_pp("Fe");
@@ -834,7 +834,7 @@ fn test_fe_bcc_fm_vs_qe() {
 ///   35.17 eV. The large remaining gap is the untouched VGCH
 ///   heavy-atom residual.)
 #[test]
-#[ignore = "VGCH-MECH Class A: GaAs LDA +35.17 eV energy-functional-at-shared-density gap on Z=31+33 (VGCH-2 Part C Fermi-finder / smearing / n_bands investigation); pwdft-core E = -4154.418 eV, QE = -4189.586 eV"]
+#[ignore = "SKIP-TIER2 VGCH-MECH Class A: GaAs LDA +35.17 eV energy-functional-at-shared-density gap on Z=31+33 (VGCH-2 Part C Fermi-finder / smearing / n_bands investigation); pwdft-core E = -4154.418 eV, QE = -4189.586 eV"]
 fn test_gaas_zincblende_vs_qe() {
     let crystal = fcc_crystal(
         5.653,
@@ -891,7 +891,7 @@ fn test_gaas_zincblende_vs_qe() {
 ///   −116 meV to within 4 meV; the residual closed by that same ≈110
 ///   meV. The remaining 16.6 eV is the untouched VGCH heavy-atom gap.)
 #[test]
-#[ignore = "VGCH-MECH Class A: Cu LDA +16.64 eV energy-functional-at-shared-density gap (Z=29, 3s/3p/3d semicore; VGCH-2 Part C Fermi-finder / smearing / n_bands investigation); pwdft-core E = -4836.998 eV, QE = -4853.641 eV"]
+#[ignore = "SKIP-TIER2 VGCH-MECH Class A: Cu LDA +16.64 eV energy-functional-at-shared-density gap (Z=29, 3s/3p/3d semicore; VGCH-2 Part C Fermi-finder / smearing / n_bands investigation); pwdft-core E = -4836.998 eV, QE = -4853.641 eV"]
 fn test_cu_fcc_vs_qe() {
     let crystal = fcc_crystal(3.61, vec![Atom::new(29, [0.0, 0.0, 0.0])]);
     let pp_cu = load_pp("Cu");
@@ -942,7 +942,7 @@ fn test_cu_fcc_vs_qe() {
 ///   pwdft-core's entropy_ts is bit-zero, so TSEN is a no-op here.
 ///   The residual is purely VGCH heavy-atom.)
 #[test]
-#[ignore = "VGCH-MECH Class A: NaCl LDA +7.99 eV energy-functional-at-shared-density gap (Cl Z=17; VGCH-2 Part C Fermi-finder / smearing / n_bands investigation); pwdft-core E = -1621.698 eV, QE = -1629.686 eV"]
+#[ignore = "SKIP-TIER2 VGCH-MECH Class A: NaCl LDA +7.99 eV energy-functional-at-shared-density gap (Cl Z=17; VGCH-2 Part C Fermi-finder / smearing / n_bands investigation); pwdft-core E = -1621.698 eV, QE = -1629.686 eV"]
 fn test_nacl_rocksalt_vs_qe() {
     let crystal = fcc_crystal(
         5.614,
@@ -999,7 +999,7 @@ fn test_nacl_rocksalt_vs_qe() {
 ///   entropy_ts is essentially zero, so TSEN is a no-op here. The
 ///   residual is purely VGCH heavy-atom / Mg semicore territory.)
 #[test]
-#[ignore = "VGCH-MECH Class A: MgO LDA +10.71 eV energy-functional-at-shared-density gap (Mg semicore PP; VGCH-2 Part C Fermi-finder / smearing / n_bands investigation); pwdft-core E = -1992.535 eV, QE = -2003.241 eV"]
+#[ignore = "SKIP-TIER2 VGCH-MECH Class A: MgO LDA +10.71 eV energy-functional-at-shared-density gap (Mg semicore PP; VGCH-2 Part C Fermi-finder / smearing / n_bands investigation); pwdft-core E = -1992.535 eV, QE = -2003.241 eV"]
 fn test_mgo_rocksalt_vs_qe() {
     let crystal = fcc_crystal(
         4.212,
@@ -1271,7 +1271,7 @@ fn test_si_pbe_non_spin_vs_qe() {
 /// Tolerance 100 meV matches Phase C's Si PBE test; 0.1 μB for
 /// magnetization is a first-pass pin.
 #[test]
-#[ignore = "VGCH Phase 1c: Fe BCC FM PBE 8×8×8 at ecut=60 Ry converges with |ΔE|≈1.70 eV, M≈2.16μB (vs QE 2.34μB); heavy-atom residual, not Phase D bug"]
+#[ignore = "SKIP-TIER2 VGCH Phase 1c: Fe BCC FM PBE 8×8×8 at ecut=60 Ry converges with |ΔE|≈1.70 eV, M≈2.16μB (vs QE 2.34μB); heavy-atom residual, not Phase D bug"]
 fn test_fe_bcc_fm_pbe_vs_qe() {
     let crystal = bcc_crystal(2.87, Atom::new(26, [0.0, 0.0, 0.0]));
     let pp_fe = load_pp_pbe("Fe");

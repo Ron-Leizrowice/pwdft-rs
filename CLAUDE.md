@@ -47,7 +47,7 @@ All common cargo / profiling / review operations are wrapped in skills under `.c
 
 Integration tests live in `pwdft/pwdft-core/tests/`: free-electron bands (Si, C diamond, BCC Fe), KB projector, non-local symmetry, parallel consistency, GPU vs CPU consistency, VGC5 per-component energies + MADOC band-sum identity, QE validation (8-system reference set), spin polarization, WFRX subspace consistency, ITEV eigensolver cross-checks.
 
-The suite is split into two tiers via Rust's `#[ignore]` attribute with a `TSPL Tier-2: ...` reason string on each heavy case:
+The suite is split into two tiers via Rust's `#[ignore]` attribute with a `TSPL Tier-2: ...` reason string on each heavy case. Physics-blocker tests that are designed to fail on current `main` are additionally marked with a `SKIP-TIER2` prefix; `/test --tier2` auto-excludes them so agents never need to hand-craft `--skip` flags.
 
 - **Tier 1** (default via `/test`) — unit tests + lightweight integration; every test is a pure unit check or a single-shot small-matrix operation. Target ≤ 2 min wall; currently ~12 s warm-cache on M3 Max.
 - **Tier 2** (`/test --tier2`) — every case that runs a production-scale SCF loop (> 20 iters at `n_pw ≥ 100`, or two SCFs back-to-back). Target 5–10 min wall; currently ~58 s warm-cache.
