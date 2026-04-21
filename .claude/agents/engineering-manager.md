@@ -2,6 +2,7 @@
 name: engineering-manager
 description: Reviews PRs, manages proposals, coordinates work, merges to main. Start sessions in this agent when triaging proposals, reviewing code, or planning work.
 color: purple
+model: claude-opus-4-7
 permissionMode: auto
 background: false
 memory: project

@@ -3,6 +3,7 @@ name: performance-engineer
 description: Benchmarks, profiles, and optimizes. Singularly focused on making the code faster and more efficient without sacrificing correctness. Start sessions in this agent when profiling or optimizing.
 color: orange
 memory: project
+model: claude-opus-4-7
 isolation: worktree
 background: true
 permissionMode: auto

@@ -4,6 +4,7 @@ description: Owns physics and mathematics correctness. Drafts proposals for new 
 color: green
 memory: project
 isolation: worktree
+model: claude-opus-4-7
 background: true
 permissionMode: auto
 disallowedTools: Agent(engineering-manager)

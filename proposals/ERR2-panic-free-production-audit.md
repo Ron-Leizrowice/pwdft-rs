@@ -1,8 +1,8 @@
 ---
 id: ERR2
-status: draft
+status: active
 priority: medium
-complexity: medium
+complexity: small
 risk: low
 depends_on: [ERRH]
 blocks: []
@@ -724,3 +724,67 @@ the *shape* of the returned discriminant.
   `src/scf/mod.rs`, `src/settings.rs`, `src/main.rs`,
   `src/pseudopotential/upf/xml.rs`, and `src/error.rs` — files not
   owned by any of those parallel proposals.
+
+## 2026-04-21 refresh — post-P1.d census + stricter standard
+
+### P1 completion status
+
+P1.a–d all landed. `InvalidParam`, `InvalidCrystal`, `UnknownElement`, `InvalidPseudopotential` added (P1.a); all 14 production `InvalidInput` call sites migrated (P1.b–d). Sole surviving `InvalidInput` is `src/main.rs:47` (CLI glue, by design).
+
+### User's stated standard (2026-04-21)
+
+> "Only `.expect()` for extremely implausible failure modes, with Results for genuinely fallible codepaths."
+
+Implausible = requires another thread to have panicked, or a caller to have violated a documented precondition that is enforced at construction time.
+Fallible = anything a user input, a hardware condition, or a runtime state could legitimately trigger.
+
+### P1.e — transplant.rs two-site mop-up (not in original P1 scope)
+
+Two `InvalidInput` sites in `src/scf/transplant.rs` were missed in the original P1 scan — the file is a VGCH-2B diagnostic stub that didn't exist when the census was written.
+
+| # | File:line | Current | Proposed |
+|---|---|---|---|
+| 16 | `scf/transplant.rs:121` | `InvalidInput("VGCH-2B transplant diagnostic only supports nspin=1")` | `InvalidParam { name: "nspin", reason: "transplant diagnostic only supports nspin=1" }` |
+| 17 | `scf/transplant.rs:130` | `InvalidInput(format!("transplanted rho_g_fft has {} entries; expected n_grid={}", ...))` | `InvalidParam { name: "rho_g_fft", reason: format!(...) }` |
+
+Scope: ~5 lines in one file. No Tier-2 needed (transplant.rs is a diagnostic stub, not SCF production code).
+
+**P1.e acceptance:** `grep 'PwdftError::InvalidInput' src/` returns exactly 1 site (`src/main.rs:47`). `cargo test` Tier-1 green.
+
+### Updated `.expect()` census (2026-04-21 scan, commit `e113379`)
+
+Fresh production census: **18 `.expect()` sites, 0 `.unwrap()`.**
+
+Three new sites vs the original 15-count census — all in `gpu/mod.rs`:
+
+| New site | Pattern | Classification |
+|---|---|---|
+| `gpu/mod.rs:413` | `pool.scratch_f32.lock().expect("scratch_f32 poisoned")` | **Extremely implausible** — Mutex poison requires another thread to have panicked; unrecoverable state. Keep. |
+| `gpu/mod.rs:636` | same pattern | **Extremely implausible.** Keep. |
+| `gpu/mod.rs:832` | same pattern | **Extremely implausible.** Keep. |
+
+All three are `scratch_f32.lock().expect(...)` on the GPU buffer pool's internal Mutex. Mutex poison is only triggered when the lock holder panicked — at that point the program state is already unrecoverable and converting to `Result` would just defer an unavoidable abort. All three stay as `expect`.
+
+### Phase 2.5 — gpu/mod.rs:755 (new candidate under stricter standard)
+
+`read_staging_buffer` in `gpu/mod.rs` (~line 755):
+
+```rust
+slice.map_async(wgpu::MapMode::Read, |_| {}).expect("BUG: GPU buffer mapping failed");
+```
+
+`wgpu`'s `BufferAsyncError` is a real hardware error (device lost, OOM, invalid buffer state). Under the stricter standard this is **genuinely fallible** — the GPU could legitimately fail to map a staging buffer due to device loss or OOM; it does not require a logic bug or mutex poison. The `BUG:` prefix here is a misnomer.
+
+**Proposed Phase 2.5:** Convert `read_staging_buffer` from `-> Vec<f32>` to `-> Result<Vec<f32>, PwdftError>`, propagate via `PwdftError::Gpu(...)` at line 755. Callers in `scf/driver.rs` already return `Result`, so `?` propagates cleanly.
+
+Scope: ~5 lines production + caller propagation.
+
+### Next moves — P1.e + Phase 2 + Phase 2.5 as one small PR
+
+After current agent wave (URES, SKPL, PZPW) clears, bundle the three remaining items:
+
+1. **P1.e** — `scf/transplant.rs:121,130` → `InvalidParam` (~5 lines)
+2. **Phase 2** — `scf/grid.rs:68` assert → `PwdftError::InvalidParam { name: "fft_grid", ... }` (~10 lines)
+3. **Phase 2.5** — `gpu/mod.rs:755` `read_staging_buffer` → `Result<Vec<f32>, PwdftError>` (~5 lines + caller propagation)
+
+Total: ~30–40 LOC, all non-overlapping files, single PR. Tier-2 required (gpu/ and scf/ both on the trigger list).

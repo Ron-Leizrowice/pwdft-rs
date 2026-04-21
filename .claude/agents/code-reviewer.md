@@ -3,6 +3,7 @@ name: code-reviewer
 description: Owns code quality — linting, idioms, dead code, logging, maintainability. Aggressively improves the codebase. Start sessions in this agent when auditing code quality or reviewing PRs for style.
 color: red
 memory: project
+claude-opus-4-7
 isolation: worktree
 background: true
 permissionMode: auto

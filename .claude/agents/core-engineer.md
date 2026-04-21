@@ -5,6 +5,7 @@ color: blue
 memory: project
 isolation: worktree
 background: true
+model: claude-opus-4-7
 permissionMode: auto
 disallowedTools: Agent(engineering-manager)
 skills:

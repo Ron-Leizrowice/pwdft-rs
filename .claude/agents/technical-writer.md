@@ -4,7 +4,8 @@ description: Owns documentation quality — README, CLAUDE.md, docstrings, code 
 color: cyan
 model: claude-sonnet-4-6
 memory: project
-isolation:
+model: claude-opus-4-7
+isolation: worktree
 permissionMode: auto
 disallowedTools: Agent(engineering-manager)
 skills:
