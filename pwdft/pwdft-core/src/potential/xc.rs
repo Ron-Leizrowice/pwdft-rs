@@ -233,7 +233,7 @@ pub fn lda_xc_energy(rho_r: &[f64], exc_r: &[f64], omega: f64) -> f64 {
 fn slater_exchange(rho: f64) -> (f64, f64) {
     // ε_x in Hartree: -(3/4)(3ρ/π)^{1/3}
     // In eV: multiply by crate::consts::HA_TO_EV = 27.2114
-    
+
 
     // rho [e/ų] → rho [e/Bohr³] = rho × Bohr_to_Å³ = rho × 0.529177³
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
@@ -256,7 +256,7 @@ fn slater_exchange(rho: f64) -> (f64, f64) {
 ///
 /// Returns (ε_c, V_c) in eV.
 fn perdew_zunger_correlation(rho: f64) -> (f64, f64) {
-    
+
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
     let rho_bohr = rho * bohr3;
 
@@ -480,7 +480,7 @@ pub fn lda_xc_spin_grid(
 ///
 /// Returns `(ε_x, V_x_up, V_x_down)` in eV.
 fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
-    
+
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
 
     let rho = rho_up + rho_down;
@@ -526,7 +526,7 @@ fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
 ///
 /// Returns (ε_c, V_c_up, V_c_down) in eV.
 fn pz_correlation_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
-    
+
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
 
     let rho = rho_up + rho_down;
@@ -1441,7 +1441,6 @@ impl XcEvaluator {
     /// Drivers call this once per SCF iteration to decide whether to spend
     /// the gradient FFTs. `false` for LDA (zero FFT work beyond the LDA
     /// pipeline); `true` for any GGA.
-    #[must_use]
     pub fn needs_gradient(&self) -> bool {
         match self {
             Self::Pz => false,
@@ -1515,8 +1514,8 @@ impl XcEvaluator {
                 // `eval`; that driver-side wiring is the remaining
                 // piece of the PBE path (Phase A's gradient
                 // infrastructure).
-                PBE_EVAL_INVOCATIONS
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let _prev = PBE_EVAL_INVOCATIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed); // debug counter: prior value intentionally discarded
                 let Some(grad) = rho_grad_r else {
                     return Err(PwdftError::NotImplemented {
                         what: "pbe.eval requires rho_grad_r: None was passed".into(),
@@ -1637,8 +1636,8 @@ impl XcEvaluator {
                 // scalar shared between channels, applied to ∇ρ_total
                 // (not per-channel ∇ρ_σ), so both h_up and h_dn
                 // inherit `v2_c · ∇ρ_total` as a common term.
-                PBE_EVAL_SPIN_INVOCATIONS
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let _prev = PBE_EVAL_SPIN_INVOCATIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed); // debug counter: prior value intentionally discarded
                 let (Some(grad_up), Some(grad_dn)) = (rho_grad_up_r, rho_grad_down_r) else {
                     return Err(PwdftError::NotImplemented {
                         what: "pbe.eval_spin requires both per-channel gradients".into(),
@@ -1815,7 +1814,6 @@ pub struct XcSpinGridResult {
 /// Reference: QE 7.5 `qe-7.5/XClib/qe_drivers_gga.f90::gcxc` for the
 /// sign (`V_xc = v1 − ∇·h`) and `v_of_rho.f90:306` for the equivalence
 /// between the two conventions QE internally maintains.
-#[must_use]
 pub fn assemble_semilocal_vxc(
     v1_r: &[f64],
     h_r: &[[f64; 3]],

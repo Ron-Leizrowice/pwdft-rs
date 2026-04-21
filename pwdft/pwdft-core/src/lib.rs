@@ -21,13 +21,15 @@
 //! Internal units are eV for energies, Å for lengths, e/Å³ for densities.
 //! Conversion constants live in [`consts`]; Ry/Bohr appear only at the
 //! pseudopotential parsing boundary.
+#![warn(unused_results)]
 #![cfg_attr(
     test,
     allow(
         clippy::unwrap_used,
         clippy::expect_used,
         clippy::panic,
-        reason = "ERR2 § Phase 0: in-src test modules are allowed to panic; CLAU consolidated 32 per-module allows to this single crate-level cfg_attr"
+        unused_results,
+        reason = "ERR2 § Phase 0: in-src test modules are allowed to panic; CLAU consolidated 32 per-module allows to this single crate-level cfg_attr; URES test code may discard results in setup helpers"
     )
 )]
 

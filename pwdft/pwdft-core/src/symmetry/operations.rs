@@ -42,7 +42,6 @@ pub struct SpaceGroupOp {
 
 impl SymmOp {
     /// The identity operation.
-    #[must_use]
     pub fn identity() -> Self {
         Self {
             rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
@@ -50,7 +49,6 @@ impl SymmOp {
     }
 
     /// Inversion operation.
-    #[must_use]
     pub fn inversion() -> Self {
         Self {
             rotation: [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
@@ -58,7 +56,6 @@ impl SymmOp {
     }
 
     /// Construct from a flat row-major array.
-    #[must_use]
     pub fn from_flat(m: [i32; 9]) -> Self {
         Self {
             rotation: [
@@ -74,7 +71,6 @@ impl SymmOp {
     ///
     /// The worst-case triple product for crystallographic entries
     /// (`|R_ij| ≤ 3`) is 81, far below `i32::MAX`.
-    #[must_use]
     pub fn det(&self) -> i32 {
         let r = &self.rotation;
         r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1])
@@ -83,13 +79,11 @@ impl SymmOp {
     }
 
     /// Trace of the rotation matrix.
-    #[must_use]
     pub fn trace(&self) -> i32 {
         self.rotation[0][0] + self.rotation[1][1] + self.rotation[2][2]
     }
 
     /// Whether this is the identity operation.
-    #[must_use]
     pub fn is_identity(&self) -> bool {
         self.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
     }
@@ -102,7 +96,6 @@ impl SymmOp {
     ///
     /// Panics if `det(self)` is not ±1 — only such matrices represent
     /// valid crystallographic rotations.
-    #[must_use]
     pub fn inverse(&self) -> Self {
         let r = &self.rotation;
         let d = self.det();
@@ -131,7 +124,6 @@ impl SymmOp {
     }
 
     /// Compose two operations: self ∘ other = R_self · R_other.
-    #[must_use]
     pub fn compose(&self, other: &Self) -> Self {
         let a = &self.rotation;
         let b = &other.rotation;
@@ -145,7 +137,6 @@ impl SymmOp {
     }
 
     /// Apply rotation to a fractional coordinate vector (no translation).
-    #[must_use]
     pub fn apply(&self, f: &[f64; 3]) -> [f64; 3] {
         let r = &self.rotation;
         [
@@ -157,7 +148,6 @@ impl SymmOp {
 
     /// Transpose of the inverse: (R⁻¹)ᵀ.
     /// This is the transformation matrix for reciprocal-space vectors.
-    #[must_use]
     pub fn inverse_transpose(&self) -> Self {
         let inv = self.inverse();
         let r = &inv.rotation;
@@ -173,7 +163,6 @@ impl SymmOp {
 
 impl SpaceGroupOp {
     /// Construct from rotation and translation.
-    #[must_use]
     pub fn new(rotation: [[i32; 3]; 3], translation: [f64; 3]) -> Self {
         Self {
             rotation,
@@ -182,13 +171,11 @@ impl SpaceGroupOp {
     }
 
     /// The identity operation (no rotation, no translation).
-    #[must_use]
     pub fn identity() -> Self {
         Self::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0, 0.0, 0.0])
     }
 
     /// Compute the inverse: {R|τ}⁻¹ = {R⁻¹ | -R⁻¹τ}.
-    #[must_use]
     pub fn inverse(&self) -> Self {
         let r_op = SymmOp {
             rotation: self.rotation,
@@ -202,7 +189,6 @@ impl SpaceGroupOp {
     }
 
     /// Compose: {R₁|τ₁} ∘ {R₂|τ₂} = {R₁R₂ | R₁τ₂ + τ₁}.
-    #[must_use]
     pub fn compose(&self, other: &Self) -> Self {
         let r1 = SymmOp {
             rotation: self.rotation,
@@ -223,7 +209,6 @@ impl SpaceGroupOp {
     }
 
     /// Apply to a fractional coordinate: r' = R·r + τ (mod 1).
-    #[must_use]
     pub fn apply_to_fractional(&self, f: &[f64; 3]) -> [f64; 3] {
         let r = &self.rotation;
         wrap_to_unit_cell([
@@ -243,7 +228,6 @@ impl SpaceGroupOp {
     }
 
     /// Determinant of the rotation part.
-    #[must_use]
     pub fn det(&self) -> i32 {
         SymmOp {
             rotation: self.rotation,
@@ -252,7 +236,6 @@ impl SpaceGroupOp {
     }
 
     /// Check if this is approximately the identity operation.
-    #[must_use]
     pub fn is_identity(&self, tol: f64) -> bool {
         let r = &self.rotation;
         r == &[[1, 0, 0], [0, 1, 0], [0, 0, 1]]
@@ -260,14 +243,12 @@ impl SpaceGroupOp {
     }
 
     /// Check approximate equality with another operation.
-    #[must_use]
     pub fn approx_eq(&self, other: &Self, tol: f64) -> bool {
         self.rotation == other.rotation && frac_distance(&self.translation, &other.translation) < tol
     }
 }
 
 /// Wrap fractional coordinates to [0, 1).
-#[must_use]
 pub fn wrap_to_unit_cell(f: [f64; 3]) -> [f64; 3] {
     [
         f[0] - f[0].floor(),
@@ -277,7 +258,6 @@ pub fn wrap_to_unit_cell(f: [f64; 3]) -> [f64; 3] {
 }
 
 /// Distance between two fractional coordinate vectors with minimum image convention.
-#[must_use]
 pub fn frac_distance(a: &[f64; 3], b: &[f64; 3]) -> f64 {
     let mut d2 = 0.0;
     for i in 0..3 {

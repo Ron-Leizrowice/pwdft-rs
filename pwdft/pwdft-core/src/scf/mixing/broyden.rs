@@ -59,7 +59,6 @@ impl BroydenMixer {
     /// `adaptive_beta = true` activates the Eyert (1996) residual-norm
     /// monitor, which damps β when ‖R‖ grows and restores it toward the
     /// configured start when ‖R‖ decreases steadily. `false` keeps β fixed.
-    #[must_use]
     pub(super) fn new(
         beta: f64,
         max_history: usize,
@@ -117,7 +116,6 @@ impl BroydenMixer {
     }
 
     /// Current effective β (after any adaptive update applied so far).
-    #[must_use]
     pub(super) fn current_beta(&self) -> f64 {
         self.beta
     }
@@ -175,8 +173,8 @@ impl BroydenMixer {
                      dropping oldest (dv, df) pair",
                     max = self.max_history,
                 );
-                self.history_dv.remove(0);
-                self.history_df.remove(0);
+                let _evicted_dv = self.history_dv.remove(0); // oldest dv evicted to stay within max_history
+                let _evicted_df = self.history_df.remove(0); // oldest df evicted to stay within max_history
             }
         }
 

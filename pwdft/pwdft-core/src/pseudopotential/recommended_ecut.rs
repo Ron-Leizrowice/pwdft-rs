@@ -62,7 +62,6 @@ pub enum EcutVariant {
 /// let si = recommended_ecut_ev(14, EcutVariant::Standard).unwrap();
 /// assert!(si > 100.0 && si < 500.0);
 /// ```
-#[must_use]
 pub fn recommended_ecut_ev(z: u32, variant: EcutVariant) -> Option<f64> {
     let ha = match variant {
         EcutVariant::Standard | EcutVariant::Stringent => standard_ha(z)?,
@@ -77,7 +76,6 @@ pub fn recommended_ecut_ev(z: u32, variant: EcutVariant) -> Option<f64> {
 /// cover every element in `pseudopotentials/nc/lda/` shipped with this
 /// repository (H through Rn, excluding the lanthanides which the
 /// PseudoDojo set handles separately). Unknown Z returns `None`.
-#[must_use]
 #[allow(
     clippy::match_same_arms,
     reason = "per-element lookup table — collapsing arms with the same Ha value would obscure which element is tied to which cutoff and break per-line citation to the PseudoDojo table"
@@ -170,7 +168,6 @@ fn standard_ha(z: u32) -> Option<f64> {
 /// When a crystal contains an element whose cutoff is not tabulated,
 /// that species is skipped. Returns `None` when no species in the
 /// crystal has a tabulated value.
-#[must_use]
 pub fn recommended_ecut_for_crystal(
     crystal: &crate::crystal::Crystal,
     variant: EcutVariant,

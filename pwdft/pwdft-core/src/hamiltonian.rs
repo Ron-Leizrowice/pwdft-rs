@@ -20,7 +20,6 @@ use crate::{basis::BasisSet, consts::HBAR2_OVER_2M};
 /// H_{G,G'}(k) = δ_{GG'} · (ℏ²/2m) |k + G|²
 ///
 /// This is a diagonal matrix in the plane-wave basis.
-#[must_use]
 pub fn build_kinetic(basis: &BasisSet, k: &Vector3<f64>) -> faer::Mat<Complex64> {
     let n = basis.len();
     let mut h = faer::Mat::<Complex64>::zeros(n, n);

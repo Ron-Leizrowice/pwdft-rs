@@ -25,7 +25,6 @@ pub use g_space::symmetrize_density_g;
 /// to another exact grid point if and only if R_{ij} × n_j ≡ 0 (mod n_i) for all i, j.
 ///
 /// Returns true if all operations are compatible.
-#[must_use]
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
@@ -58,7 +57,6 @@ pub fn check_grid_compatibility(dims: [usize; 3], symmetry: &SymmetryInfo) -> bo
 /// structurally unreachable — a `[usize; 3]` always has three elements —
 /// and the expect is present purely as a safety-belt against a future
 /// refactor that changes the array shape.
-#[must_use]
 pub fn compatible_grid_dims(min_dims: [usize; 3], symmetry: &SymmetryInfo) -> [usize; 3] {
     // For cubic symmetry, making all dimensions equal is usually sufficient
     // SAFETY: min_dims is [usize; 3], always has 3 elements -- max() cannot be None.

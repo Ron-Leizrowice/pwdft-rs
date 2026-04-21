@@ -183,7 +183,6 @@ impl LocalPotential {
     /// # Panics
     /// Panics if `ig >= self.as_slice().len()` (plain slice-index
     /// out-of-bounds).
-    #[must_use]
     pub fn v_of_g(&self, ig: usize) -> Complex64 {
         self.v_g[ig]
     }
@@ -198,7 +197,6 @@ impl LocalPotential {
     /// Used by Hamiltonian assembly (e.g. `scf::potentials`) to add the
     /// local-PP column to `V_eff(G)` in bulk, and by the total-energy
     /// kernel for the `⟨ρ|V_local⟩` convolution.
-    #[must_use]
     pub fn as_slice(&self) -> &[Complex64] {
         &self.v_g
     }

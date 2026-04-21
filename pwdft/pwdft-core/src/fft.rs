@@ -28,7 +28,6 @@ pub struct FFT3D {
 }
 
 impl FFT3D {
-    #[must_use]
     pub fn new(nx: usize, ny: usize, nz: usize) -> Self {
         // Forward: no normalization (standard convention: unnormalized forward)
         // Inverse: no normalization (we apply 1/N manually in inverse_normalized)
@@ -49,12 +48,10 @@ impl FFT3D {
         }
     }
 
-    #[must_use]
     pub fn dims(&self) -> [usize; 3] {
         self.dims
     }
 
-    #[must_use]
     pub fn total_size(&self) -> usize {
         self.dims[0] * self.dims[1] * self.dims[2]
     }
@@ -182,7 +179,6 @@ impl FFT3D {
 /// across axes) plus the output `Vec<[f64; 3]>`. No pooling is
 /// attempted — this is called once per SCF iteration per GGA channel
 /// and the FFT work itself dominates.
-#[must_use]
 pub fn compute_density_gradient(
     rho_r: &[f64],
     fft: &mut FFT3D,
@@ -276,7 +272,6 @@ pub fn compute_density_gradient(
 ///
 /// `n_max` is typed as `u32` to encode the non-negative invariant at the
 /// API boundary rather than via a runtime assertion.
-#[must_use]
 pub fn fft_grid_size(n_max: u32) -> usize {
     let min_n = 2 * (n_max as usize) + 1;
     let mut n = min_n;

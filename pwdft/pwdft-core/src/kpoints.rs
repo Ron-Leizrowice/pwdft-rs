@@ -74,7 +74,6 @@ pub enum KGridShift {
 impl KGridShift {
     /// Return the per-axis half-shift integers `k_α ∈ {0, 1}` that
     /// parameterise this shift.
-    #[must_use]
     pub fn axis_flags(self) -> [u32; 3] {
         match self {
             Self::GammaCentered => [0, 0, 0],
@@ -94,7 +93,6 @@ impl KGridShift {
 /// form. (Mathematically k and k+G give identical physics, but at finite
 /// `ecut` the shared plane-wave basis adapts unequally to them — wrapping
 /// keeps kinetic energies minimized.)
-#[must_use]
 pub fn mp_fractional_coord(
     i1: u32,
     i2: u32,
@@ -122,7 +120,6 @@ pub fn mp_fractional_coord(
 /// `shift` argument selects between the Γ-centered and MP-1976 (shifted)
 /// conventions — see [`KGridShift`] for the formulas. Fractional
 /// coordinates are converted to Cartesian reciprocal space via `lattice`.
-#[must_use]
 pub fn monkhorst_pack(
     n1: u32,
     n2: u32,
@@ -165,7 +162,6 @@ pub struct HighSymPoint {
 }
 
 /// Standard high-symmetry points for FCC Brillouin zone.
-#[must_use]
 pub fn fcc_high_sym_points() -> Vec<HighSymPoint> {
     vec![
         HighSymPoint {
@@ -200,7 +196,6 @@ pub fn fcc_high_sym_points() -> Vec<HighSymPoint> {
 /// `segments` is a list of (label, fractional_coords) pairs defining the path vertices.
 /// `npoints_per_segment` controls the density of sampling between each pair.
 /// Returns k-points with cumulative distance for plotting.
-#[must_use]
 pub fn high_symmetry_path(
     segments: &[HighSymPoint],
     npoints_per_segment: usize,
