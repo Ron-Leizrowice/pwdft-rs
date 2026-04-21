@@ -34,14 +34,12 @@ Proposals use 4/5-letter IDs (e.g., `SIMP` or `UTRU4`) to avoid numbering confli
 | CFGN | Numerics knobs — CFGN1/DFLT/G2ZT landed; 10 knobs remain across Fermi-search / iterative-eigensolver / Ewald / floors | medium | low | — | — |
 | STYS | Settings type-sharpening audit — replace `String`-typed enum fields + `[usize;3]` flag-triples on `Settings` with their proper typed variants; surface serde errors for invalid values | medium | low | — | — |
 | MLRW | Reader-writer machine lock in `pwdft_validation.lock` — exclusive (bench/profile/QE) vs shared (test/clippy/build/doc); Python library primitive, bash shim + hook; plug `cargo doc` + QE hook drift | medium | medium | — | MLDX |
-| SKPL | `/test --tier2` auto-applies the authoritative skip list via `SKIP-TIER2` markers on `#[ignore]` reasons; drops cold-cache agent Tier-2 from ~19 min to ~8–10 min | small | low | — | — |
 
 ### Low / Deferred
 
 | ID | Title | Complexity | Risk | Depends On | Blocks |
 |----|-------|-----------|------|------------|--------|
 | MLDX | FastAPI daemon for lock coordination (MLDX-1) + heavy-command dispatch with bench-history (MLDX-2). Library fallback when daemon down | large | medium-high | MLRW | — |
-| URES | Replace 82 `#[must_use]` annotations with `unused_results` lint | small | low | — | — |
 | CUCL | CubeCL GPU kernels (deferred — explicit trigger conditions in proposal) | large | high | — | — |
 | FLUP | Follow-up backlog — remaining unpromoted items: MXB2, EIGV/EIGW, FLP3, ITVF tracker | small | low | — | — |
 | LTOB | Benchmark `lto = "fat"` vs `"thin"` on SCF hot path; adopt iff ≥2% production win and link <5 min | small | low | — | — |

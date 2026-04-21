@@ -2,7 +2,7 @@
 
 Rolling record of shipped proposals and load-bearing notes that carry over beyond completion. Authoritative file bodies live in `proposals/completed/`; this is the skimmable roll-up. Grouped thematically, not chronologically — `git log proposals/` is the dated source of truth.
 
-Cumulative landings through **2026-04-21**: **75 PRs**.
+Cumulative landings through **2026-04-21**: **77 PRs**.
 
 ## Physics validation — CLOSED
 
@@ -38,6 +38,8 @@ Cumulative landings through **2026-04-21**: **75 PRs**.
 - **CI** (CICI, CINM, TDBG) — clippy `-D warnings` on default + gpu; Tier-1 on `--profile=dev` (−28% test step, −51% full job; 330 s budget guardrail)
 - **Conventions** (UNTS, DOCX, DOCLEAN) — eV/Å internal units, `RUSTDOCFLAGS` recipe, Rust-vs-Python rounding + QE `wk` × `degspin` gotchas
 - **Settings schema hardening** (ESPL) — split `ElectronSettings` into `ElectronsPhysics` (physics: `spin_polarized: bool`, magnetization, occupations) + `ScfSettings`-absorbed convergence knobs (mixing/smearing); `nspin: usize` → `spin_polarized: bool`; default `scf.max_iter` 100 → 50; `#[serde(deny_unknown_fields)]` on every settings struct — pre-ESPL YAML is a hard parse error per no-backcompat policy
+- **Lint upgrade** (URES) — `#![warn(unused_results)]` crate-level lint replaces 87 item-level `#[must_use]` annotations; `queue.submit()` SubmissionIndex bindings added in GPU path; PR #186
+- **Tier-2 skip list** (SKPL) — `SKIP-TIER2` marker convention on `#[ignore]` reasons; `/test --tier2` auto-extracts skip list via awk; 9 physics-blocker tests tagged; `check-tier2-skip-consistency.sh` + CI step; PR #187
 
 ## Audits + grooming
 
