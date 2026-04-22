@@ -3,9 +3,9 @@
 //! Mathematical chain under test:
 //!
 //!   Step 1: UPF stores chi(r) = r * beta(r) in Bohr^{-1/2}
-//!   Step 2: Our code converts: chi_Ang = chi_Bohr / sqrt(BOHR_TO_ANG)  [Ang^{-1/2}]
-//!   Step 3: Form factor: F(q) = 4*pi * integral chi(r) j_l(qr) r dr  [Ang^{3/2}]
-//!   Step 4: Matrix element:
+//!   Step 2: Our code converts: chi_Ang = chi_Bohr / sqrt(BOHR_TO_ANG)
+//! [Ang^{-1/2}]   Step 3: Form factor: F(q) = 4*pi * integral chi(r) j_l(qr) r
+//! dr  [Ang^{3/2}]   Step 4: Matrix element:
 //!       V_NL(G,G') = (1/Omega) * sum_atom S(G-G')
 //!                   * sum_{a,b} F_a(|k+G|) D_{ab} F_b(|k+G'|)
 //!                   * (2l+1)/(4*pi) * P_l(cos theta)
@@ -20,18 +20,16 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
-use std::f64::consts::PI;
-use std::path::PathBuf;
+use std::{f64::consts::PI, path::PathBuf};
 
 use nalgebra::Vector3;
 use num_complex::Complex64;
-
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     numerics::simpson_integrate,
     potential::nonlocal::NonlocalPotential,
-    pseudopotential::PseudopotentialData,
+    pseudopotential::UpfPseudoPotential,
 };
 
 // ---------------------------------------------------------------------------
@@ -43,7 +41,7 @@ const RY_TO_EV: f64 = 13.605_693_122_994;
 // ---------------------------------------------------------------------------
 //  Helper: load Si pseudopotential
 // ---------------------------------------------------------------------------
-fn load_si_pp() -> PseudopotentialData {
+fn load_si_pp() -> UpfPseudoPotential {
     let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf");
     pwdft_core::pseudopotential::load(&path).unwrap()
 }
@@ -56,10 +54,7 @@ fn si_crystal() -> Crystal {
             a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
             a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
         ),
-        atoms: vec![
-            Atom::new(14, [0.0, 0.0, 0.0]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
     }
 }
 
@@ -74,10 +69,7 @@ fn spherical_bessel_j(l: i32, x: f64) -> f64 {
         0 => x.sin() / x,
         1 => x.sin() / (x * x) - x.cos() / x,
         2 => (3.0 / (x * x) - 1.0) * x.sin() / x - 3.0 * x.cos() / (x * x),
-        3 => {
-            (15.0 / (x * x * x) - 6.0 / x) * x.sin() / x
-                - (15.0 / (x * x) - 1.0) * x.cos() / x
-        }
+        3 => (15.0 / (x * x * x) - 6.0 / x) * x.sin() / x - (15.0 / (x * x) - 1.0) * x.cos() / x,
         _ => panic!("spherical_bessel_j: l={l} not implemented"),
     }
 }
@@ -95,13 +87,7 @@ fn legendre_p(l: i32, x: f64) -> f64 {
 // ---------------------------------------------------------------------------
 //  Bessel transform: TRAPEZOIDAL rule (our code's method, via rab weights)
 // ---------------------------------------------------------------------------
-fn bessel_transform_trapezoidal(
-    r_grid: &[f64],
-    rab: &[f64],
-    chi: &[f64],
-    l: i32,
-    q: f64,
-) -> f64 {
+fn bessel_transform_trapezoidal(r_grid: &[f64], rab: &[f64], chi: &[f64], l: i32, q: f64) -> f64 {
     let mut integral = 0.0;
     for i in 0..r_grid.len() {
         let r = r_grid[i];
@@ -118,13 +104,7 @@ fn bessel_transform_trapezoidal(
 // ---------------------------------------------------------------------------
 //  Bessel transform: SIMPSON'S 1/3 rule (QE's method)
 // ---------------------------------------------------------------------------
-fn bessel_transform_simpson(
-    r_grid: &[f64],
-    rab: &[f64],
-    chi: &[f64],
-    l: i32,
-    q: f64,
-) -> f64 {
+fn bessel_transform_simpson(r_grid: &[f64], rab: &[f64], chi: &[f64], l: i32, q: f64) -> f64 {
     let n = r_grid.len();
     // Simpson's rule requires an odd number of points.
     // If n is even, we drop the last point (whose contribution is negligible
@@ -196,7 +176,11 @@ fn test_01_inspect_projector_data() {
 
         eprintln!(
             "Projector {} (l={}): peak |chi|={:.6e} at r={:.6} Ang (index {})",
-            ip, proj.l, peak_val.abs(), peak_r, peak_idx
+            ip,
+            proj.l,
+            peak_val.abs(),
+            peak_r,
+            peak_idx
         );
 
         // First 5 values
@@ -207,10 +191,7 @@ fn test_01_inspect_projector_data() {
         eprintln!();
 
         // Last 5 non-trivially-zero values
-        let last_nonzero = chi
-            .iter()
-            .rposition(|&v| v.abs() > 1e-30)
-            .unwrap_or(n - 1);
+        let last_nonzero = chi.iter().rposition(|&v| v.abs() > 1e-30).unwrap_or(n - 1);
         let start = last_nonzero.saturating_sub(4);
         eprint!("  last 5 nonzero chi(r) [idx {start}-{last_nonzero}]: ");
         for v in chi.iter().take(last_nonzero + 1).skip(start) {
@@ -306,18 +287,14 @@ fn test_03_f_at_q_zero_analytic() {
             let f_analytic = 4.0 * PI * integral_analytic;
 
             let diff = (f_q0 - f_analytic).abs();
-            eprintln!(
-                "Projector {ip} (l=0): F(0) = {f_q0:.10e},  analytic = {f_analytic:.10e},  diff = {diff:.4e}"
-            );
+            eprintln!("Projector {ip} (l=0): F(0) = {f_q0:.10e},  analytic = {f_analytic:.10e},  diff = {diff:.4e}");
             assert!(
                 diff < 1e-14 * f_q0.abs().max(1.0),
                 "F(q=0) disagrees with analytic for l=0 projector {ip}: diff = {diff:.4e}"
             );
         } else {
             // l > 0: must be exactly zero (j_l(0) = 0 for l > 0)
-            eprintln!(
-                "Projector {ip} (l={l}): F(0) = {f_q0:.10e}  (should be 0)"
-            );
+            eprintln!("Projector {ip} (l={l}): F(0) = {f_q0:.10e}  (should be 0)");
             assert!(
                 f_q0.abs() < 1e-20,
                 "F(q=0) should be zero for l={l} projector: got {f_q0:.4e}"
@@ -344,10 +321,22 @@ fn test_04_unit_conversion_chain() {
     let dij_raw = extract_block_f64(&content, "PP_DIJ");
 
     eprintln!("Raw UPF data (Bohr/Ry units):");
-    eprintln!("  r_grid[0]  = {:.10e} Bohr = {:.10e} Ang", r_bohr[0], r_bohr[0] * BOHR_TO_ANG);
-    eprintln!("  rab[0]     = {:.10e} Bohr = {:.10e} Ang", rab_bohr[0], rab_bohr[0] * BOHR_TO_ANG);
+    eprintln!(
+        "  r_grid[0]  = {:.10e} Bohr = {:.10e} Ang",
+        r_bohr[0],
+        r_bohr[0] * BOHR_TO_ANG
+    );
+    eprintln!(
+        "  rab[0]     = {:.10e} Bohr = {:.10e} Ang",
+        rab_bohr[0],
+        rab_bohr[0] * BOHR_TO_ANG
+    );
     eprintln!("  beta1[10]  = {:.10e} Bohr^{{-1/2}}", beta1_raw[10]);
-    eprintln!("  D_11 (raw) = {:.10e} Ry = {:.10e} eV", dij_raw[0], dij_raw[0] * RY_TO_EV);
+    eprintln!(
+        "  D_11 (raw) = {:.10e} Ry = {:.10e} eV",
+        dij_raw[0],
+        dij_raw[0] * RY_TO_EV
+    );
     eprintln!();
 
     // Load via our parser
@@ -356,13 +345,19 @@ fn test_04_unit_conversion_chain() {
     // Verify r_grid conversion
     let r_check = r_bohr[0] * BOHR_TO_ANG;
     let diff_r = (pp.r_grid[0] - r_check).abs();
-    eprintln!("r_grid[0]: parsed={:.10e}, expected={:.10e}, diff={:.4e}", pp.r_grid[0], r_check, diff_r);
+    eprintln!(
+        "r_grid[0]: parsed={:.10e}, expected={:.10e}, diff={:.4e}",
+        pp.r_grid[0], r_check, diff_r
+    );
     assert!(diff_r < 1e-15, "r_grid conversion error: {diff_r:.4e}");
 
     // Verify rab conversion
     let rab_check = rab_bohr[0] * BOHR_TO_ANG;
     let diff_rab = (pp.rab[0] - rab_check).abs();
-    eprintln!("rab[0]: parsed={:.10e}, expected={:.10e}, diff={:.4e}", pp.rab[0], rab_check, diff_rab);
+    eprintln!(
+        "rab[0]: parsed={:.10e}, expected={:.10e}, diff={:.4e}",
+        pp.rab[0], rab_check, diff_rab
+    );
     assert!(diff_rab < 1e-15, "rab conversion error: {diff_rab:.4e}");
 
     // Verify chi conversion: chi_Ang = chi_Bohr / sqrt(BOHR_TO_ANG)
@@ -377,7 +372,10 @@ fn test_04_unit_conversion_chain() {
     // Verify D_ij conversion: D_eV = D_Ry * RY_TO_EV
     let d11_check = dij_raw[0] * RY_TO_EV;
     let diff_d = (pp.dij[0] - d11_check).abs();
-    eprintln!("D_11: parsed={:.10e}, expected={:.10e}, diff={:.4e}", pp.dij[0], d11_check, diff_d);
+    eprintln!(
+        "D_11: parsed={:.10e}, expected={:.10e}, diff={:.4e}",
+        pp.dij[0], d11_check, diff_d
+    );
     assert!(diff_d < 1e-10, "D_ij conversion error: {diff_d:.4e}");
 
     // Dimensional analysis of the full matrix element
@@ -385,19 +383,10 @@ fn test_04_unit_conversion_chain() {
     eprintln!("Dimensional analysis of V_NL(G,G) at Gamma:");
     let omega = 40.04; // approximate Si cell volume in Ang^3
     eprintln!("  1/Omega            = {:.6e} Ang^{{-3}}", 1.0 / omega);
-    let f_test = bessel_transform_simpson(
-        &pp.r_grid,
-        &pp.rab,
-        &pp.beta_projectors[0].values,
-        0,
-        1.0,
-    );
+    let f_test = bessel_transform_simpson(&pp.r_grid, &pp.rab, &pp.beta_projectors[0].values, 0, 1.0);
     eprintln!("  F_0(q=1 Ang^-1)   = {f_test:.6e} Ang^{{3/2}}");
     eprintln!("  D_11               = {:.6e} eV", pp.dij[0]);
-    eprintln!(
-        "  F * D * F          = {:.6e} eV * Ang^3",
-        f_test * pp.dij[0] * f_test
-    );
+    eprintln!("  F * D * F          = {:.6e} eV * Ang^3", f_test * pp.dij[0] * f_test);
     eprintln!(
         "  (1/Omega)*F*D*F    = {:.6e} eV  [correct dimension]",
         f_test * pp.dij[0] * f_test / omega
@@ -422,7 +411,7 @@ fn test_05_vnl_diagonal_at_gamma() {
 
     // Build V_NL using the library
     let mut h_lib = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &pp).unwrap();
     vnl.add_to_hamiltonian(&mut h_lib, &crystal, &basis, &k);
 
     // Also compute diagonal V_NL(G,G) manually for selected G-vectors
@@ -460,7 +449,8 @@ fn test_05_vnl_diagonal_at_gamma() {
         let g_norm = g.norm();
 
         // Manual diagonal V_NL(G,G)
-        // = (1/Omega) * S(0) * sum_{i,j same l} F_i(|G|) D_{ij} F_j(|G|) * (2l+1)/(4*pi)
+        // = (1/Omega) * S(0) * sum_{i,j same l} F_i(|G|) D_{ij} F_j(|G|) *
+        // (2l+1)/(4*pi)
         let n_proj = pp.n_projectors();
         let mut vnl_manual = 0.0;
 
@@ -476,20 +466,8 @@ fn test_05_vnl_diagonal_at_gamma() {
                 }
                 let l = li;
 
-                let fi = bessel_transform_simpson(
-                    &pp.r_grid,
-                    &pp.rab,
-                    &pp.beta_projectors[i].values,
-                    l,
-                    g_norm,
-                );
-                let fj = bessel_transform_simpson(
-                    &pp.r_grid,
-                    &pp.rab,
-                    &pp.beta_projectors[j].values,
-                    l,
-                    g_norm,
-                );
+                let fi = bessel_transform_simpson(&pp.r_grid, &pp.rab, &pp.beta_projectors[i].values, l, g_norm);
+                let fj = bessel_transform_simpson(&pp.r_grid, &pp.rab, &pp.beta_projectors[j].values, l, g_norm);
 
                 let d = pp.dij[i * n_proj + j];
 
@@ -514,8 +492,12 @@ fn test_05_vnl_diagonal_at_gamma() {
         assert!(
             diff < 1e-8,
             "V_NL diagonal mismatch at G=({},{},{}): lib={:.10}, manual={:.10}, diff={:.4e}",
-            miller[0], miller[1], miller[2],
-            v_lib, vnl_manual, diff
+            miller[0],
+            miller[1],
+            miller[2],
+            v_lib,
+            vnl_manual,
+            diff
         );
     }
 }
@@ -536,7 +518,8 @@ fn test_06_vnl_g0_g0_analytic() {
     // For l>0 projectors: j_l(0) = 0, so F_i(0) = 0
 
     // Therefore V_NL(G=0,G=0) only gets contributions from l=0 projectors:
-    // V_NL(0,0) = (N_atoms/Omega) * sum_{i,j with l=0} F_i(0) D_{ij} F_j(0) * 1/(4*pi)
+    // V_NL(0,0) = (N_atoms/Omega) * sum_{i,j with l=0} F_i(0) D_{ij} F_j(0) *
+    // 1/(4*pi)
 
     let n_proj = pp.n_projectors();
     let n_atoms = crystal.atoms.len() as f64;
@@ -573,7 +556,7 @@ fn test_06_vnl_g0_g0_analytic() {
     let k = Vector3::zeros();
     let n_pw = basis.len();
     let mut h = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &pp).unwrap();
     vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
     let g0_idx = basis.index_of(0, 0, 0).unwrap();
@@ -621,9 +604,7 @@ fn test_07_form_factor_behavior() {
         let f_large_q = f_vals.last().unwrap().abs();
         let f_max = f_vals.iter().map(|v| v.abs()).fold(0.0f64, f64::max);
         let ratio = f_large_q / f_max.max(1e-20);
-        eprintln!(
-            "  |F(q_max)|/|F_max| = {ratio:.4e} (should be < 0.12)"
-        );
+        eprintln!("  |F(q_max)|/|F_max| = {ratio:.4e} (should be < 0.12)");
         // HGH l=1 projector for Si has broad q-space extent: ratio ~0.106 at
         // q=24.5 Ang^-1. This is a property of the Gaussian projector shape,
         // not a quadrature artifact — both trapezoidal and Simpson give ~0.106.
@@ -665,7 +646,7 @@ fn test_08_vnl_offdiagonal() {
 
     // Build V_NL using the library
     let mut h_lib = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &pp).unwrap();
     vnl.add_to_hamiltonian(&mut h_lib, &crystal, &basis, &k);
 
     let g_vecs = basis.g_vectors();
@@ -710,20 +691,8 @@ fn test_08_vnl_offdiagonal() {
                     }
                     let l = li;
 
-                    let fi = bessel_transform_simpson(
-                        &pp.r_grid,
-                        &pp.rab,
-                        &pp.beta_projectors[i].values,
-                        l,
-                        qi_norm,
-                    );
-                    let fj = bessel_transform_simpson(
-                        &pp.r_grid,
-                        &pp.rab,
-                        &pp.beta_projectors[j].values,
-                        l,
-                        qj_norm,
-                    );
+                    let fi = bessel_transform_simpson(&pp.r_grid, &pp.rab, &pp.beta_projectors[i].values, l, qi_norm);
+                    let fj = bessel_transform_simpson(&pp.r_grid, &pp.rab, &pp.beta_projectors[j].values, l, qj_norm);
 
                     let d = pp.dij[i * n_proj + j];
 
@@ -747,17 +716,20 @@ fn test_08_vnl_offdiagonal() {
         let miller_j = basis.miller_indices()[jg];
         eprintln!(
             "  G=({},{},{}) -> G=({},{},{}): lib=({:.8}, {:.8}i), manual=({:.8}, {:.8}i), diff={:.4e}",
-            miller_i[0], miller_i[1], miller_i[2],
-            miller_j[0], miller_j[1], miller_j[2],
-            v_lib.re, v_lib.im,
-            vnl_manual.re, vnl_manual.im,
+            miller_i[0],
+            miller_i[1],
+            miller_i[2],
+            miller_j[0],
+            miller_j[1],
+            miller_j[2],
+            v_lib.re,
+            v_lib.im,
+            vnl_manual.re,
+            vnl_manual.im,
             diff
         );
 
-        assert!(
-            diff < 1e-8,
-            "Off-diagonal V_NL mismatch: diff = {diff:.4e}"
-        );
+        assert!(diff < 1e-8, "Off-diagonal V_NL mismatch: diff = {diff:.4e}");
     }
 }
 
@@ -795,7 +767,13 @@ fn test_09_hgh_parameter_crosscheck() {
             let diff = (d[i * np + j] - d[j * np + i]).abs();
             eprintln!(
                 "  D[{},{}]={:.10e}, D[{},{}]={:.10e}, diff={:.4e}",
-                i, j, d[i * np + j], j, i, d[j * np + i], diff
+                i,
+                j,
+                d[i * np + j],
+                j,
+                i,
+                d[j * np + i],
+                diff
             );
             assert!(
                 diff < 1e-14,
@@ -806,7 +784,8 @@ fn test_09_hgh_parameter_crosscheck() {
         }
     }
 
-    // D_ij must be block-diagonal in l: entries between different l channels are zero
+    // D_ij must be block-diagonal in l: entries between different l channels are
+    // zero
     eprintln!("\nBlock-diagonal check (off-diagonal between different l must be zero):");
     for i in 0..np {
         for j in 0..np {
@@ -814,9 +793,7 @@ fn test_09_hgh_parameter_crosscheck() {
             let lj = pp.beta_projectors[j].l;
             if li != lj {
                 let val = d[i * np + j];
-                eprintln!(
-                    "  D[{i},{j}] (l={li} vs l={lj}) = {val:.10e} (must be zero)"
-                );
+                eprintln!("  D[{i},{j}] (l={li} vs l={lj}) = {val:.10e} (must be zero)");
                 assert!(
                     val.abs() < 1e-14,
                     "D[{i},{j}] between l={li} and l={lj} should be zero, got {val:.10e}"
@@ -828,10 +805,10 @@ fn test_09_hgh_parameter_crosscheck() {
     // Verify diagonal values against the raw UPF file (in Ry, converted to eV).
     // These are the eigenvalues of the HGH h^l matrices after QE's diagonalization.
     let expected_diag_ry = [
-        1.113_191_595_4e+01, // l=0, proj 1
-        1.713_932_492_5e+00, // l=0, proj 2
-        5.452_221_279_1e+00, // l=1, proj 1
-        1.259_655_832_9e+00, // l=1, proj 2
+        1.113_191_595_4e+01,  // l=0, proj 1
+        1.713_932_492_5e+00,  // l=0, proj 2
+        5.452_221_279_1e+00,  // l=1, proj 1
+        1.259_655_832_9e+00,  // l=1, proj 2
         -4.249_608_729_0e+00, // l=2, proj 1
         -8.892_087_962_2e-01, // l=2, proj 2
     ];
@@ -846,9 +823,7 @@ fn test_09_hgh_parameter_crosscheck() {
         let parsed_ev = d[i * np + i];
         let diff = (parsed_ev - expected_ev).abs();
         let l = pp.beta_projectors[i].l;
-        eprintln!(
-            "  D[{i},{i}]  l={l}  {parsed_ev:16.8}  {expected_ev:16.8}  {diff:12.4e}"
-        );
+        eprintln!("  D[{i},{i}]  l={l}  {parsed_ev:16.8}  {expected_ev:16.8}  {diff:12.4e}");
         assert!(
             diff < 1e-4,
             "D[{i},{i}] mismatch: parsed={parsed_ev:.10}, expected={expected_ev:.10}, diff={diff:.4e}"
@@ -870,7 +845,7 @@ fn test_10_vnl_hermiticity_and_reality() {
     eprintln!("\n=== TEST 10: V_NL Hermiticity and diagonal reality ===");
 
     let mut h = faer::Mat::<Complex64>::zeros(n_pw, n_pw);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &pp).unwrap();
     vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
     // Diagonal must be real
@@ -893,10 +868,7 @@ fn test_10_vnl_hermiticity_and_reality() {
         }
     }
     eprintln!("  Max |H(i,j) - H(j,i)*| = {max_herm_err:.4e}");
-    assert!(
-        max_herm_err < 1e-10,
-        "V_NL not Hermitian: max = {max_herm_err:.4e}"
-    );
+    assert!(max_herm_err < 1e-10, "V_NL not Hermitian: max = {max_herm_err:.4e}");
 }
 
 // ---------------------------------------------------------------------------
@@ -906,11 +878,7 @@ fn extract_block_f64(content: &str, tag: &str) -> Vec<f64> {
     let open = format!("<{tag}");
     let close = format!("</{tag}>");
     let tag_pos = content.find(&open).unwrap_or_else(|| panic!("missing <{tag}>"));
-    let data_start = content[tag_pos..]
-        .find('>')
-        .expect("malformed tag")
-        + tag_pos
-        + 1;
+    let data_start = content[tag_pos..].find('>').expect("malformed tag") + tag_pos + 1;
     let data_end = content[data_start..]
         .find(&close)
         .unwrap_or_else(|| panic!("missing </{tag}>"))
@@ -922,7 +890,8 @@ fn extract_block_f64(content: &str, tag: &str) -> Vec<f64> {
 }
 
 fn extract_beta_block(content: &str, tag: &str) -> Vec<f64> {
-    // Same as extract_block_f64 but for PP_BETA blocks which can have multiline opening tags
+    // Same as extract_block_f64 but for PP_BETA blocks which can have multiline
+    // opening tags
     extract_block_f64(content, tag)
 }
 

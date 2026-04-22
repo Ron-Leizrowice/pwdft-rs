@@ -34,8 +34,7 @@ pub const G2_ZERO_THRESHOLD: f64 = 1e-12;
 /// floor. Callers should pick the one that matches the quantity they
 /// already have in hand.
 pub const G_ZERO_THRESHOLD: f64 = 1e-12;
-/// Minimum electron density for XC evaluation (e/ų).
-pub const RHO_FLOOR: f64 = 1e-30;
+
 
 // SI constants
 pub const H_SI: f64 = 6.626_070_15e-34; // J·s (exact, SI definition)
@@ -47,5 +46,4 @@ pub const EV_PER_J: f64 = 6.241_509_074e18; // 1 J = this many eV
 pub const ANG_PER_M: f64 = 1e10; // 1 m = 1e10 Å
 
 // Derived: ħ²/2m in eV·Å²
-pub const HBAR2_OVER_2M: f64 =
-    HBAR_SI * HBAR_SI / (2.0 * M_E) * EV_PER_J * ANG_PER_M * ANG_PER_M;
+pub const HBAR2_OVER_2M: f64 = HBAR_SI * HBAR_SI / (2.0 * M_E) * EV_PER_J * ANG_PER_M * ANG_PER_M;

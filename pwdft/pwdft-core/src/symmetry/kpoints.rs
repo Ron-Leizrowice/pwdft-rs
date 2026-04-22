@@ -1,11 +1,10 @@
 //! K-point symmetry reduction to the irreducible Brillouin zone.
 
+use super::{SymmOp, SymmetryInfo};
 use crate::{
     crystal::Lattice,
     kpoints::{KGridShift, KPoint},
 };
-
-use super::{SymmOp, SymmetryInfo};
 
 /// Reduce a Monkhorst-Pack k-point grid to the irreducible Brillouin zone.
 ///
@@ -22,11 +21,10 @@ use super::{SymmOp, SymmetryInfo};
 /// produces incorrect weights. The function generator and reducer must
 /// agree.
 ///
-/// - [`KGridShift::GammaCentered`]: fractional coords
-///   `{0, 1/N, 2/N, …, (N−1)/N}`. Si Fd-3m 4×4×4 reduces to **8** IBZ
-///   points.
-/// - [`KGridShift::MP1976`]: fractional coords
-///   `{±1/(2N), ±3/(2N), …}`. Si Fd-3m 4×4×4 reduces to **10** IBZ points.
+/// - [`KGridShift::GammaCentered`]: fractional coords `{0, 1/N, 2/N, …, (N−1)/N}`. Si Fd-3m 4×4×4
+///   reduces to **8** IBZ points.
+/// - [`KGridShift::MP1976`]: fractional coords `{±1/(2N), ±3/(2N), …}`. Si Fd-3m 4×4×4 reduces to
+///   **10** IBZ points.
 ///
 /// Both reductions are exact for their respective grids — this is a
 /// convention choice, not a bug.
@@ -43,9 +41,7 @@ pub fn reduce_kpoints(
     // Convert full k-points to fractional reciprocal coordinates
     let frac_kpoints: Vec<[f64; 3]> = (0..grid[0])
         .flat_map(|i1| {
-            (0..grid[1]).flat_map(move |i2| {
-                (0..grid[2]).map(move |i3| mp_fractional(i1, i2, i3, grid, shift))
-            })
+            (0..grid[1]).flat_map(move |i2| (0..grid[2]).map(move |i3| mp_fractional(i1, i2, i3, grid, shift)))
         })
         .collect();
 
@@ -63,10 +59,7 @@ pub fn reduce_kpoints(
         // Apply all symmetry operations
         for op in &symmetry.operations {
             // Reciprocal-space rotation: (R⁻¹)ᵀ
-            let r_inv_t = SymmOp {
-                rotation: op.rotation,
-            }
-            .inverse_transpose();
+            let r_inv_t = SymmOp { rotation: op.rotation }.inverse_transpose();
             let k_rot = r_inv_t.apply(frac);
 
             if let Some(rot_idx) = frac_to_grid_index(&k_rot, grid, shift)
@@ -151,10 +144,12 @@ fn frac_to_grid_index(frac: &[f64; 3], grid: [u32; 3], shift: KGridShift) -> Opt
 
 #[cfg(test)]
 mod tests {
+    use approx::relative_eq;
+    use elements_rs::Element;
+    use nalgebra::Vector3;
+
     use super::*;
     use crate::crystal::{Atom, Crystal};
-    use approx::relative_eq;
-    use nalgebra::Vector3;
 
     fn si_fcc() -> Crystal {
         let a = 5.431;
@@ -165,8 +160,8 @@ mod tests {
                 a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
             ),
             atoms: vec![
-                Atom::new(14, [0.0, 0.0, 0.0]),
-                Atom::new(14, [0.25, 0.25, 0.25]),
+                Atom::new(Element::Si, [0.0, 0.0, 0.0]),
+                Atom::new(Element::Si, [0.25, 0.25, 0.25]),
             ],
         }
     }
@@ -178,8 +173,7 @@ mod tests {
         // matching QE.
         let crystal = si_fcc();
         let symmetry = crate::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
-        let full_kpts =
-            crate::kpoints::monkhorst_pack(4, 4, 4, KGridShift::GammaCentered, &crystal.lattice);
+        let full_kpts = crate::kpoints::monkhorst_pack(4, 4, 4, KGridShift::GammaCentered, &crystal.lattice);
         let ibz = reduce_kpoints(
             &full_kpts,
             [4, 4, 4],
@@ -209,15 +203,8 @@ mod tests {
         // the original Monkhorst-Pack 1976 recipe.
         let crystal = si_fcc();
         let symmetry = crate::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
-        let full_kpts =
-            crate::kpoints::monkhorst_pack(4, 4, 4, KGridShift::MP1976, &crystal.lattice);
-        let ibz = reduce_kpoints(
-            &full_kpts,
-            [4, 4, 4],
-            KGridShift::MP1976,
-            &symmetry,
-            &crystal.lattice,
-        );
+        let full_kpts = crate::kpoints::monkhorst_pack(4, 4, 4, KGridShift::MP1976, &crystal.lattice);
+        let ibz = reduce_kpoints(&full_kpts, [4, 4, 4], KGridShift::MP1976, &symmetry, &crystal.lattice);
 
         assert_eq!(
             ibz.len(),
@@ -233,8 +220,7 @@ mod tests {
         // cyclic permutation — IBZ size is identical under either shift.
         let crystal = si_fcc();
         let symmetry = crate::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
-        let full_kpts =
-            crate::kpoints::monkhorst_pack(3, 3, 3, KGridShift::GammaCentered, &crystal.lattice);
+        let full_kpts = crate::kpoints::monkhorst_pack(3, 3, 3, KGridShift::GammaCentered, &crystal.lattice);
         let ibz = reduce_kpoints(
             &full_kpts,
             [3, 3, 3],
@@ -255,8 +241,7 @@ mod tests {
     fn test_weight_sum_is_one() {
         let crystal = si_fcc();
         let symmetry = crate::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
-        let full_kpts =
-            crate::kpoints::monkhorst_pack(4, 4, 4, KGridShift::GammaCentered, &crystal.lattice);
+        let full_kpts = crate::kpoints::monkhorst_pack(4, 4, 4, KGridShift::GammaCentered, &crystal.lattice);
         let ibz = reduce_kpoints(
             &full_kpts,
             [4, 4, 4],
@@ -281,12 +266,11 @@ mod tests {
                 Vector3::new(0.3, 4.2, -0.1),
                 Vector3::new(-0.1, 0.15, 5.3),
             ),
-            atoms: vec![Atom::new(6, [0.13, 0.27, 0.41])],
+            atoms: vec![Atom::new(Element::C, [0.13, 0.27, 0.41])],
         };
         let symmetry = crate::symmetry::SymmetryInfo::from_crystal(&crystal, 1e-5);
         // P1 has 1 op (identity) + time-reversal → k and -k equivalent
-        let full_kpts =
-            crate::kpoints::monkhorst_pack(3, 3, 3, KGridShift::GammaCentered, &crystal.lattice);
+        let full_kpts = crate::kpoints::monkhorst_pack(3, 3, 3, KGridShift::GammaCentered, &crystal.lattice);
         let ibz = reduce_kpoints(
             &full_kpts,
             [3, 3, 3],
@@ -331,7 +315,7 @@ mod tests {
                 Vector3::new(0.3, 4.2, -0.1),
                 Vector3::new(-0.1, 0.15, 5.3),
             ),
-            atoms: vec![Atom::new(6, [0.13, 0.27, 0.41])],
+            atoms: vec![Atom::new(Element::C, [0.13, 0.27, 0.41])],
         };
         let mut symmetry = crate::symmetry::SymmetryInfo::identity_only();
         symmetry.has_time_reversal = true;
@@ -342,22 +326,11 @@ mod tests {
 
         let grid = [4_u32, 4, 4];
         let n_total = (grid[0] * grid[1] * grid[2]) as usize;
-        let full_kpts = crate::kpoints::monkhorst_pack(
-            grid[0],
-            grid[1],
-            grid[2],
-            KGridShift::GammaCentered,
-            &crystal.lattice,
-        );
+        let full_kpts =
+            crate::kpoints::monkhorst_pack(grid[0], grid[1], grid[2], KGridShift::GammaCentered, &crystal.lattice);
         assert_eq!(full_kpts.len(), n_total);
 
-        let ibz = reduce_kpoints(
-            &full_kpts,
-            grid,
-            KGridShift::GammaCentered,
-            &symmetry,
-            &crystal.lattice,
-        );
+        let ibz = reduce_kpoints(&full_kpts, grid, KGridShift::GammaCentered, &symmetry, &crystal.lattice);
         assert!(
             ibz.len() < n_total,
             "P1 + time-reversal must fold k ↔ −k: expected IBZ < {n_total}, got {}",

@@ -46,6 +46,7 @@ use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     kpoints,
+    pseudopotential::UpfPseudoPotential,
     scf::{self, ScfParams, mixing::MixingMode, smearing::SmearingScheme},
     symmetry::SymmetryInfo,
 };
@@ -62,10 +63,7 @@ fn c_diamond() -> Crystal {
             a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
             a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
         ),
-        atoms: vec![
-            Atom::new(6, [0.00, 0.00, 0.00]),
-            Atom::new(6, [0.25, 0.25, 0.25]),
-        ],
+        atoms: vec![Atom::new(6, [0.00, 0.00, 0.00]), Atom::new(6, [0.25, 0.25, 0.25])],
     }
 }
 
@@ -97,9 +95,8 @@ fn test_plain_anderson_stalls_on_c_diamond() {
     let _ = env_logger::builder().is_test(true).try_init();
 
     let crystal = c_diamond();
-    let pp_c = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/C.upf"),
+    let pp_c = UpfPseudoPotential::load(
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/C.upf"),
     )
     .expect("C.upf must load");
 
@@ -110,13 +107,7 @@ fn test_plain_anderson_stalls_on_c_diamond() {
     // in data/qe/c_scf.in. The stall is specific to this FFT-grid
     // / gap / mixer combination; changing the grid shift or k-density may
     // alter the failure mode.
-    let kpts = kpoints::monkhorst_pack(
-        4,
-        4,
-        4,
-        kpoints::KGridShift::GammaCentered,
-        &crystal.lattice,
-    );
+    let kpts = kpoints::monkhorst_pack(4, 4, 4, kpoints::KGridShift::GammaCentered, &crystal.lattice);
 
     // All other knobs match the `test_c_diamond_vs_qe` config in
     // qe_validation.rs so the only difference is the mixer choice.
@@ -137,20 +128,19 @@ fn test_plain_anderson_stalls_on_c_diamond() {
     };
 
     let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
-    let result = scf::run_scf(&crystal, &basis, &kpts, &[&pp_c], &params, &symmetry);
+    let result = scf::run_scf(&crystal, &basis, &kpts, &pp_c, &params, &symmetry);
 
     // The negative regression: Plain Anderson is expected to stall on C
     // diamond, i.e. the driver should return `ConvergenceFailure` rather
     // than `Ok(..)`. Three outcomes flag a behaviour change that deserves
     // human attention:
     //
-    //  1. `Ok(res)` — someone fixed Plain Anderson. Rewrite as a positive
-    //     convergence pin against the QE reference.
-    //  2. `Err(ConvergenceFailure { delta, .. })` with `delta <=
-    //     conv_threshold` — self-contradictory, would indicate a driver
-    //     bug.
-    //  3. `Err(other)` — the SCF failed for a different reason (NaN,
-    //     eigensolver breakdown, etc.). Investigate; don't paper over.
+    //  1. `Ok(res)` — someone fixed Plain Anderson. Rewrite as a positive convergence pin against the
+    //     QE reference.
+    //  2. `Err(ConvergenceFailure { delta, .. })` with `delta <= conv_threshold` — self-contradictory,
+    //     would indicate a driver bug.
+    //  3. `Err(other)` — the SCF failed for a different reason (NaN, eigensolver breakdown, etc.).
+    //     Investigate; don't paper over.
     match result {
         Ok(res) => {
             panic!(
@@ -163,7 +153,7 @@ fn test_plain_anderson_stalls_on_c_diamond() {
                  MixingMode::Plain docstring in src/scf/mixing/mod.rs accordingly.",
                 res.final_delta, res.n_iterations, res.total_energy,
             );
-        }
+        },
         Err(pwdft_core::error::PwdftError::ConvergenceFailure { iterations, delta }) => {
             // Self-consistency: if the driver reports ConvergenceFailure
             // the residual must be above conv_threshold = 1e-8, else the
@@ -179,13 +169,13 @@ fn test_plain_anderson_stalls_on_c_diamond() {
                 "Plain Anderson on C diamond: documented stall hit — \
                  ConvergenceFailure(iters={iterations}, delta={delta:.3e}). Expected.",
             );
-        }
+        },
         Err(other) => {
             panic!(
                 "Plain Anderson on C diamond failed for an unexpected reason \
                  (not ConvergenceFailure): {other}. The documented pathology is a mixer \
                  stall, not a hard SCF failure — investigate before updating the assertion.",
             );
-        }
+        },
     }
 }

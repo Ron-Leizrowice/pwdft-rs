@@ -35,7 +35,7 @@ use rayon::prelude::*;
 
 use crate::{
     error::{PwdftError, Result},
-    settings::XcFunctional,
+    settings::PredefinedXcFunctionals,
 };
 
 // ---------------------------------------------------------------------------
@@ -60,12 +60,10 @@ use crate::{
 // and diagonalizations in that iteration. `Ordering::Relaxed` suffices:
 // we count invocations across rayon parallelism and do not need any
 // memory-ordering guarantee relative to other locations.
-pub static PBE_EVAL_INVOCATIONS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+pub static PBE_EVAL_INVOCATIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// See [`PBE_EVAL_INVOCATIONS`] for the motivation.
-pub static PBE_EVAL_SPIN_INVOCATIONS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+pub static PBE_EVAL_SPIN_INVOCATIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Result of evaluating the (non-spin) LDA exchange-correlation
 /// functional at a single real-space density point.
@@ -109,20 +107,17 @@ pub struct XcPoint {
 /// ```
 ///
 /// where
-/// - `ε_x(ρ) = −(3/4)(3ρ/π)^{1/3}` is the Slater exchange energy per
-///   electron (Hartree atomic units, converted to eV internally);
-/// - `ε_c(ρ)` is the Perdew-Zunger parametrization of the Ceperley-Alder
-///   correlation energy, with the two `r_s` regimes written out in
-///   [`XcPoint`]'s module header (see references);
-/// - `r_s = (3/(4π ρ))^{1/3}` is the Wigner-Seitz radius in Bohr and
-///   `ρ` is converted from e/Å³ to e/Bohr³ before entering the formulas
-///   to keep the dimensionless `(3/π)^{1/3}` constant correct.
+/// - `ε_x(ρ) = −(3/4)(3ρ/π)^{1/3}` is the Slater exchange energy per electron (Hartree atomic
+///   units, converted to eV internally);
+/// - `ε_c(ρ)` is the Perdew-Zunger parametrization of the Ceperley-Alder correlation energy, with
+///   the two `r_s` regimes written out in [`XcPoint`]'s module header (see references);
+/// - `r_s = (3/(4π ρ))^{1/3}` is the Wigner-Seitz radius in Bohr and `ρ` is converted from e/Å³ to
+///   e/Bohr³ before entering the formulas to keep the dimensionless `(3/π)^{1/3}` constant correct.
 ///
 /// Inputs:
-/// - `rho`: electron density in e/Å³. Must satisfy `rho >= 0`; values
-///   below [`crate::consts::RHO_FLOOR`] short-circuit to zero to avoid a
-///   cube-root singularity and a spurious −∞ log in the `r_s < 1`
-///   branch.
+/// - `rho`: electron density in e/Å³. Must satisfy `rho >= 0`; values below
+///   [`crate::consts::RHO_FLOOR`] short-circuit to zero to avoid a cube-root singularity and a
+///   spurious −∞ log in the `r_s < 1` branch.
 ///
 /// Returns [`XcPoint`] with `exc` in eV per electron and `vxc` in eV.
 ///
@@ -133,10 +128,7 @@ pub struct XcPoint {
 /// quantum-Monte-Carlo correlation data fit by PZ.
 pub fn lda_xc(rho: f64) -> XcPoint {
     if rho < crate::consts::RHO_FLOOR {
-        return XcPoint {
-            exc: 0.0,
-            vxc: 0.0,
-        };
+        return XcPoint { exc: 0.0, vxc: 0.0 };
     }
 
     let (ex, vx) = slater_exchange(rho);
@@ -165,9 +157,8 @@ pub fn lda_xc(rho: f64) -> XcPoint {
 /// ```
 ///
 /// Inputs:
-/// - `rho_r`: electron density on the real-space grid (e/Å³); each
-///   entry must be non-negative (values below
-///   [`crate::consts::RHO_FLOOR`] are short-circuited).
+/// - `rho_r`: electron density on the real-space grid (e/Å³); each entry must be non-negative
+///   (values below [`crate::consts::RHO_FLOOR`] are short-circuited).
 ///
 /// Returns `(exc_r, vxc_r)`, each a fresh `Vec<f64>` of length
 /// `rho_r.len()`, in eV. The grid indexing matches `rho_r` 1:1.
@@ -203,9 +194,8 @@ pub fn lda_xc_grid(rho_r: &[f64]) -> (Vec<f64>, Vec<f64>) {
 ///
 /// Inputs:
 /// - `rho_r`: electron density on the FFT grid in e/Å³;
-/// - `exc_r`: `ε_xc(ρ(r_i))` in eV per electron, typically the first
-///   return value of [`lda_xc_grid`]; must have the same length as
-///   `rho_r`;
+/// - `exc_r`: `ε_xc(ρ(r_i))` in eV per electron, typically the first return value of
+///   [`lda_xc_grid`]; must have the same length as `rho_r`;
 /// - `omega`: cell volume Ω in Å³.
 ///
 /// Returns `E_xc` in eV.
@@ -234,7 +224,6 @@ fn slater_exchange(rho: f64) -> (f64, f64) {
     // ε_x in Hartree: -(3/4)(3ρ/π)^{1/3}
     // In eV: multiply by crate::consts::HA_TO_EV = 27.2114
 
-
     // rho [e/ų] → rho [e/Bohr³] = rho × Bohr_to_Å³ = rho × 0.529177³
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
     let rho_bohr = rho * bohr3;
@@ -256,7 +245,6 @@ fn slater_exchange(rho: f64) -> (f64, f64) {
 ///
 /// Returns (ε_c, V_c) in eV.
 fn perdew_zunger_correlation(rho: f64) -> (f64, f64) {
-
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
     let rho_bohr = rho * bohr3;
 
@@ -372,9 +360,8 @@ pub struct XcSpinPoint {
 /// `f'(ζ) = (4/3)[(1+ζ)^{1/3} − (1−ζ)^{1/3}] / (2^{4/3} − 2)`.
 ///
 /// Inputs:
-/// - `rho_up`, `rho_down`: spin-channel densities in e/Å³; both must be
-///   non-negative. When `ρ↑ + ρ↓ < ` [`crate::consts::RHO_FLOOR`] the
-///   routine short-circuits to zero in every component.
+/// - `rho_up`, `rho_down`: spin-channel densities in e/Å³; both must be non-negative. When `ρ↑ + ρ↓
+///   < ` [`crate::consts::RHO_FLOOR`] the routine short-circuits to zero in every component.
 ///
 /// Returns [`XcSpinPoint`] with `exc` in eV per electron and
 /// `vxc_up` / `vxc_down` in eV.
@@ -387,7 +374,11 @@ pub struct XcSpinPoint {
 pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> XcSpinPoint {
     let rho = rho_up + rho_down;
     if rho < crate::consts::RHO_FLOOR {
-        return XcSpinPoint { exc: 0.0, vxc_up: 0.0, vxc_down: 0.0 };
+        return XcSpinPoint {
+            exc: 0.0,
+            vxc_up: 0.0,
+            vxc_down: 0.0,
+        };
     }
 
     let (ex, vx_up, vx_down) = slater_exchange_spin(rho_up, rho_down);
@@ -418,9 +409,8 @@ pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> XcSpinPoint {
 /// ```
 ///
 /// Inputs:
-/// - `rho_up_r`, `rho_down_r`: per-channel densities on the FFT grid in
-///   e/Å³; both slices must have the same length (debug-asserted).
-///   Each entry must be non-negative (values summing below
+/// - `rho_up_r`, `rho_down_r`: per-channel densities on the FFT grid in e/Å³; both slices must have
+///   the same length (debug-asserted). Each entry must be non-negative (values summing below
 ///   [`crate::consts::RHO_FLOOR`] short-circuit to zero).
 ///
 /// Returns `(exc_r, vxc_up_r, vxc_down_r)`, three fresh `Vec<f64>`s of
@@ -434,15 +424,8 @@ pub fn lda_xc_spin(rho_up: f64, rho_down: f64) -> XcSpinPoint {
 ///
 /// Reference: von Barth & Hedin, *J. Phys. C* **5**, 1629 (1972);
 /// Perdew & Zunger, *Phys. Rev. B* **23**, 5048 (1981) §III.
-pub fn lda_xc_spin_grid(
-    rho_up_r: &[f64],
-    rho_down_r: &[f64],
-) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
-    debug_assert_eq!(
-        rho_up_r.len(),
-        rho_down_r.len(),
-        "spin channels must share grid size",
-    );
+pub fn lda_xc_spin_grid(rho_up_r: &[f64], rho_down_r: &[f64]) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    debug_assert_eq!(rho_up_r.len(), rho_down_r.len(), "spin channels must share grid size",);
 
     let ((exc, vxc_up), vxc_down): ((Vec<f64>, Vec<f64>), Vec<f64>) = rho_up_r
         .par_iter()
@@ -480,7 +463,6 @@ pub fn lda_xc_spin_grid(
 ///
 /// Returns `(ε_x, V_x_up, V_x_down)` in eV.
 fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
-
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
 
     let rho = rho_up + rho_down;
@@ -516,7 +498,11 @@ fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     let vx_up_ha = (4.0 / 3.0) * ex_up_ha;
     let vx_down_ha = (4.0 / 3.0) * ex_down_ha;
 
-    (ex_ha * crate::consts::HA_TO_EV, vx_up_ha * crate::consts::HA_TO_EV, vx_down_ha * crate::consts::HA_TO_EV)
+    (
+        ex_ha * crate::consts::HA_TO_EV,
+        vx_up_ha * crate::consts::HA_TO_EV,
+        vx_down_ha * crate::consts::HA_TO_EV,
+    )
 }
 
 /// Spin-polarized Perdew-Zunger correlation via spin interpolation.
@@ -526,7 +512,6 @@ fn slater_exchange_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
 ///
 /// Returns (ε_c, V_c_up, V_c_down) in eV.
 fn pz_correlation_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
-
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
 
     let rho = rho_up + rho_down;
@@ -568,7 +553,11 @@ fn pz_correlation_spin(rho_up: f64, rho_down: f64) -> (f64, f64, f64) {
     let vc_up_ha = (1.0 - zeta).mul_add(dec_dzeta, vc_rs_ha);
     let vc_down_ha = (1.0 + zeta).mul_add(-dec_dzeta, vc_rs_ha);
 
-    (ec_ha * crate::consts::HA_TO_EV, vc_up_ha * crate::consts::HA_TO_EV, vc_down_ha * crate::consts::HA_TO_EV)
+    (
+        ec_ha * crate::consts::HA_TO_EV,
+        vc_up_ha * crate::consts::HA_TO_EV,
+        vc_down_ha * crate::consts::HA_TO_EV,
+    )
 }
 
 /// PZ correlation at given rs for unpolarized (polarized=false) or
@@ -846,12 +835,7 @@ fn pw92_correlation_au(rs: f64) -> (f64, f64) {
     let rs32 = rs * rs12;
     let rs2 = rs * rs;
     let om = 2.0 * PW92_A * (PW92_B1 * rs12 + PW92_B2 * rs + PW92_B3 * rs32 + PW92_B4 * rs2);
-    let dom = 2.0
-        * PW92_A
-        * (0.5 * PW92_B1 * rs12
-            + PW92_B2 * rs
-            + 1.5 * PW92_B3 * rs32
-            + 2.0 * PW92_B4 * rs2);
+    let dom = 2.0 * PW92_A * (0.5 * PW92_B1 * rs12 + PW92_B2 * rs + 1.5 * PW92_B3 * rs32 + 2.0 * PW92_B4 * rs2);
     let olog = (1.0 + 1.0 / om).ln();
     let ec_ha = -2.0 * PW92_A * (1.0 + PW92_A1 * rs) * olog;
     let vc_ha = -2.0 * PW92_A * (1.0 + (2.0 / 3.0) * PW92_A1 * rs) * olog
@@ -877,12 +861,11 @@ fn pw92_correlation_au(rs: f64) -> (f64, f64) {
 ///
 /// # Numerics
 ///
-/// - Density floor: below [`PBE_RHO_THRESHOLD_AU`] in AU
-///   (≈ `6.75e-6 e/Å³`) the return is `(0, 0)`. This matches the
-///   floor used by [`pbe_exchange`] so the full PBE path has one
-///   consistent short-circuit threshold.
-/// - Internally in atomic units (Ha, Bohr) so the literals match QE
-///   line-for-line; converted to pwdft-core native (eV, Å) at the return.
+/// - Density floor: below [`PBE_RHO_THRESHOLD_AU`] in AU (≈ `6.75e-6 e/Å³`) the return is `(0, 0)`.
+///   This matches the floor used by [`pbe_exchange`] so the full PBE path has one consistent
+///   short-circuit threshold.
+/// - Internally in atomic units (Ha, Bohr) so the literals match QE line-for-line; converted to
+///   pwdft-core native (eV, Å) at the return.
 ///
 /// Returns `(eps_c, v_c)` in `(eV / Å³, eV)`.
 //
@@ -1120,12 +1103,7 @@ fn pw92_correlation_spin_au(rs: f64, zeta: f64) -> (f64, f64, f64) {
     // but we recompute om/olog here for the shared-across-branches
     // derivative assembly below).
     let om = 2.0 * PW92_A * (PW92_B1 * rs12 + PW92_B2 * rs + PW92_B3 * rs32 + PW92_B4 * rs2);
-    let dom = 2.0
-        * PW92_A
-        * (0.5 * PW92_B1 * rs12
-            + PW92_B2 * rs
-            + 1.5 * PW92_B3 * rs32
-            + 2.0 * PW92_B4 * rs2);
+    let dom = 2.0 * PW92_A * (0.5 * PW92_B1 * rs12 + PW92_B2 * rs + 1.5 * PW92_B3 * rs32 + 2.0 * PW92_B4 * rs2);
     let olog = (1.0 + 1.0 / om).ln();
     let epwc = -2.0 * PW92_A * (1.0 + PW92_A1 * rs) * olog;
     let vpwc = -2.0 * PW92_A * (1.0 + (2.0 / 3.0) * PW92_A1 * rs) * olog
@@ -1133,12 +1111,7 @@ fn pw92_correlation_spin_au(rs: f64, zeta: f64) -> (f64, f64, f64) {
 
     // Polarized branch.
     let omp = 2.0 * PW92_AP * (PW92_B1P * rs12 + PW92_B2P * rs + PW92_B3P * rs32 + PW92_B4P * rs2);
-    let domp = 2.0
-        * PW92_AP
-        * (0.5 * PW92_B1P * rs12
-            + PW92_B2P * rs
-            + 1.5 * PW92_B3P * rs32
-            + 2.0 * PW92_B4P * rs2);
+    let domp = 2.0 * PW92_AP * (0.5 * PW92_B1P * rs12 + PW92_B2P * rs + 1.5 * PW92_B3P * rs32 + 2.0 * PW92_B4P * rs2);
     let ologp = (1.0 + 1.0 / omp).ln();
     let epwcp = -2.0 * PW92_AP * (1.0 + PW92_A1P * rs) * ologp;
     let vpwcp = -2.0 * PW92_AP * (1.0 + (2.0 / 3.0) * PW92_A1P * rs) * ologp
@@ -1146,12 +1119,7 @@ fn pw92_correlation_spin_au(rs: f64, zeta: f64) -> (f64, f64, f64) {
 
     // Spin-stiffness (antiferro) branch.
     let oma = 2.0 * PW92_AA * (PW92_B1A * rs12 + PW92_B2A * rs + PW92_B3A * rs32 + PW92_B4A * rs2);
-    let doma = 2.0
-        * PW92_AA
-        * (0.5 * PW92_B1A * rs12
-            + PW92_B2A * rs
-            + 1.5 * PW92_B3A * rs32
-            + 2.0 * PW92_B4A * rs2);
+    let doma = 2.0 * PW92_AA * (0.5 * PW92_B1A * rs12 + PW92_B2A * rs + 1.5 * PW92_B3A * rs32 + 2.0 * PW92_B4A * rs2);
     let ologa = (1.0 + 1.0 / oma).ln();
     let alpha = 2.0 * PW92_AA * (1.0 + PW92_A1A * rs) * ologa;
     let vpwca = 2.0 * PW92_AA * (1.0 + (2.0 / 3.0) * PW92_A1A * rs) * ologa
@@ -1160,23 +1128,18 @@ fn pw92_correlation_spin_au(rs: f64, zeta: f64) -> (f64, f64, f64) {
     // PW92 spin interpolation `f(ζ)` (eq. 10 of PW92): cubic-spline
     // shape that is exactly 0 at ζ=0 and exactly 1 at |ζ|=1.
     let two_pow_43 = (2.0_f64).powf(4.0 / 3.0);
-    let fz = ((1.0 + zeta).powf(4.0 / 3.0) + (1.0 - zeta).powf(4.0 / 3.0) - 2.0)
-        / (two_pow_43 - 2.0);
-    let dfz = ((1.0 + zeta).powf(1.0 / 3.0) - (1.0 - zeta).powf(1.0 / 3.0))
-        * 4.0 / (3.0 * (two_pow_43 - 2.0));
+    let fz = ((1.0 + zeta).powf(4.0 / 3.0) + (1.0 - zeta).powf(4.0 / 3.0) - 2.0) / (two_pow_43 - 2.0);
+    let dfz = ((1.0 + zeta).powf(1.0 / 3.0) - (1.0 - zeta).powf(1.0 / 3.0)) * 4.0 / (3.0 * (two_pow_43 - 2.0));
 
     // ε_c(rs, ζ) combines the three branches per PW92 eq. 8.
     let ec_ha = epwc + alpha * fz * (1.0 - zeta4) / PW92_FZ0 + (epwcp - epwc) * fz * zeta4;
 
     // Common (spin-independent-in-rs) part of dε_c/dρ contribution.
-    let base = vpwc
-        + vpwca * fz * (1.0 - zeta4) / PW92_FZ0
-        + (vpwcp - vpwc) * fz * zeta4;
+    let base = vpwc + vpwca * fz * (1.0 - zeta4) / PW92_FZ0 + (vpwcp - vpwc) * fz * zeta4;
     // ζ-derivative piece (the "(1−ζ)" / "(1+ζ)" factor appears because
     // ∂ζ/∂ρ_up = (1 − ζ)/ρ and ∂ζ/∂ρ_dn = −(1 + ζ)/ρ).
-    let dfz_mix = alpha / PW92_FZ0
-        * (dfz * (1.0 - zeta4) - 4.0 * fz * zeta3)
-        + (epwcp - epwc) * (dfz * zeta4 + 4.0 * fz * zeta3);
+    let dfz_mix =
+        alpha / PW92_FZ0 * (dfz * (1.0 - zeta4) - 4.0 * fz * zeta3) + (epwcp - epwc) * (dfz * zeta4 + 4.0 * fz * zeta3);
     let vc_up_ha = base + dfz_mix * (1.0 - zeta);
     let vc_dn_ha = base - dfz_mix * (1.0 + zeta);
 
@@ -1196,12 +1159,11 @@ fn pw92_correlation_spin_au(rs: f64, zeta: f64) -> (f64, f64, f64) {
 /// on the doubled-input per channel and applying the QE spin-scaling
 /// factors:
 ///
-/// - `v1_σ = v1^PBE(2ρ_σ, 2|∇ρ_σ|)` — chain rule on the doubled input
-///   cancels the factor of 2, so v1 passes through directly.
-/// - `v2_σ = 2 · v2^PBE(2ρ_σ, 2|∇ρ_σ|)` — QE doubles v2 because the
-///   doubled gradient input means `∂/∂|∇ρ_σ|² = 4 · ∂/∂|∇(2ρ_σ)|²` and
-///   the outer `0.5·` factor from the spin-weighted sum leaves a net
-///   factor of 2.
+/// - `v1_σ = v1^PBE(2ρ_σ, 2|∇ρ_σ|)` — chain rule on the doubled input cancels the factor of 2, so
+///   v1 passes through directly.
+/// - `v2_σ = 2 · v2^PBE(2ρ_σ, 2|∇ρ_σ|)` — QE doubles v2 because the doubled gradient input means
+///   `∂/∂|∇ρ_σ|² = 4 · ∂/∂|∇(2ρ_σ)|²` and the outer `0.5·` factor from the spin-weighted sum leaves
+///   a net factor of 2.
 ///
 /// Inputs in engine-native units (e/Å³ density, e/Å⁴ gradient magnitude);
 /// outputs in eV/Å³ (energy density), eV (v1), eV·Å⁵/e (v2).
@@ -1214,12 +1176,7 @@ fn pw92_correlation_spin_au(rs: f64, zeta: f64) -> (f64, f64, f64) {
 // PBE exchange), lines 589-614. The rho×2 / grho²×4 pre-scaling and
 // the v2 × 2 post-scaling come from there verbatim.
 #[inline]
-fn pbe_exchange_spin(
-    rho_up: f64,
-    rho_dn: f64,
-    grad_up: f64,
-    grad_dn: f64,
-) -> (f64, [f64; 2], [f64; 2]) {
+fn pbe_exchange_spin(rho_up: f64, rho_dn: f64, grad_up: f64, grad_dn: f64) -> (f64, [f64; 2], [f64; 2]) {
     // Each spin channel: evaluate non-spin PBE exchange on doubled
     // (ρ, |∇ρ|). `pbe_exchange` returns `(ρ · ε_x^PBE, v1, v2)` for the
     // *doubled* input. The full-density energy density is
@@ -1255,9 +1212,8 @@ fn pbe_exchange_spin(
 /// Returns `(eps_c, v1_c_up, v1_c_dn, v2_c)`:
 /// - `eps_c` (eV/Å³): `ρ · ε_c^PBE_spin` summed over spins.
 /// - `v1_c_up`, `v1_c_dn` (eV): per-channel `∂(ρ·ε_c)/∂ρ_σ`.
-/// - `v2_c` (eV·Å⁵/e): *single scalar* gradient derivative, applied to
-///   `∇ρ_total` in the semilocal assembly (same scalar contracts with
-///   `∇ρ_total` for *both* spin channels — see QE's
+/// - `v2_c` (eV·Å⁵/e): *single scalar* gradient derivative, applied to `∇ρ_total` in the semilocal
+///   assembly (same scalar contracts with `∇ρ_total` for *both* spin channels — see QE's
 ///   `v_of_rho.f90:343-344` where the gradient piece is shared).
 ///
 /// At `ρ_total < PBE_RHO_THRESHOLD_AU` returns `(0, 0, 0, 0)`.
@@ -1271,11 +1227,7 @@ fn pbe_exchange_spin(
 // both spin channels for PBE; v_of_rho.f90:343 assembles the shared
 // gradient piece).
 #[inline]
-fn pbe_correlation_spin(
-    rho_up: f64,
-    rho_dn: f64,
-    grad_mag_total: f64,
-) -> (f64, f64, f64, f64) {
+fn pbe_correlation_spin(rho_up: f64, rho_dn: f64, grad_mag_total: f64) -> (f64, f64, f64, f64) {
     let bohr3 = crate::consts::BOHR3_TO_ANG3;
     let bohr = crate::consts::BOHR_TO_ANG;
     let ha = crate::consts::HA_TO_EV;
@@ -1345,8 +1297,7 @@ fn pbe_correlation_spin(
     let dh0dw = common_scale * (-seven_thirds * xy - qy * (af * bfdn / PBE_BETA - seven_thirds));
 
     // ζ-derivative pieces (`dh0zup` / `dh0zdw` in QE).
-    let ddh0_zeta_inner = 2.0 * xy
-        - qy * (3.0 * af * expe * ec_ha / (fz3 * PBE_BETA) + 2.0);
+    let ddh0_zeta_inner = 2.0 * xy - qy * (3.0 * af * expe * ec_ha / (fz3 * PBE_BETA) + 2.0);
     let common_zeta = 3.0 * h0 / fz - PBE_BETA * t2 * fz2 / s1 * ddh0_zeta_inner;
     let dh0zup = common_zeta * dfz * (1.0 - zeta);
     let dh0zdw = -common_zeta * dfz * (1.0 + zeta);
@@ -1427,12 +1378,16 @@ impl XcEvaluator {
     /// Returns [`PwdftError::NotImplemented`] for `Pbe0` and `Hse06`;
     /// hybrid functionals are not yet implemented. `Pz` and `Pbe`
     /// always succeed.
-    pub fn from_settings(xc: XcFunctional) -> Result<Self> {
+    pub fn from_settings(xc: PredefinedXcFunctionals) -> Result<Self> {
         match xc {
-            XcFunctional::Pz => Ok(Self::Pz),
-            XcFunctional::Pbe => Ok(Self::Pbe),
-            XcFunctional::Pbe0 => Err(PwdftError::NotImplemented { what: "xc_functional 'pbe0'".into() }),
-            XcFunctional::Hse06 => Err(PwdftError::NotImplemented { what: "xc_functional 'hse06'".into() }),
+            PredefinedXcFunctionals::Pz => Ok(Self::Pz),
+            PredefinedXcFunctionals::Pbe => Ok(Self::Pbe),
+            PredefinedXcFunctionals::Pbe0 => Err(PwdftError::NotImplemented {
+                what: "xc_functional 'pbe0'".into(),
+            }),
+            PredefinedXcFunctionals::Hse06 => Err(PwdftError::NotImplemented {
+                what: "xc_functional 'hse06'".into(),
+            }),
         }
     }
 
@@ -1466,13 +1421,11 @@ impl XcEvaluator {
     /// integrator lands.
     ///
     /// Inputs:
-    /// - `rho_r`: electron density on the FFT grid in e/Å³. Under NLCC
-    ///   the caller passes `ρ_val + ρ_core` here (see
-    ///   `scf::potentials::compute_core_density`); without NLCC it is
-    ///   `ρ_val` alone.
-    /// - `rho_grad_r`: the three Cartesian components of ∇ρ at each
-    ///   grid point (Å⁻¹ · e/Å³ = e/Å⁴). Ignored for [`Self::Pz`];
-    ///   required (not yet used) for [`Self::Pbe`].
+    /// - `rho_r`: electron density on the FFT grid in e/Å³. Under NLCC the caller passes `ρ_val +
+    ///   ρ_core` here (see `scf::potentials::compute_core_density`); without NLCC it is `ρ_val`
+    ///   alone.
+    /// - `rho_grad_r`: the three Cartesian components of ∇ρ at each grid point (Å⁻¹ · e/Å³ = e/Å⁴).
+    ///   Ignored for [`Self::Pz`]; required (not yet used) for [`Self::Pbe`].
     ///
     /// Returns [`XcGridResult`] (see that struct for the full shape
     /// contract). `v2_r.is_none()` on the LDA path short-circuits the
@@ -1485,19 +1438,19 @@ impl XcEvaluator {
     /// # Errors
     /// Returns [`PwdftError::NotImplemented`] for any variant whose
     /// functional has not yet been ported (currently `Pbe`).
-    pub fn eval(
-        &self,
-        rho_r: &[f64],
-        rho_grad_r: Option<&[[f64; 3]]>,
-    ) -> Result<XcGridResult> {
+    pub fn eval(&self, rho_r: &[f64], rho_grad_r: Option<&[[f64; 3]]>) -> Result<XcGridResult> {
         match self {
             Self::Pz => {
                 // `v2_r = None` makes the caller's semilocal V_xc
                 // assembly short-circuit to `v1_r`.
                 let _ = rho_grad_r; // LDA ignores the gradient.
                 let (exc_r, v1_r) = lda_xc_grid(rho_r);
-                Ok(XcGridResult { exc_r, v1_r, v2_r: None })
-            }
+                Ok(XcGridResult {
+                    exc_r,
+                    v1_r,
+                    v2_r: None,
+                })
+            },
             Self::Pbe => {
                 // GGAP Phase C: PBE exchange + correlation ported and
                 // unit-tested (`pbe_exchange`, `pbe_correlation`,
@@ -1514,18 +1467,13 @@ impl XcEvaluator {
                 // `eval`; that driver-side wiring is the remaining
                 // piece of the PBE path (Phase A's gradient
                 // infrastructure).
-                let _prev = PBE_EVAL_INVOCATIONS
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed); // debug counter: prior value intentionally discarded
+                let _prev = PBE_EVAL_INVOCATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); // debug counter: prior value intentionally discarded
                 let Some(grad) = rho_grad_r else {
                     return Err(PwdftError::NotImplemented {
                         what: "pbe.eval requires rho_grad_r: None was passed".into(),
                     });
                 };
-                debug_assert_eq!(
-                    rho_r.len(),
-                    grad.len(),
-                    "rho_r and rho_grad_r must share grid size",
-                );
+                debug_assert_eq!(rho_r.len(), grad.len(), "rho_r and rho_grad_r must share grid size",);
                 // Rayon's `unzip` handles 2-tuples; for (exc, v1, h)
                 // we nest as `(exc, (v1, h))` the same way
                 // `lda_xc_spin_grid` handles its three outputs.
@@ -1557,8 +1505,12 @@ impl XcEvaluator {
                         (eps_xc_per_el, (v1_xc, h))
                     })
                     .unzip();
-                Ok(XcGridResult { exc_r, v1_r, v2_r: Some(h_vec) })
-            }
+                Ok(XcGridResult {
+                    exc_r,
+                    v1_r,
+                    v2_r: Some(h_vec),
+                })
+            },
         }
     }
 
@@ -1583,12 +1535,10 @@ impl XcEvaluator {
     /// spin channels.
     ///
     /// Inputs:
-    /// - `rho_up_r`, `rho_down_r`: per-channel densities on the FFT
-    ///   grid in e/Å³. Under NLCC the caller adds `ρ_core/2` to each
-    ///   channel (the core is assumed spin-unpolarized).
-    /// - `rho_grad_up_r`, `rho_grad_down_r`: per-channel ∇ρ on the
-    ///   same grid (e/Å⁴). Ignored for [`Self::Pz`]; required for
-    ///   [`Self::Pbe`]. The total gradient `∇ρ_total = ∇ρ_↑ + ∇ρ_↓` is
+    /// - `rho_up_r`, `rho_down_r`: per-channel densities on the FFT grid in e/Å³. Under NLCC the
+    ///   caller adds `ρ_core/2` to each channel (the core is assumed spin-unpolarized).
+    /// - `rho_grad_up_r`, `rho_grad_down_r`: per-channel ∇ρ on the same grid (e/Å⁴). Ignored for
+    ///   [`Self::Pz`]; required for [`Self::Pbe`]. The total gradient `∇ρ_total = ∇ρ_↑ + ∇ρ_↓` is
     ///   formed internally (linearity of the FFT-based gradient).
     ///
     /// Returns [`XcSpinGridResult`]; `v2_*_r` is `None` on the LDA
@@ -1625,7 +1575,7 @@ impl XcEvaluator {
                     v2_up_r: None,
                     v2_down_r: None,
                 })
-            }
+            },
             Self::Pbe => {
                 // GGAP Phase D: full spin-polarized PBE.
                 //
@@ -1636,8 +1586,7 @@ impl XcEvaluator {
                 // scalar shared between channels, applied to ∇ρ_total
                 // (not per-channel ∇ρ_σ), so both h_up and h_dn
                 // inherit `v2_c · ∇ρ_total` as a common term.
-                let _prev = PBE_EVAL_SPIN_INVOCATIONS
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed); // debug counter: prior value intentionally discarded
+                let _prev = PBE_EVAL_SPIN_INVOCATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); // debug counter: prior value intentionally discarded
                 let (Some(grad_up), Some(grad_dn)) = (rho_grad_up_r, rho_grad_down_r) else {
                     return Err(PwdftError::NotImplemented {
                         what: "pbe.eval_spin requires both per-channel gradients".into(),
@@ -1650,8 +1599,7 @@ impl XcEvaluator {
                 // Per-grid-point parallel evaluation. The inner tuple
                 // shape matches `PbeSpinUnzip` so clippy's
                 // `type_complexity` lint stays happy.
-                let (exc_r, ((v1_up_r, v1_down_r), (v2_up_r, v2_down_r))): PbeSpinGridUnzip =
-                    rho_up_r
+                let (exc_r, ((v1_up_r, v1_down_r), (v2_up_r, v2_down_r))): PbeSpinGridUnzip = rho_up_r
                     .par_iter()
                     .zip(rho_down_r.par_iter())
                     .zip(grad_up.par_iter().zip(grad_dn.par_iter()))
@@ -1660,15 +1608,10 @@ impl XcEvaluator {
                         let gmag_up = (gu[0] * gu[0] + gu[1] * gu[1] + gu[2] * gu[2]).sqrt();
                         let gmag_dn = (gd[0] * gd[0] + gd[1] * gd[1] + gd[2] * gd[2]).sqrt();
                         let gtot = [gu[0] + gd[0], gu[1] + gd[1], gu[2] + gd[2]];
-                        let gmag_total = (gtot[0] * gtot[0]
-                            + gtot[1] * gtot[1]
-                            + gtot[2] * gtot[2])
-                            .sqrt();
+                        let gmag_total = (gtot[0] * gtot[0] + gtot[1] * gtot[1] + gtot[2] * gtot[2]).sqrt();
 
-                        let (eps_x_density, v1_x, v2_x) =
-                            pbe_exchange_spin(ru, rd, gmag_up, gmag_dn);
-                        let (eps_c_density, v1_c_up, v1_c_dn, v2_c) =
-                            pbe_correlation_spin(ru, rd, gmag_total);
+                        let (eps_x_density, v1_x, v2_x) = pbe_exchange_spin(ru, rd, gmag_up, gmag_dn);
+                        let (eps_c_density, v1_c_up, v1_c_dn, v2_c) = pbe_correlation_spin(ru, rd, gmag_total);
 
                         let eps_xc_density = eps_x_density + eps_c_density;
                         let rho_total = ru + rd;
@@ -1712,7 +1655,7 @@ impl XcEvaluator {
                     v2_up_r: Some(v2_up_r),
                     v2_down_r: Some(v2_down_r),
                 })
-            }
+            },
         }
     }
 }
@@ -1725,13 +1668,7 @@ type PbeGridUnzip = (Vec<f64>, (Vec<f64>, Vec<[f64; 3]>));
 
 /// Nested-tuple shape for the spin-polarized PBE `par_iter().unzip()`.
 /// Outer: `(exc, ((v1_up, v1_dn), (h_up, h_dn)))`.
-type PbeSpinGridUnzip = (
-    Vec<f64>,
-    (
-        (Vec<f64>, Vec<f64>),
-        (Vec<[f64; 3]>, Vec<[f64; 3]>),
-    ),
-);
+type PbeSpinGridUnzip = (Vec<f64>, ((Vec<f64>, Vec<f64>), (Vec<[f64; 3]>, Vec<[f64; 3]>)));
 
 /// Result of a non-spin XC evaluation on the FFT grid.
 ///
@@ -1797,14 +1734,12 @@ pub struct XcSpinGridResult {
 ///
 /// # Arguments
 ///
-/// - `v1_r`: per-grid-point `∂(ρ · ε_xc) / ∂ρ` (eV). Length
+/// - `v1_r`: per-grid-point `∂(ρ · ε_xc) / ∂ρ` (eV). Length `fft.total_size()`.
+/// - `h_r`: per-grid-point h-vector `h(r) = v2 · ∇ρ` (length-3 arrays in eV · Å⁴ / e). Length
 ///   `fft.total_size()`.
-/// - `h_r`: per-grid-point h-vector `h(r) = v2 · ∇ρ` (length-3 arrays
-///   in eV · Å⁴ / e). Length `fft.total_size()`.
-/// - `fft`: shared FFT handler; used for three forward passes plus one
-///   inverse.
-/// - `g_vectors`: per-grid-point reciprocal-space vectors in the
-///   FFT-aligned ordering (`scf::grid::g_vector_at_dims`), in Å⁻¹.
+/// - `fft`: shared FFT handler; used for three forward passes plus one inverse.
+/// - `g_vectors`: per-grid-point reciprocal-space vectors in the FFT-aligned ordering
+///   (`scf::grid::g_vector_at_dims`), in Å⁻¹.
 ///
 /// # Panics
 ///
@@ -1823,11 +1758,7 @@ pub fn assemble_semilocal_vxc(
     let n = fft.total_size();
     assert_eq!(v1_r.len(), n, "v1_r length must equal fft.total_size()");
     assert_eq!(h_r.len(), n, "h_r length must equal v1_r length");
-    assert_eq!(
-        g_vectors.len(),
-        n,
-        "g_vectors length must equal v1_r length",
-    );
+    assert_eq!(g_vectors.len(), n, "g_vectors length must equal v1_r length",);
 
     // ∑_α (iG_α) · h_α(G), accumulated into a single G-space buffer.
     // Forward FFTs live in `buf`; we apply the same `1/N` normalisation
@@ -1851,18 +1782,11 @@ pub fn assemble_semilocal_vxc(
     let inv_n = 1.0 / n as f64;
     let mut div_h_g: Vec<Complex64> = vec![Complex64::new(0.0, 0.0); n];
     for axis in 0..3 {
-        let mut buf: Vec<Complex64> = h_r
-            .iter()
-            .map(|h| Complex64::new(h[axis], 0.0))
-            .collect();
+        let mut buf: Vec<Complex64> = h_r.iter().map(|h| Complex64::new(h[axis], 0.0)).collect();
         fft.forward(&mut buf);
         // Accumulate iG_α · h_α(G) · (1/N) into `div_h_g`, skipping
         // the Nyquist modes of any even axis.
-        for (idx, (dst, (&rhs, g))) in div_h_g
-            .iter_mut()
-            .zip(buf.iter().zip(g_vectors.iter()))
-            .enumerate()
-        {
+        for (idx, (dst, (&rhs, g))) in div_h_g.iter_mut().zip(buf.iter().zip(g_vectors.iter())).enumerate() {
             if at_nyquist(idx) {
                 continue;
             }
@@ -1872,11 +1796,14 @@ pub fn assemble_semilocal_vxc(
 
     // Inverse FFT back to real space: `(∇·h)(r) = ∑_G iG·h(G) e^{+iG·r}`.
     fft.inverse(&mut div_h_g);
-    debug_assert!({
-        let max_im = div_h_g.iter().map(|c| c.im.abs()).fold(0.0_f64, f64::max);
-        let max_re = div_h_g.iter().map(|c| c.re.abs()).fold(0.0_f64, f64::max);
-        max_im < 1e-8 * max_re.max(1e-300) + 1e-10
-    }, "∇·h should be real; Nyquist zero-out path bypassed");
+    debug_assert!(
+        {
+            let max_im = div_h_g.iter().map(|c| c.im.abs()).fold(0.0_f64, f64::max);
+            let max_re = div_h_g.iter().map(|c| c.re.abs()).fold(0.0_f64, f64::max);
+            max_im < 1e-8 * max_re.max(1e-300) + 1e-10
+        },
+        "∇·h should be real; Nyquist zero-out path bypassed"
+    );
 
     v1_r.par_iter()
         .zip(div_h_g.par_iter())
@@ -1909,10 +1836,7 @@ mod tests {
         // |V_xc| should increase with density
         let v1 = lda_xc(0.01).vxc.abs();
         let v2 = lda_xc(0.1).vxc.abs();
-        assert!(
-            v2 > v1,
-            "|V_xc| should increase with ρ: {v1} vs {v2}"
-        );
+        assert!(v2 > v1, "|V_xc| should increase with ρ: {v1} vs {v2}");
     }
 
     #[test]
@@ -1947,18 +1871,21 @@ mod tests {
             assert!(
                 (unpol.exc - spin.exc).abs() < 1e-10,
                 "ε_xc mismatch at ρ={rho}: unpol={}, spin={}",
-                unpol.exc, spin.exc
+                unpol.exc,
+                spin.exc
             );
             // V_xc should be equal for both spins and match unpolarized
             assert!(
                 (unpol.vxc - spin.vxc_up).abs() < 1e-10,
                 "V_xc_up mismatch at ρ={rho}: unpol={}, spin={}",
-                unpol.vxc, spin.vxc_up
+                unpol.vxc,
+                spin.vxc_up
             );
             assert!(
                 (spin.vxc_up - spin.vxc_down).abs() < 1e-10,
                 "V_xc_up != V_xc_down at ρ={rho}: up={}, down={}",
-                spin.vxc_up, spin.vxc_down
+                spin.vxc_up,
+                spin.vxc_down
             );
         }
     }
@@ -1975,7 +1902,8 @@ mod tests {
         assert!(
             xc.exc < unpol.exc,
             "Polarized ε_xc ({}) should be more negative than unpolarized ({})",
-            xc.exc, unpol.exc
+            xc.exc,
+            unpol.exc
         );
     }
 
@@ -1989,15 +1917,21 @@ mod tests {
 
         assert!(
             (xc1.exc - xc2.exc).abs() < 1e-12,
-            "ε_xc not symmetric: {} vs {}", xc1.exc, xc2.exc
+            "ε_xc not symmetric: {} vs {}",
+            xc1.exc,
+            xc2.exc
         );
         assert!(
             (xc1.vxc_up - xc2.vxc_down).abs() < 1e-12,
-            "V_xc swap failed: up1={}, down2={}", xc1.vxc_up, xc2.vxc_down
+            "V_xc swap failed: up1={}, down2={}",
+            xc1.vxc_up,
+            xc2.vxc_down
         );
         assert!(
             (xc1.vxc_down - xc2.vxc_up).abs() < 1e-12,
-            "V_xc swap failed: down1={}, up2={}", xc1.vxc_down, xc2.vxc_up
+            "V_xc swap failed: down1={}, up2={}",
+            xc1.vxc_down,
+            xc2.vxc_up
         );
     }
 
@@ -2026,21 +1960,21 @@ mod tests {
     #[test]
     fn xc_evaluator_from_settings_maps_variants_correctly() {
         assert_eq!(
-            XcEvaluator::from_settings(XcFunctional::Pz).unwrap(),
+            XcEvaluator::from_settings(PredefinedXcFunctionals::Pz).unwrap(),
             XcEvaluator::Pz,
         );
         assert_eq!(
-            XcEvaluator::from_settings(XcFunctional::Pbe).unwrap(),
+            XcEvaluator::from_settings(PredefinedXcFunctionals::Pbe).unwrap(),
             XcEvaluator::Pbe,
         );
 
         // Hybrids fail fast at construction time with a NotImplemented error.
-        let err = XcEvaluator::from_settings(XcFunctional::Pbe0).unwrap_err();
+        let err = XcEvaluator::from_settings(PredefinedXcFunctionals::Pbe0).unwrap_err();
         match err {
             PwdftError::NotImplemented { what } => assert_eq!(what, "xc_functional 'pbe0'"),
             other => panic!("expected NotImplemented, got {other:?}"),
         }
-        let err = XcEvaluator::from_settings(XcFunctional::Hse06).unwrap_err();
+        let err = XcEvaluator::from_settings(PredefinedXcFunctionals::Hse06).unwrap_err();
         match err {
             PwdftError::NotImplemented { what } => assert_eq!(what, "xc_functional 'hse06'"),
             other => panic!("expected NotImplemented, got {other:?}"),
@@ -2152,7 +2086,7 @@ mod tests {
                     what.contains("rho_grad_r"),
                     "error marker should mention rho_grad_r: got {what}"
                 );
-            }
+            },
             other => panic!("expected NotImplemented, got {other:?}"),
         }
 
@@ -2170,7 +2104,7 @@ mod tests {
                     what.contains("per-channel gradients"),
                     "error marker should mention missing per-channel gradients: got {what}"
                 );
-            }
+            },
             other => panic!("expected NotImplemented, got {other:?}"),
         }
     }
@@ -2218,7 +2152,9 @@ mod tests {
             assert!(
                 err < 1e-12 * eps_xc_ref.abs().max(1.0),
                 "eps_xc at {i} (∇ρ=0): PBE={} vs LDA(Slater+PW92)={} err={}",
-                result.exc_r[i], eps_xc_ref, err
+                result.exc_r[i],
+                eps_xc_ref,
+                err
             );
         }
     }
@@ -2227,12 +2163,12 @@ mod tests {
     // GGAP Phase B: PBE exchange (non-spin) unit tests.
     //
     // Four shapes of test:
-    //   1. F_x(s) pinned against analytic PBE eq. 14 at s ∈ {0, 0.1, 1, 5, 10}
-    //      to 1e-14 (pure analytic expression, no unit conversion drift).
-    //   2. s=0 reduces exactly to the LDA/Slater exchange energy density
-    //      (this is the Slater limit of the PBE enhancement factor).
-    //   3. One-point cross-check at (ρ = 0.1 e/Å³, |∇ρ| = 0.05 e/Å⁴)
-    //      against a hand-derived value from the PBE 1996 paper formula.
+    //   1. F_x(s) pinned against analytic PBE eq. 14 at s ∈ {0, 0.1, 1, 5, 10} to 1e-14 (pure analytic
+    //      expression, no unit conversion drift).
+    //   2. s=0 reduces exactly to the LDA/Slater exchange energy density (this is the Slater limit of
+    //      the PBE enhancement factor).
+    //   3. One-point cross-check at (ρ = 0.1 e/Å³, |∇ρ| = 0.05 e/Å⁴) against a hand-derived value from
+    //      the PBE 1996 paper formula.
     //   4. Low-density short-circuit (ρ ≪ QE threshold).
     // -----------------------------------------------------------------------
 
@@ -2406,13 +2342,12 @@ mod tests {
     // GGAP Phase C: PW92 LDA correlation + PBE correlation unit tests.
     //
     // Three shapes of test:
-    //   1. PW92 matches its own analytic formula at a handful of r_s
-    //      values (reproduces QE's `pw` subroutine line-for-line).
-    //   2. `pbe_correlation(ρ, 0)` reduces exactly to `pw92_correlation(ρ)`
-    //      (ε_c^PBE = ε_c^PW92 + H, and H=0 at |∇ρ|=0).
-    //   3. `pbe_correlation` at a canonical `(ρ, |∇ρ|)` point pinned to
-    //      a reference number hand-derived from PBE 1996 + PW92 1992
-    //      formulas with the same 1e-14 precision as Phase B.
+    //   1. PW92 matches its own analytic formula at a handful of r_s values (reproduces QE's `pw`
+    //      subroutine line-for-line).
+    //   2. `pbe_correlation(ρ, 0)` reduces exactly to `pw92_correlation(ρ)` (ε_c^PBE = ε_c^PW92 + H,
+    //      and H=0 at |∇ρ|=0).
+    //   3. `pbe_correlation` at a canonical `(ρ, |∇ρ|)` point pinned to a reference number hand-derived
+    //      from PBE 1996 + PW92 1992 formulas with the same 1e-14 precision as Phase B.
     // -----------------------------------------------------------------------
 
     /// PW92 reference in Hartree / per-electron, unpolarized.
@@ -2662,14 +2597,12 @@ mod tests {
     #[allow(
         clippy::cast_possible_wrap,
         clippy::cast_possible_truncation,
-        reason = "test helper only; n is a tiny FFT size (≤ 64) well inside i32 range",
+        reason = "test helper only; n is a tiny FFT size (≤ 64) well inside i32 range"
     )]
     fn cubic_g_vectors(n: usize, l: f64) -> Vec<[f64; 3]> {
         let two_pi_l = 2.0 * PI / l;
         let mut out = Vec::with_capacity(n * n * n);
-        let signed = |i: usize| -> i32 {
-            if i > n / 2 { i as i32 - n as i32 } else { i as i32 }
-        };
+        let signed = |i: usize| -> i32 { if i > n / 2 { i as i32 - n as i32 } else { i as i32 } };
         for i in 0..n {
             for j in 0..n {
                 for k in 0..n {
@@ -2822,17 +2755,14 @@ mod tests {
     // GGAP Phase D: spin-polarized PBE unit tests.
     //
     // Shape mirrors Phase B/C:
-    //   1. ζ=0 exchange must reduce to the non-spin exchange (Oliver-Perdew
-    //      spin-scaling sanity).
-    //   2. Fully-polarized exchange: one channel carries all density, the
-    //      other is zero.
+    //   1. ζ=0 exchange must reduce to the non-spin exchange (Oliver-Perdew spin-scaling sanity).
+    //   2. Fully-polarized exchange: one channel carries all density, the other is zero.
     //   3. ζ=0 correlation must reduce to the non-spin `pbe_correlation`.
-    //   4. Fully-polarized correlation: at |ζ|=1, LSDA part matches PW92's
-    //      polarized branch verbatim (vc_up/vc_dn sanity).
-    //   5. Canonical-point QE cross-check at (ρ=0.1, ρ↑=0.06, ρ↓=0.04,
-    //      |∇ρ↑|=0.03, |∇ρ↓|=0.02). Reference values come from evaluating
-    //      the Rust port itself — the numerical invariants above pin the
-    //      individual pieces, so a regression here flags arithmetic drift.
+    //   4. Fully-polarized correlation: at |ζ|=1, LSDA part matches PW92's polarized branch verbatim
+    //      (vc_up/vc_dn sanity).
+    //   5. Canonical-point QE cross-check at (ρ=0.1, ρ↑=0.06, ρ↓=0.04, |∇ρ↑|=0.03, |∇ρ↓|=0.02).
+    //      Reference values come from evaluating the Rust port itself — the numerical invariants above
+    //      pin the individual pieces, so a regression here flags arithmetic drift.
     // -----------------------------------------------------------------------
 
     #[test]
@@ -2841,8 +2771,7 @@ mod tests {
         // must match the non-spin formula applied to (ρ, |∇ρ|) in the
         // two directly-measurable quantities:
         //   - total energy density `eps_x`
-        //   - per-channel density derivative v1 (both channels equal
-        //     the non-spin v1)
+        //   - per-channel density derivative v1 (both channels equal the non-spin v1)
         // The per-channel v2 comes out *doubled* relative to the
         // non-spin value because the spin h-vector contracts against
         // ∇ρ_σ = ∇ρ/2 rather than ∇ρ — so `v2_spin · ∇ρ_σ = 2·v2_ns ·
@@ -2859,8 +2788,7 @@ mod tests {
             let grad_half = grad / 2.0;
 
             let (eps_non_spin, v1_non_spin, v2_non_spin) = pbe_exchange(rho, grad);
-            let (eps_spin, v1_spin, v2_spin) =
-                pbe_exchange_spin(rho_half, rho_half, grad_half, grad_half);
+            let (eps_spin, v1_spin, v2_spin) = pbe_exchange_spin(rho_half, rho_half, grad_half, grad_half);
 
             let eps_err = (eps_spin - eps_non_spin).abs();
             let eps_tol = 1e-14 * eps_non_spin.abs().max(1.0);
@@ -2925,15 +2853,9 @@ mod tests {
         // must exactly equal the non-spin ∇ρ magnitude (not half), so we
         // pass `grad` directly. Non-spin correlation output is the total
         // energy density at (ρ, |∇ρ|); spin output must match.
-        for &(rho, grad) in &[
-            (0.02_f64, 0.00_f64),
-            (0.10, 0.05),
-            (0.20, 0.10),
-            (0.50, 0.30),
-        ] {
+        for &(rho, grad) in &[(0.02_f64, 0.00_f64), (0.10, 0.05), (0.20, 0.10), (0.50, 0.30)] {
             let (eps_ns, v1_ns, v2_ns) = pbe_correlation(rho, grad);
-            let (eps_sp, v1_up, v1_dn, v2_sp) =
-                pbe_correlation_spin(rho / 2.0, rho / 2.0, grad);
+            let (eps_sp, v1_up, v1_dn, v2_sp) = pbe_correlation_spin(rho / 2.0, rho / 2.0, grad);
 
             let eps_err = (eps_sp - eps_ns).abs();
             let tol = 1e-12 * eps_ns.abs().max(1.0);
@@ -2997,9 +2919,7 @@ mod tests {
         let rs12 = rs.sqrt();
         let rs32 = rs * rs12;
         let rs2 = rs * rs;
-        let omp = 2.0
-            * PW92_AP
-            * (PW92_B1P * rs12 + PW92_B2P * rs + PW92_B3P * rs32 + PW92_B4P * rs2);
+        let omp = 2.0 * PW92_AP * (PW92_B1P * rs12 + PW92_B2P * rs + PW92_B3P * rs32 + PW92_B4P * rs2);
         let ologp = (1.0 + 1.0 / omp).ln();
         let epwcp_expected = -2.0 * PW92_AP * (1.0 + PW92_A1P * rs) * ologp;
 
@@ -3025,8 +2945,7 @@ mod tests {
         // independently. A change here flags a drift in the Phase-D
         // port; a change in the ζ=0 or fully-polarized invariants
         // would flag a deeper formula error.
-        let (eps_c, v1_c_up, v1_c_dn, v2_c) =
-            pbe_correlation_spin(0.06, 0.04, 0.05);
+        let (eps_c, v1_c_up, v1_c_dn, v2_c) = pbe_correlation_spin(0.06, 0.04, 0.05);
 
         // Sign sanity: eps_c < 0 (correlation energy is negative for any
         // reasonable density), v2_c > 0 (gradient correction narrows the
@@ -3062,10 +2981,7 @@ mod tests {
 
         let rho_up: Vec<f64> = rho_r.iter().map(|&r| r / 2.0).collect();
         let rho_dn: Vec<f64> = rho_up.clone();
-        let grad_up: Vec<[f64; 3]> = grad_r
-            .iter()
-            .map(|g| [g[0] / 2.0, g[1] / 2.0, g[2] / 2.0])
-            .collect();
+        let grad_up: Vec<[f64; 3]> = grad_r.iter().map(|g| [g[0] / 2.0, g[1] / 2.0, g[2] / 2.0]).collect();
         let grad_dn: Vec<[f64; 3]> = grad_up.clone();
 
         let ns = XcEvaluator::Pbe

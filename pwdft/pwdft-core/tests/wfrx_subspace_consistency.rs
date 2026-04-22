@@ -20,16 +20,18 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
+use std::collections::HashMap;
+
 use nalgebra::Vector3;
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     eigensolver::EigensolverKind,
     kpoints,
+    pseudopotential::UpfPseudoPotential,
     scf::{self, ScfParams, ScfResult, mixing::MixingMode, smearing::SmearingScheme},
     symmetry::SymmetryInfo,
 };
-use std::collections::HashMap;
 
 fn fcc_crystal(a_ang: f64, atoms: Vec<Atom>) -> Crystal {
     Crystal {
@@ -45,14 +47,10 @@ fn fcc_crystal(a_ang: f64, atoms: Vec<Atom>) -> Crystal {
 fn run_si_scf(wfrx: bool) -> ScfResult {
     let crystal = fcc_crystal(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
-    let pp_si = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf"),
+    let pp_si = UpfPseudoPotential::load(
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
 
@@ -86,8 +84,7 @@ fn run_si_scf(wfrx: bool) -> ScfResult {
     };
 
     let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
-    scf::run_scf(&crystal, &basis, &kpts, &[&pp_si], &params, &symmetry)
-        .expect("Si SCF should converge")
+    scf::run_scf(&crystal, &basis, &kpts, &[&pp_si], &params, &symmetry).expect("Si SCF should converge")
 }
 
 /// Final SCF energy must match between the reference (WFRX off) and
@@ -104,10 +101,7 @@ fn test_wfrx_subspace_matches_dense_reference_total_energy() {
     println!(
         "WFRX total_energy agreement: |ΔE| = {de:.3e} eV (reference = {:.12}, warm = {:.12}, \
          ref iters = {}, warm iters = {})",
-        reference.total_energy,
-        warm.total_energy,
-        reference.n_iterations,
-        warm.n_iterations,
+        reference.total_energy, warm.total_energy, reference.n_iterations, warm.n_iterations,
     );
     assert!(
         de < 1e-8,
@@ -159,12 +153,7 @@ fn test_wfrx_subspace_matches_dense_reference_eigenvalues() {
         warm.eigenvalues.len(),
         "k-point count mismatch"
     );
-    for (ik, (ref_k, warm_k)) in reference
-        .eigenvalues
-        .iter()
-        .zip(warm.eigenvalues.iter())
-        .enumerate()
-    {
+    for (ik, (ref_k, warm_k)) in reference.eigenvalues.iter().zip(warm.eigenvalues.iter()).enumerate() {
         assert_eq!(ref_k.len(), warm_k.len(), "band count mismatch at ik={ik}");
         for (ib, (&r, &w)) in ref_k.iter().zip(warm_k.iter()).enumerate() {
             let dev = (r - w).abs();

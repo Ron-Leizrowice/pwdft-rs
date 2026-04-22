@@ -23,10 +23,10 @@
 //! test and surfaces a numerical regression immediately.
 //!
 //! Companion tests:
-//! - `vgc5_per_component_si.rs` pins each `EnergyComponents` term with
-//!   a 50 meV tolerance (coarser; catches physics-level regressions).
-//! - `tests/itev_iterative_eigensolver.rs` (ignored by default)
-//!   cross-checks the iterative eigensolver against dense.
+//! - `vgc5_per_component_si.rs` pins each `EnergyComponents` term with a 50 meV tolerance (coarser;
+//!   catches physics-level regressions).
+//! - `tests/itev_iterative_eigensolver.rs` (ignored by default) cross-checks the iterative
+//!   eigensolver against dense.
 
 #![allow(
     clippy::unwrap_used,
@@ -35,16 +35,19 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
+use std::collections::HashMap;
+
+use elements_rs::Element;
 use nalgebra::Vector3;
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     eigensolver::EigensolverKind,
     kpoints,
+    pseudopotential::UpfPseudoPotential,
     scf::{self, ScfParams, ScfResult, mixing::MixingMode, smearing::SmearingScheme},
     symmetry::SymmetryInfo,
 };
-use std::collections::HashMap;
 
 fn fcc(a_ang: f64, atoms: Vec<Atom>) -> Crystal {
     Crystal {
@@ -57,19 +60,18 @@ fn fcc(a_ang: f64, atoms: Vec<Atom>) -> Crystal {
     }
 }
 
+fn get_pp(element: &str) -> HashMap<Element, UpfPseudoPotential> {
+    let element = Element::from_str(element).unwrap();
+    let pp = UpfPseudoPotential::load(element).unwrap();
+    HashMap::from([(element, pp)])
+}
+
 fn run_si_scf() -> ScfResult {
     let crystal = fcc(
         5.431,
-        vec![
-            Atom::new(14, [0.00, 0.00, 0.00]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        vec![Atom::new(14, [0.00, 0.00, 0.00]), Atom::new(14, [0.25, 0.25, 0.25])],
     );
-    let pp_si = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf"),
-    )
-    .unwrap();
+    let pp_si = get_pp("Si");
 
     // Same settings as `inputs/si_scf.yaml` / `itev_iterative_eigensolver.rs`.
     // Dense eigensolver (the ALOC F-5 refactor only touches Hamiltonian
@@ -99,8 +101,7 @@ fn run_si_scf() -> ScfResult {
         ..Default::default()
     };
     let symmetry = SymmetryInfo::from_crystal(&crystal, 1e-5);
-    scf::run_scf(&crystal, &basis, &kpts, &[&pp_si], &params, &symmetry)
-        .expect("Si SCF should converge")
+    scf::run_scf(&crystal, &basis, &kpts, &pp_si, &params, &symmetry).expect("Si SCF should converge")
 }
 
 /// Si LDA total energy, 2×2×2 Monkhorst-Pack, `ecut = 100 eV`, Plain mixer.

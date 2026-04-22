@@ -5,9 +5,9 @@
 //!
 //! Defaults follow Quantum ESPRESSO conventions where applicable.
 
-use std::collections::HashMap;
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
+use elements_rs::Element;
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,8 @@ use crate::{
     crystal::{Atom, Crystal, Lattice},
     error::{PwdftError, Result},
     kpoints::{HighSymPoint, KGridShift},
-    scf::{smearing::SmearingScheme, ScfParams},
+    scf::{ScfParams, mixing::MixingMode, smearing::SmearingScheme},
+    symmetry::SymmetryInfo,
 };
 
 // ---------------------------------------------------------------------------
@@ -23,23 +24,11 @@ use crate::{
 // ---------------------------------------------------------------------------
 
 /// Complete calculation settings parsed from a YAML file.
-///
-/// YAML-facing schema is split into two orthogonal blocks:
-///
-/// - `electrons:` — *what system are we solving* (spin flag,
-///   magnetization, occupation scheme). Populates [`ElectronsPhysics`].
-/// - `scf:` — *how do we solve it* (max iterations, convergence
-///   thresholds, density mixer, smearing). Populates [`ScfSettings`].
-///
-/// The pre-ESPL layout (mixing/smearing under `electrons:`, integer
-/// `nspin` instead of `spin_polarized`) is a hard parse error — serde
-/// emits "unknown field" naming the migrated key. No deprecation shim,
-/// no alias. See `.claude/agents/shared/no-backcompat.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Settings {
+pub struct InputSettings {
     /// Crystal structure: lattice vectors and atomic positions.
-    pub system: SystemSettings,
+    pub system: CrystalInput,
 
     /// Plane-wave basis parameters.
     #[serde(default)]
@@ -66,10 +55,6 @@ pub struct Settings {
     #[serde(default)]
     pub symmetry: SymmetrySettings,
 
-    /// Pseudopotential file paths keyed by element symbol.
-    #[serde(default)]
-    pub pseudopotentials: PseudopotentialSettings,
-
     /// Output verbosity and write flags.
     #[serde(default)]
     pub output: OutputSettings,
@@ -89,20 +74,20 @@ pub struct Settings {
 /// Crystal structure definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SystemSettings {
+pub struct CrystalInput {
     /// Lattice vectors in Angstroms: `[[ax,ay,az],[bx,by,bz],[cx,cy,cz]]`.
     pub lattice: [[f64; 3]; 3],
 
     /// Atomic positions in fractional (crystal) coordinates.
     #[serde(default)]
-    pub atoms: Vec<AtomSetting>,
+    pub atoms: Vec<AtomInput>,
 }
 
 /// A single atom: element symbol and fractional position.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AtomSetting {
-    pub symbol: String,
+pub struct AtomInput {
+    pub symbol: Element,
     pub position: [f64; 3],
 }
 
@@ -111,24 +96,19 @@ pub struct AtomSetting {
 #[serde(default, deny_unknown_fields)]
 pub struct BasisSettings {
     /// Wavefunction kinetic-energy cutoff in eV.
-    ///
-    /// `None` means "resolve from the per-element recommended cutoff
-    /// table"; a concrete value bypasses the lookup and is used
-    /// verbatim. Callers must route through
-    /// [`Settings::resolve_ecutwfc`] to turn `None` into a concrete
-    /// eV value — `None` never leaks into the SCF layer.
-    pub ecutwfc: Option<f64>,
+    pub ecutwfc: f64,
     /// Charge-density cutoff ratio: ecutrho = ecutrho_ratio * ecutwfc.
     /// Default `4` is appropriate for norm-conserving pseudopotentials.
     pub ecutrho_ratio: u32,
-    /// Explicit FFT grid dimensions [n1, n2, n3]. If set, overrides ecutrho_ratio.
+    /// Explicit FFT grid dimensions [n1, n2, n3]. If set, overrides
+    /// ecutrho_ratio.
     pub fft_grid: Option<[usize; 3]>,
 }
 
 impl Default for BasisSettings {
     fn default() -> Self {
         Self {
-            ecutwfc: None,
+            ecutwfc: 300.0,
             ecutrho_ratio: 4,
             fft_grid: None,
         }
@@ -193,9 +173,11 @@ pub struct ScfSettings {
     pub max_iter: usize,
     /// Convergence threshold: RMS density change (e/Å³).
     pub conv_threshold: f64,
-    /// Energy convergence threshold (eV). Both density AND energy must converge.
+    /// Energy convergence threshold (eV). Both density AND energy must
+    /// converge.
     pub energy_threshold: f64,
-    /// Number of Kohn-Sham bands. `None` = automatic from n_electrons/2 + padding.
+    /// Number of Kohn-Sham bands. `None` = automatic from n_electrons/2 +
+    /// padding.
     pub n_bands: Option<usize>,
     /// Eigensolver backend for per-k-point diagonalization.
     pub eigensolver: EigensolverType,
@@ -300,7 +282,7 @@ pub struct ElectronsPhysics {
     pub spin_polarized: bool,
     /// Starting magnetization per atom type (fractional, -1 to 1).
     /// Maps from element symbol to magnetization. Empty = non-magnetic.
-    pub starting_magnetization: HashMap<String, f64>,
+    pub starting_magnetization: HashMap<Element, f64>,
     /// Fixed total magnetization (n_up - n_down) in electrons.
     /// If None, magnetization is determined self-consistently.
     pub tot_magnetization: Option<f64>,
@@ -372,7 +354,7 @@ impl MixingModeType {
 // Back-compat: preserve the simple `.into()` for modes that don't consume
 // `pulay_period`. For Periodic Pulay, callers must use `to_scf_mode(period)`
 // explicitly so the period is threaded through from settings.
-impl From<MixingModeType> for crate::scf::mixing::MixingMode {
+impl From<MixingModeType> for MixingMode {
     fn from(mode: MixingModeType) -> Self {
         // Default period of 3 matches the `ScfSettings` default and the
         // paper's recommendation; callers that want a non-default period use
@@ -390,13 +372,13 @@ pub struct XcSettings {
     /// are rejected with [`crate::error::PwdftError::NotImplemented`] at
     /// SCF entry — a YAML typo cannot silently produce LDA numbers under
     /// a GGA or hybrid label.
-    pub functional: XcFunctional,
+    pub functional: PredefinedXcFunctionals,
 }
 
 /// Supported exchange-correlation functionals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
-pub enum XcFunctional {
+pub enum PredefinedXcFunctionals {
     /// Perdew-Zunger LDA (Ceperley-Alder).
     #[default]
     Pz,
@@ -438,14 +420,6 @@ impl Default for SymmetrySettings {
             tolerance: 1e-5,
         }
     }
-}
-
-/// Pseudopotential file paths keyed by element symbol.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PseudopotentialSettings {
-    /// Map from element symbol (e.g. "Si") to file path.
-    pub files: HashMap<String, String>,
 }
 
 /// Verbosity level for output.
@@ -514,14 +488,16 @@ impl Default for InitialDensitySettings {
 // ---------------------------------------------------------------------------
 
 impl KPointSettings {
-    fn default_band_npoints() -> usize { 50 }
+    fn default_band_npoints() -> usize {
+        50
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
 
-impl Settings {
+impl InputSettings {
     /// Parse settings from a YAML string.
     ///
     /// # Errors
@@ -538,8 +514,8 @@ impl Settings {
     ///
     /// # Errors
     ///
-    /// - `PwdftError::Io` (from the `?` on `std::fs::read_to_string`) if
-    ///   the file cannot be opened or read.
+    /// - `PwdftError::Io` (from the `?` on `std::fs::read_to_string`) if the file cannot be opened
+    ///   or read.
     /// - Any `PwdftError::Parse` forwarded from [`Self::from_yaml_str`].
     pub fn from_yaml_file(path: &Path) -> Result<Self> {
         let contents = std::fs::read_to_string(path)?;
@@ -553,7 +529,8 @@ impl Settings {
     /// Build a `Crystal` from the system settings.
     ///
     /// # Errors
-    /// Returns `PwdftError::UnknownElement` if any atom has an unrecognized element symbol.
+    /// Returns `PwdftError::UnknownElement` if any atom has an unrecognized
+    /// element symbol.
     pub fn to_crystal(&self) -> Result<Crystal> {
         let [a, b, c] = self.system.lattice;
         let lattice = Lattice::new(
@@ -566,14 +543,7 @@ impl Settings {
             .system
             .atoms
             .iter()
-            .map(|ai| {
-                let elem = crate::atoms::Element::iter()
-                    .find(|e| e.symbol() == ai.symbol)
-                    .ok_or_else(|| PwdftError::UnknownElement {
-                        symbol: ai.symbol.clone(),
-                    })?;
-                Ok(Atom::new(elem.atomic_number(), ai.position))
-            })
+            .map(|ai| Ok(Atom::new(ai.symbol, ai.position)))
             .collect::<Result<Vec<_>>>()?;
 
         Ok(Crystal { atoms, lattice })
@@ -615,51 +585,6 @@ impl Settings {
             wfrx_subspace: self.scf.wfrx_subspace,
             xc_functional: self.xc.functional,
             gaussian_sigma: self.initial_density.gaussian_sigma,
-        }
-    }
-
-    /// Resolve the wavefunction energy cutoff in eV for this crystal.
-    ///
-    /// - If `basis.ecutwfc` is set in YAML, it is returned verbatim and
-    ///   no warning is emitted.
-    /// - Otherwise the per-element recommended cutoff table is consulted
-    ///   and the maximum across all species in the crystal is used. A
-    ///   [`log::warn!`] is emitted naming the driving species so users
-    ///   cannot silently run with a sub-convergence cutoff.
-    /// - If the crystal contains only elements outside the table, the
-    ///   caller receives an [`PwdftError::InvalidParam`] asking them to
-    ///   set `basis.ecutwfc` explicitly.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PwdftError::InvalidParam`] when no species in
-    /// `crystal` has a tabulated recommended cutoff and `basis.ecutwfc`
-    /// is unset — the calculation cannot proceed with an unknown cutoff.
-    pub fn resolve_ecutwfc(&self, crystal: &Crystal) -> Result<f64> {
-        use crate::pseudopotential::recommended_ecut::{
-            recommended_ecut_for_crystal, EcutVariant,
-        };
-
-        if let Some(user) = self.basis.ecutwfc {
-            return Ok(user);
-        }
-
-        match recommended_ecut_for_crystal(crystal, EcutVariant::Standard) {
-            Some(rec) => {
-                let symbol = crate::atoms::Element::iter()
-                    .find(|e| e.atomic_number() == rec.z)
-                    .map_or_else(|| format!("Z={}", rec.z), |e| e.symbol().to_string());
-                log::warn!(
-                    "basis.ecutwfc not set in YAML; using {:.2} eV recommended for {} (PseudoDojo .standard, max over species). Set `basis.ecutwfc` in YAML to override.",
-                    rec.ev,
-                    symbol,
-                );
-                Ok(rec.ev)
-            }
-            None => Err(PwdftError::InvalidParam {
-                name: "basis.ecutwfc",
-                reason: "not set and no species in the crystal has a tabulated recommended cutoff; set `basis.ecutwfc` explicitly in YAML".to_string(),
-            }),
         }
     }
 
@@ -709,22 +634,13 @@ impl Settings {
     /// [`crate::symmetry::SymmetryInfo::identity_only`] rather than `None`.
     /// Downstream code treats that as "no symmetrization to apply",
     /// bit-identically to the legacy `Option::None` path.
-    pub fn to_symmetry_info(
-        &self,
-        crystal: &Crystal,
-    ) -> crate::symmetry::SymmetryInfo {
+    pub fn to_symmetry_info(&self, crystal: &Crystal) -> SymmetryInfo {
         if !self.symmetry.enabled {
-            return crate::symmetry::SymmetryInfo::identity_only();
+            return SymmetryInfo::identity_only();
         }
-        let mut info =
-            crate::symmetry::SymmetryInfo::from_crystal(crystal, self.symmetry.tolerance);
+        let mut info = SymmetryInfo::from_crystal(crystal, self.symmetry.tolerance);
         info.has_time_reversal = self.symmetry.time_reversal;
         info
-    }
-
-    /// Return the pseudopotential file path for a given element symbol.
-    pub fn pseudopotential_path(&self, symbol: &str) -> Option<&str> {
-        self.pseudopotentials.files.get(symbol).map(|s| s.as_str())
     }
 }
 
@@ -841,10 +757,10 @@ kpoints:
 
     #[test]
     fn parse_minimal_yaml() {
-        let s = Settings::from_yaml_str(MINIMAL_YAML).unwrap();
+        let s = InputSettings::from_yaml_str(MINIMAL_YAML).unwrap();
         assert_eq!(s.system.atoms.len(), 2);
-        assert_eq!(s.system.atoms[0].symbol, "Si");
-        assert!((s.basis.ecutwfc.unwrap() - 204.09).abs() < f64::EPSILON);
+        assert_eq!(s.system.atoms[0].symbol, Element::Si);
+        assert!((s.basis.ecutwfc - 300.0).abs() < f64::EPSILON);
         assert!(s.mp_grid().is_some());
         assert_eq!(s.mp_grid().unwrap(), [4, 4, 4]);
         // MPSH default: Γ-centered (matches QE's `automatic / … 0 0 0`).
@@ -861,7 +777,7 @@ kpoints:
   grid: [4, 4, 4]
   shift: gamma_centered
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.mp_shift(), Some(KGridShift::GammaCentered));
     }
 
@@ -875,7 +791,7 @@ kpoints:
   grid: [4, 4, 4]
   shift: mp1976
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.mp_shift(), Some(KGridShift::MP1976));
     }
 
@@ -890,7 +806,7 @@ kpoints:
   shift:
     custom: [1, 0, 1]
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.mp_shift(), Some(KGridShift::Custom([1, 0, 1])));
     }
 
@@ -905,13 +821,13 @@ kpoints:
   type: monkhorst_pack
   grid: [4, 4, 4]
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.mp_shift(), Some(KGridShift::GammaCentered));
     }
 
     #[test]
     fn parse_full_yaml() {
-        let s = Settings::from_yaml_str(FULL_YAML).unwrap();
+        let s = InputSettings::from_yaml_str(FULL_YAML).unwrap();
         assert_eq!(s.scf.max_iter, 100);
         assert_eq!(s.scf.n_bands, Some(8));
         assert!((s.scf.energy_threshold - 1e-5).abs() < 1e-15);
@@ -925,14 +841,10 @@ kpoints:
         assert!(!s.electrons.spin_polarized);
         assert!(s.electrons.starting_magnetization.is_empty());
         assert!(s.electrons.tot_magnetization.is_none());
-        assert_eq!(s.xc.functional, XcFunctional::Pz);
+        assert_eq!(s.xc.functional, PredefinedXcFunctionals::Pz);
         assert!(s.symmetry.enabled);
         assert!(s.symmetry.time_reversal);
         assert!((s.symmetry.tolerance - 1e-5).abs() < 1e-15);
-        assert_eq!(
-            s.pseudopotentials.files.get("Si").unwrap(),
-            "../pseudopotentials/nc/lda/Si.upf"
-        );
         assert_eq!(s.output.verbosity, Verbosity::Normal);
         assert!(!s.output.write_density);
         assert!(s.output.write_bands);
@@ -954,8 +866,7 @@ kpoints:
 electrons:
   nspin: 2
 "#;
-        let err = Settings::from_yaml_str(yaml)
-            .expect_err("pre-ESPL `electrons.nspin` must be rejected");
+        let err = InputSettings::from_yaml_str(yaml).expect_err("pre-ESPL `electrons.nspin` must be rejected");
         let msg = err.to_string();
         assert!(
             msg.contains("nspin"),
@@ -977,8 +888,7 @@ kpoints:
 electrons:
   mixing_beta: 0.25
 "#;
-        let err = Settings::from_yaml_str(yaml)
-            .expect_err("pre-ESPL `electrons.mixing_beta` must be rejected");
+        let err = InputSettings::from_yaml_str(yaml).expect_err("pre-ESPL `electrons.mixing_beta` must be rejected");
         assert!(
             err.to_string().contains("mixing_beta"),
             "parse error should name the offending field"
@@ -987,7 +897,7 @@ electrons:
 
     #[test]
     fn parse_band_path() {
-        let s = Settings::from_yaml_str(BAND_PATH_YAML).unwrap();
+        let s = InputSettings::from_yaml_str(BAND_PATH_YAML).unwrap();
         let path = s.to_high_sym_path().unwrap();
         assert_eq!(path.len(), 4);
         assert_eq!(path[0].label, "G");
@@ -997,7 +907,7 @@ electrons:
 
     #[test]
     fn defaults_match_qe_conventions() {
-        let s = Settings::from_yaml_str(MINIMAL_YAML).unwrap();
+        let s = InputSettings::from_yaml_str(MINIMAL_YAML).unwrap();
 
         assert_eq!(s.basis.ecutrho_ratio, 4);
         assert!(s.basis.fft_grid.is_none());
@@ -1017,7 +927,7 @@ electrons:
         assert!(!s.electrons.spin_polarized);
         assert!(s.electrons.starting_magnetization.is_empty());
         assert!(s.electrons.tot_magnetization.is_none());
-        assert_eq!(s.xc.functional, XcFunctional::Pz);
+        assert_eq!(s.xc.functional, PredefinedXcFunctionals::Pz);
         assert!(s.symmetry.enabled);
         assert!(s.symmetry.time_reversal);
         assert!((s.symmetry.tolerance - 1e-5).abs() < 1e-15);
@@ -1056,7 +966,7 @@ electrons:
 
     #[test]
     fn to_crystal_produces_correct_structure() {
-        let s = Settings::from_yaml_str(FULL_YAML).unwrap();
+        let s = InputSettings::from_yaml_str(FULL_YAML).unwrap();
         let crystal = s.to_crystal().unwrap();
         assert_eq!(crystal.atoms.len(), 2);
         assert_eq!(crystal.atoms[0].z, 14);
@@ -1071,7 +981,7 @@ electrons:
 
     #[test]
     fn to_scf_params_merges_sections() {
-        let s = Settings::from_yaml_str(FULL_YAML).unwrap();
+        let s = InputSettings::from_yaml_str(FULL_YAML).unwrap();
         let params = s.to_scf_params(4);
         assert_eq!(params.n_bands, 8);
         assert_eq!(params.max_iter, 100);
@@ -1079,14 +989,8 @@ electrons:
         assert_eq!(params.ecutrho_ratio, 4);
         assert!((params.energy_threshold - 1e-5).abs() < 1e-15);
         assert_eq!(params.fft_grid, Some([24, 24, 24]));
-        assert_eq!(
-            params.smearing_scheme,
-            crate::scf::smearing::SmearingScheme::FermiDirac
-        );
-        assert!(matches!(
-            params.mixing_mode,
-            crate::scf::mixing::MixingMode::Plain
-        ));
+        assert_eq!(params.smearing_scheme, crate::scf::smearing::SmearingScheme::FermiDirac);
+        assert!(matches!(params.mixing_mode, crate::scf::mixing::MixingMode::Plain));
         assert_eq!(params.nspin, 1);
         assert!(params.starting_magnetization.is_empty());
         assert!(params.tot_magnetization.is_none());
@@ -1096,9 +1000,9 @@ electrons:
     fn to_scf_params_threads_xc_functional() {
         // XCNI: the XC functional must flow from YAML → ScfParams so the
         // SCF entry dispatch can fail-fast on non-LDA options.
-        let s_lda = Settings::from_yaml_str(FULL_YAML).unwrap();
+        let s_lda = InputSettings::from_yaml_str(FULL_YAML).unwrap();
         let p_lda = s_lda.to_scf_params(4);
-        assert_eq!(p_lda.xc_functional, XcFunctional::Pz);
+        assert_eq!(p_lda.xc_functional, PredefinedXcFunctionals::Pz);
 
         // `xc_functional: pbe` must propagate through, so the SCF layer
         // can trigger NotImplemented at entry.
@@ -1111,26 +1015,16 @@ kpoints:
 xc:
   functional: pbe
 "#;
-        let s_pbe = Settings::from_yaml_str(yaml_pbe).unwrap();
+        let s_pbe = InputSettings::from_yaml_str(yaml_pbe).unwrap();
         let p_pbe = s_pbe.to_scf_params(4);
-        assert_eq!(p_pbe.xc_functional, XcFunctional::Pbe);
+        assert_eq!(p_pbe.xc_functional, PredefinedXcFunctionals::Pbe);
     }
 
     #[test]
     fn to_scf_params_uses_fallback_n_bands() {
-        let s = Settings::from_yaml_str(MINIMAL_YAML).unwrap();
+        let s = InputSettings::from_yaml_str(MINIMAL_YAML).unwrap();
         let params = s.to_scf_params(12);
         assert_eq!(params.n_bands, 12);
-    }
-
-    #[test]
-    fn pseudopotential_path_lookup() {
-        let s = Settings::from_yaml_str(FULL_YAML).unwrap();
-        assert_eq!(
-            s.pseudopotential_path("Si"),
-            Some("../pseudopotentials/nc/lda/Si.upf")
-        );
-        assert_eq!(s.pseudopotential_path("Ge"), None);
     }
 
     #[test]
@@ -1150,9 +1044,14 @@ xc:
 
     #[test]
     fn xc_functional_roundtrip() {
-        for variant in [XcFunctional::Pz, XcFunctional::Pbe, XcFunctional::Pbe0, XcFunctional::Hse06] {
+        for variant in [
+            PredefinedXcFunctionals::Pz,
+            PredefinedXcFunctionals::Pbe,
+            PredefinedXcFunctionals::Pbe0,
+            PredefinedXcFunctionals::Hse06,
+        ] {
             let yaml = serde_yaml_ng::to_string(&variant).unwrap();
-            let parsed: XcFunctional = serde_yaml_ng::from_str(&yaml).unwrap();
+            let parsed: PredefinedXcFunctionals = serde_yaml_ng::from_str(&yaml).unwrap();
             assert_eq!(parsed, variant);
         }
     }
@@ -1250,7 +1149,7 @@ scf:
   mixing_mode: periodic_pulay
   pulay_period: 4
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.scf.mixing_mode, MixingModeType::PeriodicPulay);
         assert_eq!(s.scf.pulay_period, 4);
     }
@@ -1266,7 +1165,7 @@ kpoints:
 scf:
   mixing_mode: periodic_pulay_kerker
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.scf.mixing_mode, MixingModeType::PeriodicPulayKerker);
         // Default period
         assert_eq!(s.scf.pulay_period, 3);
@@ -1284,7 +1183,7 @@ kpoints:
 scf:
   mixing_beta: 0.25
 "#;
-        let s = Settings::from_yaml_str(yaml_no_key).unwrap();
+        let s = InputSettings::from_yaml_str(yaml_no_key).unwrap();
         assert!(!s.scf.adaptive_beta, "default must be false");
         // And the ScfParams round-trip preserves that.
         let params = s.to_scf_params(8);
@@ -1300,7 +1199,7 @@ kpoints:
 scf:
   adaptive_beta: true
 "#;
-        let s_on = Settings::from_yaml_str(yaml_on).unwrap();
+        let s_on = InputSettings::from_yaml_str(yaml_on).unwrap();
         assert!(s_on.scf.adaptive_beta);
         assert!(s_on.to_scf_params(8).adaptive_beta);
     }
@@ -1322,7 +1221,7 @@ kpoints:
   type: monkhorst_pack
   grid: [2, 2, 2]
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         let expected = crate::scf::initial_density::DEFAULT_GAUSSIAN_SIGMA;
         assert!(
             (s.initial_density.gaussian_sigma - expected).abs() < 1e-15,
@@ -1353,7 +1252,7 @@ kpoints:
 initial_density:
   gaussian_sigma: 0.75
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert!(
             (s.initial_density.gaussian_sigma - 0.75).abs() < 1e-15,
             "YAML override not picked up: {}",
@@ -1370,13 +1269,11 @@ initial_density:
     #[test]
     fn initial_density_settings_roundtrip_via_yaml() {
         // Serialize -> parse should preserve the value exactly.
-        let mut s = Settings::from_yaml_str(FULL_YAML).unwrap();
+        let mut s = InputSettings::from_yaml_str(FULL_YAML).unwrap();
         s.initial_density.gaussian_sigma = 1.25;
         let yaml = serde_yaml_ng::to_string(&s).unwrap();
-        let restored = Settings::from_yaml_str(&yaml).unwrap();
-        assert!(
-            (restored.initial_density.gaussian_sigma - 1.25).abs() < 1e-15
-        );
+        let restored = InputSettings::from_yaml_str(&yaml).unwrap();
+        assert!((restored.initial_density.gaussian_sigma - 1.25).abs() < 1e-15);
     }
 
     #[test]
@@ -1398,10 +1295,8 @@ initial_density:
                         reason.contains("positive"),
                         "reason should mention positivity, got: {reason}"
                     );
-                }
-                other => panic!(
-                    "expected InvalidParam for gaussian_sigma = {bad}, got: {other:?}"
-                ),
+                },
+                other => panic!("expected InvalidParam for gaussian_sigma = {bad}, got: {other:?}"),
             }
         }
 
@@ -1415,17 +1310,15 @@ initial_density:
 
     #[test]
     fn full_settings_roundtrip() {
-        let original = Settings::from_yaml_str(FULL_YAML).unwrap();
+        let original = InputSettings::from_yaml_str(FULL_YAML).unwrap();
         let serialized = serde_yaml_ng::to_string(&original).unwrap();
-        let restored = Settings::from_yaml_str(&serialized).unwrap();
+        let restored = InputSettings::from_yaml_str(&serialized).unwrap();
 
         assert_eq!(original.system.atoms.len(), restored.system.atoms.len());
         assert_eq!(original.basis.ecutwfc, restored.basis.ecutwfc);
         assert_eq!(original.scf.max_iter, restored.scf.max_iter);
         assert_eq!(original.scf.n_bands, restored.scf.n_bands);
-        assert!(
-            (original.scf.mixing_beta - restored.scf.mixing_beta).abs() < f64::EPSILON
-        );
+        assert!((original.scf.mixing_beta - restored.scf.mixing_beta).abs() < f64::EPSILON);
         assert_eq!(original.scf.mixing_ndim, restored.scf.mixing_ndim);
         assert_eq!(original.scf.mixing_mode, restored.scf.mixing_mode);
         assert_eq!(original.scf.smearing, restored.scf.smearing);
@@ -1439,7 +1332,7 @@ initial_density:
     #[test]
     fn invalid_yaml_returns_parse_error() {
         let bad = "this is not: [valid: yaml: {{{}}}";
-        let err = Settings::from_yaml_str(bad).unwrap_err();
+        let err = InputSettings::from_yaml_str(bad).unwrap_err();
         match err {
             PwdftError::Parse(msg) => assert!(msg.contains("YAML")),
             other => panic!("expected Parse error, got: {other:?}"),
@@ -1455,7 +1348,7 @@ kpoints:
   type: monkhorst_pack
   grid: [2, 2, 2]
 "#;
-        assert!(Settings::from_yaml_str(bad).is_err());
+        assert!(InputSettings::from_yaml_str(bad).is_err());
     }
 
     #[test]
@@ -1469,7 +1362,7 @@ kpoints:
 scf:
   max_iter: 50
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.scf.max_iter, 50);
         assert!((s.scf.conv_threshold - 1e-6).abs() < 1e-15);
         assert!(s.scf.n_bands.is_none());
@@ -1486,7 +1379,7 @@ kpoints:
 scf:
   mixing_beta: 0.7
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert!((s.scf.mixing_beta - 0.7).abs() < 1e-15);
         assert_eq!(s.scf.mixing_ndim, 8);
         assert_eq!(s.scf.smearing, SmearingScheme::FermiDirac);
@@ -1503,7 +1396,7 @@ kpoints:
 scf:
   mixing_mode: broyden
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.scf.mixing_mode, MixingModeType::Broyden);
     }
 
@@ -1518,7 +1411,7 @@ kpoints:
 scf:
   mixing_mode: broyden_kerker
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.scf.mixing_mode, MixingModeType::BroydenKerker);
     }
 
@@ -1534,7 +1427,7 @@ scf:
   smearing: gaussian
   smearing_width: 0.1
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.scf.smearing, SmearingScheme::Gaussian);
         assert!((s.scf.smearing_width - 0.1).abs() < 1e-15);
     }
@@ -1550,8 +1443,8 @@ kpoints:
 xc:
   functional: pbe
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
-        assert_eq!(s.xc.functional, XcFunctional::Pbe);
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
+        assert_eq!(s.xc.functional, PredefinedXcFunctionals::Pbe);
     }
 
     #[test]
@@ -1565,7 +1458,7 @@ kpoints:
 symmetry:
   enabled: false
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert!(!s.symmetry.enabled);
         assert!(s.symmetry.time_reversal);
         assert!((s.symmetry.tolerance - 1e-5).abs() < 1e-15);
@@ -1584,167 +1477,9 @@ scf:
 electrons:
   occupations: fixed
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
         assert_eq!(s.scf.smearing, SmearingScheme::Fixed);
         assert_eq!(s.electrons.occupations, OccupationType::Fixed);
-    }
-
-    // -----------------------------------------------------------------------
-    // ECUT — per-species recommended-ecutwfc defaulting
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn resolve_ecutwfc_returns_user_value_when_set() {
-        // When YAML sets `basis.ecutwfc`, the resolver returns it verbatim
-        // and does not consult the per-element table.
-        let s = Settings::from_yaml_str(FULL_YAML).unwrap();
-        let crystal = s.to_crystal().unwrap();
-        let resolved = s.resolve_ecutwfc(&crystal).unwrap();
-        assert!((resolved - 204.09).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn resolve_ecutwfc_falls_back_to_table_for_silicon() {
-        // Omit `basis.ecutwfc` from YAML. Si (Z=14) is in the table at
-        // 12 Ha ≈ 326.5 eV. Resolver must produce that value.
-        use crate::consts::HA_TO_EV;
-        let yaml = r#"
-system:
-  lattice:
-    - [0.0, 2.7155, 2.7155]
-    - [2.7155, 0.0, 2.7155]
-    - [2.7155, 2.7155, 0.0]
-  atoms:
-    - symbol: Si
-      position: [0.0, 0.0, 0.0]
-    - symbol: Si
-      position: [0.25, 0.25, 0.25]
-kpoints:
-  type: monkhorst_pack
-  grid: [2, 2, 2]
-"#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
-        assert!(s.basis.ecutwfc.is_none(), "ecutwfc must be None when omitted");
-        let crystal = s.to_crystal().unwrap();
-        let resolved = s.resolve_ecutwfc(&crystal).unwrap();
-        let expected = 12.0 * HA_TO_EV;
-        assert!(
-            (resolved - expected).abs() < 1e-9,
-            "Si default ecutwfc {resolved} != expected {expected}"
-        );
-    }
-
-    #[test]
-    fn resolve_ecutwfc_takes_max_across_species_iron_wins_over_oxygen() {
-        // Mixed Fe + O crystal: Fe is 30 Ha (~816 eV), O is 24 Ha
-        // (~653 eV). The resolver must pick Fe's higher cutoff.
-        use crate::consts::HA_TO_EV;
-        let yaml = r#"
-system:
-  lattice:
-    - [4.3, 0.0, 0.0]
-    - [0.0, 4.3, 0.0]
-    - [0.0, 0.0, 4.3]
-  atoms:
-    - symbol: Fe
-      position: [0.0, 0.0, 0.0]
-    - symbol: O
-      position: [0.5, 0.5, 0.5]
-kpoints:
-  type: monkhorst_pack
-  grid: [2, 2, 2]
-"#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
-        let crystal = s.to_crystal().unwrap();
-        let resolved = s.resolve_ecutwfc(&crystal).unwrap();
-        let fe_ev = 30.0 * HA_TO_EV;
-        assert!(
-            (resolved - fe_ev).abs() < 1e-9,
-            "Fe/O default ecutwfc {resolved} must match Fe {fe_ev}, not O {}",
-            24.0 * HA_TO_EV,
-        );
-    }
-
-    #[test]
-    fn resolve_ecutwfc_returns_invalid_param_when_table_has_no_match() {
-        // ERR2 P1.c: when `basis.ecutwfc` is unset and every species in
-        // the crystal is outside the recommended-ecut table, the caller
-        // must receive `PwdftError::InvalidParam { name: "basis.ecutwfc",
-        // .. }` rather than the catch-all `InvalidInput`. The table
-        // lookup returns `None` for synthetic Z=200, so we build a
-        // Crystal directly rather than round-tripping through YAML
-        // (the YAML element parser rejects unknown symbols upstream).
-        use crate::crystal::{Atom, Crystal, Lattice};
-        use nalgebra::Vector3;
-        let lat = Lattice::new(
-            Vector3::new(5.0, 0.0, 0.0),
-            Vector3::new(0.0, 5.0, 0.0),
-            Vector3::new(0.0, 0.0, 5.0),
-        );
-        let crystal = Crystal {
-            atoms: vec![Atom::new(200, [0.0, 0.0, 0.0])],
-            lattice: lat,
-        };
-        // A minimal Settings with no `basis.ecutwfc` set. We construct
-        // via a YAML hop that omits `basis`.
-        let yaml = r#"
-system:
-  lattice:
-    - [5.0, 0.0, 0.0]
-    - [0.0, 5.0, 0.0]
-    - [0.0, 0.0, 5.0]
-  atoms:
-    - symbol: Si
-      position: [0.0, 0.0, 0.0]
-kpoints:
-  type: monkhorst_pack
-  grid: [1, 1, 1]
-"#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
-        // Hand-replace the crystal with the synthetic Z=200 one so the
-        // table lookup falls through.
-        let err = s.resolve_ecutwfc(&crystal).expect_err(
-            "resolve_ecutwfc must fail when no species has a recommended cutoff",
-        );
-        match err {
-            PwdftError::InvalidParam { name, reason } => {
-                assert_eq!(name, "basis.ecutwfc");
-                assert!(
-                    reason.contains("tabulated"),
-                    "reason should mention the tabulated lookup, got: {reason}"
-                );
-            }
-            other => panic!("expected InvalidParam, got: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn resolve_ecutwfc_defaults_to_carbon_for_diamond() {
-        // Diamond (C, Z=6) is harder than Si. .standard = 18 Ha.
-        use crate::consts::HA_TO_EV;
-        let yaml = r#"
-system:
-  lattice:
-    - [0.0, 1.784, 1.784]
-    - [1.784, 0.0, 1.784]
-    - [1.784, 1.784, 0.0]
-  atoms:
-    - symbol: C
-      position: [0.0, 0.0, 0.0]
-    - symbol: C
-      position: [0.25, 0.25, 0.25]
-kpoints:
-  type: monkhorst_pack
-  grid: [2, 2, 2]
-"#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
-        let crystal = s.to_crystal().unwrap();
-        let resolved = s.resolve_ecutwfc(&crystal).unwrap();
-        let expected = 18.0 * HA_TO_EV;
-        assert!(
-            (resolved - expected).abs() < 1e-9,
-            "C default ecutwfc {resolved} != expected {expected}"
-        );
     }
 
     #[test]
@@ -1766,14 +1501,12 @@ kpoints:
   type: monkhorst_pack
   grid: [1, 1, 1]
 "#;
-        let s = Settings::from_yaml_str(yaml).unwrap();
-        let err = s
-            .to_crystal()
-            .expect_err("unknown element symbol must be rejected");
+        let s = InputSettings::from_yaml_str(yaml).unwrap();
+        let err = s.to_crystal().expect_err("unknown element symbol must be rejected");
         match err {
             PwdftError::UnknownElement { symbol } => {
                 assert_eq!(symbol, "Xz");
-            }
+            },
             other => panic!("expected PwdftError::UnknownElement, got {other:?}"),
         }
     }

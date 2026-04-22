@@ -27,13 +27,9 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
-use std::fs;
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
-use pwdft_core::{
-    consts::RY_TO_EV,
-    pseudopotential::{PseudopotentialData, load},
-};
+use pwdft_core::{consts::RY_TO_EV, pseudopotential::UpfPseudoPotential};
 
 const CSV_REL_PATH: &str = "data/csv/dij_si_reference.csv";
 const UPF_REL_PATH: &str = "pseudopotentials/nc/lda/Si.upf";
@@ -70,7 +66,7 @@ fn load_reference_csv(path: &PathBuf) -> Option<Vec<RefRow>> {
     Some(rows)
 }
 
-fn load_si_pp() -> PseudopotentialData {
+fn load_si_pp() -> UpfPseudoPotential {
     let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join(UPF_REL_PATH);
     load(&path).expect("failed to parse Si.upf")
 }

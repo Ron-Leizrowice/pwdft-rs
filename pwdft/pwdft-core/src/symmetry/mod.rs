@@ -33,9 +33,7 @@ impl SymmetryInfo {
         let ops = detect::find_symmetry_operations(crystal, tolerance);
         let n_ops = ops.len();
 
-        let has_inversion = ops
-            .iter()
-            .any(|op| op.rotation == [[-1, 0, 0], [0, -1, 0], [0, 0, -1]]);
+        let has_inversion = ops.iter().any(|op| op.rotation == [[-1, 0, 0], [0, -1, 0], [0, 0, -1]]);
 
         Self {
             operations: ops,
@@ -55,11 +53,10 @@ impl SymmetryInfo {
     /// than as a missing value.
     ///
     /// With this group:
-    /// - K-point reduction leaves every input k-point unchanged (each
-    ///   orbit has size 1, so weights remain `1/n_total`).
-    /// - Density symmetrization is a no-op (see
-    ///   [`density::symmetrize_density_g`], which short-circuits when
-    ///   `n_ops <= 1`).
+    /// - K-point reduction leaves every input k-point unchanged (each orbit has size 1, so weights
+    ///   remain `1/n_total`).
+    /// - Density symmetrization is a no-op (see [`density::symmetrize_density_g`], which
+    ///   short-circuits when `n_ops <= 1`).
     ///
     /// The resulting behavior is bit-identical to the legacy path that
     /// skipped symmetrization via `Option::None`.
@@ -102,10 +99,10 @@ impl SymmetryInfo {
     ///
     /// # Panics
     ///
-    /// - Panics if any `self.operations[i]` has no inverse in
+    /// - Panics if any `self.operations[i]` has no inverse in `self.operations` within
+    ///   `self.tolerance`.
+    /// - Panics if any composition `self.operations[i] ∘ self.operations[j]` is not in
     ///   `self.operations` within `self.tolerance`.
-    /// - Panics if any composition `self.operations[i] ∘ self.operations[j]`
-    ///   is not in `self.operations` within `self.tolerance`.
     ///
     /// Both conditions indicate a corrupt symmetry set (produced by a
     /// buggy detector or constructed ad-hoc). They are never reachable
@@ -114,10 +111,7 @@ impl SymmetryInfo {
         for (i, a) in self.operations.iter().enumerate() {
             // Check inverse exists
             let a_inv = a.inverse();
-            let has_inv = self
-                .operations
-                .iter()
-                .any(|b| b.approx_eq(&a_inv, self.tolerance));
+            let has_inv = self.operations.iter().any(|b| b.approx_eq(&a_inv, self.tolerance));
             assert!(
                 has_inv,
                 "operation {i} has no inverse in the group: R={:?} τ={:?}",
@@ -127,10 +121,7 @@ impl SymmetryInfo {
             // Check closure under composition
             for (j, b) in self.operations.iter().enumerate() {
                 let ab = a.compose(b);
-                let in_set = self
-                    .operations
-                    .iter()
-                    .any(|c| c.approx_eq(&ab, self.tolerance));
+                let in_set = self.operations.iter().any(|c| c.approx_eq(&ab, self.tolerance));
                 assert!(
                     in_set,
                     "composition of ops {i} and {j} not in group: R={:?} τ={:?}",
@@ -143,6 +134,8 @@ impl SymmetryInfo {
 
 #[cfg(test)]
 mod tests {
+    use elements_rs::Element;
+
     use super::*;
 
     #[test]
@@ -183,8 +176,9 @@ mod tests {
         // `reduce_kpoints` must return the full input grid unchanged in both
         // k-points (Cartesian) and weights. This reproduces exactly the
         // "no symmetry" path that main.rs takes when `symmetry.enabled=false`.
-        use crate::crystal::{Atom, Crystal, Lattice};
         use nalgebra::Vector3;
+
+        use crate::crystal::{Atom, Crystal, Lattice};
 
         let a = 5.431;
         let crystal = Crystal {
@@ -194,15 +188,14 @@ mod tests {
                 a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
             ),
             atoms: vec![
-                Atom::new(14, [0.0, 0.0, 0.0]),
-                Atom::new(14, [0.25, 0.25, 0.25]),
+                Atom::new(Element::Si, [0.0, 0.0, 0.0]),
+                Atom::new(Element::Si, [0.25, 0.25, 0.25]),
             ],
         };
 
         let grid = [4_u32, 4, 4];
         let shift = crate::kpoints::KGridShift::GammaCentered;
-        let full =
-            crate::kpoints::monkhorst_pack(grid[0], grid[1], grid[2], shift, &crystal.lattice);
+        let full = crate::kpoints::monkhorst_pack(grid[0], grid[1], grid[2], shift, &crystal.lattice);
         let s = SymmetryInfo::identity_only();
         let reduced = kpoints::reduce_kpoints(&full, grid, shift, &s, &crystal.lattice);
 
@@ -226,9 +219,6 @@ mod tests {
             );
         }
         let w_sum: f64 = reduced.iter().map(|kp| kp.weight).sum();
-        assert!(
-            (w_sum - 1.0).abs() < 1e-12,
-            "weights must sum to 1.0, got {w_sum}"
-        );
+        assert!((w_sum - 1.0).abs() < 1e-12, "weights must sum to 1.0, got {w_sum}");
     }
 }

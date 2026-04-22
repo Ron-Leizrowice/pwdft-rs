@@ -2,8 +2,9 @@
 //!
 //! Exact for any fractional translation on a sufficiently band-limited
 //! density. Matches QE 7.5 `PW/src/symme.f90::sym_rho_serial`. See the
-//! module-level docs in `super` and `proposals/completed/PCFX-symmetrize-rho-g-space.md`
-//! for the convention derivation.
+//! module-level docs in `super` and
+//! `proposals/completed/PCFX-symmetrize-rho-g-space.md` for the convention
+//! derivation.
 
 use num_complex::Complex64;
 use rayon::prelude::*;
@@ -11,7 +12,8 @@ use rayon::prelude::*;
 use super::super::SymmetryInfo;
 use crate::fft::FFT3D;
 
-/// Apply an integer rotation matrix (Miller-index basis) to a Miller index triple.
+/// Apply an integer rotation matrix (Miller-index basis) to a Miller index
+/// triple.
 ///
 /// Fractional-basis rotations R are integer matrices with det = ±1, so
 /// Miller indices transform as integer vectors: `n' = R · n`.
@@ -73,21 +75,9 @@ fn flat_to_miller(dims: [usize; 3], idx: usize) -> [i32; 3] {
     let i1 = idx / (ny * nz);
     let i2 = (idx / nz) % ny;
     let i3 = idx % nz;
-    let n1 = if i1 > nx / 2 {
-        i1 as i32 - nx as i32
-    } else {
-        i1 as i32
-    };
-    let n2 = if i2 > ny / 2 {
-        i2 as i32 - ny as i32
-    } else {
-        i2 as i32
-    };
-    let n3 = if i3 > nz / 2 {
-        i3 as i32 - nz as i32
-    } else {
-        i3 as i32
-    };
+    let n1 = if i1 > nx / 2 { i1 as i32 - nx as i32 } else { i1 as i32 };
+    let n2 = if i2 > ny / 2 { i2 as i32 - ny as i32 } else { i2 as i32 };
+    let n3 = if i3 > nz / 2 { i3 as i32 - nz as i32 } else { i3 as i32 };
     [n1, n2, n3]
 }
 
@@ -140,12 +130,12 @@ fn flat_to_miller(dims: [usize; 3], idx: usize) -> [i32; 3] {
 ///
 /// # Parameters
 ///
-/// * `rho_r` — density on the FFT grid in row-major `(ix, iy, iz)` order,
-///   matching `FftGrid::total_size()`. Modified in place.
+/// * `rho_r` — density on the FFT grid in row-major `(ix, iy, iz)` order, matching
+///   `FftGrid::total_size()`. Modified in place.
 /// * `dims` — FFT grid dimensions `[nx, ny, nz]`.
 /// * `fft` — a reusable [`FFT3D`] instance sized for `dims`.
-/// * `symmetry` — space-group operations. If `n_ops <= 1` the call is a
-///   no-op (identity-only group produces the original density).
+/// * `symmetry` — space-group operations. If `n_ops <= 1` the call is a no-op (identity-only group
+///   produces the original density).
 ///
 /// # Panics
 ///
@@ -154,12 +144,7 @@ fn flat_to_miller(dims: [usize; 3], idx: usize) -> [i32; 3] {
 /// mismatch indicates the caller mixed an `FftGrid` instance with a
 /// density sized for a different mesh. No user input can reach these
 /// assertions through the SCF driver.
-pub fn symmetrize_density_g(
-    rho_r: &mut [f64],
-    dims: [usize; 3],
-    fft: &mut FFT3D,
-    symmetry: &SymmetryInfo,
-) {
+pub fn symmetrize_density_g(rho_r: &mut [f64], dims: [usize; 3], fft: &mut FFT3D, symmetry: &SymmetryInfo) {
     let n_grid = dims[0] * dims[1] * dims[2];
     assert_eq!(rho_r.len(), n_grid);
     assert_eq!(fft.dims(), dims, "FFT3D dims must match density dims");
@@ -168,14 +153,12 @@ pub fn symmetrize_density_g(
         return;
     }
 
-    // 1. Forward FFT: ρ(r) → unnormalized ρ̃(G).
-    //    We keep the unnormalized coefficients throughout; normalization
-    //    by 1/N cancels between forward and inverse FFT.
+    // 1. Forward FFT: ρ(r) → unnormalized ρ̃(G). We keep the unnormalized coefficients throughout;
+    //    normalization by 1/N cancels between forward and inverse FFT.
     let mut rho_g: Vec<Complex64> = rho_r.iter().map(|&r| Complex64::new(r, 0.0)).collect();
     fft.forward(&mut rho_g);
 
-    // 2. For every destination Miller index n_dst, accumulate contributions
-    //    from all operations.
+    // 2. For every destination Miller index n_dst, accumulate contributions from all operations.
     //
     //    Convention. Our `SpaceGroupOp::rotation` (= `op.rotation`) is the
     //    integer matrix `R` that acts on **direct-space fractional
@@ -231,40 +214,37 @@ pub fn symmetrize_density_g(
     // each worker's output writes in a contiguous cache-friendly
     // range.
     let slab = dims[1] * dims[2];
-    rho_g_sym
-        .par_chunks_mut(slab)
-        .enumerate()
-        .for_each(|(ix, slab_slots)| {
-            for (j, dst_slot) in slab_slots.iter_mut().enumerate() {
-                let idx_dst = ix * slab + j;
-                let n_dst = flat_to_miller(dims, idx_dst);
-                let mut acc = Complex64::new(0.0, 0.0);
-                for (op, r_t) in symmetry.operations.iter().zip(r_ts.iter()) {
-                    // Source Miller: n_src = R_direct^T · n_dst.
-                    let n_src = rotate_miller(r_t, n_dst);
-                    let idx_src = miller_to_flat(dims, n_src);
-                    let rho_src = rho_g[idx_src];
+    rho_g_sym.par_chunks_mut(slab).enumerate().for_each(|(ix, slab_slots)| {
+        for (j, dst_slot) in slab_slots.iter_mut().enumerate() {
+            let idx_dst = ix * slab + j;
+            let n_dst = flat_to_miller(dims, idx_dst);
+            let mut acc = Complex64::new(0.0, 0.0);
+            for (op, r_t) in symmetry.operations.iter().zip(r_ts.iter()) {
+                // Source Miller: n_src = R_direct^T · n_dst.
+                let n_src = rotate_miller(r_t, n_dst);
+                let idx_src = miller_to_flat(dims, n_src);
+                let rho_src = rho_g[idx_src];
 
-                    // Phase: exp(-i · 2π · (n_dst · τ)). The phase argument
-                    // uses n_dst (destination), not n_src — required for
-                    // `P² = P` by the Seitz composition identity
-                    // `m·τ_{S₁·S₂} = m·τ_{S₁} + (R_{S₁}^T m)·τ_{S₂}`.
-                    let arg = two_pi
-                        * (f64::from(n_dst[0]) * op.translation[0]
-                            + f64::from(n_dst[1]) * op.translation[1]
-                            + f64::from(n_dst[2]) * op.translation[2]);
-                    let (s, c) = arg.sin_cos();
-                    let phase = Complex64::new(c, -s);
+                // Phase: exp(-i · 2π · (n_dst · τ)). The phase argument
+                // uses n_dst (destination), not n_src — required for
+                // `P² = P` by the Seitz composition identity
+                // `m·τ_{S₁·S₂} = m·τ_{S₁} + (R_{S₁}^T m)·τ_{S₂}`.
+                let arg = two_pi
+                    * (f64::from(n_dst[0]) * op.translation[0]
+                        + f64::from(n_dst[1]) * op.translation[1]
+                        + f64::from(n_dst[2]) * op.translation[2]);
+                let (s, c) = arg.sin_cos();
+                let phase = Complex64::new(c, -s);
 
-                    acc += phase * rho_src;
-                }
-                *dst_slot = acc * inv_n_ops;
+                acc += phase * rho_src;
             }
-        });
+            *dst_slot = acc * inv_n_ops;
+        }
+    });
 
-    // 4. Inverse FFT (normalized) back to real space. The real part of the
-    //    result is the symmetrized density; the imaginary part is noise at
-    //    the ~1e-16 · ||ρ||_∞ level for a true real-valued input density.
+    // 4. Inverse FFT (normalized) back to real space. The real part of the result is the symmetrized
+    //    density; the imaginary part is noise at the ~1e-16 · ||ρ||_∞ level for a true real-valued
+    //    input density.
     fft.inverse_normalized(&mut rho_g_sym);
     for (out, c) in rho_r.iter_mut().zip(rho_g_sym.iter()) {
         *out = c.re;
@@ -273,10 +253,11 @@ pub fn symmetrize_density_g(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::crystal::{Atom, Crystal, Lattice};
     use approx::relative_eq;
     use nalgebra::Vector3;
+
+    use super::*;
+    use crate::crystal::{Atom, Crystal, Lattice};
 
     /// Real-space nearest-neighbor symmetrizer, kept local to these tests
     /// as the transparent reference that `symmetrize_density_g` must match
@@ -315,11 +296,7 @@ mod tests {
             for ix in 0..nx {
                 for iy in 0..ny {
                     for iz in 0..nz {
-                        let f = [
-                            ix as f64 / nx as f64,
-                            iy as f64 / ny as f64,
-                            iz as f64 / nz as f64,
-                        ];
+                        let f = [ix as f64 / nx as f64, iy as f64 / ny as f64, iz as f64 / nz as f64];
                         let fp = [
                             f64::from(r_inv[0][0]) * f[0]
                                 + f64::from(r_inv[0][1]) * f[1]
@@ -357,10 +334,7 @@ mod tests {
                 a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
                 a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
             ),
-            atoms: vec![
-                Atom::new(14, [0.0, 0.0, 0.0]),
-                Atom::new(14, [0.25, 0.25, 0.25]),
-            ],
+            atoms: vec![Atom::new("Si", [0.0, 0.0, 0.0]), Atom::new("Si", [0.25, 0.25, 0.25])],
         }
     }
 
@@ -403,10 +377,7 @@ mod tests {
         let mut rho = vec![1.0; n];
         symmetrize_density_g(&mut rho, dims, &mut fft, &symmetry);
         for &v in &rho {
-            assert!(
-                relative_eq!(v, 1.0, epsilon = 1e-12),
-                "uniform density changed to {v}"
-            );
+            assert!(relative_eq!(v, 1.0, epsilon = 1e-12), "uniform density changed to {v}");
         }
     }
 
@@ -432,9 +403,9 @@ mod tests {
             ([2, 0, 0], 0.03),
         ];
         assert!(
-            modes.iter().all(|(k, _)| k[0].abs() <= m_max
-                && k[1].abs() <= m_max
-                && k[2].abs() <= m_max),
+            modes
+                .iter()
+                .all(|(k, _)| k[0].abs() <= m_max && k[1].abs() <= m_max && k[2].abs() <= m_max),
             "band-limited helper: a mode exceeds |m|≤{m_max}"
         );
         for ix in 0..nx {
@@ -505,9 +476,7 @@ mod tests {
         let n = dims[0] * dims[1] * dims[2];
         let mut fft = FFT3D::new(dims[0], dims[1], dims[2]);
 
-        let rho0: Vec<f64> = (0..n)
-            .map(|i| (i as f64 * 0.23).sin().abs() + 0.05)
-            .collect();
+        let rho0: Vec<f64> = (0..n).map(|i| (i as f64 * 0.23).sin().abs() + 0.05).collect();
 
         let mut rho_real = rho0.clone();
         symmetrize_real_ref(&mut rho_real, dims, &symmetry);
@@ -566,9 +535,7 @@ mod tests {
         let n = dims[0] * dims[1] * dims[2];
         let mut fft = FFT3D::new(dims[0], dims[1], dims[2]);
 
-        let mut rho: Vec<f64> = (0..n)
-            .map(|i| (i as f64 * 0.17).sin().abs() + 0.01)
-            .collect();
+        let mut rho: Vec<f64> = (0..n).map(|i| (i as f64 * 0.17).sin().abs() + 0.01).collect();
         symmetrize_real_ref(&mut rho, dims, &symmetry);
         let rho_pre = rho.clone();
 

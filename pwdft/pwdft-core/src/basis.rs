@@ -29,6 +29,10 @@ impl BasisSet {
     ///
     /// where b_i are reciprocal lattice vectors (2π/V × a_j × a_k).
     /// The number of basis functions scales as N_pw ∝ E_cut^{3/2} × Ω.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "n_i_max bounded by ecut and reciprocal lattice norms;"
+    )]
     pub fn new(lattice: &Lattice, ecut: f64) -> Self {
         let recip = lattice.reciprocal();
         let g_max_sq = ecut / HBAR2_OVER_2M;
@@ -36,20 +40,8 @@ impl BasisSet {
         let g_max = g_max_sq.sqrt();
         let (b1, b2, b3) = (recip.a, recip.b, recip.c);
 
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "n_i_max bounded by ecut and reciprocal lattice norms; exceeding i32::MAX would require ecut > 10^18 eV"
-        )]
         let n1_max = (g_max / b1.norm()).ceil() as i32;
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "n_i_max bounded by ecut and reciprocal lattice norms; exceeding i32::MAX would require ecut > 10^18 eV"
-        )]
         let n2_max = (g_max / b2.norm()).ceil() as i32;
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "n_i_max bounded by ecut and reciprocal lattice norms; exceeding i32::MAX would require ecut > 10^18 eV"
-        )]
         let n3_max = (g_max / b3.norm()).ceil() as i32;
 
         let mut pw = Vec::new();
@@ -108,10 +100,7 @@ impl BasisSet {
 
     /// Kinetic energy (eV) for each G-vector: (ℏ²/2m)|G|².
     pub fn kinetic_energy(&self) -> Vec<f64> {
-        self.pw
-            .iter()
-            .map(|g| HBAR2_OVER_2M * g.norm_squared())
-            .collect()
+        self.pw.iter().map(|g| HBAR2_OVER_2M * g.norm_squared()).collect()
     }
 }
 

@@ -29,25 +29,31 @@ pub mod smearing;
 #[doc(hidden)]
 pub mod transplant;
 
-use num_complex::Complex64;
+use std::collections::HashMap;
 
-use crate::{
-    basis::BasisSet,
-    crystal::Crystal,
-    error::{PwdftError, Result},
-    kpoints::KPoint,
-    pseudopotential::PseudopotentialData,
-};
+use elements_rs::Element;
+use num_complex::Complex64;
 
 pub use self::energy::EnergyComponents;
 use self::grid::FftGrid;
+use crate::{
+    basis::BasisSet,
+    crystal::Crystal,
+    eigensolver::EigensolverKind,
+    error::{PwdftError, Result},
+    kpoints::KPoint,
+    potential::xc::XcEvaluator,
+    pseudopotential::UpfPseudoPotential,
+    settings::PredefinedXcFunctionals,
+    symmetry::SymmetryInfo,
+};
 
 /// Parameters controlling the self-consistent field iteration.
 ///
 /// The SCF loop solves the Kohn-Sham equations iteratively:
-/// 1. Construct `V_eff = V_local + V_Hartree[ρ_val] + V_xc[ρ_val + ρ_core]`
-///    (the core charge ρ_core enters only V_xc, via the NLCC path; it is
-///    *not* added to the Hartree source and *not* counted as valence).
+/// 1. Construct `V_eff = V_local + V_Hartree[ρ_val] + V_xc[ρ_val + ρ_core]` (the core charge ρ_core
+///    enters only V_xc, via the NLCC path; it is *not* added to the Hartree source and *not*
+///    counted as valence).
 /// 2. Diagonalize H = T + V_eff + V_NL at each k-point
 /// 3. Compute occupations from eigenvalues (Fermi-Dirac or other smearing)
 /// 4. Reconstruct density ρ(r) = Σ_{n,k} f_{n,k} w_k |ψ_{n,k}(r)|²
@@ -68,7 +74,8 @@ pub struct ScfParams {
     pub max_iter: usize,
     /// Density convergence threshold (RMS, e/ų).
     pub conv_threshold: f64,
-    /// Energy convergence threshold (eV). Both density AND energy must converge.
+    /// Energy convergence threshold (eV). Both density AND energy must
+    /// converge.
     pub energy_threshold: f64,
     pub mixing_beta: f64,
     pub mixing_ndim: usize,
@@ -89,11 +96,12 @@ pub struct ScfParams {
     /// See `src/scf/mixing/mod.rs` module docs for the full rule and
     /// defaults.
     pub adaptive_beta: bool,
-    /// Number of spin channels: 1 (unpolarized) or 2 (collinear spin-polarized).
+    /// Number of spin channels: 1 (unpolarized) or 2 (collinear
+    /// spin-polarized).
     pub nspin: usize,
     /// Starting magnetization per atom type (fractional, -1 to 1).
     /// Maps from element symbol to magnetization. Empty = non-magnetic.
-    pub starting_magnetization: std::collections::HashMap<String, f64>,
+    pub starting_magnetization: HashMap<Element, f64>,
     /// Fixed total magnetization (n_up - n_down) in electrons.
     /// If None, magnetization is determined self-consistently.
     pub tot_magnetization: Option<f64>,
@@ -104,7 +112,7 @@ pub struct ScfParams {
     /// computing only the lowest `n_bands` eigenpairs. Falls back to dense
     /// when the problem is too small for Arnoldi to be profitable or when
     /// iteration fails to converge in the restart budget.
-    pub eigensolver: crate::eigensolver::EigensolverKind,
+    pub eigensolver: EigensolverKind,
     /// Enable subspace-diagonalization warm-start for the dense eigensolver.
     ///
     /// When `true` and `eigensolver == Dense`, the driver caches the
@@ -126,7 +134,7 @@ pub struct ScfParams {
     /// actually implemented today. Any other variant causes `run_scf` to
     /// fail fast with [`PwdftError::NotImplemented`] so that a YAML typo
     /// cannot silently produce LDA results under a GGA or hybrid label.
-    pub xc_functional: crate::settings::XcFunctional,
+    pub xc_functional: PredefinedXcFunctionals,
     /// Width (Å) of the Gaussian model atomic charge used by the initial
     /// Superposition-of-Atomic-Densities (SAD) guess when a pseudopotential
     /// lacks `PP_RHOATOM`.
@@ -210,10 +218,7 @@ impl ScfParams {
         if !self.gaussian_sigma.is_finite() || self.gaussian_sigma <= 0.0 {
             return Err(PwdftError::InvalidParam {
                 name: "gaussian_sigma",
-                reason: format!(
-                    "must be positive and finite, got {}",
-                    self.gaussian_sigma
-                ),
+                reason: format!("must be positive and finite, got {}", self.gaussian_sigma),
             });
         }
         Ok(())
@@ -240,7 +245,7 @@ impl Default for ScfParams {
             tot_magnetization: None,
             eigensolver: crate::eigensolver::EigensolverKind::default(),
             wfrx_subspace: false,
-            xc_functional: crate::settings::XcFunctional::default(),
+            xc_functional: crate::settings::PredefinedXcFunctionals::default(),
             gaussian_sigma: initial_density::DEFAULT_GAUSSIAN_SIGMA,
         }
     }
@@ -249,11 +254,11 @@ impl Default for ScfParams {
 /// Output of a converged SCF calculation.
 ///
 /// All energies are in eV. The four energy quantities are:
-/// - `total_energy`: F = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0)·N_el − TS
-///   (the Mermin free-energy functional — matches QE's `! total energy`
-///   line from `pw.x` output, which is also F = E − TS).
-/// - `free_energy`: same quantity as `total_energy`; retained as an
-///   explicit alias for backward-compatible callers.
+/// - `total_energy`: F = E_band - E_H + E_xc - E_vxc + E_ewald + V_local(G=0)·N_el − TS (the Mermin
+///   free-energy functional — matches QE's `! total energy` line from `pw.x` output, which is also
+///   F = E − TS).
+/// - `free_energy`: same quantity as `total_energy`; retained as an explicit alias for
+///   backward-compatible callers.
 /// - `harris_foulkes_energy`: HF estimator of the same Mermin F.
 /// - `energy_sigma0`: E₀ = (E_internal + F)/2, a σ → 0 extrapolation.
 ///
@@ -268,9 +273,9 @@ pub struct ScfResult {
     pub total_energy: f64,
     /// Harris-Foulkes estimator of the Mermin free energy.
     ///
-    /// Uses the input density for Hartree/XC corrections but output eigenvalues.
-    /// Stationary at self-consistency: `|E_HF − F_KS| → 0` quadratically.
-    /// Serves as a convergence quality indicator.
+    /// Uses the input density for Hartree/XC corrections but output
+    /// eigenvalues. Stationary at self-consistency: `|E_HF − F_KS| → 0`
+    /// quadratically. Serves as a convergence quality indicator.
     pub harris_foulkes_energy: f64,
     /// Alias for `total_energy`. Both fields carry the Mermin free energy
     /// `F = E − TS`; the alias is retained so callers migrating from the
@@ -325,29 +330,24 @@ pub struct ScfResult {
 ///
 /// # Errors
 ///
-/// - `PwdftError::InvalidParam` if [`ScfParams::validate`] rejects the
-///   params (see that method's own `# Errors` section for the per-field
-///   variant map).
-/// - `PwdftError::InvalidCrystal` if `crystal.atoms` is empty, if
-///   `kpoints` is empty, or if the lattice volume is effectively zero
-///   (< 1e-10 ų).
-/// - `PwdftError::NotImplemented` if `params.xc_functional` is an
-///   unsupported variant (anything other than Perdew-Zunger LDA today);
-///   surfaced by `XcEvaluator::from_settings` so a YAML typo fails fast
-///   before compute work starts.
-/// - `PwdftError::ConvergenceFailure` from the selected driver when the
-///   SCF loop exhausts `max_iter` without satisfying both density and
-///   energy thresholds.
-/// - Any error propagated from the driver (eigensolver failure, NaN
-///   density, etc.) — see `scf::driver::run_scf_unpolarized` and
-///   `scf::driver_spin::run_scf_spin`.
+/// - `PwdftError::InvalidParam` if [`ScfParams::validate`] rejects the params (see that method's
+///   own `# Errors` section for the per-field variant map).
+/// - `PwdftError::InvalidCrystal` if `crystal.atoms` is empty, if `kpoints` is empty, or if the
+///   lattice volume is effectively zero (< 1e-10 ų).
+/// - `PwdftError::NotImplemented` if `params.xc_functional` is an unsupported variant (anything
+///   other than Perdew-Zunger LDA today); surfaced by `XcEvaluator::from_settings` so a YAML typo
+///   fails fast before compute work starts.
+/// - `PwdftError::ConvergenceFailure` from the selected driver when the SCF loop exhausts
+///   `max_iter` without satisfying both density and energy thresholds.
+/// - Any error propagated from the driver (eigensolver failure, NaN density, etc.) — see
+///   `scf::driver::run_scf_unpolarized` and `scf::driver_spin::run_scf_spin`.
 pub fn run_scf(
     crystal: &Crystal,
     basis: &BasisSet,
     kpoints: &[KPoint],
-    pseudopotentials: &[&PseudopotentialData],
+    pseudopotentials: &HashMap<Element, UpfPseudoPotential>,
     params: &ScfParams,
-    symmetry: &crate::symmetry::SymmetryInfo,
+    symmetry: &SymmetryInfo,
 ) -> Result<ScfResult> {
     params.validate()?;
     // GGAP Phase A dispatch: construct the XC evaluator up-front so that
@@ -360,8 +360,7 @@ pub fn run_scf(
     // (PBE0/HSE06) because hybrid functionals need (ρ, ψ) access during
     // Hamiltonian construction, which a closure-shaped dispatch could not
     // reach. See `proposals/HYBR-hybrid-functional-support.md` §3.
-    let xc_evaluator =
-        crate::potential::xc::XcEvaluator::from_settings(params.xc_functional)?;
+    let xc_evaluator = XcEvaluator::from_settings(params.xc_functional)?;
     if crystal.atoms.is_empty() {
         return Err(PwdftError::InvalidCrystal {
             reason: "at least one atom is required",
@@ -381,11 +380,23 @@ pub fn run_scf(
 
     if params.nspin == 2 {
         driver_spin::run_scf_spin(
-            crystal, basis, kpoints, pseudopotentials, params, symmetry, xc_evaluator,
+            crystal,
+            basis,
+            kpoints,
+            pseudopotentials,
+            params,
+            symmetry,
+            xc_evaluator,
         )
     } else {
         driver::run_scf_unpolarized(
-            crystal, basis, kpoints, pseudopotentials, params, symmetry, xc_evaluator,
+            crystal,
+            basis,
+            kpoints,
+            pseudopotentials,
+            params,
+            symmetry,
+            xc_evaluator,
         )
     }
 }
@@ -416,7 +427,7 @@ mod tests {
                     reason.contains("PeriodicPulay"),
                     "reason should mention PeriodicPulay, got: {reason}"
                 );
-            }
+            },
             other => panic!("expected InvalidParam, got: {other:?}"),
         }
 
@@ -539,9 +550,12 @@ mod tests {
     /// discriminant and the `Display` output.
     #[test]
     fn run_scf_rejects_crystal_shape_errors() {
-        use crate::crystal::{Atom, Lattice};
-        use crate::symmetry::SymmetryInfo;
         use nalgebra::Vector3;
+
+        use crate::{
+            crystal::{Atom, Lattice},
+            symmetry::SymmetryInfo,
+        };
 
         let si_a = 5.431_f64;
         let lattice = Lattice::new(
@@ -563,7 +577,7 @@ mod tests {
             weight: 1.0,
             label: None,
         }];
-        let err = run_scf(&crystal_no_atoms, &basis, &kpts, &[], &params, &sym)
+        let err = run_scf(&crystal_no_atoms, &basis, &kpts, &HashMap::new(), &params, &sym)
             .expect_err("empty atoms must fail");
         match &err {
             PwdftError::InvalidCrystal { reason } => {
@@ -571,21 +585,18 @@ mod tests {
                     reason.contains("atom"),
                     "InvalidCrystal reason should mention atom, got: {reason}"
                 );
-            }
+            },
             other => panic!("expected InvalidCrystal, got: {other:?}"),
         }
-        assert_eq!(
-            format!("{err}"),
-            "invalid crystal input: at least one atom is required"
-        );
+        assert_eq!(format!("{err}"), "invalid crystal input: at least one atom is required");
 
         // Branch 2: empty k-point list.
         let crystal_ok = Crystal {
             lattice,
-            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0])],
+            atoms: vec![Atom::new(Element::Si, [0.0, 0.0, 0.0])],
         };
-        let err = run_scf(&crystal_ok, &basis, &[], &[], &params, &sym)
-            .expect_err("empty kpoints must fail");
+        let err =
+            run_scf(&crystal_ok, &basis, &[], &HashMap::new(), &params, &sym).expect_err("empty kpoints must fail");
         assert!(matches!(
             err,
             PwdftError::InvalidCrystal {
@@ -601,9 +612,9 @@ mod tests {
         );
         let crystal_degenerate = Crystal {
             lattice: bad_lattice,
-            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0])],
+            atoms: vec![Atom::new(Element::Si, [0.0, 0.0, 0.0])],
         };
-        let err = run_scf(&crystal_degenerate, &basis, &kpts, &[], &params, &sym)
+        let err = run_scf(&crystal_degenerate, &basis, &kpts, &HashMap::new(), &params, &sym)
             .expect_err("zero volume must fail");
         assert!(matches!(
             err,

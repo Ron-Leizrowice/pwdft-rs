@@ -1,0 +1,27 @@
+# --- Meta & Versioning ---
+unstable_features = true           # Required to enable the advanced formatting rules below
+style_edition = "2024"             # Opts into the latest Rust style conventions
+ignore = ["pwdft/faer"]            # Prevents formatting of the vendored faer directory
+
+# --- Layout & Geometry ---
+max_width = 120                    # Total characters per line (wide for complex math/physics)
+tab_spaces = 4                     # Number of spaces per indentation level
+hard_tabs = false                  # Uses spaces instead of actual tab characters
+use_small_heuristics = "Default"   # Balances single-line vs multi-line for small structs/enums
+binop_separator = "Front"          # Places operators (+, -) at the start of wrapped lines
+
+# --- Import Management ---
+imports_granularity = "Crate"      # Merges imports from the same crate: use crate::{a, b};
+group_imports = "StdExternalCrate" # Groups: 1. std, 2. external crates, 3. local modules
+reorder_imports = true             # Sorts import lines alphabetically for readability
+
+# --- Documentation & Comments ---
+wrap_comments = true               # Automatically wraps long doc-comments to max_width
+format_code_in_doc_comments = true # Formats Rust code blocks found inside triple-slash comments
+comment_width = 100                # Target width for comments (distinct from code width)
+
+# --- Idiomatic & Syntax Cleanup ---
+hex_literal_case = "Upper"         # Formats hex as 0xFF instead of 0xff (standard for M-series)
+use_field_init_shorthand = true    # Simplifies Point { x: x } to Point { x }
+match_block_trailing_comma = true  # Ensures a comma after every match arm for cleaner git diffs
+reorder_impl_items = true          # Sorts methods inside impl blocks for consistency

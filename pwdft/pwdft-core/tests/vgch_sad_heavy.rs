@@ -16,9 +16,9 @@
 //! The Python reference reproduces QE's `atomic_rho.f90` recipe:
 //!   ρ(G) = Σ_species strf(G,nt) · (1/Ω) · Simpson( ρ_at(r) · j₀(Gr) ; rab )
 //!   ρ(r) = Σ_G ρ(G) exp(+iG·r)                (pwdft-core unnormalized IFFT)
-//! plus QE's G=0 renormalization (`charge = Ω · ρ(G=0); ρ ← ρ · N_el / charge`).
-//! The Rust side calls `build_sad_density_for_diagnostic`, which returns
-//! the SCF driver's exact starting ρ(r) — post-clamp and post-renorm.
+//! plus QE's G=0 renormalization (`charge = Ω · ρ(G=0); ρ ← ρ · N_el /
+//! charge`). The Rust side calls `build_sad_density_for_diagnostic`, which
+//! returns the SCF driver's exact starting ρ(r) — post-clamp and post-renorm.
 //! Both sides shell-average around each atom on identical grid dims.
 //!
 //! Tolerance is per-bin in e/Å³; see `TOL_RHO_E_PER_ANG3` and per-system
@@ -35,14 +35,16 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
-use std::collections::{BTreeMap, HashMap};
-use std::fs;
-use std::path::PathBuf;
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs,
+    path::PathBuf,
+};
 
 use nalgebra::Vector3;
 use pwdft_core::{
     crystal::{Atom, Crystal, Lattice},
-    pseudopotential::{PseudopotentialData, load},
+    pseudopotential::UpfPseudoPotential,
     scf::initial_density::{InitialDensityConfig, build_sad_density_for_diagnostic_verbose},
 };
 
@@ -60,12 +62,11 @@ const RY_TO_EV: f64 = 13.605_693_122_994;
 /// the clamp).
 ///
 /// 5e-2 comfortably covers:
-///   - Bit-perfect (≤ 1e-9) agreement on systems where no density
-///     sample goes negative (Al, Fe, Cu, NaCl, MgO, C — post-wrap-fix).
-///   - The tiny (≤ 1.5e-2 e/Å³ local) deviation on GaAs near the As
-///     core, where pwdft-core clamps O(1e-5 e) of negative Gibbs ringing
-///     that QE keeps. That 1.5e-2 is diagnostic, not a physics bug;
-///     the clamp is confined to ~1 bin near the core atom.
+///   - Bit-perfect (≤ 1e-9) agreement on systems where no density sample goes negative (Al, Fe, Cu,
+///     NaCl, MgO, C — post-wrap-fix).
+///   - The tiny (≤ 1.5e-2 e/Å³ local) deviation on GaAs near the As core, where pwdft-core clamps
+///     O(1e-5 e) of negative Gibbs ringing that QE keeps. That 1.5e-2 is diagnostic, not a physics
+///     bug; the clamp is confined to ~1 bin near the core atom.
 const TOL_RHO_E_PER_ANG3: f64 = 5.0e-2;
 
 /// Tolerance for the *pre-clamp* ρ(r) shell averages: this is the
@@ -190,10 +191,7 @@ fn systems() -> Vec<SystemSpec> {
             name: "c_diamond",
             lattice_type: LatticeType::Fcc,
             celldm1_bohr: 6.7409,
-            atoms: vec![
-                ("C", [0.00, 0.00, 0.00], 6),
-                ("C", [0.25, 0.25, 0.25], 6),
-            ],
+            atoms: vec![("C", [0.00, 0.00, 0.00], 6), ("C", [0.25, 0.25, 0.25], 6)],
             // 32³ aligns the two C atoms with integer grid points
             // (0,0,0) and (8,8,8); see the Python twin file for the
             // discretization rationale.
@@ -232,10 +230,7 @@ fn systems() -> Vec<SystemSpec> {
             name: "gaas",
             lattice_type: LatticeType::Fcc,
             celldm1_bohr: 10.6829,
-            atoms: vec![
-                ("Ga", [0.00, 0.00, 0.00], 31),
-                ("As", [0.25, 0.25, 0.25], 33),
-            ],
+            atoms: vec![("Ga", [0.00, 0.00, 0.00], 31), ("As", [0.25, 0.25, 0.25], 33)],
             grid_dims: [32, 32, 32],
             ecutwfc_ry: 20.0,
             ecutrho_ratio: 4,
@@ -244,10 +239,7 @@ fn systems() -> Vec<SystemSpec> {
             name: "nacl",
             lattice_type: LatticeType::RocksaltFcc,
             celldm1_bohr: 10.6078,
-            atoms: vec![
-                ("Na", [0.00, 0.00, 0.00], 11),
-                ("Cl", [0.50, 0.50, 0.50], 17),
-            ],
+            atoms: vec![("Na", [0.00, 0.00, 0.00], 11), ("Cl", [0.50, 0.50, 0.50], 17)],
             grid_dims: [32, 32, 32],
             ecutwfc_ry: 25.0,
             ecutrho_ratio: 4,
@@ -256,10 +248,7 @@ fn systems() -> Vec<SystemSpec> {
             name: "mgo",
             lattice_type: LatticeType::RocksaltFcc,
             celldm1_bohr: 7.9586,
-            atoms: vec![
-                ("Mg", [0.00, 0.00, 0.00], 12),
-                ("O", [0.50, 0.50, 0.50], 8),
-            ],
+            atoms: vec![("Mg", [0.00, 0.00, 0.00], 12), ("O", [0.50, 0.50, 0.50], 8)],
             grid_dims: [24, 24, 24],
             ecutwfc_ry: 30.0,
             ecutrho_ratio: 4,
@@ -281,18 +270,13 @@ fn build_crystal(sys: &SystemSpec) -> Crystal {
             (a_ang / 2.0) * Vector3::new(1.0, 1.0, -1.0),
         ),
     };
-    let atoms = sys
-        .atoms
-        .iter()
-        .map(|(_, frac, z)| Atom::new(*z, *frac))
-        .collect();
+    let atoms = sys.atoms.iter().map(|(_, frac, z)| Atom::new(*z, *frac)).collect();
     Crystal { lattice, atoms }
 }
 
-fn load_pp(element: &str) -> PseudopotentialData {
-    let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-        .join(format!("pseudopotentials/nc/lda/{element}.upf"));
-    load(&path).unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
+fn load_pp(element: &str) -> UpfPseudoPotential {
+    let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join(format!("pseudopotentials/nc/lda/{element}.upf"));
+    UpfPseudoPotential::load(&path).unwrap_or_else(|e| panic!("failed to load {}: {e}", path.display()))
 }
 
 /// Shell-average ρ(r) around one atom. MUST mirror Python's
@@ -377,9 +361,7 @@ fn r_edges_ang() -> Vec<f64> {
     // 50 bins from 0 → 2.0 Å, 0.04 Å wide — matches Python.
     let n_bins: usize = 50;
     let r_max = 2.0_f64;
-    (0..=n_bins)
-        .map(|k| r_max * (k as f64) / (n_bins as f64))
-        .collect()
+    (0..=n_bins).map(|k| r_max * (k as f64) / (n_bins as f64)).collect()
 }
 
 /// Result bundle for one system: shell-averaged ρ(r) around each atom
@@ -402,18 +384,12 @@ struct SystemDiagnosis {
 
 /// Compute pwdft-core SAD on the fixed grid and return shell-averaged
 /// ρ(r) for each atom — both pre-clamp and final.
-fn diagnose_system(
-    sys: &SystemSpec,
-    pp_cache: &HashMap<&str, PseudopotentialData>,
-) -> SystemDiagnosis {
+fn diagnose_system(sys: &SystemSpec, pp_cache: &HashMap<&str, UpfPseudoPotential>) -> SystemDiagnosis {
     let crystal = build_crystal(sys);
     let mut unique_elements: Vec<&str> = sys.atoms.iter().map(|(e, _, _)| *e).collect();
     unique_elements.sort();
     unique_elements.dedup();
-    let pps: Vec<&PseudopotentialData> = unique_elements
-        .iter()
-        .map(|e| pp_cache.get(e).unwrap())
-        .collect();
+    let pps: Vec<&UpfPseudoPotential> = unique_elements.iter().map(|e| pp_cache.get(e).unwrap()).collect();
 
     // ecutwfc in eV (pwdft-core internal)
     let n_electrons: f64 = sys
@@ -483,7 +459,7 @@ fn test_vgch_sad_matches_qe_convention_reference() {
     }
 
     // Load all unique PPs once
-    let mut pp_cache: HashMap<&str, PseudopotentialData> = HashMap::new();
+    let mut pp_cache: HashMap<&str, UpfPseudoPotential> = HashMap::new();
     for sys in &systems() {
         for (elem, _, _) in &sys.atoms {
             pp_cache.entry(elem).or_insert_with(|| load_pp(elem));
@@ -496,16 +472,13 @@ fn test_vgch_sad_matches_qe_convention_reference() {
     // matches the Python reference at machine precision for systems
     // where it should. ----
     let samples_path = PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join(SAMPLES_CSV_REL_PATH);
-    let samples = load_samples_csv(&samples_path)
-        .unwrap_or_else(|| panic!("samples CSV missing at {}", samples_path.display()));
+    let samples =
+        load_samples_csv(&samples_path).unwrap_or_else(|| panic!("samples CSV missing at {}", samples_path.display()));
 
     // Group samples by system
     let mut sample_by_system: HashMap<String, Vec<&SampleRow>> = HashMap::new();
     for s in &samples {
-        sample_by_system
-            .entry(s.system.clone())
-            .or_default()
-            .push(s);
+        sample_by_system.entry(s.system.clone()).or_default().push(s);
     }
 
     println!("Raw-sample point-wise ρ(r) diff (post-clamp+renorm, 200 pts/system):");
@@ -518,30 +491,29 @@ fn test_vgch_sad_matches_qe_convention_reference() {
     let mut any_raw_fail = false;
     for sys in &systems() {
         let diag = diagnose_system(sys, &pp_cache);
-        let samples_sys = sample_by_system.get(sys.name).unwrap_or_else(|| {
-            panic!("no samples rows for system {}", sys.name)
-        });
+        let samples_sys = sample_by_system
+            .get(sys.name)
+            .unwrap_or_else(|| panic!("no samples rows for system {}", sys.name));
         let [_nx, ny, nz] = sys.grid_dims;
         let mut max_d = 0.0_f64;
         let mut sum_d = 0.0_f64;
         let mut n_checked = 0_usize;
         // We need raw rho_final arrays here, not shell-averaged. Re-run.
-        let (_dims, _pre, rho_final, _stats) = pwdft_core::scf::initial_density::build_sad_density_for_diagnostic_verbose(
-            &diag.crystal,
-            &{
-                let mut u: Vec<&str> = sys.atoms.iter().map(|(e, _, _)| *e).collect();
-                u.sort();
-                u.dedup();
-                u.iter()
-                    .map(|e| pp_cache.get(e).unwrap())
-                    .collect::<Vec<_>>()
-            },
-            diag.n_electrons,
-            sys.ecutwfc_ry * RY_TO_EV,
-            sys.ecutrho_ratio,
-            Some(sys.grid_dims),
-            &InitialDensityConfig::non_magnetic(diag.crystal.atoms.len()),
-        );
+        let (_dims, _pre, rho_final, _stats) =
+            pwdft_core::scf::initial_density::build_sad_density_for_diagnostic_verbose(
+                &diag.crystal,
+                &{
+                    let mut u: Vec<&str> = sys.atoms.iter().map(|(e, _, _)| *e).collect();
+                    u.sort();
+                    u.dedup();
+                    u.iter().map(|e| pp_cache.get(e).unwrap()).collect::<Vec<_>>()
+                },
+                diag.n_electrons,
+                sys.ecutwfc_ry * RY_TO_EV,
+                sys.ecutrho_ratio,
+                Some(sys.grid_dims),
+                &InitialDensityConfig::non_magnetic(diag.crystal.atoms.len()),
+            );
         for s in samples_sys {
             let idx = s.i1 * ny * nz + s.i2 * nz + s.i3;
             let d = (rho_final[idx] - s.rho_ref).abs();
@@ -576,8 +548,7 @@ fn test_vgch_sad_matches_qe_convention_reference() {
         "system", "N_el", "∫ρ pre-clamp", "neg mass clamp", "renorm fac"
     );
     println!("{}", "-".repeat(72));
-    let mut system_stats: HashMap<String, pwdft_core::scf::initial_density::SadDiagnosticStats> =
-        HashMap::new();
+    let mut system_stats: HashMap<String, pwdft_core::scf::initial_density::SadDiagnosticStats> = HashMap::new();
     for sys in &systems() {
         let diag = diagnose_system(sys, &pp_cache);
         system_stats.insert(sys.name.to_string(), diag.stats);
@@ -592,9 +563,7 @@ fn test_vgch_sad_matches_qe_convention_reference() {
     }
 
     println!();
-    println!(
-        "Shell-average Δρ(r) vs QE-convention reference (final = post-clamp + renorm):"
-    );
+    println!("Shell-average Δρ(r) vs QE-convention reference (final = post-clamp + renorm):");
     println!(
         "{:>12} {:>4} {:>6} {:>14} {:>14} {:>7}",
         "system", "atom", "bins", "max |Δρ|", "mean |Δρ|", "verdict"
@@ -642,9 +611,7 @@ fn test_vgch_sad_matches_qe_convention_reference() {
             let mut max_delta_pre = 0.0_f64;
 
             for (r_center, rho_ref) in ref_bins {
-                let bin_idx = edges
-                    .windows(2)
-                    .position(|w| *r_center >= w[0] && *r_center < w[1]);
+                let bin_idx = edges.windows(2).position(|w| *r_center >= w[0] && *r_center < w[1]);
                 let Some(bin) = bin_idx else { continue };
                 if counts[bin] == 0 {
                     continue;
@@ -686,12 +653,7 @@ fn test_vgch_sad_matches_qe_convention_reference() {
                 max_delta_rust,
                 max_delta_ref,
             );
-            per_atom_worst.push((
-                sys.name.to_string(),
-                atom_label.clone(),
-                max_delta,
-                max_delta_pre,
-            ));
+            per_atom_worst.push((sys.name.to_string(), atom_label.clone(), max_delta, max_delta_pre));
             if local_fail {
                 any_fail = true;
             }

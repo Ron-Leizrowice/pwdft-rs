@@ -7,8 +7,7 @@
 //!
 //! Entry points:
 //! - [`scf::run_scf`] — full self-consistent calculation.
-//! - [`bandstructure::compute_band_structure`] — non-self-consistent
-//!   eigenvalues along a k-path.
+//! - [`bandstructure::compute_band_structure`] — non-self-consistent eigenvalues along a k-path.
 //!
 //! Module groups:
 //! - **Crystal & basis:** [`crystal`], [`basis`], [`kpoints`], [`atoms`].
@@ -22,20 +21,11 @@
 //! Conversion constants live in [`consts`]; Ry/Bohr appear only at the
 //! pseudopotential parsing boundary.
 #![warn(unused_results)]
-#![cfg_attr(
-    test,
-    allow(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::panic,
-        unused_results,
-        reason = "ERR2 § Phase 0: in-src test modules are allowed to panic; CLAU consolidated 32 per-module allows to this single crate-level cfg_attr; URES test code may discard results in setup helpers"
-    )
-)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::panic, unused_results))]
 
-pub mod atoms;
 pub mod bandstructure;
 pub mod basis;
+pub mod calculation;
 pub mod consts;
 pub mod crystal;
 pub mod eigensolver;
@@ -51,4 +41,5 @@ pub mod potential;
 pub mod pseudopotential;
 pub mod scf;
 pub mod settings;
+pub mod functionals;
 pub mod symmetry;

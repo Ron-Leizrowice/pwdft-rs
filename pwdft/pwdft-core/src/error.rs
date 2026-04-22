@@ -15,7 +15,9 @@ pub enum PwdftError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("SCF did not converge after {iterations} iterations (delta = {delta:.2e}); raise `scf.max_iter` or tighten mixing/smearing in the input YAML")]
+    #[error(
+        "SCF did not converge after {iterations} iterations (delta = {delta:.2e}); raise `scf.max_iter` or tighten mixing/smearing in the input YAML"
+    )]
     ConvergenceFailure { iterations: usize, delta: f64 },
 
     #[error("invalid input: {0}")]
@@ -46,10 +48,7 @@ pub enum PwdftError {
     /// value when useful. Prefer this variant over the catch-all
     /// `InvalidInput` for per-parameter validation errors.
     #[error("invalid parameter {name}: {reason}")]
-    InvalidParam {
-        name: &'static str,
-        reason: String,
-    },
+    InvalidParam { name: &'static str, reason: String },
 
     /// A crystal, lattice, or k-point structural precondition failed.
     /// Used for whole-input shape errors (empty atom list, empty k-point
@@ -116,17 +115,12 @@ mod tests {
         let err = PwdftError::InvalidCrystal {
             reason: "at least one atom is required",
         };
-        assert_eq!(
-            err.to_string(),
-            "invalid crystal input: at least one atom is required"
-        );
+        assert_eq!(err.to_string(), "invalid crystal input: at least one atom is required");
     }
 
     #[test]
     fn unknown_element_fmt() {
-        let err = PwdftError::UnknownElement {
-            symbol: "Xz".into(),
-        };
+        let err = PwdftError::UnknownElement { symbol: "Xz".into() };
         assert_eq!(err.to_string(), "unknown element symbol: Xz");
     }
 
@@ -153,9 +147,6 @@ mod tests {
             reason: "must be positive".into(),
         };
         let rendered = format!("{err}");
-        assert_eq!(
-            rendered,
-            "invalid parameter conv_threshold: must be positive"
-        );
+        assert_eq!(rendered, "invalid parameter conv_threshold: must be positive");
     }
 }

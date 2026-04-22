@@ -16,6 +16,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::crystal::Lattice;
 
+/// A collection of k-points with enough provenance to symmetrize densities
+/// and interpret band-path distances. Construct via the inherent
+/// constructors; do not build one by hand outside this module.
+#[derive(Debug, Clone)]
+pub struct KPointSet {
+    points: Vec<KPoint>,
+    kind: SamplingKind,
+}
+
 /// A single k-point with its Cartesian coordinates and BZ integration weight.
 #[derive(Debug, Clone)]
 pub struct KPoint {
@@ -27,21 +36,161 @@ pub struct KPoint {
     pub label: Option<String>,
 }
 
+impl KPointSet {
+    /// Γ-only sampling. Single k-point at the origin with weight 1.
+    ///
+    /// Used by molecular tests, free-electron Γ spot-checks, and any
+    /// mixing-algorithm regression that wants to bypass a Brillouin-zone
+    /// integration. Tagged as `MonkhorstPack { grid: [1,1,1], shift: GammaCentered }`
+    /// so downstream consumers treating this as a degenerate 1×1×1 grid
+    /// get consistent metadata.
+    pub fn gamma_only() -> Self {
+        Self {
+            points: vec![KPoint {
+                k: Vector3::zeros(),
+                weight: 1.0,
+                label: Some("Γ".into()),
+            }],
+            kind: SamplingKind::MonkhorstPack {
+                grid: [1, 1, 1],
+                shift: KGridShift::GammaCentered,
+            },
+        }
+    }
+
+    /// Full (unreduced) Monkhorst-Pack grid. See [`monkhorst_pack`] for
+    /// the underlying formula.
+    pub fn monkhorst_pack(grid: [u32; 3], shift: KGridShift, lattice: &Lattice) -> Self {
+        Self {
+            points: monkhorst_pack(grid[0], grid[1], grid[2], shift, lattice),
+            kind: SamplingKind::MonkhorstPack { grid, shift },
+        }
+    }
+
+    /// Piecewise-linear path through high-symmetry points for band
+    /// structure. See [`high_symmetry_path`] for the interpolation rule.
+    pub fn band_path(segments: &[HighSymPoint], npoints_per_segment: usize, lattice: &Lattice) -> Self {
+        let (points, distances) = high_symmetry_path(segments, npoints_per_segment, lattice);
+        Self {
+            points,
+            kind: SamplingKind::BandPath { distances },
+        }
+    }
+
+    /// Wrap the output of an IBZ reduction into a `KPointSet`. Called by
+    /// [`crate::symmetry::kpoints::reduce_kpoints`]; callers outside the
+    /// symmetry module should not need this.
+    ///
+    /// `grid` and `shift` must describe the *parent* full MP grid — they
+    /// are retained so density symmetrization can unfold the IBZ back to
+    /// the full grid.
+    pub fn from_reduced(points: Vec<KPoint>, grid: [u32; 3], shift: KGridShift) -> Self {
+        Self {
+            points,
+            kind: SamplingKind::Irreducible { grid, shift },
+        }
+    }
+}
+
+impl KPointSet {
+    /// Underlying slice of k-points.
+    pub fn as_slice(&self) -> &[KPoint] {
+        &self.points
+    }
+
+    /// Iterator over k-points.
+    pub fn iter(&self) -> std::slice::Iter<'_, KPoint> {
+        self.points.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.points.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.points.is_empty()
+    }
+
+    /// Provenance tag. Match on this when the caller needs to know how
+    /// the set was generated (e.g. density symmetrization reaches for the
+    /// parent MP grid via [`Self::grid_and_shift`]).
+    pub fn sampling(&self) -> &SamplingKind {
+        &self.kind
+    }
+
+    /// Parent MP grid size and shift, for `MonkhorstPack` and
+    /// `Irreducible` sets. Returns `None` for band paths.
+    pub fn grid_and_shift(&self) -> Option<([u32; 3], KGridShift)> {
+        match self.kind {
+            SamplingKind::MonkhorstPack { grid, shift } | SamplingKind::Irreducible { grid, shift } => {
+                Some((grid, shift))
+            },
+            SamplingKind::BandPath { .. } => None,
+        }
+    }
+
+    /// Cumulative along-path distances for band-structure sets. Returns
+    /// `None` for MP grids.
+    pub fn distances(&self) -> Option<&[f64]> {
+        match &self.kind {
+            SamplingKind::BandPath { distances } => Some(distances),
+            _ => None,
+        }
+    }
+
+    /// Sum of integration weights. Invariants:
+    /// - `MonkhorstPack` and `Irreducible` sets: 1.0 (modulo rounding).
+    /// - `BandPath`: 0.0 (band-path points do not participate in BZ integration).
+    pub fn total_weight(&self) -> f64 {
+        self.points.iter().map(|kp| kp.weight).sum()
+    }
+}
+
+impl<'a> IntoIterator for &'a KPointSet {
+    type IntoIter = std::slice::Iter<'a, KPoint>;
+    type Item = &'a KPoint;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.points.iter()
+    }
+}
+
+impl std::ops::Index<usize> for KPointSet {
+    type Output = KPoint;
+
+    fn index(&self, i: usize) -> &KPoint {
+        &self.points[i]
+    }
+}
+
+/// Provenance tag for a [`KPointSet`].
+#[derive(Debug, Clone)]
+pub enum SamplingKind {
+    /// Full unreduced MP grid. Rarely consumed directly — usually the
+    /// input to an IBZ reduction.
+    MonkhorstPack { grid: [u32; 3], shift: KGridShift },
+    /// MP grid reduced to the irreducible BZ under a space group.
+    /// `grid` and `shift` describe the *parent* full grid; density
+    /// symmetrization needs them to unfold the IBZ contribution.
+    Irreducible { grid: [u32; 3], shift: KGridShift },
+    /// Piecewise-linear band path through high-symmetry points.
+    /// `distances` has the same length as the point list and gives
+    /// cumulative reciprocal-space distance (1/Å) along the path.
+    BandPath { distances: Vec<f64> },
+}
+
 /// Shift convention for a Monkhorst-Pack k-grid.
 ///
 /// Selects between the two common formulas for a uniform k-mesh:
 ///
-/// - [`GammaCentered`](KGridShift::GammaCentered) — `f_j = (i_j − 1)/N_j`
-///   (half-shift flags `0 0 0`). For N=4 this yields `{0, 1/4, 1/2, 3/4}`,
-///   i.e. **includes** Γ and the high-symmetry BZ-boundary points
-///   (X, L on FCC).
-/// - [`MP1976`](KGridShift::MP1976) — `f_j = (2·i_j − N_j + 1)/(2·N_j)`
-///   (the original Monkhorst & Pack, *Phys. Rev. B* **13**, 5188 (1976)
-///   Eq. 4; half-shift flags `1 1 1`). For N=4 this yields
+/// - [`GammaCentered`](KGridShift::GammaCentered) — `f_j = (i_j − 1)/N_j` (half-shift flags `0 0
+///   0`). For N=4 this yields `{0, 1/4, 1/2, 3/4}`, i.e. **includes** Γ and the high-symmetry
+///   BZ-boundary points (X, L on FCC).
+/// - [`MP1976`](KGridShift::MP1976) — `f_j = (2·i_j − N_j + 1)/(2·N_j)` (the original Monkhorst &
+///   Pack, *Phys. Rev. B* **13**, 5188 (1976) Eq. 4; half-shift flags `1 1 1`). For N=4 this yields
 ///   `{−3/8, −1/8, 1/8, 3/8}` — **no** point at Γ, symmetric about Γ.
-/// - [`Custom`](KGridShift::Custom) — per-axis half-shift flags
-///   `k_α ∈ {0, 1}` giving `f_j = (i_j − 1)/N_j + k_j/(2·N_j)`.
-///   `Custom([0,0,0])` is identical to `GammaCentered`.
+/// - [`Custom`](KGridShift::Custom) — per-axis half-shift flags `k_α ∈ {0, 1}` giving `f_j = (i_j −
+///   1)/N_j + k_j/(2·N_j)`. `Custom([0,0,0])` is identical to `GammaCentered`.
 ///
 /// For odd N both `GammaCentered` and `MP1976` produce the same mesh
 /// modulo a cyclic permutation; for even N they are genuinely distinct
@@ -93,13 +242,7 @@ impl KGridShift {
 /// form. (Mathematically k and k+G give identical physics, but at finite
 /// `ecut` the shared plane-wave basis adapts unequally to them — wrapping
 /// keeps kinetic energies minimized.)
-pub fn mp_fractional_coord(
-    i1: u32,
-    i2: u32,
-    i3: u32,
-    grid: [u32; 3],
-    shift: KGridShift,
-) -> [f64; 3] {
+pub fn mp_fractional_coord(i1: u32, i2: u32, i3: u32, grid: [u32; 3], shift: KGridShift) -> [f64; 3] {
     let [k1, k2, k3] = shift.axis_flags();
     let raw = [
         f64::from(i1) / f64::from(grid[0]) + f64::from(k1) / (2.0 * f64::from(grid[0])),
@@ -120,13 +263,7 @@ pub fn mp_fractional_coord(
 /// `shift` argument selects between the Γ-centered and MP-1976 (shifted)
 /// conventions — see [`KGridShift`] for the formulas. Fractional
 /// coordinates are converted to Cartesian reciprocal space via `lattice`.
-pub fn monkhorst_pack(
-    n1: u32,
-    n2: u32,
-    n3: u32,
-    shift: KGridShift,
-    lattice: &Lattice,
-) -> Vec<KPoint> {
+pub fn monkhorst_pack(n1: u32, n2: u32, n3: u32, shift: KGridShift, lattice: &Lattice) -> Vec<KPoint> {
     let recip = lattice.reciprocal();
     let ntotal = f64::from(n1 * n2 * n3);
     let weight = 1.0 / ntotal;
@@ -143,11 +280,7 @@ pub fn monkhorst_pack(
                 let [f1, f2, f3] = mp_fractional_coord(i1, i2, i3, [n1, n2, n3], shift);
 
                 let k = f1 * recip.a + f2 * recip.b + f3 * recip.c;
-                kpoints.push(KPoint {
-                    k,
-                    weight,
-                    label: None,
-                });
+                kpoints.push(KPoint { k, weight, label: None });
             }
         }
     }
@@ -193,9 +326,9 @@ pub fn fcc_high_sym_points() -> Vec<HighSymPoint> {
 
 /// Generate a k-point path through high-symmetry points for band structure.
 ///
-/// `segments` is a list of (label, fractional_coords) pairs defining the path vertices.
-/// `npoints_per_segment` controls the density of sampling between each pair.
-/// Returns k-points with cumulative distance for plotting.
+/// `segments` is a list of (label, fractional_coords) pairs defining the path
+/// vertices. `npoints_per_segment` controls the density of sampling between
+/// each pair. Returns k-points with cumulative distance for plotting.
 pub fn high_symmetry_path(
     segments: &[HighSymPoint],
     npoints_per_segment: usize,
@@ -210,8 +343,7 @@ pub fn high_symmetry_path(
         let start = &segments[seg_idx];
         let end = &segments[seg_idx + 1];
 
-        let k_start =
-            start.frac[0] * recip.a + start.frac[1] * recip.b + start.frac[2] * recip.c;
+        let k_start = start.frac[0] * recip.a + start.frac[1] * recip.b + start.frac[2] * recip.c;
         let k_end = end.frac[0] * recip.a + end.frac[1] * recip.b + end.frac[2] * recip.c;
         let dk = k_end - k_start;
         let seg_len = dk.norm();
@@ -249,8 +381,9 @@ pub fn high_symmetry_path(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use approx::relative_eq;
+
+    use super::*;
 
     fn si_lattice() -> Lattice {
         let a = 5.431;
@@ -331,10 +464,7 @@ mod tests {
         let b = monkhorst_pack(4, 4, 4, KGridShift::Custom([1, 1, 1]), &si_lattice());
         assert_eq!(a.len(), b.len());
         for (ka, kb) in a.iter().zip(b.iter()) {
-            assert!(
-                (ka.k - kb.k).norm() < 1e-14,
-                "Custom([1,1,1]) should match MP1976"
-            );
+            assert!((ka.k - kb.k).norm() < 1e-14, "Custom([1,1,1]) should match MP1976");
         }
     }
 
@@ -366,6 +496,117 @@ mod tests {
         // Distances should be monotonically non-decreasing
         for i in 1..dists.len() {
             assert!(dists[i] >= dists[i - 1] - 1e-12);
+        }
+    }
+
+    // ─── KPointSet coverage ──────────────────────────────────────────
+
+    #[test]
+    fn kpointset_gamma_only_is_single_origin_weight_one() {
+        let set = KPointSet::gamma_only();
+        assert_eq!(set.len(), 1);
+        assert!(!set.is_empty());
+        assert!(set[0].k.norm() < 1e-14);
+        assert!(relative_eq!(set[0].weight, 1.0, epsilon = 1e-14));
+        assert!(relative_eq!(set.total_weight(), 1.0, epsilon = 1e-14));
+        assert_eq!(set[0].label.as_deref(), Some("Γ"));
+        assert!(set.distances().is_none());
+        assert_eq!(set.grid_and_shift(), Some(([1, 1, 1], KGridShift::GammaCentered)));
+    }
+
+    #[test]
+    fn kpointset_monkhorst_pack_matches_free_function() {
+        let lattice = si_lattice();
+        let set = KPointSet::monkhorst_pack([4, 4, 4], KGridShift::GammaCentered, &lattice);
+        let raw = monkhorst_pack(4, 4, 4, KGridShift::GammaCentered, &lattice);
+
+        assert_eq!(set.len(), raw.len());
+        for (a, b) in set.iter().zip(raw.iter()) {
+            assert!((a.k - b.k).norm() < 1e-14);
+            assert!(relative_eq!(a.weight, b.weight, epsilon = 1e-14));
+        }
+        assert!(matches!(
+            set.sampling(),
+            SamplingKind::MonkhorstPack {
+                grid: [4, 4, 4],
+                shift: KGridShift::GammaCentered
+            }
+        ));
+        assert!(relative_eq!(set.total_weight(), 1.0, epsilon = 1e-12));
+    }
+
+    #[test]
+    fn kpointset_band_path_stores_distances() {
+        let lattice = si_lattice();
+        let segments = vec![
+            HighSymPoint {
+                label: "Γ".into(),
+                frac: [0.0, 0.0, 0.0],
+            },
+            HighSymPoint {
+                label: "X".into(),
+                frac: [0.5, 0.0, 0.5],
+            },
+        ];
+        let set = KPointSet::band_path(&segments, 10, &lattice);
+
+        assert_eq!(set.len(), 11); // 10 + endpoint on the last segment
+        let dists = set.distances().expect("band path must expose distances");
+        assert_eq!(dists.len(), set.len());
+        assert!(dists[0].abs() < 1e-14);
+        assert!(dists.windows(2).all(|w| w[1] >= w[0] - 1e-12));
+
+        assert!(set.grid_and_shift().is_none());
+        assert!(matches!(set.sampling(), SamplingKind::BandPath { .. }));
+        assert!(set.total_weight().abs() < 1e-14);
+    }
+
+    #[test]
+    fn kpointset_from_reduced_tags_irreducible_and_preserves_parent_grid() {
+        let lattice = si_lattice();
+        // Fake "reduced" input: three arbitrary points with hand-picked weights
+        // summing to 1.0. We're not testing the reduction math here — only
+        // that `from_reduced` wraps the data with the right provenance.
+        let pts = vec![
+            KPoint {
+                k: Vector3::new(0.1, 0.0, 0.0),
+                weight: 0.25,
+                label: None,
+            },
+            KPoint {
+                k: Vector3::new(0.2, 0.1, 0.0),
+                weight: 0.5,
+                label: None,
+            },
+            KPoint {
+                k: Vector3::new(0.3, 0.2, 0.1),
+                weight: 0.25,
+                label: None,
+            },
+        ];
+        let set = KPointSet::from_reduced(pts, [4, 4, 4], KGridShift::GammaCentered);
+
+        assert_eq!(set.len(), 3);
+        assert!(matches!(
+            set.sampling(),
+            SamplingKind::Irreducible {
+                grid: [4, 4, 4],
+                shift: KGridShift::GammaCentered
+            }
+        ));
+        assert_eq!(set.grid_and_shift(), Some(([4, 4, 4], KGridShift::GammaCentered)));
+        assert!(relative_eq!(set.total_weight(), 1.0, epsilon = 1e-12));
+        let _ = lattice; // silence unused if future edits drop the binding
+    }
+
+    #[test]
+    fn kpointset_iterates_and_indexes() {
+        let set = KPointSet::monkhorst_pack([2, 2, 2], KGridShift::GammaCentered, &si_lattice());
+        let via_index: Vec<_> = (0..set.len()).map(|i| set[i].k).collect();
+        let via_iter: Vec<_> = (&set).into_iter().map(|kp| kp.k).collect();
+        assert_eq!(via_index.len(), via_iter.len());
+        for (a, b) in via_index.iter().zip(via_iter.iter()) {
+            assert!((a - b).norm() < 1e-14);
         }
     }
 }

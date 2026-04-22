@@ -15,14 +15,16 @@
 
 mod g_space;
 
-use super::SymmetryInfo;
-
 pub use g_space::symmetrize_density_g;
 
-/// Check if the FFT grid dimensions are compatible with all symmetry operations.
+use super::SymmetryInfo;
+
+/// Check if the FFT grid dimensions are compatible with all symmetry
+/// operations.
 ///
-/// For integer rotation R in fractional coords, the grid point (ix, iy, iz) maps
-/// to another exact grid point if and only if R_{ij} × n_j ≡ 0 (mod n_i) for all i, j.
+/// For integer rotation R in fractional coords, the grid point (ix, iy, iz)
+/// maps to another exact grid point if and only if R_{ij} × n_j ≡ 0 (mod n_i)
+/// for all i, j.
 ///
 /// Returns true if all operations are compatible.
 #[allow(
@@ -59,7 +61,8 @@ pub fn check_grid_compatibility(dims: [usize; 3], symmetry: &SymmetryInfo) -> bo
 /// refactor that changes the array shape.
 pub fn compatible_grid_dims(min_dims: [usize; 3], symmetry: &SymmetryInfo) -> [usize; 3] {
     // For cubic symmetry, making all dimensions equal is usually sufficient
-    // SAFETY: min_dims is [usize; 3], always has 3 elements -- max() cannot be None.
+    // SAFETY: min_dims is [usize; 3], always has 3 elements -- max() cannot be
+    // None.
     let max_dim = *min_dims.iter().max().expect("BUG: empty fixed-size array");
     let mut dims = [max_dim; 3];
 

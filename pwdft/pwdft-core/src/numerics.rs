@@ -31,7 +31,8 @@ pub fn simpson_integrate(func: &[f64], rab: &[f64]) -> f64 {
     }
 
     // Interior sum: i = 1..n-2 (0-based), matching Fortran i = 2..mesh-1 (1-based)
-    // Weight: 4 for 0-based odd index (Fortran even), 2 for 0-based even index (Fortran odd)
+    // Weight: 4 for 0-based odd index (Fortran even), 2 for 0-based even index
+    // (Fortran odd)
     let mut sum = 0.0;
     for i in 1..n - 1 {
         let weight = if i % 2 == 1 { 4.0 } else { 2.0 };
@@ -53,8 +54,9 @@ pub fn simpson_integrate(func: &[f64], rab: &[f64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use approx::relative_eq;
+
+    use super::*;
 
     #[test]
     fn test_simpson_exact_for_cubic() {
@@ -63,10 +65,12 @@ mod tests {
         // Exact answer: 1/4 = 0.25
         let n = 101; // odd
         let h = 1.0 / (n - 1) as f64;
-        let func: Vec<f64> = (0..n).map(|i| {
-            let x = i as f64 * h;
-            x * x * x
-        }).collect();
+        let func: Vec<f64> = (0..n)
+            .map(|i| {
+                let x = i as f64 * h;
+                x * x * x
+            })
+            .collect();
         let rab: Vec<f64> = vec![h; n];
 
         let result = simpson_integrate(&func, &rab);
@@ -81,16 +85,19 @@ mod tests {
         // Integrate f(x) = x^2 from 0 to 2. Exact answer: 8/3
         let n = 51; // odd
         let h = 2.0 / (n - 1) as f64;
-        let func: Vec<f64> = (0..n).map(|i| {
-            let x = i as f64 * h;
-            x * x
-        }).collect();
+        let func: Vec<f64> = (0..n)
+            .map(|i| {
+                let x = i as f64 * h;
+                x * x
+            })
+            .collect();
         let rab: Vec<f64> = vec![h; n];
 
         let result = simpson_integrate(&func, &rab);
         assert!(
             relative_eq!(result, 8.0 / 3.0, epsilon = 1e-12),
-            "Simpson integral of x^2 = {result}, expected {}", 8.0 / 3.0
+            "Simpson integral of x^2 = {result}, expected {}",
+            8.0 / 3.0
         );
     }
 
@@ -99,17 +106,20 @@ mod tests {
         // Even mesh: integrate f(x) = x^2 from 0 to 2.
         let n = 50; // even
         let h = 2.0 / (n - 1) as f64;
-        let func: Vec<f64> = (0..n).map(|i| {
-            let x = i as f64 * h;
-            x * x
-        }).collect();
+        let func: Vec<f64> = (0..n)
+            .map(|i| {
+                let x = i as f64 * h;
+                x * x
+            })
+            .collect();
         let rab: Vec<f64> = vec![h; n];
 
         let result = simpson_integrate(&func, &rab);
         // Even mesh correction is less accurate but should still be close
         assert!(
             (result - 8.0 / 3.0).abs() < 1e-4,
-            "Simpson (even mesh) integral of x^2 = {result}, expected ~{}", 8.0 / 3.0
+            "Simpson (even mesh) integral of x^2 = {result}, expected ~{}",
+            8.0 / 3.0
         );
     }
 
@@ -120,10 +130,12 @@ mod tests {
         // Integrate exp(-r^2) from 0 to 5. Exact: sqrt(pi)/2 * erf(5) ~ 0.886227
         let n = 101;
         let h = 5.0 / (n - 1) as f64;
-        let func: Vec<f64> = (0..n).map(|i| {
-            let r = i as f64 * h;
-            (-r * r).exp()
-        }).collect();
+        let func: Vec<f64> = (0..n)
+            .map(|i| {
+                let r = i as f64 * h;
+                (-r * r).exp()
+            })
+            .collect();
         let rab: Vec<f64> = vec![h; n];
 
         let exact = std::f64::consts::PI.sqrt() / 2.0; // 0.886226925...

@@ -14,8 +14,7 @@
 //!
 //! See MODR's "Flagged for follow-up" and GLUS (FLUP) for the history.
 
-use faer::Mat;
-use faer::prelude::Solve;
+use faer::{Mat, prelude::Solve};
 
 /// Solve A x = b for small systems via `faer` partial-pivoting LU.
 ///

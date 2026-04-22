@@ -35,9 +35,10 @@ pub fn build_kinetic(basis: &BasisSet, k: &Vector3<f64>) -> faer::Mat<Complex64>
 
 #[cfg(test)]
 mod tests {
+    use approx::relative_eq;
+
     use super::*;
     use crate::crystal::Lattice;
-    use approx::relative_eq;
 
     fn si_basis() -> BasisSet {
         let a = 5.431;

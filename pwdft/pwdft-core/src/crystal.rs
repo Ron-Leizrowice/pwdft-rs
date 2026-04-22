@@ -11,10 +11,13 @@
 //! [`crate::kpoints`] builds Monkhorst-Pack grids in its Brillouin zone,
 //! and [`crate::ewald`] sums ion-ion Coulomb interactions over its atoms.
 
+use std::f64::consts::PI;
+
+use elements_rs::Element;
 use nalgebra::{Matrix3, Vector3};
 use serde::{Deserialize, Serialize};
 
-use std::f64::consts::PI;
+use crate::settings::{AtomInput, CrystalInput};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Crystal {
@@ -22,15 +25,52 @@ pub struct Crystal {
     pub lattice: Lattice,
 }
 
+impl From<CrystalInput> for Crystal {
+    fn from(input: CrystalInput) -> Self {
+        Self {
+            lattice: Lattice::from(input.lattice),
+            atoms: input.atoms.into_iter().map(Atom::from).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Atom {
-    pub z: u32,
+    pub symbol: Element,
+    pub z: u8,
     pub position: [f64; 3], // fractional coordinates
 }
 
+impl From<AtomInput> for Atom {
+    fn from(a: AtomInput) -> Self {
+        Self {
+            z: a.symbol.into(),
+            symbol: a.symbol,
+            position: a.position,
+        }
+    }
+}
+
 impl Atom {
-    pub fn new(z: u32, frac: [f64; 3]) -> Self {
-        Self { z, position: frac }
+    /// Creates a new Atom. Accepts Element, u8 (atomic number), or &str
+    /// (symbol).
+    ///
+    /// # Panics
+    /// Panics if the provided element identifier is invalid.
+    pub fn new<E>(element_like: E, frac: [f64; 3]) -> Self
+    where
+        E: TryInto<Element> + std::fmt::Debug + Copy,
+        <E as TryInto<Element>>::Error: std::fmt::Debug,
+    {
+        let symbol: Element = element_like.try_into().unwrap_or_else(|_| {
+            panic!("Failed to create Atom: '{element_like:?}' is not a valid element symbol or atomic number.")
+        });
+
+        Self {
+            symbol,
+            z: symbol.into(),
+            position: frac,
+        }
     }
 
     /// Convert fractional coordinates to Cartesian (Å).
@@ -47,9 +87,19 @@ pub struct Lattice {
     pub c: Vector3<f64>,
 }
 
+impl From<[[f64; 3]; 3]> for Lattice {
+    fn from([a, b, c]: [[f64; 3]; 3]) -> Self {
+        Self::new(a, b, c)
+    }
+}
+
 impl Lattice {
-    pub fn new(a: Vector3<f64>, b: Vector3<f64>, c: Vector3<f64>) -> Self {
-        Self { a, b, c }
+    pub fn new<V: Into<Vector3<f64>>>(a: V, b: V, c: V) -> Self {
+        Self {
+            a: a.into(),
+            b: b.into(),
+            c: c.into(),
+        }
     }
 
     /// Cell volume Ω = |a · (b × c)|.
@@ -78,8 +128,9 @@ impl Lattice {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use approx::relative_eq;
+
+    use super::*;
 
     fn si_lattice() -> Lattice {
         let si_a = 5.431;
@@ -114,7 +165,7 @@ mod tests {
     fn test_cart_position() {
         let lat = si_lattice();
         // Atom at (0.25, 0.25, 0.25) in fractional coords
-        let atom = Atom::new(14, [0.25, 0.25, 0.25]);
+        let atom = Atom::new(Element::Si, [0.25, 0.25, 0.25]);
         let cart = atom.cart_position(&lat);
         // Should be at (a/4)(0+1+1, 1+0+1, 1+1+0) = (a/4)(2,2,2) = a/2 * (1,1,1) * 0.5
         let expected = 0.25 * (lat.a + lat.b + lat.c);
@@ -127,8 +178,8 @@ mod tests {
         let crystal = Crystal {
             lattice: lat,
             atoms: vec![
-                Atom::new(14, [0.0, 0.0, 0.0]),
-                Atom::new(14, [0.25, 0.25, 0.25]),
+                Atom::new(Element::Si, [0.0, 0.0, 0.0]),
+                Atom::new(Element::Si, [0.25, 0.25, 0.25]),
             ],
         };
         let serialized = serde_yaml_ng::to_string(&crystal).unwrap();

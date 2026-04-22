@@ -7,7 +7,7 @@ use nalgebra::Vector3;
 
 use crate::{
     basis::BasisSet,
-    fft::{fft_grid_size, FFT3D},
+    fft::{FFT3D, fft_grid_size},
 };
 
 /// Hard upper bound on per-axis FFT grid dimensions.
@@ -60,7 +60,11 @@ impl FftGrid {
             // scaling factor is `ceil(sqrt(ecutrho_ratio))`; compute via
             // integer `isqrt` so the value stays in the type system.
             let isqrt = ecutrho_ratio.isqrt();
-            let scale = if isqrt * isqrt == ecutrho_ratio { isqrt } else { isqrt + 1 };
+            let scale = if isqrt * isqrt == ecutrho_ratio {
+                isqrt
+            } else {
+                isqrt + 1
+            };
             [
                 fft_grid_size(scale * n_max[0]),
                 fft_grid_size(scale * n_max[1]),
@@ -102,7 +106,8 @@ impl FftGrid {
     }
 }
 
-/// Compute G-vector from FFT grid index (standalone, safe for parallel contexts).
+/// Compute G-vector from FFT grid index (standalone, safe for parallel
+/// contexts).
 ///
 /// All `usize -> i32` casts below are safe because FFT grid dimensions
 /// are bounded by [`MAX_FFT_DIM`] = 1024, asserted at [`FftGrid::new`]
@@ -112,11 +117,7 @@ impl FftGrid {
     clippy::cast_possible_wrap,
     reason = "FFT grid dims nx,ny,nz are asserted <= MAX_FFT_DIM (1024) at FftGrid::new; i1,i2,i3 < nx,ny,nz so all fit in i32. Miller indices n1,n2,n3 = i - n*bool are in [-n/2, n/2] and fit in i32 likewise."
 )]
-pub(crate) fn g_vector_at_dims(
-    idx: usize,
-    dims: [usize; 3],
-    recip: &crate::crystal::Lattice,
-) -> Vector3<f64> {
+pub(crate) fn g_vector_at_dims(idx: usize, dims: [usize; 3], recip: &crate::crystal::Lattice) -> Vector3<f64> {
     let [nx, ny, nz] = dims;
     let i1 = idx / (ny * nz);
     let i2 = (idx / nz) % ny;

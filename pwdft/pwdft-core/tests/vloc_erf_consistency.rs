@@ -18,11 +18,10 @@
 //!
 //! Numerically, after Simpson's rule on the log mesh, they should agree to
 //! machine precision (< 1e-6 eV). This test:
-//!   1. documents the equivalence explicitly (VERF Attempt 1 found the two
-//!      forms gave identical total energies), and
-//!   2. acts as a regression guard: if someone changes the radial quadrature
-//!      or the erf decomposition and introduces a discrepancy, this test
-//!      fires.
+//!   1. documents the equivalence explicitly (VERF Attempt 1 found the two forms gave identical
+//!      total energies), and
+//!   2. acts as a regression guard: if someone changes the radial quadrature or the erf
+//!      decomposition and introduces a discrepancy, this test fires.
 //!
 //! We test the first 20 non-zero |G| shells for Si at the equilibrium lattice
 //! constant (a = 5.431 Å).
@@ -34,27 +33,22 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
-use std::f64::consts::PI;
-use std::path::PathBuf;
+use std::{f64::consts::PI, path::PathBuf};
 
 use nalgebra::Vector3;
-use pwdft_core::{
-    crystal::Lattice,
-    numerics::simpson_integrate,
-    pseudopotential::{PseudopotentialData, load},
-};
+use pwdft_core::{crystal::Lattice, numerics::simpson_integrate, pseudopotential::UpfPseudoPotential};
 
 const E2: f64 = 14.399_645_351_950_548; // eV·Å, matches crate::consts::E2_COULOMB
 
-fn load_si_pp() -> PseudopotentialData {
+fn load_si_pp() -> UpfPseudoPotential {
     let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf");
-    load(&path).unwrap()
+    UpfPseudoPotential::load(&path).unwrap()
 }
 
 /// Reference implementation: bare-Coulomb subtraction (the *old* form).
 /// We keep this only in the test so we can compare against the library's
 /// current erf form. See QE-equivalent old pwdft-core code pre-VERF.
-fn v_local_of_g_bare_coulomb(pp: &PseudopotentialData, g_norm: f64, omega: f64) -> f64 {
+fn v_local_of_g_bare_coulomb(pp: &UpfPseudoPotential, g_norm: f64, omega: f64) -> f64 {
     let four_pi = 4.0 * PI;
 
     if g_norm < 1e-12 {
@@ -78,11 +72,7 @@ fn v_local_of_g_bare_coulomb(pp: &PseudopotentialData, g_norm: f64, omega: f64) 
             .map(|(&r, &v)| {
                 let gr = g_norm * r;
                 let v_short = v + pp.z_valence * E2 / r.max(1e-20);
-                let sinc = if gr < 1e-10 {
-                    1.0 - gr * gr / 6.0
-                } else {
-                    gr.sin() / gr
-                };
+                let sinc = if gr < 1e-10 { 1.0 - gr * gr / 6.0 } else { gr.sin() / gr };
                 r * r * v_short * sinc
             })
             .collect();
@@ -120,11 +110,7 @@ fn first_g_shells_si(n_shells: usize) -> Vec<f64> {
     // Deduplicate shells (values within 1e-6 Å⁻¹ of each other).
     let mut shells = Vec::new();
     for g in mags {
-        if shells
-            .last()
-            .copied()
-            .is_none_or(|last: f64| (g - last).abs() > 1e-6)
-        {
+        if shells.last().copied().is_none_or(|last: f64| (g - last).abs() > 1e-6) {
             shells.push(g);
             if shells.len() >= n_shells {
                 break;

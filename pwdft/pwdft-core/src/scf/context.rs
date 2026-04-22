@@ -4,22 +4,24 @@
 //! basis, grid, pseudopotentials, cached V_NL, Ewald energy, etc.
 //! The SCF loop methods take `&self` plus mutable density state.
 
+use std::collections::HashMap;
+
+use elements_rs::Element;
 use log::info;
 use num_complex::Complex64;
 use rayon::prelude::*;
 
+use super::{ScfParams, grid::FftGrid, potentials};
 use crate::{
     basis::BasisSet,
     crystal::Crystal,
-    error::{PwdftError, Result},
+    error::Result,
+    fft,
     kpoints::KPoint,
-    potential::nonlocal::NonlocalPotential,
-    pseudopotential::PseudopotentialData,
+    potential::{nonlocal::NonlocalPotential, xc::XcEvaluator},
+    pseudopotential::UpfPseudoPotential,
+    symmetry::SymmetryInfo,
 };
-
-use super::grid::FftGrid;
-use super::potentials;
-use super::ScfParams;
 
 /// Per-calculation SCF context: immutable physics inputs plus
 /// preallocated scratch that is reused across SCF iterations.
@@ -37,9 +39,9 @@ pub(crate) struct ScfContext<'a> {
     pub crystal: &'a Crystal,
     pub basis: &'a BasisSet,
     pub kpoints: &'a [KPoint],
-    pub pseudopotentials: &'a [&'a PseudopotentialData],
+    pub pseudopotentials: &'a HashMap<Element, UpfPseudoPotential>,
     pub params: &'a ScfParams,
-    pub symmetry: &'a crate::symmetry::SymmetryInfo,
+    pub symmetry: &'a SymmetryInfo,
 
     // Precomputed (immutable across iterations)
     pub grid: FftGrid,
@@ -56,7 +58,10 @@ pub(crate) struct ScfContext<'a> {
     /// QE-compatible gauge. Logged at `ScfContext::new` time and kept
     /// on the struct for downstream diagnostic callers; the SCF loop
     /// itself does not read it.
-    #[allow(dead_code, reason = "diagnostic-only field; consumed via info! log at construction site")]
+    #[allow(
+        dead_code,
+        reason = "diagnostic-only field; consumed via info! log at construction site"
+    )]
     pub v_local_g0: f64,
     pub vnl_cache: Vec<NonlocalPotential>,
     pub rho_core_r: Vec<f64>,
@@ -92,31 +97,27 @@ impl<'a> ScfContext<'a> {
     /// between iterations.
     ///
     /// # Errors
-    /// Returns `PwdftError::MissingPseudopotential` if any atom lacks a loaded PP.
+    /// Returns `PwdftError::MissingPseudopotential` if any atom lacks a loaded
+    /// PP.
     pub fn new(
         crystal: &'a Crystal,
         basis: &'a BasisSet,
         kpoints: &'a [KPoint],
-        pseudopotentials: &'a [&'a PseudopotentialData],
+        pseudopotentials: &'a HashMap<Element, UpfPseudoPotential>,
         params: &'a ScfParams,
-        symmetry: &'a crate::symmetry::SymmetryInfo,
+        symmetry: &'a SymmetryInfo,
     ) -> Result<Self> {
         let omega = crystal.lattice.volume();
         let n_electrons: f64 = crystal
             .atoms
             .iter()
-            .map(|a| {
-                crate::pseudopotential::find_for_atom(a.z, pseudopotentials)
-                    .map(|pp| pp.z_valence)
-                    .ok_or_else(|| PwdftError::MissingPseudopotential(
-                        format!("Z={} not found in loaded pseudopotentials", a.z)
-                    ))
-            })
-            .collect::<Result<Vec<f64>>>()?
-            .into_iter()
+            .map(|a| pseudopotentials.get(&a.symbol).expect("BUG: Missing PP").z_valence)
             .sum();
 
-        info!("SCF: {n_electrons} electrons, {omega:.3} ų cell volume, nspin={}", params.nspin);
+        info!(
+            "SCF: {n_electrons} electrons, {omega:.3} ų cell volume, nspin={}",
+            params.nspin
+        );
 
         let mut grid = FftGrid::new(basis, &crystal.lattice, params.ecutrho_ratio, params.fft_grid);
         let n_grid = grid.total_size();
@@ -166,15 +167,14 @@ impl<'a> ScfContext<'a> {
         // across the SCF loop). Only populate when the active functional
         // needs gradients (GGA) and NLCC is active. For LDA this stays
         // `None` and the LDA path pays zero FFT cost.
-        let xc_needs_gradient = crate::potential::xc::XcEvaluator::from_settings(params.xc_functional)
+        let xc_needs_gradient = XcEvaluator::from_settings(params.xc_functional)
             .map(|xc| xc.needs_gradient())
             .unwrap_or(false);
-        let rho_core_grad_r: Option<Vec<[f64; 3]>> =
-            if xc_needs_gradient && !rho_core_r.is_empty() {
-                Some(crate::fft::compute_density_gradient(&rho_core_r, &mut grid.fft, &g_vectors))
-            } else {
-                None
-            };
+        let rho_core_grad_r: Option<Vec<[f64; 3]>> = if xc_needs_gradient && !rho_core_r.is_empty() {
+            Some(fft::compute_density_gradient(&rho_core_r, &mut grid.fft, &g_vectors))
+        } else {
+            None
+        };
 
         // Cache V_NL per k-point
         let vnl_cache: Result<Vec<NonlocalPotential>> = kpoints

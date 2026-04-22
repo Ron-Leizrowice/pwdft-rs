@@ -1,12 +1,12 @@
 //! Modified Broyden density mixer (Johnson PRB 38, 12807, 1988).
 
+use super::{
+    AdaptiveBeta, KerkerSetup,
+    anderson::KerkerQtf,
+    kerker::{auto_q_tf_squared, precondition_residual},
+    linalg::solve_linear_system,
+};
 use crate::fft::FFT3D;
-
-use super::AdaptiveBeta;
-use super::KerkerSetup;
-use super::anderson::KerkerQtf;
-use super::kerker::{auto_q_tf_squared, precondition_residual};
-use super::linalg::solve_linear_system;
 
 /// Modified Broyden density mixer (Johnson PRB 38, 12807, 1988).
 ///
@@ -149,11 +149,7 @@ impl BroydenMixer {
         // density residual. No-op when `adaptive_beta = false`; otherwise
         // the Broyden step below uses the updated β for both the linear
         // combination and the correction terms.
-        let residual_norm = residual
-            .iter()
-            .map(|&r| r * r)
-            .sum::<f64>()
-            .sqrt();
+        let residual_norm = residual.iter().map(|&r| r * r).sum::<f64>().sqrt();
         self.beta = self.adaptive.update(residual_norm, self.beta);
 
         // If we have history from the previous iteration, compute differences
@@ -186,7 +182,11 @@ impl BroydenMixer {
 
         if m == 0 {
             // First iteration: simple linear mixing ρ_new = ρ_in + β·R
-            return rho_in.iter().zip(residual.iter()).map(|(&r, &res)| self.beta.mul_add(res, r)).collect();
+            return rho_in
+                .iter()
+                .zip(residual.iter())
+                .map(|(&r, &res)| self.beta.mul_add(res, r))
+                .collect();
         }
 
         // Build overlap matrix β_{ij} = ⟨df_i | df_j⟩
@@ -244,7 +244,20 @@ impl BroydenMixer {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use elements_rs::Element;
+    use nalgebra::Vector3;
+
     use super::*;
+    use crate::{
+        basis::BasisSet,
+        crystal::{Atom, Crystal, Lattice},
+        kpoints::KPoint,
+        pseudopotential::UpfPseudoPotential,
+        scf::{ScfParams, mixing::MixingMode, run_scf},
+        symmetry::SymmetryInfo,
+    };
 
     fn plain_ctx() -> KerkerSetup<'static> {
         KerkerSetup {
@@ -290,7 +303,10 @@ mod tests {
 
         for _ in 0..5 {
             let result = mixer.mix(&rho_in, &rho_target, &mut fft);
-            assert!(result.iter().all(|v| v.is_finite()), "Non-finite density after Broyden mixing");
+            assert!(
+                result.iter().all(|v| v.is_finite()),
+                "Non-finite density after Broyden mixing"
+            );
             rho_in = result;
         }
     }
@@ -300,9 +316,7 @@ mod tests {
         // Broyden + Kerker should produce finite results
         let mut fft = FFT3D::new(4, 4, 4);
         let n = 64;
-        let g_squared: Vec<f64> = (0..n)
-            .map(|i| if i == 0 { 0.0 } else { 1.0 + f64::from(i) })
-            .collect();
+        let g_squared: Vec<f64> = (0..n).map(|i| if i == 0 { 0.0 } else { 1.0 + f64::from(i) }).collect();
         let mut mixer = BroydenMixer::new(0.3, 4, true, kerker_ctx(&g_squared), false);
 
         let mut rho_in: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
@@ -310,7 +324,10 @@ mod tests {
 
         for _ in 0..5 {
             let result = mixer.mix(&rho_in, &rho_target, &mut fft);
-            assert!(result.iter().all(|v| v.is_finite()), "Non-finite density after Broyden+Kerker");
+            assert!(
+                result.iter().all(|v| v.is_finite()),
+                "Non-finite density after Broyden+Kerker"
+            );
             rho_in = result;
         }
     }
@@ -326,16 +343,24 @@ mod tests {
         let target: Vec<f64> = (0..n).map(|i| 1.0 + 0.1 * (i as f64 * 0.3).sin()).collect();
         let mut rho_in: Vec<f64> = vec![1.0; n];
 
-        let initial_err: f64 = rho_in.iter().zip(target.iter())
-            .map(|(&a, &b)| (a - b).powi(2)).sum::<f64>().sqrt();
+        let initial_err: f64 = rho_in
+            .iter()
+            .zip(target.iter())
+            .map(|(&a, &b)| (a - b).powi(2))
+            .sum::<f64>()
+            .sqrt();
 
         for _ in 0..20 {
             let result = mixer.mix(&rho_in, &target, &mut fft);
             rho_in = result;
         }
 
-        let final_err: f64 = rho_in.iter().zip(target.iter())
-            .map(|(&a, &b)| (a - b).powi(2)).sum::<f64>().sqrt();
+        let final_err: f64 = rho_in
+            .iter()
+            .zip(target.iter())
+            .map(|(&a, &b)| (a - b).powi(2))
+            .sum::<f64>()
+            .sqrt();
 
         assert!(
             final_err < initial_err * 0.01,
@@ -366,14 +391,6 @@ mod tests {
     #[test]
     fn test_broyden_vs_plain_scf_convergence() {
         // Both Anderson and Broyden should converge to the same energy on Si.
-        use crate::{
-            basis::BasisSet,
-            crystal::{Atom, Crystal, Lattice},
-            kpoints::KPoint,
-            scf::{ScfParams, mixing::MixingMode, run_scf},
-        };
-        use nalgebra::Vector3;
-
         let a = 5.431;
         let crystal = Crystal {
             lattice: Lattice::new(
@@ -381,16 +398,15 @@ mod tests {
                 a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
                 a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
             ),
-            atoms: vec![
-                Atom::new(14, [0.0, 0.0, 0.0]),
-                Atom::new(14, [0.25, 0.25, 0.25]),
-            ],
+            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
         };
         let basis = BasisSet::new(&crystal.lattice, 100.0);
-        let pp = crate::pseudopotential::load(
-            &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
-        ).unwrap();
-        let kpoints = vec![KPoint { k: Vector3::zeros(), weight: 1.0, label: None }];
+        let pps = HashMap::from_iter([(Element::Si, UpfPseudoPotential::load("Si").unwrap())]);
+        let kpoints = vec![KPoint {
+            k: Vector3::zeros(),
+            weight: 1.0,
+            label: None,
+        }];
 
         let plain_params = ScfParams {
             n_bands: 4,
@@ -405,14 +421,14 @@ mod tests {
             ..Default::default()
         };
 
-        let sym_id = crate::symmetry::SymmetryInfo::identity_only();
-        let result_plain = run_scf(&crystal, &basis, &kpoints, &[&pp], &plain_params, &sym_id);
+        let sym_id = SymmetryInfo::identity_only();
+        let result_plain = run_scf(&crystal, &basis, &kpoints, &pps, &plain_params, &sym_id);
 
         let broyden_params = ScfParams {
             mixing_mode: MixingMode::Broyden { kerker: false },
             ..plain_params
         };
-        let result_broyden = run_scf(&crystal, &basis, &kpoints, &[&pp], &broyden_params, &sym_id);
+        let result_broyden = run_scf(&crystal, &basis, &kpoints, &pps, &broyden_params, &sym_id);
 
         match (&result_plain, &result_broyden) {
             (Ok(plain), Ok(broyden)) => {
@@ -420,7 +436,8 @@ mod tests {
                 assert!(
                     energy_diff < 0.01,
                     "Plain ({:.6} eV) and Broyden ({:.6} eV) should converge to same energy, diff={energy_diff:.6}",
-                    plain.total_energy, broyden.total_energy
+                    plain.total_energy,
+                    broyden.total_energy
                 );
                 // FDLT: both mixers must bring Δρ well under conv_threshold
                 // (1e-6 here). An upper bound of 1e-4 gives 2 orders of
@@ -436,7 +453,7 @@ mod tests {
                     "Broyden Si SCF final Δρ = {:.3e} should be well below conv_threshold=1e-6",
                     broyden.final_delta,
                 );
-            }
+            },
             (Ok(_), Err(e)) => panic!("Plain converged but Broyden failed: {e}"),
             (Err(e), Ok(_)) => panic!("Broyden converged but plain failed: {e}"),
             (Err(e_plain), Err(e_broyden)) => panic!(
@@ -451,11 +468,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     /// Drive a Broyden mixer with residuals of prescribed norms.
-    fn drive_broyden_with_norms(
-        mixer: &mut BroydenMixer,
-        fft: &mut FFT3D,
-        norms: &[f64],
-    ) -> Vec<f64> {
+    fn drive_broyden_with_norms(mixer: &mut BroydenMixer, fft: &mut FFT3D, norms: &[f64]) -> Vec<f64> {
         let n = 8;
         let mut rho_in = vec![1.0; n];
         let mut betas = Vec::with_capacity(norms.len());
@@ -480,12 +493,7 @@ mod tests {
             "adaptive β did not damp under growth: trajectory {betas:?}"
         );
         for w in betas.windows(2) {
-            assert!(
-                w[1] <= w[0] + 1e-12,
-                "β increased under growth: {} -> {}",
-                w[0],
-                w[1]
-            );
+            assert!(w[1] <= w[0] + 1e-12, "β increased under growth: {} -> {}", w[0], w[1]);
         }
     }
 
@@ -522,8 +530,7 @@ mod tests {
         let n = 64;
         let mut ref_mixer = BroydenMixer::new(0.3, 4, false, plain_ctx(), false);
         let mut twin_mixer = BroydenMixer::new(0.3, 4, false, plain_ctx(), false);
-        let mut rho_ref: Vec<f64> =
-            (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
+        let mut rho_ref: Vec<f64> = (0..n).map(|i| 1.0 + 0.01 * f64::from(i).sin()).collect();
         let mut rho_twin = rho_ref.clone();
         for iter in 1..=6 {
             let decay = 0.5_f64.powi(iter);

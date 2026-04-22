@@ -10,26 +10,21 @@
 //!
 //! 1. `V_H(G) = 4πe² · ρ(G) / |G|²` — Poisson in G-space
 //!    ([`crate::scf::energy::hartree_on_fft_grid`]).
-//! 2. `(ε_xc(r), v_xc(r))` from Perdew-Zunger LDA on
-//!    `ρ_val(r) + ρ_core(r)` (NLCC if any PP carries `PP_NLCC`;
-//!    Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982)).
-//! 3. Assemble `V_eff(G) = V_local(G) + V_H(G) + V_xc(G)` and build
-//!    per-k Hamiltonians; add the separable Kleinman-Bylander non-local
-//!    operator (Kleinman & Bylander, *Phys. Rev. Lett.* **48**, 1425
-//!    (1982)).
-//! 4. Diagonalize for the lowest `n_bands` eigenpairs (dense faer or
-//!    partial Arnoldi; see [`crate::eigensolver`]).
-//! 5. Fermi-Dirac / Methfessel-Paxton / cold occupations satisfying
-//!    `Σ_{n,k} f_{n,k} · w_k = N_el / spin_factor`.
-//! 6. Reconstruct the output density and symmetrize in G-space via
-//!    analytic fractional-translation phase factors (PCFX).
-//! 7. Convergence: density RMS plus energy-change threshold. The
-//!    diagnostic Harris-Foulkes estimator (stationary in density error,
-//!    Harris, *Phys. Rev. B* **31**, 1770 (1985)) is tracked against the
-//!    KS total; a large residual at "convergence" flags a premature
-//!    threshold.
-//! 8. Density mixing (Anderson / Broyden / Periodic Pulay with optional
-//!    Kerker preconditioning).
+//! 2. `(ε_xc(r), v_xc(r))` from Perdew-Zunger LDA on `ρ_val(r) + ρ_core(r)` (NLCC if any PP carries
+//!    `PP_NLCC`; Louie, Froyen, Cohen, *Phys. Rev. B* **26**, 1738 (1982)).
+//! 3. Assemble `V_eff(G) = V_local(G) + V_H(G) + V_xc(G)` and build per-k Hamiltonians; add the
+//!    separable Kleinman-Bylander non-local operator (Kleinman & Bylander, *Phys. Rev. Lett.*
+//!    **48**, 1425 (1982)).
+//! 4. Diagonalize for the lowest `n_bands` eigenpairs (dense faer or partial Arnoldi; see
+//!    [`crate::eigensolver`]).
+//! 5. Fermi-Dirac / Methfessel-Paxton / cold occupations satisfying `Σ_{n,k} f_{n,k} · w_k = N_el /
+//!    spin_factor`.
+//! 6. Reconstruct the output density and symmetrize in G-space via analytic fractional-translation
+//!    phase factors (PCFX).
+//! 7. Convergence: density RMS plus energy-change threshold. The diagnostic Harris-Foulkes
+//!    estimator (stationary in density error, Harris, *Phys. Rev. B* **31**, 1770 (1985)) is
+//!    tracked against the KS total; a large residual at "convergence" flags a premature threshold.
+//! 8. Density mixing (Anderson / Broyden / Periodic Pulay with optional Kerker preconditioning).
 //!
 //! On convergence the final pass assembles
 //! [`crate::scf::energy::EnergyComponents`] (VGC5 per-term decomposition
@@ -67,10 +62,27 @@
 //! Shared helpers (`diagonalize_dispatch`, `compute_occupations`,
 //! `scf_progress_bar`) are `pub(super)` for reuse by `driver_spin`.
 
+use std::collections::HashMap;
+
+use elements_rs::Element;
 use log::info;
 use num_complex::Complex64;
 use rayon::prelude::*;
 
+use super::{
+    ScfParams, ScfResult, context, density,
+    energy::{
+        EnergyComponents, add_core_density, assemble_v_eff, band_energy, density_diff, density_r_to_g,
+        harris_foulkes_energy, hartree_energy, hartree_on_fft_grid, kinetic_expectation, local_pp_energy_grid,
+        nonlocal_expectation, real_to_g_space, total_energy, xc_energy_bare, xc_energy_corrected,
+    },
+    initial_density, mixing,
+    potentials::fill_hamiltonian_with_v_eff,
+    report::{IterationReport, log_components, log_convergence_summary, log_entropy, log_iteration},
+    smearing,
+};
+#[cfg(feature = "gpu")]
+use crate::potential::xc::XcGridResult;
 use crate::{
     basis::BasisSet,
     crystal::Crystal,
@@ -79,20 +91,8 @@ use crate::{
     fft::compute_density_gradient,
     kpoints::KPoint,
     potential::xc::{XcEvaluator, assemble_semilocal_vxc},
-    pseudopotential::PseudopotentialData,
+    pseudopotential::UpfPseudoPotential,
 };
-#[cfg(feature = "gpu")]
-use crate::potential::xc::XcGridResult;
-
-use super::energy::{
-    EnergyComponents, add_core_density, assemble_v_eff, band_energy, density_diff,
-    density_r_to_g, harris_foulkes_energy, hartree_energy, hartree_on_fft_grid,
-    kinetic_expectation, local_pp_energy_grid, nonlocal_expectation,
-    real_to_g_space, total_energy, xc_energy_bare, xc_energy_corrected,
-};
-use super::potentials::fill_hamiltonian_with_v_eff;
-use super::report::{log_components, log_convergence_summary, log_entropy, log_iteration, IterationReport};
-use super::{ScfParams, ScfResult, context, density, initial_density, mixing, smearing};
 
 /// Dispatch a per-k-point diagonalization to the configured backend.
 ///
@@ -108,20 +108,16 @@ use super::{ScfParams, ScfResult, context, density, initial_density, mixing, sme
 /// previous SCF iteration's eigenvectors at the same k-point), but on
 /// different algorithmic paths:
 ///
-/// - **Dense** with `wfrx_subspace == true` uses
-///   [`dense::diagonalize_subspace`] — Rayleigh–Ritz projection onto the
-///   subspace spanned by the columns of `v_prev`, with an accuracy-gate
-///   fallback to [`dense::diagonalize_lowest`] if the subspace is not
-///   close enough to invariant. With `wfrx_subspace == false`, `v_prev`
-///   is ignored.
-/// - **Iterative** passes the first column of `v_prev` as the starting
-///   vector `v0` of faer's Arnoldi iteration. Without this, the cold
-///   deterministic seed produces a *different* Krylov subspace on each
-///   SCF iteration and drives the SCF to a different fixed point than
-///   Dense (measured: 0.77 eV on Si at n_pw = 89). With the warm start,
-///   the Krylov subspace is biased toward the previous iteration's
-///   ground-state orbital and converges on the same fixed point as the
-///   Dense path to SCF tolerance.
+/// - **Dense** with `wfrx_subspace == true` uses [`dense::diagonalize_subspace`] — Rayleigh–Ritz
+///   projection onto the subspace spanned by the columns of `v_prev`, with an accuracy-gate
+///   fallback to [`dense::diagonalize_lowest`] if the subspace is not close enough to invariant.
+///   With `wfrx_subspace == false`, `v_prev` is ignored.
+/// - **Iterative** passes the first column of `v_prev` as the starting vector `v0` of faer's
+///   Arnoldi iteration. Without this, the cold deterministic seed produces a *different* Krylov
+///   subspace on each SCF iteration and drives the SCF to a different fixed point than Dense
+///   (measured: 0.77 eV on Si at n_pw = 89). With the warm start, the Krylov subspace is biased
+///   toward the previous iteration's ground-state orbital and converges on the same fixed point as
+///   the Dense path to SCF tolerance.
 ///
 /// On the first iteration (`v_prev == None`) the iterative path uses its
 /// deterministic internal seed; see
@@ -140,7 +136,7 @@ pub(super) fn diagonalize_dispatch(
             } else {
                 dense::diagonalize_lowest(h, n_bands)
             }
-        }
+        },
         EigensolverKind::Iterative => {
             // Thread the previous iteration's first-column eigenvector
             // through as the Arnoldi starting vector. Building the Vec
@@ -160,21 +156,12 @@ pub(super) fn diagonalize_dispatch(
                 }
             });
             if v0_owned.is_some() {
-                log::debug!(
-                    "iterative eigensolver: using WFRX warm-start v0 (n_bands={n_bands})"
-                );
+                log::debug!("iterative eigensolver: using WFRX warm-start v0 (n_bands={n_bands})");
             } else {
-                log::debug!(
-                    "iterative eigensolver: cold start (no prev_eigvecs; n_bands={n_bands})"
-                );
+                log::debug!("iterative eigensolver: cold start (no prev_eigvecs; n_bands={n_bands})");
             }
             let v0_slice = v0_owned.as_deref();
-            match iterative::diagonalize_lowest_iterative(
-                h,
-                n_bands,
-                v0_slice,
-                iterative::DEFAULT_TOL,
-            ) {
+            match iterative::diagonalize_lowest_iterative(h, n_bands, v0_slice, iterative::DEFAULT_TOL) {
                 Ok(r) => Ok(r),
                 Err(e) => {
                     // Fires per-k-point per-SCF-iteration on persistent failure;
@@ -190,9 +177,9 @@ pub(super) fn diagonalize_dispatch(
                         log::debug!("iterative eigensolver failed ({e}); falling back to dense");
                     }
                     dense::diagonalize_lowest(h, n_bands)
-                }
+                },
             }
-        }
+        },
     }
 }
 
@@ -243,7 +230,11 @@ fn eval_xc_with_gpu(
 ) -> Result<XcGridResult> {
     if let (XcEvaluator::Pz, Some(gpu)) = (xc_evaluator, gpu) {
         let (exc_r, v1_r) = gpu.lda_xc(rho_r);
-        return Ok(XcGridResult { exc_r, v1_r, v2_r: None });
+        return Ok(XcGridResult {
+            exc_r,
+            v1_r,
+            v2_r: None,
+        });
     }
     xc_evaluator.eval(rho_r, rho_grad_r)
 }
@@ -251,12 +242,10 @@ fn eval_xc_with_gpu(
 pub(super) fn scf_progress_bar(max_iter: usize) -> indicatif::ProgressBar {
     let pb = indicatif::ProgressBar::new(max_iter as u64);
     pb.set_style(
-        indicatif::ProgressStyle::with_template(
-            "SCF [{bar:30}] {pos}/{len}  {msg}  [{elapsed_precise} elapsed]",
-        )
-        // SAFETY: This is a static, valid template string -- with_template cannot fail.
-        .expect("BUG: invalid progress bar template")
-        .progress_chars("##-"),
+        indicatif::ProgressStyle::with_template("SCF [{bar:30}] {pos}/{len}  {msg}  [{elapsed_precise} elapsed]")
+            // SAFETY: This is a static, valid template string -- with_template cannot fail.
+            .expect("BUG: invalid progress bar template")
+            .progress_chars("##-"),
     );
     pb
 }
@@ -278,14 +267,12 @@ pub(crate) fn run_scf_unpolarized(
     crystal: &Crystal,
     basis: &BasisSet,
     kpoints: &[KPoint],
-    pseudopotentials: &[&PseudopotentialData],
+    pseudopotentials: &HashMap<Element, UpfPseudoPotential>,
     params: &ScfParams,
     symmetry: &crate::symmetry::SymmetryInfo,
     xc_evaluator: XcEvaluator,
 ) -> Result<ScfResult> {
-    let mut ctx = context::ScfContext::new(
-        crystal, basis, kpoints, pseudopotentials, params, symmetry,
-    )?;
+    let mut ctx = context::ScfContext::new(crystal, basis, kpoints, pseudopotentials, params, symmetry)?;
 
     // Try to initialize GPU if compiled with gpu feature
     #[cfg(feature = "gpu")]
@@ -310,7 +297,11 @@ pub(crate) fn run_scf_unpolarized(
         gaussian_sigma: Some(ctx.params.gaussian_sigma),
     };
     let mut rho_r = initial_density::generate_initial_density(
-        ctx.crystal, &mut ctx.grid, ctx.pseudopotentials, ctx.n_electrons, &init_config,
+        ctx.crystal,
+        &mut ctx.grid,
+        ctx.pseudopotentials,
+        ctx.n_electrons,
+        &init_config,
     );
     let mut rho_g = vec![Complex64::new(0.0, 0.0); ctx.n_grid];
     density_r_to_g(&mut ctx.grid.fft, &rho_r, &mut rho_g);
@@ -345,21 +336,17 @@ pub(crate) fn run_scf_unpolarized(
     //
     // Two backends consume this cache on distinct algorithmic paths:
     //
-    // - **Dense + `wfrx_subspace`** (the original WFRX Phase-1 path):
-    //   Rayleigh–Ritz projection onto the previous iteration's subspace,
-    //   with residual-gate fallback to full diag.
-    // - **Iterative**: the first column of `prev_wavefunctions[ik]`
-    //   becomes the Arnoldi starting vector `v0`. Without this, cold
-    //   Arnoldi finds a different SCF fixed point than Dense (measured
-    //   0.77 eV on Si at n_pw = 89 before this was wired).
+    // - **Dense + `wfrx_subspace`** (the original WFRX Phase-1 path): Rayleigh–Ritz projection onto the
+    //   previous iteration's subspace, with residual-gate fallback to full diag.
+    // - **Iterative**: the first column of `prev_wavefunctions[ik]` becomes the Arnoldi starting vector
+    //   `v0`. Without this, cold Arnoldi finds a different SCF fixed point than Dense (measured 0.77 eV
+    //   on Si at n_pw = 89 before this was wired).
     //
     // The cache is populated whenever *either* consumer is active. The
     // allocation is per-eigensolve clone; at n_pw = 725, n_bands = 8
     // that is ≈ 90 KiB per k-point, negligible next to the eigensolve.
-    let wfrx_dense_enabled = ctx.params.wfrx_subspace
-        && matches!(ctx.params.eigensolver, EigensolverKind::Dense);
-    let iterative_warmstart_enabled =
-        matches!(ctx.params.eigensolver, EigensolverKind::Iterative);
+    let wfrx_dense_enabled = ctx.params.wfrx_subspace && matches!(ctx.params.eigensolver, EigensolverKind::Dense);
+    let iterative_warmstart_enabled = matches!(ctx.params.eigensolver, EigensolverKind::Iterative);
     let cache_prev_wavefunctions = wfrx_dense_enabled || iterative_warmstart_enabled;
     let mut prev_wavefunctions: Option<Vec<faer::Mat<Complex64>>> = None;
 
@@ -403,9 +390,7 @@ pub(crate) fn run_scf_unpolarized(
         // valence density alone (3 inverse FFTs per component = 9 FFT
         // passes versus 12 for the naive FFT-on-the-sum version).
         let rho_grad_for_xc: Option<Vec<[f64; 3]>> = xc_evaluator.needs_gradient().then(|| {
-            let mut grad_val = compute_density_gradient(
-                &rho_r, &mut ctx.grid.fft, &ctx.g_vectors,
-            );
+            let mut grad_val = compute_density_gradient(&rho_r, &mut ctx.grid.fft, &ctx.g_vectors);
             if let Some(ref grad_core) = ctx.rho_core_grad_r {
                 for (g, gc) in grad_val.iter_mut().zip(grad_core.iter()) {
                     g[0] += gc[0];
@@ -417,9 +402,7 @@ pub(crate) fn run_scf_unpolarized(
         });
 
         #[cfg(feature = "gpu")]
-        let xc_in = eval_xc_with_gpu(
-            &xc_evaluator, &rho_for_xc, rho_grad_for_xc.as_deref(), gpu.as_ref(),
-        )?;
+        let xc_in = eval_xc_with_gpu(&xc_evaluator, &rho_for_xc, rho_grad_for_xc.as_deref(), gpu.as_ref())?;
         #[cfg(not(feature = "gpu"))]
         let xc_in = xc_evaluator.eval(&rho_for_xc, rho_grad_for_xc.as_deref())?;
         let exc_r_in = xc_in.exc_r;
@@ -450,12 +433,10 @@ pub(crate) fn run_scf_unpolarized(
         #[cfg(not(feature = "gpu"))]
         let v_eff_fft = assemble_v_eff(&ctx.v_local_fft, &v_h_fft, &vxc_g);
 
-        // 4. Solve eigenvalue problem at each k-point (parallel over k-points).
-        //    WFRX: when warm-start is enabled and we have a previous
-        //    iteration's eigenvectors, pass them in per-k as the subspace
-        //    seed. `prev_wavefunctions.as_ref()` lives outside the
-        //    closure; each closure indexes by `ik` to get its own
-        //    `&faer::Mat`, so there is no shared mutable aliasing.
+        // 4. Solve eigenvalue problem at each k-point (parallel over k-points). WFRX: when warm-start is
+        //    enabled and we have a previous iteration's eigenvectors, pass them in per-k as the subspace
+        //    seed. `prev_wavefunctions.as_ref()` lives outside the closure; each closure indexes by `ik` to
+        //    get its own `&faer::Mat`, so there is no shared mutable aliasing.
         //
         //    ALOC F-5: `h_scratch` is an owned per-k scratch `Mat`
         //    slot on the context. `fill_hamiltonian_with_v_eff` fully
@@ -486,13 +467,7 @@ pub(crate) fn run_scf_unpolarized(
                 fill_hamiltonian_with_v_eff(h, basis, &kp.k, &v_eff_fft, grid_dims);
                 vnl.add_to_hamiltonian(h, crystal, basis, &kp.k);
                 let v_prev_k = prev_wfn_ref.map(|wfns| &wfns[ik]);
-                diagonalize_dispatch(
-                    h,
-                    n_bands,
-                    eigensolver_kind,
-                    wfrx_dense_enabled,
-                    v_prev_k,
-                )
+                diagonalize_dispatch(h, n_bands, eigensolver_kind, wfrx_dense_enabled, v_prev_k)
             })
             .collect();
         let kpoint_results = kpoint_results?;
@@ -520,17 +495,25 @@ pub(crate) fn run_scf_unpolarized(
             ctx.spin_factor,
         );
         let occupations = compute_occupations(
-            &eigenvalues_all, ctx.params.smearing_scheme, fermi_energy,
-            ctx.params.smearing_sigma, ctx.spin_factor,
+            &eigenvalues_all,
+            ctx.params.smearing_scheme,
+            fermi_energy,
+            ctx.params.smearing_sigma,
+            ctx.spin_factor,
         );
 
         // 6. New density
         let mut rho_r_new = density::compute_density(
             &mut density::DensityGrid {
-                basis: ctx.basis, g_to_fft: &ctx.g_to_fft, fft: &mut ctx.grid.fft,
-                n_electrons: ctx.n_electrons, omega: ctx.omega,
+                basis: ctx.basis,
+                g_to_fft: &ctx.g_to_fft,
+                fft: &mut ctx.grid.fft,
+                n_electrons: ctx.n_electrons,
+                omega: ctx.omega,
             },
-            ctx.kpoints, &all_kpoint_wavefns, &occupations,
+            ctx.kpoints,
+            &all_kpoint_wavefns,
+            &occupations,
         );
 
         // 6b. Symmetrize density in G-space (PCFX). The G-space form applies
@@ -543,12 +526,7 @@ pub(crate) fn run_scf_unpolarized(
         //     producing a ~1.2 eV per-component residual on Si.
         //     `symmetrize_density_g` short-circuits for identity-only
         //     groups (bit-identical to the pre-PCFX skip).
-        crate::symmetry::density::symmetrize_density_g(
-            &mut rho_r_new,
-            ctx.grid.dims,
-            &mut ctx.grid.fft,
-            ctx.symmetry,
-        );
+        crate::symmetry::density::symmetrize_density_g(&mut rho_r_new, ctx.grid.dims, &mut ctx.grid.fft, ctx.symmetry);
 
         // 7. Convergence check (dual criterion: density AND energy)
         let delta = density_diff(&rho_r, &rho_r_new, ctx.omega, ctx.n_grid);
@@ -567,9 +545,7 @@ pub(crate) fn run_scf_unpolarized(
         // v1 − ∇·h so `xc_energy_corrected`'s `∫ρ·V_xc` term matches
         // the Hamiltonian's V_xc that produced `e_band`.
         let rho_grad_out: Option<Vec<[f64; 3]>> = xc_evaluator.needs_gradient().then(|| {
-            let mut grad_val = compute_density_gradient(
-                &rho_r_new, &mut ctx.grid.fft, &ctx.g_vectors,
-            );
+            let mut grad_val = compute_density_gradient(&rho_r_new, &mut ctx.grid.fft, &ctx.g_vectors);
             if let Some(ref grad_core) = ctx.rho_core_grad_r {
                 for (g, gc) in grad_val.iter_mut().zip(grad_core.iter()) {
                     g[0] += gc[0];
@@ -597,8 +573,12 @@ pub(crate) fn run_scf_unpolarized(
         // total-energy numerics are bit-identical to the pre-TSEN code
         // path on genuinely-gapped systems.
         let ts = smearing::entropy_ts(
-            &eigenvalues_all, &ctx.kpt_weights, fermi_energy,
-            ctx.params.smearing_sigma, ctx.params.smearing_scheme, ctx.spin_factor,
+            &eigenvalues_all,
+            &ctx.kpt_weights,
+            fermi_energy,
+            ctx.params.smearing_sigma,
+            ctx.params.smearing_scheme,
+            ctx.spin_factor,
         );
         let e_smearing = -ts;
 
@@ -632,16 +612,19 @@ pub(crate) fn run_scf_unpolarized(
         let rho_converged = delta < ctx.params.conv_threshold;
         let energy_converged = de.is_some_and(|de| de < ctx.params.energy_threshold);
 
-        log_iteration(&pb, &IterationReport {
-            iter,
-            e_total,
-            e_harris,
-            hf_diff,
-            de,
-            delta,
-            beta: ctx.params.adaptive_beta.then(|| mixer.current_beta()),
-            spin: None,
-        });
+        log_iteration(
+            &pb,
+            &IterationReport {
+                iter,
+                e_total,
+                e_harris,
+                hf_diff,
+                de,
+                delta,
+                beta: ctx.params.adaptive_beta.then(|| mixer.current_beta()),
+                spin: None,
+            },
+        );
 
         // Warn if density converged but Harris-Foulkes difference is large
         if rho_converged && energy_converged && hf_diff > 0.01 {
@@ -670,13 +653,10 @@ pub(crate) fn run_scf_unpolarized(
             // VGC5 per-component decomposition (diagnostic).
             // Computed once at convergence; final wavefunctions are alive here.
             // -------------------------------------------------------------
-            let k_vecs: Vec<nalgebra::Vector3<f64>> =
-                ctx.kpoints.iter().map(|kp| kp.k).collect();
+            let k_vecs: Vec<nalgebra::Vector3<f64>> = ctx.kpoints.iter().map(|kp| kp.k).collect();
 
-            let e_kinetic = kinetic_expectation(
-                ctx.basis, &k_vecs, &ctx.kpt_weights,
-                &all_kpoint_wavefns, &occupations,
-            );
+            let e_kinetic =
+                kinetic_expectation(ctx.basis, &k_vecs, &ctx.kpt_weights, &all_kpoint_wavefns, &occupations);
 
             // V_local in real space (G=0 kept — it lives on the Hamiltonian
             // diagonal under the post-VGCH-SiEF-B1 convention, so the
@@ -689,8 +669,13 @@ pub(crate) fn run_scf_unpolarized(
             let e_local_g0_shift = 0.0;
 
             let e_nonlocal = nonlocal_expectation(
-                ctx.basis, ctx.crystal, &k_vecs, &ctx.kpt_weights,
-                &all_kpoint_wavefns, &occupations, &ctx.vnl_cache,
+                ctx.basis,
+                ctx.crystal,
+                &k_vecs,
+                &ctx.kpt_weights,
+                &all_kpoint_wavefns,
+                &occupations,
+                &ctx.vnl_cache,
             );
 
             // NB: `rho_g` was assigned `rho_g_new` in the convergence branch

@@ -1,18 +1,18 @@
 //! Crystal symmetry detection algorithm.
 //!
-//! Finds all space group operations {R|τ} compatible with a given crystal structure.
+//! Finds all space group operations {R|τ} compatible with a given crystal
+//! structure.
 
+use super::operations::{SpaceGroupOp, SymmOp, frac_distance, wrap_to_unit_cell};
 use crate::crystal::Crystal;
-
-use super::operations::{frac_distance, wrap_to_unit_cell, SpaceGroupOp, SymmOp};
 
 /// Find all symmetry operations of a crystal.
 ///
 /// Algorithm:
 /// 1. Compute metric tensor M = Lᵀ L
 /// 2. Enumerate all 3×3 integer matrices R with det(R) = ±1 and Rᵀ M R = M
-/// 3. For each R, find fractional translation τ such that {R|τ} maps all atoms
-///    to equivalent atoms (same species at equivalent positions mod 1)
+/// 3. For each R, find fractional translation τ such that {R|τ} maps all atoms to equivalent atoms
+///    (same species at equivalent positions mod 1)
 ///
 /// # Panics
 ///
@@ -45,12 +45,10 @@ pub fn find_symmetry_operations(crystal: &Crystal, tolerance: f64) -> Vec<SpaceG
 
 /// Find all 3×3 integer matrices R with det(R) = ±1 and Rᵀ M R = M.
 ///
-/// For each column j of R, enumerate integer vectors c satisfying cᵀ M c = M_{jj}.
-/// Then filter valid 3-column combinations by the full metric condition and determinant.
-fn find_metric_preserving_rotations(
-    metric: &nalgebra::Matrix3<f64>,
-    tolerance: f64,
-) -> Vec<[[i32; 3]; 3]> {
+/// For each column j of R, enumerate integer vectors c satisfying cᵀ M c =
+/// M_{jj}. Then filter valid 3-column combinations by the full metric condition
+/// and determinant.
+fn find_metric_preserving_rotations(metric: &nalgebra::Matrix3<f64>, tolerance: f64) -> Vec<[[i32; 3]; 3]> {
     // For each column, find candidate integer vectors
     let candidates: Vec<Vec<[i32; 3]>> = (0..3)
         .map(|j| find_candidate_vectors(metric, metric[(j, j)], tolerance))
@@ -67,8 +65,7 @@ fn find_metric_preserving_rotations(
             }
             for c2 in &candidates[2] {
                 // Check determinant first (cheapest full-matrix check)
-                let det = c0[0] * (c1[1] * c2[2] - c1[2] * c2[1])
-                    - c0[1] * (c1[0] * c2[2] - c1[2] * c2[0])
+                let det = c0[0] * (c1[1] * c2[2] - c1[2] * c2[1]) - c0[1] * (c1[0] * c2[2] - c1[2] * c2[0])
                     + c0[2] * (c1[0] * c2[1] - c1[1] * c2[0]);
                 if det != 1 && det != -1 {
                     continue;
@@ -83,11 +80,7 @@ fn find_metric_preserving_rotations(
                 }
 
                 // Valid rotation found
-                rotations.push([
-                    [c0[0], c1[0], c2[0]],
-                    [c0[1], c1[1], c2[1]],
-                    [c0[2], c1[2], c2[2]],
-                ]);
+                rotations.push([[c0[0], c1[0], c2[0]], [c0[1], c1[1], c2[1]], [c0[2], c1[2], c2[2]]]);
             }
         }
     }
@@ -96,11 +89,7 @@ fn find_metric_preserving_rotations(
 }
 
 /// Find all integer vectors c such that cᵀ M c ≈ target_norm_sq.
-fn find_candidate_vectors(
-    metric: &nalgebra::Matrix3<f64>,
-    target_norm_sq: f64,
-    tolerance: f64,
-) -> Vec<[i32; 3]> {
+fn find_candidate_vectors(metric: &nalgebra::Matrix3<f64>, target_norm_sq: f64, tolerance: f64) -> Vec<[i32; 3]> {
     // Search radius: |c_i| ≤ sqrt(target / M_ii) + 1
     #[allow(
         clippy::cast_possible_truncation,
@@ -140,11 +129,7 @@ fn dot_metric(c: &[i32; 3], d: &[i32; 3], metric: &nalgebra::Matrix3<f64>) -> f6
 /// maps every atom to an equivalent atom (same species, same position mod 1).
 ///
 /// Returns None if no valid translation exists.
-fn find_translation(
-    crystal: &Crystal,
-    rotation: &[[i32; 3]; 3],
-    tolerance: f64,
-) -> Option<[f64; 3]> {
+fn find_translation(crystal: &Crystal, rotation: &[[i32; 3]; 3], tolerance: f64) -> Option<[f64; 3]> {
     if crystal.atoms.is_empty() {
         return Some([0.0, 0.0, 0.0]);
     }
@@ -175,19 +160,15 @@ fn find_translation(
 }
 
 /// Check if {R|τ} maps every atom to an equivalent atom.
-fn all_atoms_map(
-    crystal: &Crystal,
-    rotation: &[[i32; 3]; 3],
-    tau: &[f64; 3],
-    tolerance: f64,
-) -> bool {
+fn all_atoms_map(crystal: &Crystal, rotation: &[[i32; 3]; 3], tau: &[f64; 3], tolerance: f64) -> bool {
     for atom in &crystal.atoms {
         let r_pos = SymmOp { rotation: *rotation }.apply(&atom.position);
         let mapped = wrap_to_unit_cell([r_pos[0] + tau[0], r_pos[1] + tau[1], r_pos[2] + tau[2]]);
 
-        let found = crystal.atoms.iter().any(|other| {
-            other.z == atom.z && frac_distance(&mapped, &other.position) < tolerance
-        });
+        let found = crystal
+            .atoms
+            .iter()
+            .any(|other| other.z == atom.z && frac_distance(&mapped, &other.position) < tolerance);
 
         if !found {
             return false;
@@ -198,9 +179,11 @@ fn all_atoms_map(
 
 #[cfg(test)]
 mod tests {
+    use elements_rs::Element;
+    use nalgebra::Vector3;
+
     use super::*;
     use crate::crystal::{Atom, Crystal, Lattice};
-    use nalgebra::Vector3;
 
     fn si_fcc() -> Crystal {
         let a = 5.431;
@@ -211,8 +194,8 @@ mod tests {
                 a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
             ),
             atoms: vec![
-                Atom::new(14, [0.0, 0.0, 0.0]),
-                Atom::new(14, [0.25, 0.25, 0.25]),
+                Atom::new(Element::Si, [0.0, 0.0, 0.0]),
+                Atom::new(Element::Si, [0.25, 0.25, 0.25]),
             ],
         }
     }
@@ -225,7 +208,7 @@ mod tests {
                 a / 2.0 * Vector3::new(1.0, -1.0, 1.0),
                 a / 2.0 * Vector3::new(1.0, 1.0, -1.0),
             ),
-            atoms: vec![Atom::new(26, [0.0, 0.0, 0.0])],
+            atoms: vec![Atom::new(Element::Fe, [0.0, 0.0, 0.0])],
         }
     }
 
@@ -238,8 +221,8 @@ mod tests {
                 Vector3::new(-0.1, 0.15, 5.3),
             ),
             atoms: vec![
-                Atom::new(6, [0.13, 0.27, 0.41]),
-                Atom::new(7, [0.6, 0.3, 0.1]),
+                Atom::new(Element::C, [0.13, 0.27, 0.41]),
+                Atom::new(Element::N, [0.6, 0.3, 0.1]),
             ],
         }
     }
@@ -253,8 +236,8 @@ mod tests {
                 Vector3::new(-0.1, 0.15, 5.3),
             ),
             atoms: vec![
-                Atom::new(6, [0.13, 0.27, 0.41]),
-                Atom::new(6, [0.87, 0.73, 0.59]), // inversion of (0.13, 0.27, 0.41)
+                Atom::new(Element::C, [0.13, 0.27, 0.41]),
+                Atom::new(Element::C, [0.87, 0.73, 0.59]), // inversion of (0.13, 0.27, 0.41)
             ],
         }
     }
@@ -313,9 +296,7 @@ mod tests {
     fn test_si_has_inversion() {
         let crystal = si_fcc();
         let ops = find_symmetry_operations(&crystal, 1e-5);
-        let has_inv = ops
-            .iter()
-            .any(|op| op.rotation == [[-1, 0, 0], [0, -1, 0], [0, 0, -1]]);
+        let has_inv = ops.iter().any(|op| op.rotation == [[-1, 0, 0], [0, -1, 0], [0, 0, -1]]);
         assert!(has_inv, "FCC Si should have inversion symmetry");
     }
 

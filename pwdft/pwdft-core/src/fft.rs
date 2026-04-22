@@ -33,11 +33,7 @@ impl FFT3D {
         // Inverse: no normalization (we apply 1/N manually in inverse_normalized)
         Self {
             dims: [nx, ny, nz],
-            fwd_handlers: [
-                FftHandler::new(nx),
-                FftHandler::new(ny),
-                FftHandler::new(nz),
-            ],
+            fwd_handlers: [FftHandler::new(nx), FftHandler::new(ny), FftHandler::new(nz)],
             inv_handlers: [
                 FftHandler::<f64>::new(nx).normalization(Normalization::None),
                 FftHandler::<f64>::new(ny).normalization(Normalization::None),
@@ -79,11 +75,7 @@ impl FFT3D {
         ndfft(&self.buf_b, &mut self.buf_a, &self.fwd_handlers[1], 1);
         ndfft(&self.buf_a, &mut self.buf_b, &self.fwd_handlers[2], 2);
 
-        data.copy_from_slice(
-            self.buf_b
-                .as_slice()
-                .expect("BUG: Array3 should be contiguous"),
-        );
+        data.copy_from_slice(self.buf_b.as_slice().expect("BUG: Array3 should be contiguous"));
     }
 
     /// Inverse FFT: reciprocal-space → real-space (unnormalized).
@@ -108,11 +100,7 @@ impl FFT3D {
         ndifft(&self.buf_b, &mut self.buf_a, &self.inv_handlers[1], 1);
         ndifft(&self.buf_a, &mut self.buf_b, &self.inv_handlers[2], 2);
 
-        data.copy_from_slice(
-            self.buf_b
-                .as_slice()
-                .expect("BUG: Array3 should be contiguous"),
-        );
+        data.copy_from_slice(self.buf_b.as_slice().expect("BUG: Array3 should be contiguous"));
     }
 
     /// Inverse FFT with normalization (divides by N).
@@ -142,10 +130,9 @@ impl FFT3D {
 /// Inputs:
 /// - `rho_r`: scalar field in real space, length `fft.total_size()`.
 /// - `fft`: FFT handler whose dimensions must match `rho_r`.
-/// - `g_vectors`: per-grid-point reciprocal-space vectors in the
-///   **FFT-aligned** ordering (`scf::grid::g_vector_at_dims`). Length
-///   must equal `rho_r.len()`. Each entry carries `[G_x, G_y, G_z]` in
-///   `Å⁻¹`.
+/// - `g_vectors`: per-grid-point reciprocal-space vectors in the **FFT-aligned** ordering
+///   (`scf::grid::g_vector_at_dims`). Length must equal `rho_r.len()`. Each entry carries `[G_x,
+///   G_y, G_z]` in `Å⁻¹`.
 ///
 /// Returns a fresh `Vec<[f64; 3]>` of length `rho_r.len()`. The `G = 0`
 /// component contributes zero to the gradient (since `iG = 0`), matching
@@ -179,18 +166,10 @@ impl FFT3D {
 /// across axes) plus the output `Vec<[f64; 3]>`. No pooling is
 /// attempted — this is called once per SCF iteration per GGA channel
 /// and the FFT work itself dominates.
-pub fn compute_density_gradient(
-    rho_r: &[f64],
-    fft: &mut FFT3D,
-    g_vectors: &[[f64; 3]],
-) -> Vec<[f64; 3]> {
+pub fn compute_density_gradient(rho_r: &[f64], fft: &mut FFT3D, g_vectors: &[[f64; 3]]) -> Vec<[f64; 3]> {
     let n = fft.total_size();
     assert_eq!(rho_r.len(), n, "rho_r length must equal fft.total_size()");
-    assert_eq!(
-        g_vectors.len(),
-        n,
-        "g_vectors length must equal rho_r length",
-    );
+    assert_eq!(g_vectors.len(), n, "g_vectors length must equal rho_r length",);
 
     // Forward FFT with the same `1/N` normalisation convention used by
     // `scf::energy::density_r_to_g`. This is the ρ(G) coefficient that
@@ -248,11 +227,14 @@ pub fn compute_density_gradient(
         // balanced DFT). The debug-assert below fires at a generous
         // tolerance of 1e-8 of the maximum real magnitude; tighter
         // bounds are exercised by the unit tests.
-        debug_assert!({
-            let max_im = buf.iter().map(|c| c.im.abs()).fold(0.0_f64, f64::max);
-            let max_re = buf.iter().map(|c| c.re.abs()).fold(0.0_f64, f64::max);
-            max_im < 1e-8 * max_re.max(1e-300) + 1e-10
-        }, "∇ρ(r) should be real; Nyquist zero-out path bypassed");
+        debug_assert!(
+            {
+                let max_im = buf.iter().map(|c| c.im.abs()).fold(0.0_f64, f64::max);
+                let max_re = buf.iter().map(|c| c.re.abs()).fold(0.0_f64, f64::max);
+                max_im < 1e-8 * max_re.max(1e-300) + 1e-10
+            },
+            "∇ρ(r) should be real; Nyquist zero-out path bypassed"
+        );
         for (dst, src) in grad_r.iter_mut().zip(buf.iter()) {
             dst[axis] = src.re;
         }
@@ -304,9 +286,7 @@ mod tests {
     fn test_fft_roundtrip() {
         let mut fft = FFT3D::new(4, 4, 4);
         let n = fft.total_size();
-        let mut data: Vec<Complex64> = (0..n)
-            .map(|i| Complex64::new(i as f64, 0.0))
-            .collect();
+        let mut data: Vec<Complex64> = (0..n).map(|i| Complex64::new(i as f64, 0.0)).collect();
         let original = data.clone();
 
         fft.forward(&mut data);
@@ -389,14 +369,12 @@ mod tests {
     #[allow(
         clippy::cast_possible_wrap,
         clippy::cast_possible_truncation,
-        reason = "test helper only; n is a tiny FFT size (≤ 64) well inside i32 range",
+        reason = "test helper only; n is a tiny FFT size (≤ 64) well inside i32 range"
     )]
     fn cubic_g_vectors(n: usize, l: f64) -> Vec<[f64; 3]> {
         let two_pi_l = 2.0 * std::f64::consts::PI / l;
         let mut out = Vec::with_capacity(n * n * n);
-        let signed = |i: usize| -> i32 {
-            if i > n / 2 { i as i32 - n as i32 } else { i as i32 }
-        };
+        let signed = |i: usize| -> i32 { if i > n / 2 { i as i32 - n as i32 } else { i as i32 } };
         for i in 0..n {
             for j in 0..n {
                 for k in 0..n {
@@ -510,11 +488,7 @@ mod tests {
 
         let a = 2.7_f64;
         let b = -1.3_f64;
-        let rho_sum: Vec<f64> = rho1
-            .iter()
-            .zip(rho2.iter())
-            .map(|(&r1, &r2)| a * r1 + b * r2)
-            .collect();
+        let rho_sum: Vec<f64> = rho1.iter().zip(rho2.iter()).map(|(&r1, &r2)| a * r1 + b * r2).collect();
 
         let g1 = compute_density_gradient(&rho1, &mut fft, &g_vectors);
         let g2 = compute_density_gradient(&rho2, &mut fft, &g_vectors);

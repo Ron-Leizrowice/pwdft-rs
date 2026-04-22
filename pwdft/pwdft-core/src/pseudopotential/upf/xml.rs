@@ -35,9 +35,8 @@ pub(super) fn extract_beta_angular_momentum(content: &str, tag: &str) -> Result<
         .ok_or_else(|| PwdftError::Parse(format!("malformed tag <{tag}>")))?
         + tag_start;
     let tag_content = &content[tag_start..tag_end];
-    let am_str = extract_attr(tag_content, "angular_momentum").ok_or_else(|| {
-        PwdftError::Parse(format!("missing angular_momentum attribute in {tag}"))
-    })?;
+    let am_str = extract_attr(tag_content, "angular_momentum")
+        .ok_or_else(|| PwdftError::Parse(format!("missing angular_momentum attribute in {tag}")))?;
     let l: i32 = am_str
         .trim()
         .parse()

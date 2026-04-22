@@ -22,14 +22,13 @@
     reason = "ERR2 § Phase 0: integration tests are allowed to panic"
 )]
 
-use std::fs;
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 use nalgebra::Vector3;
 use pwdft_core::{
     consts::{BOHR_TO_ANG, RY_TO_EV},
     crystal::Lattice,
-    pseudopotential::{PseudopotentialData, load},
+    pseudopotential::UpfPseudoPotential,
 };
 
 const CSV_REL_PATH: &str = "data/csv/vloc_g_si_reference.csv";
@@ -64,14 +63,19 @@ fn load_reference_csv(path: &PathBuf) -> Option<Vec<RefRow>> {
         let g_bohr_inv: f64 = fields[1].trim().parse().unwrap();
         let g2_int: i32 = fields[2].trim().parse().unwrap();
         let v_loc_ry: f64 = fields[3].trim().parse().unwrap();
-        rows.push(RefRow { shell_index, g_bohr_inv, g2_int, v_loc_ry });
+        rows.push(RefRow {
+            shell_index,
+            g_bohr_inv,
+            g2_int,
+            v_loc_ry,
+        });
     }
     Some(rows)
 }
 
-fn load_si_pp() -> PseudopotentialData {
+fn load_si_pp() -> UpfPseudoPotential {
     let path = PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join(UPF_REL_PATH);
-    load(&path).expect("failed to parse Si.upf")
+    UpfPseudoPotential::load(&path).expect("failed to parse Si.upf")
 }
 
 /// Primitive Si FCC cell at a = 5.431 Å.
@@ -168,9 +172,7 @@ fn vgcmp_phase1_v_local_g_matches_python_reference() {
             r.shell, r.g2_int, r.g_bohr_inv, r.py_ry, r.rust_ry, r.diff_ry
         );
     }
-    eprintln!(
-        "\nmax |Δ| = {max_abs_diff_ry:.3e} Ry  ({max_abs_diff_ev:.3e} eV)"
-    );
+    eprintln!("\nmax |Δ| = {max_abs_diff_ry:.3e} Ry  ({max_abs_diff_ev:.3e} eV)");
 
     if max_abs_diff_ev >= TOL_EV {
         let (shell, g2, g_bohr, py, rust, diff) = worst.unwrap();

@@ -11,13 +11,12 @@
 //! compute per-term energies), and comparing each term against QE's
 //! converged per-term output.
 //!
-//! - If per-term values match QE at iter-1 within ~1 meV/term, the driver
-//!   reproduces QE's decomposition at QE's fixed point. The 16.6 eV
-//!   residual at pwdft-core self-consistency is then mixer-basin (H3).
-//! - If per-term values do NOT match at iter-1 even with the transplanted
-//!   density, H3 is cleared and the bug is finer-grained (H_{G,G'}
-//!   assembly, ψ_nk reconstruction, occupation smearing, or a subtle v_xc
-//!   / v_H term only visible on heavy-atom density structure).
+//! - If per-term values match QE at iter-1 within ~1 meV/term, the driver reproduces QE's
+//!   decomposition at QE's fixed point. The 16.6 eV residual at pwdft-core self-consistency is then
+//!   mixer-basin (H3).
+//! - If per-term values do NOT match at iter-1 even with the transplanted density, H3 is cleared
+//!   and the bug is finer-grained (H_{G,G'} assembly, ψ_nk reconstruction, occupation smearing, or
+//!   a subtle v_xc / v_H term only visible on heavy-atom density structure).
 //!
 //! This module is a `#[doc(hidden)]` public API: it is not part of
 //! pwdft-core's engineering surface. The routine mirrors the first
@@ -28,9 +27,25 @@
 //! helpers (`add_core_density`, `hartree_on_fft_grid`, `assemble_v_eff`,
 //! `fill_hamiltonian_with_v_eff`, etc.) to keep them in sync.
 
+use std::collections::HashMap;
+
+use elements_rs::Element;
 use num_complex::Complex64;
 use rayon::prelude::*;
 
+use super::{
+    ScfParams,
+    context::ScfContext,
+    density,
+    driver::{compute_occupations, diagonalize_dispatch},
+    energy::{
+        EnergyComponents, add_core_density, assemble_v_eff, band_energy, density_r_to_g, harris_foulkes_energy,
+        hartree_energy, hartree_on_fft_grid, kinetic_expectation, local_pp_energy_grid, nonlocal_expectation,
+        real_to_g_space, total_energy, xc_energy_bare, xc_energy_corrected,
+    },
+    potentials::fill_hamiltonian_with_v_eff,
+    smearing,
+};
 use crate::{
     basis::BasisSet,
     crystal::Crystal,
@@ -39,19 +54,8 @@ use crate::{
     fft::compute_density_gradient,
     kpoints::KPoint,
     potential::xc::{XcEvaluator, assemble_semilocal_vxc},
-    pseudopotential::PseudopotentialData,
+    pseudopotential::UpfPseudoPotential,
 };
-
-use super::context::ScfContext;
-use super::driver::{compute_occupations, diagonalize_dispatch};
-use super::energy::{
-    EnergyComponents, add_core_density, assemble_v_eff, band_energy, density_r_to_g,
-    harris_foulkes_energy, hartree_energy, hartree_on_fft_grid, kinetic_expectation,
-    local_pp_energy_grid, nonlocal_expectation, real_to_g_space, total_energy,
-    xc_energy_bare, xc_energy_corrected,
-};
-use super::potentials::fill_hamiltonian_with_v_eff;
-use super::{density, smearing, ScfParams};
 
 /// Result of a single transplanted iteration. Field units:
 /// all energies in eV, densities in e/Å³ on the FFT grid.
@@ -104,14 +108,14 @@ pub struct TransplantIter1Result {
 ///
 /// # Errors
 /// - `PwdftError::InvalidInput` if `rho_g_fft_in.len() != ctx.n_grid`.
-/// - Any error propagated from the eigensolver, XC evaluator, or the
-///   per-calculation context constructor.
+/// - Any error propagated from the eigensolver, XC evaluator, or the per-calculation context
+///   constructor.
 #[doc(hidden)]
 pub fn run_scf_iter1_from_rho_g_fft(
     crystal: &Crystal,
     basis: &BasisSet,
     kpoints: &[KPoint],
-    pseudopotentials: &[&PseudopotentialData],
+    pseudopotentials: &HashMap<Element, UpfPseudoPotential>,
     params: &ScfParams,
     symmetry: &crate::symmetry::SymmetryInfo,
     rho_g_fft_in: &[Complex64],
@@ -214,10 +218,8 @@ pub fn run_scf_iter1_from_rho_g_fft(
         })
         .collect();
     let kpoint_results = kpoint_results?;
-    let eigenvalues_all: Vec<Vec<f64>> =
-        kpoint_results.iter().map(|r| r.eigenvalues.clone()).collect();
-    let all_kpoint_wavefns: Vec<_> =
-        kpoint_results.into_iter().map(|r| r.eigenvectors).collect();
+    let eigenvalues_all: Vec<Vec<f64>> = kpoint_results.iter().map(|r| r.eigenvalues.clone()).collect();
+    let all_kpoint_wavefns: Vec<_> = kpoint_results.into_iter().map(|r| r.eigenvectors).collect();
 
     // 5. Occupations + Fermi level
     let fermi_energy = smearing::find_fermi_energy(
@@ -249,12 +251,7 @@ pub fn run_scf_iter1_from_rho_g_fft(
         &all_kpoint_wavefns,
         &occupations,
     );
-    crate::symmetry::density::symmetrize_density_g(
-        &mut rho_r_new,
-        ctx.grid.dims,
-        &mut ctx.grid.fft,
-        ctx.symmetry,
-    );
+    crate::symmetry::density::symmetrize_density_g(&mut rho_r_new, ctx.grid.dims, &mut ctx.grid.fft, ctx.symmetry);
 
     // 7. ρ-diff, E_band, entropy
     let dvol_total: f64 = ctx.omega / ctx.n_grid as f64;
@@ -270,8 +267,7 @@ pub fn run_scf_iter1_from_rho_g_fft(
 
     let rho_new_for_xc = add_core_density(&rho_r_new, &ctx.rho_core_r);
     let rho_grad_out: Option<Vec<[f64; 3]>> = xc_evaluator.needs_gradient().then(|| {
-        let mut grad_val =
-            compute_density_gradient(&rho_r_new, &mut ctx.grid.fft, &ctx.g_vectors);
+        let mut grad_val = compute_density_gradient(&rho_r_new, &mut ctx.grid.fft, &ctx.g_vectors);
         if let Some(ref grad_core) = ctx.rho_core_grad_r {
             for (g, gc) in grad_val.iter_mut().zip(grad_core.iter()) {
                 g[0] += gc[0];
@@ -320,13 +316,7 @@ pub fn run_scf_iter1_from_rho_g_fft(
 
     // VGC5 per-term decomposition on the OUTPUT density.
     let k_vecs: Vec<nalgebra::Vector3<f64>> = ctx.kpoints.iter().map(|kp| kp.k).collect();
-    let e_kinetic = kinetic_expectation(
-        ctx.basis,
-        &k_vecs,
-        &ctx.kpt_weights,
-        &all_kpoint_wavefns,
-        &occupations,
-    );
+    let e_kinetic = kinetic_expectation(ctx.basis, &k_vecs, &ctx.kpt_weights, &all_kpoint_wavefns, &occupations);
     let mut v_local_cplx = ctx.v_local_fft.clone();
     ctx.grid.fft.inverse(&mut v_local_cplx);
     let v_local_r: Vec<f64> = v_local_cplx.iter().map(|c| c.re).collect();

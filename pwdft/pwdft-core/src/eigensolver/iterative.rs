@@ -47,18 +47,17 @@
 use dyn_stack::{MemBuffer, MemStack};
 use faer::{
     ColRef, Mat, MatMut, MatRef, Par,
+    linalg::matmul::matmul,
     matrix_free::{
         LinOp,
         eigen::{PartialEigenParams, partial_self_adjoint_eigen, partial_self_adjoint_eigen_scratch},
     },
+    prelude::{Reborrow, ReborrowMut},
 };
-use faer::linalg::matmul::matmul;
-use faer::prelude::{Reborrow, ReborrowMut};
 use num_complex::Complex64;
 
-use crate::error::{PwdftError, Result};
-
 use super::dense::EigenResult;
+use crate::error::{PwdftError, Result};
 
 /// Default convergence tolerance for the iterative eigensolver.
 ///
@@ -109,21 +108,11 @@ impl LinOp<Complex64> for ShiftedHermitianOp<'_> {
     }
 
     #[inline]
-    fn apply_scratch(
-        &self,
-        _rhs_ncols: usize,
-        _par: faer::Par,
-    ) -> dyn_stack::StackReq {
+    fn apply_scratch(&self, _rhs_ncols: usize, _par: faer::Par) -> dyn_stack::StackReq {
         dyn_stack::StackReq::EMPTY
     }
 
-    fn apply(
-        &self,
-        out: MatMut<'_, Complex64>,
-        rhs: MatRef<'_, Complex64>,
-        par: faer::Par,
-        _stack: &mut MemStack,
-    ) {
+    fn apply(&self, out: MatMut<'_, Complex64>, rhs: MatRef<'_, Complex64>, par: faer::Par, _stack: &mut MemStack) {
         let sigma = Complex64::new(self.sigma, 0.0);
         let mut out = out;
         // out := σ · rhs
@@ -147,13 +136,7 @@ impl LinOp<Complex64> for ShiftedHermitianOp<'_> {
         );
     }
 
-    fn conj_apply(
-        &self,
-        out: MatMut<'_, Complex64>,
-        rhs: MatRef<'_, Complex64>,
-        par: faer::Par,
-        stack: &mut MemStack,
-    ) {
+    fn conj_apply(&self, out: MatMut<'_, Complex64>, rhs: MatRef<'_, Complex64>, par: faer::Par, stack: &mut MemStack) {
         // Self-adjoint: conj_apply = apply. (For a Hermitian operator,
         // (σI − H)^* = σ I − H^* = σ I − H.)
         self.apply(out, rhs, par, stack);
@@ -259,14 +242,12 @@ const KRYLOV_MAX_DIM_DIVISOR: usize = 2;
 ///
 /// Two regimes:
 ///
-/// - **Small basis** (`n_pw < LARGE_BASIS_THRESHOLD`): the base
-///   padding `n_bands + n_bands/2` (with a `+4` floor) resolves the
-///   cluster. This matches the pre-ITEV2 heuristic exactly; the Si
+/// - **Small basis** (`n_pw < LARGE_BASIS_THRESHOLD`): the base padding `n_bands + n_bands/2` (with
+///   a `+4` floor) resolves the cluster. This matches the pre-ITEV2 heuristic exactly; the Si
 ///   ecut=100 regression test at `n_pw = 89` pins this constant.
-/// - **Large basis** (`n_pw ≥ LARGE_BASIS_THRESHOLD`): the finer basis
-///   packs more near-degenerate states into the same energy window,
-///   so we add `max(n_bands, MIN_PADDING)` more slots to include the
-///   full cluster.
+/// - **Large basis** (`n_pw ≥ LARGE_BASIS_THRESHOLD`): the finer basis packs more near-degenerate
+///   states into the same energy window, so we add `max(n_bands, MIN_PADDING)` more slots to
+///   include the full cluster.
 ///
 /// The result is capped by `max_request` so the caller's `max_dim < n`
 /// guarantee cannot be invalidated.
@@ -306,22 +287,20 @@ fn krylov_max_dim(n_request: usize, n_pw: usize, max_allowed: usize) -> usize {
 /// implicitly-restarted Arnoldi iterative eigensolver.
 ///
 /// ## Arguments
-/// - `h`: Hermitian matrix (the Kohn-Sham Hamiltonian at one k-point). Only
-///   read via its dense representation (via faer's generic matmul).
+/// - `h`: Hermitian matrix (the Kohn-Sham Hamiltonian at one k-point). Only read via its dense
+///   representation (via faer's generic matmul).
 /// - `n_bands`: number of lowest eigenpairs to compute.
-/// - `v0`: optional warm-start vector. When the caller has a good guess for
-///   the subspace (e.g. prior SCF iteration's ground-state eigenvector),
-///   Arnoldi can converge in dramatically fewer restarts. If `None` or
-///   empty, a deterministic unit-norm seed is used.
-/// - `tol`: convergence tolerance on the residual norm. `DEFAULT_TOL` is
-///   safe for SCF.
+/// - `v0`: optional warm-start vector. When the caller has a good guess for the subspace (e.g.
+///   prior SCF iteration's ground-state eigenvector), Arnoldi can converge in dramatically fewer
+///   restarts. If `None` or empty, a deterministic unit-norm seed is used.
+/// - `tol`: convergence tolerance on the residual norm. `DEFAULT_TOL` is safe for SCF.
 ///
 /// ## Returns
-/// - `Ok(EigenResult)`: eigenvalues sorted ascending, eigenvectors as
-///   columns of a matrix. If fewer than `n_bands` eigenpairs converged,
-///   returns an error so the caller can fall back to the dense path.
-/// - `Err(PwdftError::Eigensolver)`: convergence failure. The caller (SCF)
-///   should log a warning and fall back to dense.
+/// - `Ok(EigenResult)`: eigenvalues sorted ascending, eigenvectors as columns of a matrix. If fewer
+///   than `n_bands` eigenpairs converged, returns an error so the caller can fall back to the dense
+///   path.
+/// - `Err(PwdftError::Eigensolver)`: convergence failure. The caller (SCF) should log a warning and
+///   fall back to dense.
 ///
 /// ## Correctness notes
 ///
@@ -394,7 +373,10 @@ pub fn diagonalize_lowest_iterative(
 /// Callers of [`diagonalize_lowest_iterative`] get the heuristic-driven
 /// (`n_request`, `max_dim`); this routine is exposed for diagnostics and
 /// tuning (`#[cfg(test)]`-only callers in the module's unit tests).
-#[allow(clippy::too_many_lines, reason = "single monolithic Arnoldi driver; the sort/retruncate tail is part of the same operation")]
+#[allow(
+    clippy::too_many_lines,
+    reason = "single monolithic Arnoldi driver; the sort/retruncate tail is part of the same operation"
+)]
 fn run_partial_self_adjoint(
     h: &Mat<Complex64>,
     n_bands: usize,
@@ -446,12 +428,8 @@ fn run_partial_self_adjoint(
     let mut eigvals_shifted: Vec<Complex64> = vec![Complex64::new(0.0, 0.0); n_request];
     let mut eigvecs: Mat<Complex64> = Mat::zeros(n, n_request);
 
-    let scratch_req = partial_self_adjoint_eigen_scratch::<Complex64>(
-        &op as &dyn LinOp<Complex64>,
-        n_request,
-        par,
-        params,
-    );
+    let scratch_req =
+        partial_self_adjoint_eigen_scratch::<Complex64>(&op as &dyn LinOp<Complex64>, n_request, par, params);
     let mut mem = MemBuffer::new(scratch_req);
     let stack = MemStack::new(&mut mem);
 
@@ -483,10 +461,7 @@ fn run_partial_self_adjoint(
     // We requested `n_request` pairs; sort the available converged ones
     // ascending in H, then take the lowest `n_bands`.
     let n_available = n_converged.min(n_request);
-    let raw_eigenvalues: Vec<f64> = eigvals_shifted[..n_available]
-        .iter()
-        .map(|c| sigma - c.re)
-        .collect();
+    let raw_eigenvalues: Vec<f64> = eigvals_shifted[..n_available].iter().map(|c| sigma - c.re).collect();
     let mut order: Vec<usize> = (0..n_available).collect();
     order.sort_by(|&a, &b| {
         raw_eigenvalues[a]
@@ -511,9 +486,26 @@ fn run_partial_self_adjoint(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+
+    use std::collections::HashMap;
+
     use approx::relative_eq;
+    use elements_rs::Element;
+    use nalgebra::Vector3;
     use num_complex::Complex64;
+
+    use super::*;
+    use crate::{
+        basis::BasisSet,
+        crystal::{Atom, Crystal, Lattice},
+        hamiltonian,
+        potential::nonlocal::NonlocalPotential,
+        pseudopotential::UpfPseudoPotential,
+    };
+
+    fn get_si_pp() -> HashMap<Element, UpfPseudoPotential> {
+        HashMap::from([(Element::Si, UpfPseudoPotential::load("Si").unwrap())])
+    }
 
     fn mat_from_rows(n: usize, data: &[Complex64]) -> Mat<Complex64> {
         Mat::from_fn(n, n, |r, c| data[r * n + c])
@@ -589,8 +581,10 @@ mod tests {
         let h = mat_from_rows(
             2,
             &[
-                Complex64::new(3.0, 0.0), Complex64::new(1.0, 0.0),
-                Complex64::new(1.0, 0.0), Complex64::new(3.0, 0.0),
+                Complex64::new(3.0, 0.0),
+                Complex64::new(1.0, 0.0),
+                Complex64::new(1.0, 0.0),
+                Complex64::new(3.0, 0.0),
             ],
         );
         let r = diagonalize_lowest_iterative(&h, 1, None, DEFAULT_TOL).unwrap();
@@ -609,10 +603,7 @@ mod tests {
         }
         let r = diagonalize_lowest_iterative(&h, 4, None, DEFAULT_TOL).unwrap();
         for (got, want) in r.eigenvalues.iter().zip([1.0, 2.0, 3.0, 4.0]) {
-            assert!(
-                relative_eq!(*got, want, epsilon = 1e-8),
-                "expected {want}, got {got}"
-            );
+            assert!(relative_eq!(*got, want, epsilon = 1e-8), "expected {want}, got {got}");
         }
     }
 
@@ -675,10 +666,7 @@ mod tests {
                 .map(|(i, &x)| (x - lambda * v[i]).norm_sqr())
                 .sum::<f64>()
                 .sqrt();
-            assert!(
-                residual < 1e-8,
-                "eigenpair {k}: |Hv−λv| = {residual:.3e}"
-            );
+            assert!(residual < 1e-8, "eigenpair {k}: |Hv−λv| = {residual:.3e}");
         }
     }
 
@@ -704,16 +692,8 @@ mod tests {
         }
         let dense = super::super::dense::diagonalize_lowest(&h, 5).unwrap();
         let iter = diagonalize_lowest_iterative(&h, 5, None, DEFAULT_TOL).unwrap();
-        for (k, (d, i)) in dense
-            .eigenvalues
-            .iter()
-            .zip(iter.eigenvalues.iter())
-            .enumerate()
-        {
-            assert!(
-                (d - i).abs() < 1e-8,
-                "band {k}: dense={d:.10}, iterative={i:.10}"
-            );
+        for (k, (d, i)) in dense.eigenvalues.iter().zip(iter.eigenvalues.iter()).enumerate() {
+            assert!((d - i).abs() < 1e-8, "band {k}: dense={d:.10}, iterative={i:.10}");
         }
         // Eigenvectors for the degenerate triplet must span a rank-3
         // subspace. Check via SVD-equivalent: the 3 columns should be
@@ -740,12 +720,6 @@ mod tests {
     #[test]
     #[ignore = "diagnostic sweep, not a gate"]
     fn itev2_tune_n_request_across_ecuts() {
-        use crate::basis::BasisSet;
-        use crate::crystal::{Atom, Crystal, Lattice};
-        use crate::hamiltonian;
-        use crate::potential::nonlocal::NonlocalPotential;
-        use nalgebra::Vector3;
-
         let a = 5.431;
         let crystal = Crystal {
             lattice: Lattice::new(
@@ -753,21 +727,16 @@ mod tests {
                 a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
                 a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
             ),
-            atoms: vec![
-                Atom::new(14, [0.0, 0.0, 0.0]),
-                Atom::new(14, [0.25, 0.25, 0.25]),
-            ],
+            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
         };
-        let pp_path = std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf");
-        let pp = crate::pseudopotential::load(&pp_path).unwrap();
+        let pp = get_si_pp();
         let n_bands = 8;
 
         for ecut in [100.0_f64, 200.0, 400.0] {
             let basis = BasisSet::new(&crystal.lattice, ecut);
             let k_gamma = Vector3::zeros();
             let mut h = hamiltonian::build_kinetic(&basis, &k_gamma);
-            let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &[&pp]).unwrap();
+            let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &pp).unwrap();
             vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k_gamma);
             let n = h.nrows();
             eprintln!("\n=== Si ecut={ecut} Γ: n_pw = {n} ===");
@@ -789,7 +758,7 @@ mod tests {
                         Err(e) => {
                             eprintln!("  n_req={n_req:3} max_dim={md:4}: ERR {e}");
                             continue;
-                        }
+                        },
                     };
                     eprintln!(
                         "  n_req={n_req:3} max_dim={md:4}: max |Δ| = {max_err:.3e} eV{}",
@@ -808,11 +777,6 @@ mod tests {
         // Lanczos collapsed the Γ-point valence degeneracy and produced
         // nonsense eigenvalues. This test reconstructs that exact
         // scenario and requires a match to dense within 1e-6 Ha.
-        use crate::basis::BasisSet;
-        use crate::crystal::{Atom, Crystal, Lattice};
-        use crate::hamiltonian;
-        use crate::potential::nonlocal::NonlocalPotential;
-        use nalgebra::Vector3;
 
         let a = 5.431;
         let crystal = Crystal {
@@ -821,19 +785,14 @@ mod tests {
                 a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
                 a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
             ),
-            atoms: vec![
-                Atom::new(14, [0.0, 0.0, 0.0]),
-                Atom::new(14, [0.25, 0.25, 0.25]),
-            ],
+            atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
         };
-        let pp_path = std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf");
-        let pp = crate::pseudopotential::load(&pp_path).unwrap();
+        let pp = get_si_pp();
         let basis = BasisSet::new(&crystal.lattice, 100.0);
         let k_gamma = Vector3::zeros();
 
         let mut h = hamiltonian::build_kinetic(&basis, &k_gamma);
-        let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &[&pp]).unwrap();
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &pp).unwrap();
         vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k_gamma);
         let n = h.nrows();
         assert!(n > 64, "need n > 64 for this test to exercise Arnoldi (got n={n})");
@@ -841,12 +800,7 @@ mod tests {
         let n_bands = 8;
         let dense = super::super::dense::diagonalize_lowest(&h, n_bands).unwrap();
         let iter = diagonalize_lowest_iterative(&h, n_bands, None, DEFAULT_TOL).unwrap();
-        for (k, (d, i)) in dense
-            .eigenvalues
-            .iter()
-            .zip(iter.eigenvalues.iter())
-            .enumerate()
-        {
+        for (k, (d, i)) in dense.eigenvalues.iter().zip(iter.eigenvalues.iter()).enumerate() {
             assert!(
                 (d - i).abs() < 1e-6,
                 "band {k}: dense={d:.10} eV, iterative={i:.10} eV, Δ={:.2e}",
@@ -880,12 +834,7 @@ mod tests {
 
         let dense = super::super::dense::diagonalize_lowest(&h, 8).unwrap();
         let iter = diagonalize_lowest_iterative(&h, 8, None, DEFAULT_TOL).unwrap();
-        for (k, (d, i)) in dense
-            .eigenvalues
-            .iter()
-            .zip(iter.eigenvalues.iter())
-            .enumerate()
-        {
+        for (k, (d, i)) in dense.eigenvalues.iter().zip(iter.eigenvalues.iter()).enumerate() {
             assert!(
                 relative_eq!(d, i, epsilon = 1e-8),
                 "band {k} mismatch: dense={d:.10}, iterative={i:.10}"

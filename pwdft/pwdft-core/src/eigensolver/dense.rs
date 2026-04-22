@@ -20,7 +20,8 @@ use crate::error::{PwdftError, Result};
 pub struct EigenResult {
     /// Eigenvalues in ascending order.
     pub eigenvalues: Vec<f64>,
-    /// Eigenvectors as columns of a matrix (column i corresponds to eigenvalue i).
+    /// Eigenvectors as columns of a matrix (column i corresponds to eigenvalue
+    /// i).
     pub eigenvectors: faer::Mat<Complex64>,
 }
 
@@ -168,8 +169,8 @@ pub fn eigenvalue_residuals(
 ///
 /// **Fallback paths:**
 /// - `v_prev.is_none()` → full `diagonalize_lowest`.
-/// - `v_prev` has the wrong shape (rows != `h.nrows()` or fewer columns
-///   than `n_bands`) → full `diagonalize_lowest`.
+/// - `v_prev` has the wrong shape (rows != `h.nrows()` or fewer columns than `n_bands`) → full
+///   `diagonalize_lowest`.
 /// - Residual gate trips → full `diagonalize_lowest`.
 ///
 /// In all fallback paths the final result is bit-identical to what
@@ -247,10 +248,7 @@ pub fn diagonalize_subspace(
     // the warm-start subspace wasn't close enough to H-invariant and
     // we fall back to an exact full solve. See WFRX proposal § Step 3.
     let residuals = eigenvalue_residuals(h, &sub_result.eigenvalues, &v_new);
-    let max_residual = residuals
-        .iter()
-        .copied()
-        .fold(0.0_f64, f64::max);
+    let max_residual = residuals.iter().copied().fold(0.0_f64, f64::max);
     if max_residual > WFRX_RESIDUAL_TOL {
         return diagonalize_lowest(h, n_bands);
     }
@@ -263,8 +261,9 @@ pub fn diagonalize_subspace(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use approx::relative_eq;
+
+    use super::*;
 
     fn mat_from_rows(n: usize, data: &[Complex64]) -> faer::Mat<Complex64> {
         faer::Mat::from_fn(n, n, |r, c| data[r * n + c])
@@ -274,10 +273,15 @@ mod tests {
     fn test_real_symmetric_2x2() {
         // [3  1]
         // [1  3]  → eigenvalues 2, 4
-        let h = mat_from_rows(2, &[
-            Complex64::new(3.0, 0.0), Complex64::new(1.0, 0.0),
-            Complex64::new(1.0, 0.0), Complex64::new(3.0, 0.0),
-        ]);
+        let h = mat_from_rows(
+            2,
+            &[
+                Complex64::new(3.0, 0.0),
+                Complex64::new(1.0, 0.0),
+                Complex64::new(1.0, 0.0),
+                Complex64::new(3.0, 0.0),
+            ],
+        );
         let result = diagonalize_hermitian(&h).unwrap();
         assert!(relative_eq!(result.eigenvalues[0], 2.0, epsilon = 1e-10));
         assert!(relative_eq!(result.eigenvalues[1], 4.0, epsilon = 1e-10));
@@ -288,10 +292,7 @@ mod tests {
         let i = Complex64::i();
         // [1   i ]
         // [-i  1 ]  → eigenvalues 0, 2
-        let h = mat_from_rows(2, &[
-            Complex64::new(1.0, 0.0), i,
-            -i, Complex64::new(1.0, 0.0),
-        ]);
+        let h = mat_from_rows(2, &[Complex64::new(1.0, 0.0), i, -i, Complex64::new(1.0, 0.0)]);
         let result = diagonalize_hermitian(&h).unwrap();
         assert!(relative_eq!(result.eigenvalues[0], 0.0, epsilon = 1e-10));
         assert!(relative_eq!(result.eigenvalues[1], 2.0, epsilon = 1e-10));
@@ -300,11 +301,20 @@ mod tests {
     #[test]
     fn test_eigenvectors_orthonormal() {
         let i = Complex64::i();
-        let h = mat_from_rows(3, &[
-            Complex64::new(2.0, 0.0), Complex64::new(1.0, 0.0) + i, Complex64::new(0.0, 0.0),
-            Complex64::new(1.0, 0.0) - i, Complex64::new(3.0, 0.0), Complex64::new(1.0, 0.0),
-            Complex64::new(0.0, 0.0), Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0),
-        ]);
+        let h = mat_from_rows(
+            3,
+            &[
+                Complex64::new(2.0, 0.0),
+                Complex64::new(1.0, 0.0) + i,
+                Complex64::new(0.0, 0.0),
+                Complex64::new(1.0, 0.0) - i,
+                Complex64::new(3.0, 0.0),
+                Complex64::new(1.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(1.0, 0.0),
+                Complex64::new(2.0, 0.0),
+            ],
+        );
         let result = diagonalize_hermitian(&h).unwrap();
 
         // Check Hv = λv for each eigenpair
@@ -320,20 +330,26 @@ mod tests {
             }
             let lambda = Complex64::new(result.eigenvalues[idx], 0.0);
             let residual: f64 = (0..3).map(|r| (hv[r] - lambda * v[r]).norm_sqr()).sum::<f64>().sqrt();
-            assert!(
-                residual < 1e-10,
-                "eigenvector {idx}: |Hv - λv| = {residual:.2e}"
-            );
+            assert!(residual < 1e-10, "eigenvector {idx}: |Hv - λv| = {residual:.2e}");
         }
     }
 
     #[test]
     fn test_diagonalize_lowest() {
-        let h = mat_from_rows(3, &[
-            Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0), Complex64::new(0.0, 0.0),
-            Complex64::new(0.0, 0.0), Complex64::new(5.0, 0.0), Complex64::new(0.0, 0.0),
-            Complex64::new(0.0, 0.0), Complex64::new(0.0, 0.0), Complex64::new(9.0, 0.0),
-        ]);
+        let h = mat_from_rows(
+            3,
+            &[
+                Complex64::new(1.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(5.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(9.0, 0.0),
+            ],
+        );
         let result = diagonalize_lowest(&h, 2).unwrap();
         assert_eq!(result.eigenvalues.len(), 2);
         assert!(relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-10));
@@ -349,11 +365,20 @@ mod tests {
     fn test_subspace_falls_back_when_v_prev_is_none() {
         // WFRX first-iteration path: v_prev == None must return the same
         // result as diagonalize_lowest with no degradation.
-        let h = mat_from_rows(3, &[
-            Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0), Complex64::new(0.0, 0.0),
-            Complex64::new(0.0, 0.0), Complex64::new(5.0, 0.0), Complex64::new(0.0, 0.0),
-            Complex64::new(0.0, 0.0), Complex64::new(0.0, 0.0), Complex64::new(9.0, 0.0),
-        ]);
+        let h = mat_from_rows(
+            3,
+            &[
+                Complex64::new(1.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(5.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(9.0, 0.0),
+            ],
+        );
         let result = diagonalize_subspace(&h, 2, None).unwrap();
         assert_eq!(result.eigenvalues.len(), 2);
         assert!(relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-10));
@@ -363,11 +388,20 @@ mod tests {
     #[test]
     fn test_subspace_falls_back_on_shape_mismatch() {
         // Wrong-sized v_prev must NOT crash; falls back to full solve.
-        let h = mat_from_rows(3, &[
-            Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0), Complex64::new(0.0, 0.0),
-            Complex64::new(0.0, 0.0), Complex64::new(5.0, 0.0), Complex64::new(0.0, 0.0),
-            Complex64::new(0.0, 0.0), Complex64::new(0.0, 0.0), Complex64::new(9.0, 0.0),
-        ]);
+        let h = mat_from_rows(
+            3,
+            &[
+                Complex64::new(1.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(5.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(9.0, 0.0),
+            ],
+        );
         // Wrong row count.
         let bad_rows: faer::Mat<Complex64> = faer::Mat::identity(4, 2);
         let r1 = diagonalize_subspace(&h, 2, Some(&bad_rows)).unwrap();
@@ -386,11 +420,20 @@ mod tests {
         // diag returns the same eigenvalues as full diag to machine
         // precision.
         let i = Complex64::i();
-        let h = mat_from_rows(3, &[
-            Complex64::new(2.0, 0.0), Complex64::new(1.0, 0.0) + i, Complex64::new(0.0, 0.0),
-            Complex64::new(1.0, 0.0) - i, Complex64::new(3.0, 0.0), Complex64::new(1.0, 0.0),
-            Complex64::new(0.0, 0.0), Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0),
-        ]);
+        let h = mat_from_rows(
+            3,
+            &[
+                Complex64::new(2.0, 0.0),
+                Complex64::new(1.0, 0.0) + i,
+                Complex64::new(0.0, 0.0),
+                Complex64::new(1.0, 0.0) - i,
+                Complex64::new(3.0, 0.0),
+                Complex64::new(1.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(1.0, 0.0),
+                Complex64::new(2.0, 0.0),
+            ],
+        );
         let full = diagonalize_hermitian(&h).unwrap();
         // Warm-start with the true eigenvectors (all 3 cols) to rotate 2 bands.
         let sub = diagonalize_subspace(&h, 2, Some(&full.eigenvectors)).unwrap();
@@ -431,8 +474,7 @@ mod tests {
         }
 
         let full_new = diagonalize_lowest(&h_new, 8).unwrap();
-        let sub_new =
-            diagonalize_subspace(&h_new, 8, Some(&old.eigenvectors)).unwrap();
+        let sub_new = diagonalize_subspace(&h_new, 8, Some(&old.eigenvectors)).unwrap();
 
         for k in 0..8 {
             let diff = (full_new.eigenvalues[k] - sub_new.eigenvalues[k]).abs();
@@ -485,11 +527,20 @@ mod tests {
     fn test_eigenvalue_residuals_zero_for_true_eigenpairs() {
         // Sanity check: residuals of true eigenpairs are at floating-
         // point noise.
-        let h = mat_from_rows(3, &[
-            Complex64::new(2.0, 0.0), Complex64::new(0.3, 0.0), Complex64::new(0.0, 0.0),
-            Complex64::new(0.3, 0.0), Complex64::new(3.0, 0.0), Complex64::new(0.2, 0.0),
-            Complex64::new(0.0, 0.0), Complex64::new(0.2, 0.0), Complex64::new(4.0, 0.0),
-        ]);
+        let h = mat_from_rows(
+            3,
+            &[
+                Complex64::new(2.0, 0.0),
+                Complex64::new(0.3, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.3, 0.0),
+                Complex64::new(3.0, 0.0),
+                Complex64::new(0.2, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.2, 0.0),
+                Complex64::new(4.0, 0.0),
+            ],
+        );
         let full = diagonalize_hermitian(&h).unwrap();
         let res = eigenvalue_residuals(&h, &full.eigenvalues, &full.eigenvectors);
         for (k, r) in res.iter().enumerate() {
@@ -500,10 +551,15 @@ mod tests {
     #[test]
     fn test_eigenvalue_residuals_flags_wrong_pair() {
         // A wrong eigenvalue produces a residual on the order of the shift.
-        let h = mat_from_rows(2, &[
-            Complex64::new(3.0, 0.0), Complex64::new(1.0, 0.0),
-            Complex64::new(1.0, 0.0), Complex64::new(3.0, 0.0),
-        ]);
+        let h = mat_from_rows(
+            2,
+            &[
+                Complex64::new(3.0, 0.0),
+                Complex64::new(1.0, 0.0),
+                Complex64::new(1.0, 0.0),
+                Complex64::new(3.0, 0.0),
+            ],
+        );
         let full = diagonalize_hermitian(&h).unwrap();
         // Corrupt the first eigenvalue by 0.5.
         let mut evs = full.eigenvalues.clone();

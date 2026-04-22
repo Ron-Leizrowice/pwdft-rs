@@ -12,7 +12,6 @@
 
 use nalgebra::Vector3;
 use num_complex::Complex64;
-
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
@@ -46,10 +45,7 @@ fn si_crystal() -> Crystal {
             a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
             a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
         ),
-        atoms: vec![
-            Atom::new(14, [0.0, 0.0, 0.0]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
     }
 }
 
@@ -100,21 +96,9 @@ fn test_gpu_hartree_on_realistic_density() {
             let i1 = idx / (ny * nz);
             let i2 = (idx / nz) % ny;
             let i3 = idx % nz;
-            let n1 = if i1 > nx / 2 {
-                i1 as i32 - nx as i32
-            } else {
-                i1 as i32
-            };
-            let n2 = if i2 > ny / 2 {
-                i2 as i32 - ny as i32
-            } else {
-                i2 as i32
-            };
-            let n3 = if i3 > nz / 2 {
-                i3 as i32 - nz as i32
-            } else {
-                i3 as i32
-            };
+            let n1 = if i1 > nx / 2 { i1 as i32 - nx as i32 } else { i1 as i32 };
+            let n2 = if i2 > ny / 2 { i2 as i32 - ny as i32 } else { i2 as i32 };
+            let n3 = if i3 > nz / 2 { i3 as i32 - nz as i32 } else { i3 as i32 };
             let g = f64::from(n1) * recip.a + f64::from(n2) * recip.b + f64::from(n3) * recip.c;
             g.norm_squared()
         })
@@ -300,12 +284,7 @@ fn test_gpu_buffer_pool_xc_and_v_eff_match_fresh() {
     // --- V_eff assembly ---
     let make_complex = |seed: f64| -> Vec<Complex64> {
         (0..n)
-            .map(|i| {
-                Complex64::new(
-                    (i as f64 * seed).sin() * 0.5,
-                    (i as f64 * seed * 1.3).cos() * 0.5,
-                )
-            })
+            .map(|i| Complex64::new((i as f64 * seed).sin() * 0.5, (i as f64 * seed * 1.3).cos() * 0.5))
             .collect()
     };
     let v_local = make_complex(0.1);
@@ -344,8 +323,7 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf"),
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
     let kpoints = vec![pwdft_core::kpoints::KPoint {
@@ -360,7 +338,7 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
         &crystal,
         &basis,
         &kpoints,
-        &[&pp],
+        &pp,
         &params,
         &pwdft_core::symmetry::SymmetryInfo::identity_only(),
     );
@@ -382,13 +360,10 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
         Err(e) => {
             eprintln!("GPU SCF did not converge: {e}");
             return;
-        }
+        },
     };
 
-    eprintln!(
-        "GPU SCF converged in {} iterations",
-        gpu_result.n_iterations
-    );
+    eprintln!("GPU SCF converged in {} iterations", gpu_result.n_iterations);
     eprintln!("GPU total energy: {:.6} eV", gpu_result.total_energy);
     eprintln!("GPU Fermi energy: {:.6} eV", gpu_result.fermi_energy);
 
@@ -460,8 +435,8 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
         "Minimum eigenvalue {min_eig:.4} eV should be negative for Si"
     );
 
-    // 5. Highest occupied eigenvalue should be below Fermi energy, within a
-    //    few Fermi-Dirac smearing widths above E_F.
+    // 5. Highest occupied eigenvalue should be below Fermi energy, within a few Fermi-Dirac smearing
+    //    widths above E_F.
     //
     //    TAUD finding 2.7: previously a bare `5.0 * sigma` with a vague
     //    "within smearing width" comment. For Fermi-Dirac occupation
@@ -516,10 +491,11 @@ fn test_gpu_vs_cpu_scf_eigenvalues() {
 // regression in any WGSL kernel (Hartree, XC, V_eff) will push the
 // GPU result outside `TOL_GPU_VS_CPU_EV` and fail the test.
 
-/// CPU-f64 baseline from `tests/cpu_scf_baseline.rs::test_cpu_scf_baseline_convergence`,
-/// captured on 2026-04-19 under RWHK-FIX. This value was measured on the
-/// CPU path with the `gpu` feature **disabled at compile time**, so it
-/// cannot be polluted by the GPU path.
+/// CPU-f64 baseline from
+/// `tests/cpu_scf_baseline.rs::test_cpu_scf_baseline_convergence`, captured on
+/// 2026-04-19 under RWHK-FIX. This value was measured on the CPU path with the
+/// `gpu` feature **disabled at compile time**, so it cannot be polluted by the
+/// GPU path.
 ///
 /// Any GPU regression that pushes the SCF result more than
 /// [`TOL_GPU_VS_CPU_EV`] away from this value signals an f32-precision
@@ -547,8 +523,7 @@ fn test_gpu_scf_matches_cpu_within_f32_tolerance() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf"),
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
     let kpoints = vec![pwdft_core::kpoints::KPoint {
@@ -566,7 +541,7 @@ fn test_gpu_scf_matches_cpu_within_f32_tolerance() {
         &crystal,
         &basis,
         &kpoints,
-        &[&pp],
+        &pp,
         &params,
         &pwdft_core::symmetry::SymmetryInfo::identity_only(),
     )
@@ -582,14 +557,10 @@ fn test_gpu_scf_matches_cpu_within_f32_tolerance() {
         "GPU Si SCF: {} iters, E_GPU = {:.6} eV, E_F_GPU = {:.6} eV",
         gpu_result.n_iterations, gpu_result.total_energy, gpu_result.fermi_energy,
     );
-    eprintln!(
-        "CPU baseline (from tests/cpu_scf_baseline.rs): E_CPU = {SI_CPU_BASELINE_TOTAL_EV:.6} eV",
-    );
+    eprintln!("CPU baseline (from tests/cpu_scf_baseline.rs): E_CPU = {SI_CPU_BASELINE_TOTAL_EV:.6} eV",);
 
     let delta_e = (gpu_result.total_energy - SI_CPU_BASELINE_TOTAL_EV).abs();
-    eprintln!(
-        "GPU vs CPU |ΔE| = {delta_e:.6} eV  (tolerance {TOL_GPU_VS_CPU_EV} eV)",
-    );
+    eprintln!("GPU vs CPU |ΔE| = {delta_e:.6} eV  (tolerance {TOL_GPU_VS_CPU_EV} eV)",);
     assert!(
         delta_e < TOL_GPU_VS_CPU_EV,
         "GPU SCF total energy drift from CPU baseline exceeds f32 tolerance: \
@@ -618,8 +589,7 @@ fn test_gpu_scf_kerker_converges() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 100.0);
     let pp = pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
-            .join("pseudopotentials/nc/lda/Si.upf"),
+        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
     let kpoints = vec![pwdft_core::kpoints::KPoint {
@@ -645,7 +615,7 @@ fn test_gpu_scf_kerker_converges() {
         &crystal,
         &basis,
         &kpoints,
-        &[&pp],
+        &pp,
         &params,
         &pwdft_core::symmetry::SymmetryInfo::identity_only(),
     );

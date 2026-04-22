@@ -19,22 +19,23 @@
     reason = "Benchmark scaffolding may panic and uses ad-hoc size casts."
 )]
 
+use std::{collections::HashMap, hint::black_box};
+
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
+use elements_rs::Element;
 use nalgebra::Vector3;
 use num_complex::Complex64;
-
 use pwdft_core::{
     basis::BasisSet,
     crystal::{Atom, Crystal, Lattice},
     eigensolver::{dense, iterative},
     fft::FFT3D,
-    hamiltonian,
+    hamiltonian, kpoints,
     potential::{nonlocal::NonlocalPotential, xc},
+    pseudopotential::UpfPseudoPotential,
     scf::{self, ScfParams, mixing::MixingMode, smearing::SmearingScheme},
     symmetry::{SpaceGroupOp, SymmetryInfo, density::symmetrize_density_g},
 };
-use std::collections::HashMap;
 
 /// Si FCC crystal (2 atoms, diamond structure).
 fn si_crystal() -> Crystal {
@@ -45,18 +46,8 @@ fn si_crystal() -> Crystal {
             a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
             a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
         ),
-        atoms: vec![
-            Atom::new(14, [0.0, 0.0, 0.0]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
     }
-}
-
-fn si_pp() -> pwdft_core::pseudopotential::PseudopotentialData {
-    pwdft_core::pseudopotential::load(
-        &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
-    )
-    .unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +56,7 @@ fn si_pp() -> pwdft_core::pseudopotential::PseudopotentialData {
 
 fn bench_eigensolver(c: &mut Criterion) {
     let crystal = si_crystal();
-    let pp = si_pp();
+    let pp = HashMap::from([(Element::Si, UpfPseudoPotential::load("Si").unwrap())]);
     let k = Vector3::zeros();
 
     let mut group = c.benchmark_group("eigensolver");
@@ -78,7 +69,7 @@ fn bench_eigensolver(c: &mut Criterion) {
 
         // Build a realistic Hamiltonian (kinetic + nonlocal, not just diagonal)
         let mut h = hamiltonian::build_kinetic(&basis, &k);
-        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &pp).unwrap();
         vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
         group.bench_function(format!("faer_eigen_n{n}"), |b| {
@@ -116,7 +107,7 @@ fn bench_eigensolver(c: &mut Criterion) {
 
 fn bench_wfrx_subspace(c: &mut Criterion) {
     let crystal = si_crystal();
-    let pp = si_pp();
+    let pp = HashMap::from([(Element::Si, UpfPseudoPotential::load("Si").unwrap())]);
     let k = Vector3::zeros();
     let n_bands = 8;
 
@@ -129,7 +120,7 @@ fn bench_wfrx_subspace(c: &mut Criterion) {
 
         // Build a realistic H_old.
         let mut h_old = hamiltonian::build_kinetic(&basis, &k);
-        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &pp).unwrap();
         vnl.add_to_hamiltonian(&mut h_old, &crystal, &basis, &k);
 
         // Warm-start subspace: the exact lowest-n_bands eigenvectors of H_old.
@@ -142,10 +133,7 @@ fn bench_wfrx_subspace(c: &mut Criterion) {
         // should still be close enough that the residual gate passes.
         let mut h_new = h_old.clone();
         for j in 0..n {
-            h_new[(j, j)] += num_complex::Complex64::new(
-                1e-4 * ((j as f64 + 1.0) * 0.123_4).sin(),
-                0.0,
-            );
+            h_new[(j, j)] += num_complex::Complex64::new(1e-4 * ((j as f64 + 1.0) * 0.123_4).sin(), 0.0);
         }
 
         group.bench_function(format!("full_dense_n{n}"), |b| {
@@ -156,14 +144,7 @@ fn bench_wfrx_subspace(c: &mut Criterion) {
 
         group.bench_function(format!("subspace_warm_n{n}"), |b| {
             b.iter(|| {
-                black_box(
-                    dense::diagonalize_subspace(
-                        black_box(&h_new),
-                        n_bands,
-                        Some(black_box(&v_prev)),
-                    )
-                    .unwrap(),
-                );
+                black_box(dense::diagonalize_subspace(black_box(&h_new), n_bands, Some(black_box(&v_prev))).unwrap());
             });
         });
 
@@ -172,9 +153,7 @@ fn bench_wfrx_subspace(c: &mut Criterion) {
         // correctness side of the WFRX contract.
         group.bench_function(format!("subspace_cold_n{n}"), |b| {
             b.iter(|| {
-                black_box(
-                    dense::diagonalize_subspace(black_box(&h_new), n_bands, None).unwrap(),
-                );
+                black_box(dense::diagonalize_subspace(black_box(&h_new), n_bands, None).unwrap());
             });
         });
     }
@@ -188,7 +167,7 @@ fn bench_wfrx_subspace(c: &mut Criterion) {
 
 fn bench_hamiltonian(c: &mut Criterion) {
     let crystal = si_crystal();
-    let pp = si_pp();
+    let pp = HashMap::from([(Element::Si, UpfPseudoPotential::load("Si").unwrap())]);
     let k_gamma = Vector3::zeros();
     let k_offgamma = Vector3::new(0.1, 0.2, 0.3);
 
@@ -204,12 +183,12 @@ fn bench_hamiltonian(c: &mut Criterion) {
 
         group.bench_function(format!("vnl_new_n{n}"), |b| {
             b.iter(|| {
-                black_box(NonlocalPotential::new(&crystal, &basis, &k_offgamma, &[&pp]).unwrap());
+                black_box(NonlocalPotential::new(&crystal, &basis, &k_offgamma, &pp).unwrap());
             });
         });
 
         let h = hamiltonian::build_kinetic(&basis, &k_gamma);
-        let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &[&pp]).unwrap();
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k_gamma, &pp).unwrap();
 
         group.bench_function(format!("vnl_apply_n{n}"), |b| {
             b.iter(|| {
@@ -294,9 +273,7 @@ fn bench_basis(c: &mut Criterion) {
 fn make_rho(n: usize) -> Vec<f64> {
     // Positive, physically plausible densities. Span low (near RHO_FLOOR) and
     // higher values so both the rs>=1 and rs<1 branches of PZ are exercised.
-    (0..n)
-        .map(|i| 0.001 + (i as f64 / n as f64) * 0.5)
-        .collect()
+    (0..n).map(|i| 0.001 + (i as f64 / n as f64) * 0.5).collect()
 }
 
 fn bench_xc_grid(c: &mut Criterion) {
@@ -313,12 +290,7 @@ fn bench_xc_grid(c: &mut Criterion) {
         let rho_down: Vec<f64> = rho_r.iter().map(|&r| 0.4 * r).collect();
 
         group.bench_function(format!("lda_xc_spin_grid_n{n}"), |b| {
-            b.iter(|| {
-                black_box(xc::lda_xc_spin_grid(
-                    black_box(&rho_up),
-                    black_box(&rho_down),
-                ))
-            });
+            b.iter(|| black_box(xc::lda_xc_spin_grid(black_box(&rho_up), black_box(&rho_down))));
         });
     }
 
@@ -397,23 +369,20 @@ fn bench_symmetry(c: &mut Criterion) {
             // Reuse one FFT3D per configuration (same convention as the
             // SCF loop — FFT plans are hoisted out).
             let mut fft = FFT3D::new(dims[0], dims[1], dims[2]);
-            group.bench_function(
-                format!("symmetrize_density_g_n{n}_ops{n_ops}"),
-                |b| {
-                    b.iter_with_setup(
-                        || rho0.clone(),
-                        |mut rho| {
-                            symmetrize_density_g(
-                                black_box(&mut rho),
-                                black_box(dims),
-                                black_box(&mut fft),
-                                black_box(&sym),
-                            );
-                            rho
-                        },
-                    );
-                },
-            );
+            group.bench_function(format!("symmetrize_density_g_n{n}_ops{n_ops}"), |b| {
+                b.iter_with_setup(
+                    || rho0.clone(),
+                    |mut rho| {
+                        symmetrize_density_g(
+                            black_box(&mut rho),
+                            black_box(dims),
+                            black_box(&mut fft),
+                            black_box(&sym),
+                        );
+                        rho
+                    },
+                );
+            });
         }
     }
 
@@ -448,7 +417,7 @@ fn bench_hamiltonian_assembly_aloc_f5(c: &mut Criterion) {
     use num_complex::Complex64;
 
     let crystal = si_crystal();
-    let pp = si_pp();
+    let pp = HashMap::from([(Element::Si, UpfPseudoPotential::load("Si").unwrap())]);
     let k = Vector3::new(0.1, 0.2, 0.3); // off-Γ to exercise non-trivial kinetic
     // An FFT grid large enough to safely index every G - G' miller triple
     // at ecut = 400 eV. 32³ is the typical ecutrho = 4·ecutwfc grid for Si.
@@ -471,7 +440,7 @@ fn bench_hamiltonian_assembly_aloc_f5(c: &mut Criterion) {
         // isn't ALOC F-5's target but is included so the bench is "assemble
         // the exact matrix that goes into the eigensolver," mirroring the
         // driver's call sequence.
-        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+        let vnl = NonlocalPotential::new(&crystal, &basis, &k, &pp).unwrap();
 
         // ---- Old path: allocate + fill + VNL each call -------------------
         group.bench_function(format!("alloc_and_fill_n{n}"), |b| {
@@ -522,8 +491,7 @@ fn bench_hamiltonian_assembly_aloc_f5(c: &mut Criterion) {
                 let miller_idx = basis.miller_indices();
                 let g_vectors = basis.g_vectors();
                 for i in 0..n {
-                    let ke_i = pwdft_core::consts::HBAR2_OVER_2M
-                        * (k + g_vectors[i]).norm_squared();
+                    let ke_i = pwdft_core::consts::HBAR2_OVER_2M * (k + g_vectors[i]).norm_squared();
                     let mi = miller_idx[i];
                     for j in 0..n {
                         let mj = miller_idx[j];
@@ -539,11 +507,7 @@ fn bench_hamiltonian_assembly_aloc_f5(c: &mut Criterion) {
                         let fk = wrap(dn3, grid_dims[2]);
                         let fft_idx = (fi * grid_dims[1] + fj) * grid_dims[2] + fk;
                         let v = v_eff[fft_idx];
-                        h[(i, j)] = if i == j {
-                            Complex64::new(ke_i, 0.0) + v
-                        } else {
-                            v
-                        };
+                        h[(i, j)] = if i == j { Complex64::new(ke_i, 0.0) + v } else { v };
                     }
                 }
                 vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
@@ -599,9 +563,7 @@ fn build_si_scf_params(max_iter: usize) -> ScfParams {
 }
 
 fn bench_scf_iter_end_to_end_aloc_f5(c: &mut Criterion) {
-    use pwdft_core::kpoints;
-
-    let pp = si_pp();
+    let pp = HashMap::from([(Element::Si, UpfPseudoPotential::load("Si").unwrap())]);
 
     let mut group = c.benchmark_group("aloc_f5_scf_end_to_end");
     // SCF runs are long — keep criterion happy with a small sample count.
@@ -610,10 +572,10 @@ fn bench_scf_iter_end_to_end_aloc_f5(c: &mut Criterion) {
 
     // (label, ecut_ev, k_grid)
     let configs: &[(&str, f64, [u32; 3])] = &[
-        ("si_gamma_ecut100",  100.0, [1, 1, 1]),
-        ("si_gamma_ecut200",  200.0, [1, 1, 1]),
-        ("si_2x2x2_ecut200",  200.0, [2, 2, 2]),
-        ("si_4x4x4_ecut200",  200.0, [4, 4, 4]),
+        ("si_gamma_ecut100", 100.0, [1, 1, 1]),
+        ("si_gamma_ecut200", 200.0, [1, 1, 1]),
+        ("si_2x2x2_ecut200", 200.0, [2, 2, 2]),
+        ("si_4x4x4_ecut200", 200.0, [4, 4, 4]),
     ];
 
     for (label, ecut, k_grid) in configs {
@@ -637,7 +599,7 @@ fn bench_scf_iter_end_to_end_aloc_f5(c: &mut Criterion) {
                         black_box(&crystal),
                         black_box(&basis),
                         black_box(&kpts),
-                        black_box(&[&pp]),
+                        black_box(&pp),
                         black_box(&params),
                         black_box(&sym),
                     )

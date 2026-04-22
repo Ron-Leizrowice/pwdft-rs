@@ -51,11 +51,7 @@ fn test_faer_complex_hermitian_eigen() {
     let three = Complex64::new(3.0, 0.0);
     let zero = Complex64::new(0.0, 0.0);
 
-    let data = [
-        two, one + i, zero,
-        one - i, three, one,
-        zero, one, two,
-    ];
+    let data = [two, one + i, zero, one - i, three, one, zero, one, two];
     let h = faer::Mat::from_fn(3, 3, |r, c| data[r * 3 + c]);
 
     let decomp = h.self_adjoint_eigen(faer::Side::Lower).unwrap();

@@ -10,12 +10,12 @@
 
 use nalgebra::Vector3;
 use num_complex::Complex64;
-
 use pwdft_core::{
     basis::BasisSet,
     consts::HBAR2_OVER_2M,
     crystal::{Atom, Crystal, Lattice},
     potential::nonlocal::NonlocalPotential,
+    pseudopotential::UpfPseudoPotential,
 };
 
 fn si_crystal() -> Crystal {
@@ -26,10 +26,7 @@ fn si_crystal() -> Crystal {
             a / 2.0 * Vector3::new(1.0, 0.0, 1.0),
             a / 2.0 * Vector3::new(1.0, 1.0, 0.0),
         ),
-        atoms: vec![
-            Atom::new(14, [0.0, 0.0, 0.0]),
-            Atom::new(14, [0.25, 0.25, 0.25]),
-        ],
+        atoms: vec![Atom::new(14, [0.0, 0.0, 0.0]), Atom::new(14, [0.25, 0.25, 0.25])],
     }
 }
 
@@ -38,14 +35,14 @@ fn test_vnl_hermitian_at_gamma() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let k: Vector3<f64> = Vector3::zeros();
-    let pp = pwdft_core::pseudopotential::load(
+    let pp = UpfPseudoPotential::load(
         &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
 
     let n = basis.len();
     let mut h = faer::Mat::<Complex64>::zeros(n, n);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &pp).unwrap();
     vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
     // Check Hermiticity: H(i,j) = H(j,i)*
@@ -71,14 +68,14 @@ fn test_vnl_diagonal_same_for_symmetry_related_g() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let k: Vector3<f64> = Vector3::zeros();
-    let pp = pwdft_core::pseudopotential::load(
+    let pp = UpfPseudoPotential::load(
         &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
 
     let n = basis.len();
     let mut h_nl = faer::Mat::<Complex64>::zeros(n, n);
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &pp).unwrap();
     vnl.add_to_hamiltonian(&mut h_nl, &crystal, &basis, &k);
 
     // At Γ, G-vectors with the same |G| should have the same diagonal V_NL
@@ -104,7 +101,11 @@ fn test_vnl_diagonal_same_for_symmetry_related_g() {
                 diff < 1e-8,
                 "V_NL diagonal differs within |G|²={}: G-idx {} has {:.10}, G-idx {} has {:.10} (diff={:.2e})",
                 *g2_key as f64 / 1e6,
-                members[0].0, ref_val, idx, val, diff
+                members[0].0,
+                ref_val,
+                idx,
+                val,
+                diff
             );
         }
     }
@@ -117,7 +118,7 @@ fn test_full_hamiltonian_degeneracy_at_gamma() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let k: Vector3<f64> = Vector3::zeros();
-    let pp = pwdft_core::pseudopotential::load(
+    let pp = UpfPseudoPotential::load(
         &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
@@ -131,7 +132,7 @@ fn test_full_hamiltonian_degeneracy_at_gamma() {
     }
 
     // Non-local only
-    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &[&pp]).unwrap();
+    let vnl = NonlocalPotential::new(&crystal, &basis, &k, &pp).unwrap();
     vnl.add_to_hamiltonian(&mut h, &crystal, &basis, &k);
 
     let result = pwdft_core::eigensolver::dense::diagonalize_lowest(&h, 8).unwrap();
@@ -142,7 +143,9 @@ fn test_full_hamiltonian_degeneracy_at_gamma() {
     assert!(
         spread_234 < 0.1,
         "Bands 2-4 should be degenerate at Γ: spread = {spread_234:.4} eV, values = [{:.4}, {:.4}, {:.4}]",
-        result.eigenvalues[1], result.eigenvalues[2], result.eigenvalues[3]
+        result.eigenvalues[1],
+        result.eigenvalues[2],
+        result.eigenvalues[3]
     );
 }
 
@@ -157,7 +160,7 @@ fn test_local_potential_symmetry() {
     // should produce V_local with the same magnitude.
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
-    let pp = pwdft_core::pseudopotential::load(
+    let pp = UpfPseudoPotential::load(
         &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
@@ -187,7 +190,9 @@ fn test_local_potential_symmetry() {
     }
 
     for (g2_key, members) in &shells {
-        if members.len() < 2 { continue; }
+        if members.len() < 2 {
+            continue;
+        }
         let ref_val = members[0].1;
         for &(idx, val) in &members[1..] {
             let diff = (val - ref_val).abs();
@@ -196,7 +201,16 @@ fn test_local_potential_symmetry() {
                 let g0 = g_vecs[members[0].0];
                 eprintln!(
                     "V_local magnitude differs in |G|²={:.4} shell: G={:.4},{:.4},{:.4} → {:.8}, G={:.4},{:.4},{:.4} → {:.8} (diff={:.2e})",
-                    *g2_key as f64 / 1e6, g0.x, g0.y, g0.z, ref_val, g.x, g.y, g.z, val, diff
+                    *g2_key as f64 / 1e6,
+                    g0.x,
+                    g0.y,
+                    g0.z,
+                    ref_val,
+                    g.x,
+                    g.y,
+                    g.z,
+                    val,
+                    diff
                 );
             }
             assert!(
@@ -214,7 +228,7 @@ fn test_kinetic_plus_vlocal_degeneracy() {
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let _k: Vector3<f64> = Vector3::zeros();
-    let pp = pwdft_core::pseudopotential::load(
+    let pp = UpfPseudoPotential::load(
         &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
@@ -269,13 +283,14 @@ fn test_kinetic_plus_vlocal_degeneracy() {
 )]
 fn test_kinetic_plus_vlocal_via_fft_grid() {
     // Same as above but using the FFT grid lookup for V_local(G-G').
-    // If this breaks degeneracy while direct doesn't, the FFT grid mapping is buggy.
+    // If this breaks degeneracy while direct doesn't, the FFT grid mapping is
+    // buggy.
     use pwdft_core::fft::fft_grid_size;
 
     let crystal = si_crystal();
     let basis = BasisSet::new(&crystal.lattice, 204.09);
     let _k: Vector3<f64> = Vector3::zeros();
-    let pp = pwdft_core::pseudopotential::load(
+    let pp = UpfPseudoPotential::load(
         &std::path::PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("pseudopotentials/nc/lda/Si.upf"),
     )
     .unwrap();
@@ -288,13 +303,7 @@ fn test_kinetic_plus_vlocal_via_fft_grid() {
     // Build FFT grid (same as SCF would). Miller entries are `i32`;
     // `fft_grid_size` takes `u32` (non-negative by type).
     let n_max: Vec<u32> = (0..3)
-        .map(|dim| {
-            miller
-                .iter()
-                .map(|m| m[dim].unsigned_abs())
-                .max()
-                .unwrap_or(0)
-        })
+        .map(|dim| miller.iter().map(|m| m[dim].unsigned_abs()).max().unwrap_or(0))
         .collect();
     let scale = 2_u32; // 4× ecutrho → 2× G_max
     let grid_dims = [
